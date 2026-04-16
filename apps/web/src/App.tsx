@@ -20,6 +20,9 @@ import { SaleCreatePage } from './pages/sales/SaleCreatePage';
 import { SaleDetailPage } from './pages/sales/SaleDetailPage';
 import { InstallmentListPage } from './pages/installments/InstallmentListPage';
 import { InstallmentDetailPage } from './pages/installments/InstallmentDetailPage';
+import { TransferListPage } from './pages/transfers/TransferListPage';
+import { TransferCreatePage } from './pages/transfers/TransferCreatePage';
+import { TransferDetailPage } from './pages/transfers/TransferDetailPage';
 import { ProtectedRoute, getDefaultRoute } from './routes/ProtectedRoute';
 import { RoleGuard } from './routes/RoleGuard';
 import { useAuthStore } from './stores/auth-store';
@@ -75,6 +78,11 @@ function App() {
             />
           </Route>
 
+          {/* Admin-only transfer creation */}
+          <Route element={<RoleGuard allowedRoles={[UserRole.ADMIN]} />}>
+            <Route path="/transfers/new" element={<TransferCreatePage />} />
+          </Route>
+
           {/* Admin + Accountant + Others routes */}
           <Route
             element={
@@ -96,10 +104,8 @@ function App() {
             <Route path="/sales" element={<SaleListPage />} />
             <Route path="/sales/new" element={<SaleCreatePage />} />
             <Route path="/sales/:id" element={<SaleDetailPage />} />
-            <Route
-              path="/transfers"
-              element={<Placeholder title="Transfers" />}
-            />
+            <Route path="/transfers" element={<TransferListPage />} />
+            <Route path="/transfers/:id" element={<TransferDetailPage />} />
           </Route>
         </Route>
       </Route>

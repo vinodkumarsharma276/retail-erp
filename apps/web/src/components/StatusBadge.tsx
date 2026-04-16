@@ -26,6 +26,10 @@ const statusStyles: Record<string, { bg: string; text: string; label: string }> 
   partial_with_promise: { bg: 'bg-orange-100', text: 'text-orange-700', label: 'Partial + Promise' },
   self_finance: { bg: 'bg-blue-100', text: 'text-blue-700', label: 'Self Finance' },
   company_finance: { bg: 'bg-purple-100', text: 'text-purple-700', label: 'Company Finance' },
+  // Transfer statuses
+  initiated: { bg: 'bg-blue-100', text: 'text-blue-700', label: 'Initiated' },
+  in_transit: { bg: 'bg-amber-100', text: 'text-amber-700', label: 'In Transit' },
+  cancelled: { bg: 'bg-gray-100', text: 'text-gray-700', label: 'Cancelled' },
 };
 
 interface StatusBadgeProps {
