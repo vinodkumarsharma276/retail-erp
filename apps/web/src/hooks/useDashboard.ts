@@ -21,8 +21,8 @@ export interface TopProductItem {
 }
 
 export interface YoYComparisonData {
-  lastYear: YoYProductItem[];
-  thisYear: YoYProductItem[];
+  lastYear: { dateFrom: string; dateTo: string; products: YoYProductItem[] } | YoYProductItem[];
+  thisYear: { dateFrom: string; dateTo: string; products: YoYProductItem[] } | YoYProductItem[];
 }
 
 export interface YoYProductItem {

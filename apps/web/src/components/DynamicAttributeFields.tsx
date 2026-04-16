@@ -9,6 +9,8 @@ interface DynamicAttributeFieldsProps {
   categoryId: string | undefined;
   /** Pre-filled values for edit mode: { attributeName: value } */
   values?: Record<string, unknown>;
+  /** Field name prefix for react-hook-form registration (default: 'dynamicAttributes') */
+  fieldPrefix?: string;
 }
 
 /**
@@ -18,6 +20,7 @@ interface DynamicAttributeFieldsProps {
 export function DynamicAttributeFields({
   categoryId,
   values,
+  fieldPrefix = 'dynamicAttributes',
 }: DynamicAttributeFieldsProps) {
   const { register, setValue, formState: { errors } } = useFormContext();
   const { data: attributes, isLoading } = useCategoryAttributesQuery(categoryId);
@@ -28,11 +31,11 @@ export function DynamicAttributeFields({
       for (const attr of attributes) {
         const val = values[attr.attributeName];
         if (val !== undefined) {
-          setValue(`dynamicAttributes.${attr.attributeName}`, val);
+          setValue(`${fieldPrefix}.${attr.attributeName}`, val);
         }
       }
     }
-  }, [values, attributes, setValue]);
+  }, [values, attributes, setValue, fieldPrefix]);
 
   if (!categoryId) {
     return (
@@ -64,8 +67,12 @@ export function DynamicAttributeFields({
       {attributes
         .sort((a, b) => a.displayOrder - b.displayOrder)
         .map((attr) => {
-          const fieldName = `dynamicAttributes.${attr.attributeName}`;
-          const fieldError = (errors as Record<string, any>)?.dynamicAttributes?.[attr.attributeName];
+          const fieldName = `${fieldPrefix}.${attr.attributeName}`;
+          // Resolve error by walking the fieldPrefix path (e.g. 'items.0.dynamicAttributes' -> errors.items[0].dynamicAttributes)
+          const fieldError = fieldPrefix.split('.').reduce(
+            (obj: any, key) => obj?.[key],
+            errors as Record<string, any>,
+          )?.[attr.attributeName];
 
           return (
             <div key={attr.id}>

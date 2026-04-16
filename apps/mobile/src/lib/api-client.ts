@@ -5,7 +5,7 @@ import { getToken, getShopId, setToken, setRefreshToken, getRefreshToken, clearA
 const API_BASE_URL =
   Constants.expoConfig?.extra?.apiBaseUrl ??
   process.env.EXPO_PUBLIC_API_BASE_URL ??
-  'http://localhost:3000';
+  'http://10.0.2.2:3001'; // Android emulator: 10.0.2.2 maps to host machine's localhost
 
 const apiClient = axios.create({
   baseURL: `${API_BASE_URL}/api/v1`,

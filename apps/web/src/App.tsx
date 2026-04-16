@@ -71,7 +71,6 @@ function App() {
               />
             }
           >
-            <Route path="/products/new" element={<ProductAddPage />} />
             <Route path="/products/:id/edit" element={<ProductAddPage />} />
             <Route path="/distributors" element={<DistributorListPage />} />
             <Route path="/distributors/new" element={<DistributorFormPage />} />

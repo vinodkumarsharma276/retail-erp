@@ -198,11 +198,14 @@ export const purchasesService = {
           warrantyExpiry.setMonth(warrantyExpiry.getMonth() + item.warrantyMonths);
         }
 
+        // Use brand from dynamic attributes (DB-driven dropdown) if available, fallback to explicit field
+        const brand = (item.dynamicAttributes?.brand as string) || item.brand;
+
         const product = await tx.product.create({
           data: {
             shopId,
             categoryId: item.categoryId,
-            brand: item.brand,
+            brand,
             modelNumber: item.modelNumber,
             serialNumber: item.serialNumber ?? null,
             mrp: item.mrp,

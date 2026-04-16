@@ -1,7 +1,6 @@
 import { useState, useMemo } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import {
-  Plus,
   Search,
   X,
   Pencil,
@@ -11,21 +10,17 @@ import {
 import { cn } from '../../lib/utils';
 import { useDebounce } from '../../hooks/useDebounce';
 import { useProductsQuery, useCategoryTreeQuery } from '../../hooks/useProducts';
-import { useAuthStore } from '../../stores/auth-store';
 import { DataTable } from '../../components/DataTable';
 import type { Column, PaginationState } from '../../components/DataTable';
 import { StatusBadge } from '../../components/StatusBadge';
 import { formatINR } from '@retailerp/shared-utils';
-import { UserRole, ProductStatus } from '@retailerp/shared-types';
+import { ProductStatus } from '@retailerp/shared-types';
 import type { Product, ProductCategory } from '@retailerp/shared-types';
 
 const PAGE_SIZE = 20;
 
 export function ProductListPage() {
   const navigate = useNavigate();
-  const user = useAuthStore((s) => s.user);
-  const canAdd =
-    user?.role === UserRole.ADMIN || user?.role === UserRole.ACCOUNTANT;
 
   // ------ Filters state ------
   const [page, setPage] = useState(1);
@@ -184,18 +179,6 @@ export function ProductListPage() {
       {/* Page header */}
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-semibold">Products</h1>
-        {canAdd && (
-          <Link
-            to="/products/new"
-            className={cn(
-              'flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground',
-              'hover:bg-primary/90 transition-colors',
-            )}
-          >
-            <Plus className="h-4 w-4" />
-            Add Product
-          </Link>
-        )}
       </div>
 
       {/* Filters row */}

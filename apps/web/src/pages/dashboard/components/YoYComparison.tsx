@@ -38,8 +38,11 @@ export function YoYComparison() {
 
     const productMap = new Map<string, MergedProduct>();
 
-    // Process this year's data
-    for (const item of data.thisYear ?? []) {
+    // Process this year's data — API returns { thisYear: { products: [...] }, lastYear: { products: [...] } }
+    const thisYearItems = Array.isArray(data.thisYear) ? data.thisYear : (data.thisYear?.products ?? []);
+    const lastYearItems = Array.isArray(data.lastYear) ? data.lastYear : (data.lastYear?.products ?? []);
+
+    for (const item of thisYearItems) {
       const key = item.productId || `${item.brand}-${item.modelNumber}`;
       const existing = productMap.get(key);
       if (existing) {
@@ -59,7 +62,7 @@ export function YoYComparison() {
     }
 
     // Process last year's data
-    for (const item of data.lastYear ?? []) {
+    for (const item of lastYearItems) {
       const key = item.productId || `${item.brand}-${item.modelNumber}`;
       const existing = productMap.get(key);
       if (existing) {

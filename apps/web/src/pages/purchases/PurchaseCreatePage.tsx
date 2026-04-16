@@ -157,7 +157,7 @@ export function PurchaseCreatePage() {
       case 1:
         return true; // Will be validated by trigger
       case 2:
-        return watchedItems.length > 0 && watchedItems.every((item) => item.brand && item.modelNumber && item.purchasePrice);
+        return watchedItems.length > 0 && watchedItems.every((item) => (item.dynamicAttributes?.brand || item.brand) && item.modelNumber && item.purchasePrice);
       case 3:
         return true;
       default:
@@ -199,7 +199,7 @@ export function PurchaseCreatePage() {
       paymentReference: formData.paymentReference.trim() || undefined,
       items: formData.items.map((item, idx) => ({
         categoryId: itemCategoryIds[idx] || item.categoryId,
-        brand: item.brand.trim(),
+        brand: ((item.dynamicAttributes?.brand as string) || item.brand || '').trim(),
         modelNumber: item.modelNumber.trim(),
         serialNumber: item.serialNumber.trim() || undefined,
         mrp: Number(item.mrp) || 0,
@@ -489,31 +489,6 @@ export function PurchaseCreatePage() {
 
                   {/* Product fields */}
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                    {/* Brand */}
-                    <div>
-                      <label className="block text-sm font-medium mb-1.5">
-                        Brand <span className="text-destructive">*</span>
-                      </label>
-                      <input
-                        type="text"
-                        {...register(`items.${index}.brand`, {
-                          required: 'Brand is required',
-                        })}
-                        placeholder="e.g. Samsung"
-                        className={cn(
-                          'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
-                          'placeholder:text-muted-foreground',
-                          'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                          errors.items?.[index]?.brand && 'border-destructive',
-                        )}
-                      />
-                      {errors.items?.[index]?.brand && (
-                        <p className="mt-1 text-xs text-destructive">
-                          {errors.items[index].brand?.message}
-                        </p>
-                      )}
-                    </div>
-
                     {/* Model */}
                     <div>
                       <label className="block text-sm font-medium mb-1.5">
@@ -685,6 +660,7 @@ export function PurchaseCreatePage() {
                       </h4>
                       <DynamicAttributeFields
                         categoryId={itemCategoryIds[index]}
+                        fieldPrefix={`items.${index}.dynamicAttributes`}
                       />
                     </div>
                   )}
@@ -954,7 +930,7 @@ export function PurchaseCreatePage() {
                         <tr key={idx} className="border-b last:border-0">
                           <td className="px-3 py-2">{idx + 1}</td>
                           <td className="px-3 py-2 font-medium">
-                            {item.brand}
+                            {(item.dynamicAttributes?.brand as string) || item.brand || '-'}
                           </td>
                           <td className="px-3 py-2">{item.modelNumber}</td>
                           <td className="px-3 py-2 font-mono text-xs">

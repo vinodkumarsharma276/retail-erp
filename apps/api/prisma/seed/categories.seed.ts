@@ -108,6 +108,33 @@ export async function seedCategories(prisma: PrismaClient): Promise<ProductCateg
 }
 
 async function seedCategoryAttributes(prisma: PrismaClient, categories: ProductCategory[]) {
+  // Brand options per leaf category slug
+  const brandMap: Record<string, string[]> = {
+    'led-tv': ['Samsung', 'LG', 'Sony', 'TCL', 'Mi', 'OnePlus', 'Vu', 'Hisense'],
+    'oled-tv': ['Samsung', 'LG', 'Sony'],
+    'qled-tv': ['Samsung', 'TCL', 'Hisense'],
+    'plasma-tv': ['Samsung', 'LG', 'Panasonic'],
+    'smartphone': ['Samsung', 'Apple', 'Xiaomi', 'OnePlus', 'Vivo', 'Oppo', 'Realme', 'Nothing', 'Google'],
+    'feature-phone': ['Nokia', 'Samsung', 'Lava', 'Micromax', 'Jio'],
+    'top-load': ['Samsung', 'LG', 'Whirlpool', 'Godrej', 'IFB', 'Bosch'],
+    'front-load': ['Samsung', 'LG', 'IFB', 'Bosch', 'Whirlpool'],
+    'semi-automatic': ['Samsung', 'LG', 'Whirlpool', 'Godrej'],
+    'window-ac': ['Blue Star', 'Voltas', 'Lloyd', 'Carrier', 'Hitachi'],
+    'split-ac': ['LG', 'Samsung', 'Daikin', 'Blue Star', 'Voltas', 'Carrier', 'Lloyd', 'Hitachi'],
+    'tower-ac': ['Blue Star', 'Voltas', 'Carrier'],
+    'single-door': ['Samsung', 'LG', 'Whirlpool', 'Godrej', 'Haier'],
+    'double-door': ['Samsung', 'LG', 'Whirlpool', 'Godrej', 'Haier', 'Bosch'],
+    'side-by-side': ['Samsung', 'LG', 'Whirlpool', 'Bosch', 'Haier'],
+    'sofa': ['Godrej', 'Nilkamal', 'Durian', 'Urban Ladder', 'Pepperfry', 'Wakefit'],
+    'bed': ['Godrej', 'Nilkamal', 'Durian', 'Urban Ladder', 'Wakefit'],
+    'dining-table': ['Godrej', 'Nilkamal', 'Durian', 'Urban Ladder', 'HomeTown'],
+    'wardrobe': ['Godrej', 'Nilkamal', 'Durian', 'Urban Ladder'],
+    'mixer-grinder': ['Bajaj', 'Preethi', 'Philips', 'Butterfly', 'Maharaja Whiteline'],
+    'water-purifier': ['Kent', 'Aquaguard', 'Pureit', 'Livpure', 'Blue Star'],
+    'iron': ['Philips', 'Bajaj', 'Morphy Richards', 'Havells', 'Usha'],
+  };
+
+  // Other category-specific attributes (displayOrder will be shifted by +1 to make room for brand at 0)
   const attrMap: Record<string, { attributeName: string; attributeLabel: string; attributeType: string; isRequired: boolean; options?: unknown }[]> = {
     'smartphone': [
       { attributeName: 'imei', attributeLabel: 'IMEI Number', attributeType: 'text', isRequired: true },
@@ -178,6 +205,30 @@ async function seedCategoryAttributes(prisma: PrismaClient, categories: ProductC
     ],
   };
 
+  // First, seed brand attributes for ALL leaf categories (displayOrder = 0)
+  for (const [slug, brands] of Object.entries(brandMap)) {
+    const cat = categories.find((c) => c.slug === slug);
+    if (!cat) continue;
+
+    await prisma.categoryAttribute.upsert({
+      where: { categoryId_attributeName: { categoryId: cat.id, attributeName: 'brand' } },
+      update: {
+        options: brands,
+        displayOrder: 0,
+      },
+      create: {
+        categoryId: cat.id,
+        attributeName: 'brand',
+        attributeLabel: 'Brand',
+        attributeType: 'select' as any,
+        isRequired: true,
+        options: brands,
+        displayOrder: 0,
+      },
+    });
+  }
+
+  // Then seed other attributes with displayOrder shifted by +1 (brand is at 0)
   for (const [slug, attrs] of Object.entries(attrMap)) {
     const cat = categories.find((c) => c.slug === slug);
     if (!cat) continue;
@@ -186,7 +237,9 @@ async function seedCategoryAttributes(prisma: PrismaClient, categories: ProductC
       const attr = attrs[i];
       await prisma.categoryAttribute.upsert({
         where: { categoryId_attributeName: { categoryId: cat.id, attributeName: attr.attributeName } },
-        update: {},
+        update: {
+          displayOrder: i + 1,
+        },
         create: {
           categoryId: cat.id,
           attributeName: attr.attributeName,
@@ -194,7 +247,7 @@ async function seedCategoryAttributes(prisma: PrismaClient, categories: ProductC
           attributeType: attr.attributeType as any,
           isRequired: attr.isRequired,
           options: attr.options ? attr.options : undefined,
-          displayOrder: i,
+          displayOrder: i + 1,
         },
       });
     }
