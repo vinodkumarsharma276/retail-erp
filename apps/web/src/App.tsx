@@ -12,6 +12,12 @@ import { DistributorDetailPage } from './pages/distributors/DistributorDetailPag
 import { PurchaseListPage } from './pages/purchases/PurchaseListPage';
 import { PurchaseCreatePage } from './pages/purchases/PurchaseCreatePage';
 import { PurchaseDetailPage } from './pages/purchases/PurchaseDetailPage';
+import { CustomerListPage } from './pages/customers/CustomerListPage';
+import { CustomerFormPage } from './pages/customers/CustomerFormPage';
+import { CustomerDetailPage } from './pages/customers/CustomerDetailPage';
+import { SaleListPage } from './pages/sales/SaleListPage';
+import { SaleCreatePage } from './pages/sales/SaleCreatePage';
+import { SaleDetailPage } from './pages/sales/SaleDetailPage';
 import { ProtectedRoute, getDefaultRoute } from './routes/ProtectedRoute';
 import { RoleGuard } from './routes/RoleGuard';
 import { useAuthStore } from './stores/auth-store';
@@ -80,15 +86,13 @@ function App() {
           >
             <Route path="/products" element={<ProductListPage />} />
             <Route path="/products/:id" element={<ProductDetailPage />} />
-            <Route
-              path="/customers"
-              element={<Placeholder title="Customers" />}
-            />
-            <Route path="/sales" element={<Placeholder title="Sales" />} />
-            <Route
-              path="/sales/new"
-              element={<Placeholder title="New Sale" />}
-            />
+            <Route path="/customers" element={<CustomerListPage />} />
+            <Route path="/customers/new" element={<CustomerFormPage />} />
+            <Route path="/customers/:id" element={<CustomerDetailPage />} />
+            <Route path="/customers/:id/edit" element={<CustomerFormPage />} />
+            <Route path="/sales" element={<SaleListPage />} />
+            <Route path="/sales/new" element={<SaleCreatePage />} />
+            <Route path="/sales/:id" element={<SaleDetailPage />} />
             <Route
               path="/transfers"
               element={<Placeholder title="Transfers" />}
