@@ -23,6 +23,9 @@ import { InstallmentDetailPage } from './pages/installments/InstallmentDetailPag
 import { TransferListPage } from './pages/transfers/TransferListPage';
 import { TransferCreatePage } from './pages/transfers/TransferCreatePage';
 import { TransferDetailPage } from './pages/transfers/TransferDetailPage';
+import { ExpenseListPage } from './pages/expenses/ExpenseListPage';
+import { ExpenseFormPage } from './pages/expenses/ExpenseFormPage';
+import { BankPage } from './pages/bank/BankPage';
 import { ProtectedRoute, getDefaultRoute } from './routes/ProtectedRoute';
 import { RoleGuard } from './routes/RoleGuard';
 import { useAuthStore } from './stores/auth-store';
@@ -68,14 +71,10 @@ function App() {
               path="/installments/:scheduleId"
               element={<InstallmentDetailPage />}
             />
-            <Route
-              path="/expenses"
-              element={<Placeholder title="Expenses" />}
-            />
-            <Route
-              path="/bank"
-              element={<Placeholder title="Bank Statements" />}
-            />
+            <Route path="/expenses" element={<ExpenseListPage />} />
+            <Route path="/expenses/new" element={<ExpenseFormPage />} />
+            <Route path="/expenses/:id/edit" element={<ExpenseFormPage />} />
+            <Route path="/bank" element={<BankPage />} />
           </Route>
 
           {/* Admin-only transfer creation */}

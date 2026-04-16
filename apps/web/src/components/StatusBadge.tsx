@@ -30,6 +30,20 @@ const statusStyles: Record<string, { bg: string; text: string; label: string }> 
   initiated: { bg: 'bg-blue-100', text: 'text-blue-700', label: 'Initiated' },
   in_transit: { bg: 'bg-amber-100', text: 'text-amber-700', label: 'In Transit' },
   cancelled: { bg: 'bg-gray-100', text: 'text-gray-700', label: 'Cancelled' },
+  // Reconciliation statuses
+  unmatched: { bg: 'bg-red-100', text: 'text-red-700', label: 'Unmatched' },
+  matched: { bg: 'bg-green-100', text: 'text-green-700', label: 'Matched' },
+  manual_match: { bg: 'bg-blue-100', text: 'text-blue-700', label: 'Manual Match' },
+  disputed: { bg: 'bg-amber-100', text: 'text-amber-700', label: 'Disputed' },
+  // Expense categories
+  rent: { bg: 'bg-purple-100', text: 'text-purple-700', label: 'Rent' },
+  electricity: { bg: 'bg-yellow-100', text: 'text-yellow-700', label: 'Electricity' },
+  salary: { bg: 'bg-blue-100', text: 'text-blue-700', label: 'Salary' },
+  transport: { bg: 'bg-orange-100', text: 'text-orange-700', label: 'Transport' },
+  maintenance: { bg: 'bg-gray-100', text: 'text-gray-700', label: 'Maintenance' },
+  marketing: { bg: 'bg-pink-100', text: 'text-pink-700', label: 'Marketing' },
+  purchase: { bg: 'bg-indigo-100', text: 'text-indigo-700', label: 'Purchase' },
+  misc: { bg: 'bg-slate-100', text: 'text-slate-700', label: 'Misc' },
 };
 
 interface StatusBadgeProps {

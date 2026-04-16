@@ -16,6 +16,8 @@ import { customerRoutes } from './modules/customers/customers.routes.js';
 import { saleRoutes } from './modules/sales/sales.routes.js';
 import { installmentRoutes } from './modules/installments/installments.routes.js';
 import { transferRoutes } from './modules/transfers/transfers.routes.js';
+import { expenseRoutes } from './modules/expenses/expenses.routes.js';
+import { bankRoutes } from './modules/bank/bank.routes.js';
 
 export async function buildApp() {
   const app = Fastify({
@@ -50,8 +52,8 @@ export async function buildApp() {
   await app.register(saleRoutes, { prefix: '/api/v1/sales' });
   await app.register(installmentRoutes, { prefix: '/api/v1/installments' });
   await app.register(transferRoutes, { prefix: '/api/v1/transfers' });
-  // await app.register(expenseRoutes, { prefix: '/api/v1/expenses' });
-  // await app.register(bankRoutes, { prefix: '/api/v1/bank' });
+  await app.register(expenseRoutes, { prefix: '/api/v1/expenses' });
+  await app.register(bankRoutes, { prefix: '/api/v1/bank' });
   // await app.register(dashboardRoutes, { prefix: '/api/v1/dashboard' });
   // await app.register(formRoutes, { prefix: '/api/v1/forms' });
   // await app.register(employeeRoutes, { prefix: '/api/v1/employees' });
