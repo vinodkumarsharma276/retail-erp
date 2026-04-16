@@ -6,6 +6,8 @@ import rateLimit from '@fastify/rate-limit';
 import { config } from './config/index.js';
 import { errorHandler } from './middleware/error-handler.js';
 import { authRoutes } from './modules/auth/auth.routes.js';
+import { shopRoutes } from './modules/shops/shops.routes.js';
+import { userRoutes } from './modules/users/users.routes.js';
 
 export async function buildApp() {
   const app = Fastify({
@@ -29,9 +31,9 @@ export async function buildApp() {
   // Routes
   await app.register(authRoutes, { prefix: '/api/v1/auth' });
 
-  // Module routes will be registered here as they are built:
-  // await app.register(shopRoutes, { prefix: '/api/v1/shops' });
-  // await app.register(userRoutes, { prefix: '/api/v1/users' });
+  // Module routes
+  await app.register(shopRoutes, { prefix: '/api/v1/shops' });
+  await app.register(userRoutes, { prefix: '/api/v1/users' });
   // await app.register(productRoutes, { prefix: '/api/v1/products' });
   // await app.register(categoryRoutes, { prefix: '/api/v1/categories' });
   // await app.register(distributorRoutes, { prefix: '/api/v1/distributors' });

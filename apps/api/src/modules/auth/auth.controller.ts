@@ -110,8 +110,25 @@ export const authController = {
     request: FastifyRequest<{ Body: { currentPassword: string; newPassword: string } }>,
     reply: FastifyReply,
   ) {
-    // Placeholder — will implement in Phase 1
-    return sendSuccess(reply, { message: 'Password changed' });
+    if (!request.currentUser) {
+      return sendError(reply, 'Authentication required', 401);
+    }
+
+    const { currentPassword, newPassword } = request.body;
+
+    try {
+      await authService.changePassword(request.currentUser.userId, currentPassword, newPassword);
+      return sendSuccess(reply, { message: 'Password changed successfully' });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to change password';
+      if (message === 'Current password is incorrect') {
+        return sendError(reply, message, 400);
+      }
+      if (message === 'User not found') {
+        return sendError(reply, message, 404);
+      }
+      return sendError(reply, message, 500);
+    }
   },
 
   async switchShop(
