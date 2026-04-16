@@ -72,7 +72,7 @@ export const purchasesController = {
           modelNumber: string;
           serialNumber?: string | null;
           mrp: number;
-          sellingPrice: number;
+          sellingPrice?: number;
           purchasePrice: number;
           color?: string | null;
           weightKg?: number | null;

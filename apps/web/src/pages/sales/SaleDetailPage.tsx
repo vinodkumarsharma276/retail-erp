@@ -129,6 +129,30 @@ export function SaleDetailPage() {
               />
               <InfoRow label="MRP" value={formatINR(sale.mrp)} />
               <InfoRow label="Selling Price" value={formatINR(sale.sellingPrice)} />
+              {sale.product && (
+                <>
+                  <InfoRow
+                    label="DP (Dealer Price)"
+                    value={formatINR(sale.product.purchasePrice)}
+                  />
+                  <InfoRow
+                    label="Discount (MRP - SP)"
+                    value={formatINR(sale.mrp - sale.sellingPrice)}
+                  />
+                  <InfoRow
+                    label="Profit (SP - DP)"
+                    value={formatINR(sale.sellingPrice - sale.product.purchasePrice)}
+                  />
+                  <InfoRow
+                    label="Profit %"
+                    value={
+                      sale.product.purchasePrice > 0
+                        ? `${(((sale.sellingPrice - sale.product.purchasePrice) / sale.product.purchasePrice) * 100).toFixed(1)}%`
+                        : '0.0%'
+                    }
+                  />
+                </>
+              )}
               {sale.discountAmount > 0 && (
                 <InfoRow
                   label="Discount"
@@ -426,6 +450,7 @@ export function SaleDetailPage() {
                   />
                 )}
                 <InfoRow label="MRP" value={formatINR(sale.product.mrp)} />
+                <InfoRow label="DP (Dealer Price)" value={formatINR(sale.product.purchasePrice)} />
               </dl>
               <Link
                 to={`/products/${sale.product.id}`}

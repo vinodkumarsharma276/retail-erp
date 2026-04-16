@@ -241,10 +241,10 @@ export function SaleCreatePage() {
   const numInstallments = watch('numInstallments');
   const financedAmount = Number(watch('financedAmount')) || 0;
 
-  // Use the product selling price as default if available
+  // Pre-fill selling price with MRP as default (max they can charge)
   useEffect(() => {
     if (selectedProduct && !watch('sellingPrice')) {
-      setValue('sellingPrice', selectedProduct.sellingPrice);
+      setValue('sellingPrice', selectedProduct.mrp);
     }
   }, [selectedProduct, setValue, watch]);
 
@@ -433,22 +433,13 @@ export function SaleCreatePage() {
             </div>
           ) : selectedProduct ? (
             <div className="rounded-md border-2 border-primary/20 bg-primary/5 p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium text-lg">
+              {/* Header: name + change button */}
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-3">
+                  <p className="font-semibold text-lg">
                     {selectedProduct.brand} {selectedProduct.modelNumber}
                   </p>
-                  <div className="flex items-center gap-3 mt-1 text-sm text-muted-foreground">
-                    {selectedProduct.serialNumber && (
-                      <span className="font-mono text-xs">
-                        SN: {selectedProduct.serialNumber}
-                      </span>
-                    )}
-                    <StatusBadge status={selectedProduct.status} />
-                  </div>
-                  <p className="text-lg font-semibold text-primary mt-2">
-                    {formatINR(selectedProduct.sellingPrice)}
-                  </p>
+                  <StatusBadge status={selectedProduct.status} />
                 </div>
                 {!productIdFromUrl && (
                   <button
@@ -462,6 +453,52 @@ export function SaleCreatePage() {
                     Change
                   </button>
                 )}
+              </div>
+
+              {/* Product details grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-6 gap-y-3 text-sm">
+                {selectedProduct.serialNumber && (
+                  <div>
+                    <span className="text-muted-foreground">Serial No.</span>
+                    <p className="font-mono text-xs mt-0.5">{selectedProduct.serialNumber}</p>
+                  </div>
+                )}
+                {(selectedProduct as any).category?.name && (
+                  <div>
+                    <span className="text-muted-foreground">Category</span>
+                    <p className="font-medium mt-0.5">{(selectedProduct as any).category.name}</p>
+                  </div>
+                )}
+                {selectedProduct.color && (
+                  <div>
+                    <span className="text-muted-foreground">Color</span>
+                    <p className="font-medium mt-0.5">{selectedProduct.color}</p>
+                  </div>
+                )}
+                {selectedProduct.barcode && (
+                  <div>
+                    <span className="text-muted-foreground">Barcode</span>
+                    <p className="font-mono text-xs mt-0.5">{selectedProduct.barcode}</p>
+                  </div>
+                )}
+                {selectedProduct.warrantyMonths && (
+                  <div>
+                    <span className="text-muted-foreground">Warranty</span>
+                    <p className="font-medium mt-0.5">{selectedProduct.warrantyMonths} months</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Pricing row */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mt-4 pt-3 border-t border-primary/10">
+                <div>
+                  <span className="text-xs text-muted-foreground">MRP</span>
+                  <p className="font-semibold">{formatINR(selectedProduct.mrp)}</p>
+                </div>
+                <div>
+                  <span className="text-xs text-muted-foreground">DP (Dealer Price)</span>
+                  <p className="font-semibold">{formatINR(selectedProduct.purchasePrice)}</p>
+                </div>
               </div>
             </div>
           ) : (
@@ -959,6 +996,15 @@ export function SaleCreatePage() {
                     )}
                   />
                 </div>
+
+                {/* Pricing calculations */}
+                {selectedProduct && sellingPrice > 0 && (
+                  <SellingPriceCalculations
+                    sellingPrice={sellingPrice}
+                    mrp={selectedProduct.mrp}
+                    dp={selectedProduct.purchasePrice}
+                  />
+                )}
               </div>
             </div>
           )}
@@ -1104,6 +1150,15 @@ export function SaleCreatePage() {
                     )}
                   />
                 </div>
+
+                {/* Pricing calculations */}
+                {selectedProduct && sellingPrice > 0 && (
+                  <SellingPriceCalculations
+                    sellingPrice={sellingPrice}
+                    mrp={selectedProduct.mrp}
+                    dp={selectedProduct.purchasePrice}
+                  />
+                )}
               </div>
             </div>
           )}
@@ -1286,6 +1341,15 @@ export function SaleCreatePage() {
                     )}
                   />
                 </div>
+
+                {/* Pricing calculations */}
+                {selectedProduct && sellingPrice > 0 && (
+                  <SellingPriceCalculations
+                    sellingPrice={sellingPrice}
+                    mrp={selectedProduct.mrp}
+                    dp={selectedProduct.purchasePrice}
+                  />
+                )}
               </div>
 
               {/* EMI Preview Panel */}
@@ -1822,6 +1886,15 @@ export function SaleCreatePage() {
                     )}
                   />
                 </div>
+
+                {/* Pricing calculations */}
+                {selectedProduct && sellingPrice > 0 && (
+                  <SellingPriceCalculations
+                    sellingPrice={sellingPrice}
+                    mrp={selectedProduct.mrp}
+                    dp={selectedProduct.purchasePrice}
+                  />
+                )}
               </div>
             </div>
           )}
@@ -2010,6 +2083,64 @@ function SummaryRow({ label, value }: { label: string; value: string }) {
     <div className="flex justify-between">
       <span className="text-muted-foreground">{label}</span>
       <span>{value}</span>
+    </div>
+  );
+}
+
+function SellingPriceCalculations({
+  sellingPrice,
+  mrp,
+  dp,
+}: {
+  sellingPrice: number;
+  mrp: number;
+  dp: number;
+}) {
+  if (sellingPrice <= 0) return null;
+
+  const discount = mrp - sellingPrice;
+  const profit = sellingPrice - dp;
+  const profitPct = dp > 0 ? ((profit / dp) * 100).toFixed(1) : '0.0';
+  const isBelowDP = sellingPrice < dp;
+  const isAboveMRP = sellingPrice > mrp;
+
+  return (
+    <div className="sm:col-span-2 lg:col-span-3">
+      {/* Warning if outside range */}
+      {(isBelowDP || isAboveMRP) && (
+        <div className={cn(
+          'flex items-center gap-2 rounded-md px-3 py-2 text-xs font-medium mb-2',
+          isBelowDP
+            ? 'bg-red-50 text-red-700 border border-red-200'
+            : 'bg-amber-50 text-amber-700 border border-amber-200',
+        )}>
+          <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+          {isBelowDP
+            ? `Selling price is below DP (${formatINR(dp)}). You will make a loss of ${formatINR(Math.abs(profit))}.`
+            : `Selling price is above MRP (${formatINR(mrp)}).`}
+        </div>
+      )}
+      {/* Calculations */}
+      <div className="grid grid-cols-3 gap-3 rounded-md bg-muted/50 px-3 py-2.5">
+        <div>
+          <span className="text-xs text-muted-foreground">Discount (MRP - SP)</span>
+          <p className={cn('text-sm font-semibold', discount >= 0 ? 'text-green-600' : 'text-red-600')}>
+            {formatINR(discount)}
+          </p>
+        </div>
+        <div>
+          <span className="text-xs text-muted-foreground">Profit (SP - DP)</span>
+          <p className={cn('text-sm font-semibold', profit >= 0 ? 'text-green-600' : 'text-red-600')}>
+            {formatINR(profit)}
+          </p>
+        </div>
+        <div>
+          <span className="text-xs text-muted-foreground">Profit %</span>
+          <p className={cn('text-sm font-semibold', profit >= 0 ? 'text-green-600' : 'text-red-600')}>
+            {profitPct}%
+          </p>
+        </div>
+      </div>
     </div>
   );
 }

@@ -114,7 +114,7 @@ export const purchasesService = {
       modelNumber: string;
       serialNumber?: string | null;
       mrp: number;
-      sellingPrice: number;
+      sellingPrice?: number;
       purchasePrice: number;
       color?: string | null;
       weightKg?: number | null;
@@ -209,7 +209,7 @@ export const purchasesService = {
             modelNumber: item.modelNumber,
             serialNumber: item.serialNumber ?? null,
             mrp: item.mrp,
-            sellingPrice: item.sellingPrice,
+            sellingPrice: item.sellingPrice ?? item.mrp,
             purchasePrice: item.purchasePrice,
             color: item.color ?? null,
             weightKg: item.weightKg ?? null,

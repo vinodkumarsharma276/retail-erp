@@ -157,11 +157,7 @@ export function ProductDetailPage() {
               <InfoRow label="Category" value={categoryName ?? '-'} />
               <InfoRow label="MRP" value={formatINR(product.mrp)} />
               <InfoRow
-                label="Selling Price"
-                value={formatINR(product.sellingPrice)}
-              />
-              <InfoRow
-                label="Purchase Price"
+                label="DP (Dealer Price)"
                 value={formatINR(product.purchasePrice)}
               />
               <InfoRow label="Color" value={product.color ?? '-'} />

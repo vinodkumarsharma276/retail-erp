@@ -31,7 +31,6 @@ interface ProductItem {
   modelNumber: string;
   serialNumber: string;
   mrp: number | '';
-  sellingPrice: number | '';
   purchasePrice: number | '';
   color: string;
   warrantyMonths: number | '';
@@ -57,7 +56,6 @@ const emptyProductItem: ProductItem = {
   modelNumber: '',
   serialNumber: '',
   mrp: '',
-  sellingPrice: '',
   purchasePrice: '',
   color: '',
   warrantyMonths: '',
@@ -203,7 +201,6 @@ export function PurchaseCreatePage() {
         modelNumber: item.modelNumber.trim(),
         serialNumber: item.serialNumber.trim() || undefined,
         mrp: Number(item.mrp) || 0,
-        sellingPrice: Number(item.sellingPrice) || 0,
         purchasePrice: Number(item.purchasePrice),
         color: item.color.trim() || undefined,
         warrantyMonths: item.warrantyMonths ? Number(item.warrantyMonths) : undefined,
@@ -551,30 +548,10 @@ export function PurchaseCreatePage() {
                       />
                     </div>
 
-                    {/* Selling Price */}
+                    {/* DP (Dealer Price) */}
                     <div>
                       <label className="block text-sm font-medium mb-1.5">
-                        Selling Price
-                      </label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        {...register(`items.${index}.sellingPrice`, {
-                          min: { value: 0, message: 'Must be positive' },
-                        })}
-                        placeholder="0.00"
-                        className={cn(
-                          'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
-                          'placeholder:text-muted-foreground',
-                          'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                        )}
-                      />
-                    </div>
-
-                    {/* Purchase Price */}
-                    <div>
-                      <label className="block text-sm font-medium mb-1.5">
-                        Purchase Price <span className="text-destructive">*</span>
+                        DP (Dealer Price) <span className="text-destructive">*</span>
                       </label>
                       <input
                         type="number"
@@ -691,7 +668,7 @@ export function PurchaseCreatePage() {
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                   <div>
                     <p className="text-xs font-medium text-muted-foreground">
-                      Total (Purchase Prices)
+                      Total (Dealer Prices)
                     </p>
                     <p className="text-lg font-semibold mt-0.5">
                       {formatINR(totalPurchasePrice)}
@@ -918,10 +895,7 @@ export function PurchaseCreatePage() {
                           MRP
                         </th>
                         <th className="px-3 py-2 text-right font-medium text-muted-foreground">
-                          Sell Price
-                        </th>
-                        <th className="px-3 py-2 text-right font-medium text-muted-foreground">
-                          Purchase Price
+                          DP (Dealer Price)
                         </th>
                       </tr>
                     </thead>
@@ -939,9 +913,6 @@ export function PurchaseCreatePage() {
                           <td className="px-3 py-2 text-right">
                             {formatINR(Number(item.mrp) || 0)}
                           </td>
-                          <td className="px-3 py-2 text-right">
-                            {formatINR(Number(item.sellingPrice) || 0)}
-                          </td>
                           <td className="px-3 py-2 text-right font-medium">
                             {formatINR(Number(item.purchasePrice) || 0)}
                           </td>
@@ -957,7 +928,7 @@ export function PurchaseCreatePage() {
                 <h3 className="text-base font-medium mb-3">Payment Summary</h3>
                 <div className="space-y-2 text-sm max-w-sm">
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Total (Purchase Prices)</span>
+                    <span className="text-muted-foreground">Total (Dealer Prices)</span>
                     <span>{formatINR(totalPurchasePrice)}</span>
                   </div>
                   <div className="flex justify-between">

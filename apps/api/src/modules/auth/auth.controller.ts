@@ -174,14 +174,22 @@ export const authController = {
       return sendError(reply, 'You do not have access to this shop', 403);
     }
 
+    const newShopId = request.body.shopId;
+
     const accessToken = request.server.jwt.sign(
       {
         ...request.currentUser,
-        shopId: request.body.shopId,
+        shopId: newShopId,
       },
       { expiresIn: config.jwt.accessExpiresIn },
     );
 
-    return sendSuccess(reply, { accessToken });
+    // Fetch shop details to return to frontend
+    const shop = await authService.getShopById(newShopId);
+
+    return sendSuccess(reply, {
+      accessToken,
+      shop: shop ? { id: shop.id, name: shop.name, code: shop.code } : null,
+    });
   },
 };

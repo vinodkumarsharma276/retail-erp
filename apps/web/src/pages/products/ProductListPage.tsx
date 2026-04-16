@@ -125,10 +125,10 @@ export function ProductListPage() {
       render: (row) => formatINR(row.mrp),
     },
     {
-      key: 'sellingPrice',
-      header: 'Selling Price',
+      key: 'purchasePrice',
+      header: 'DP (Dealer Price)',
       align: 'right',
-      render: (row) => formatINR(row.sellingPrice),
+      render: (row) => formatINR(row.purchasePrice),
     },
     {
       key: 'status',

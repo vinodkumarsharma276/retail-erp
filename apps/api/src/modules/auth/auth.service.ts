@@ -125,6 +125,13 @@ export const authService = {
     });
   },
 
+  async getShopById(shopId: string) {
+    return prisma.shop.findUnique({
+      where: { id: shopId },
+      select: { id: true, name: true, code: true },
+    });
+  },
+
   async getUserWithShops(userId: string) {
     return prisma.user.findUnique({
       where: { id: userId },

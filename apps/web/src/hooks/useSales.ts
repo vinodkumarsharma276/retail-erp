@@ -179,6 +179,7 @@ export interface SaleDetailResponse extends SaleRecord {
     categoryId: string;
     sellingPrice: number;
     mrp: number;
+    purchasePrice: number;
   };
   guarantor?: {
     id: string;

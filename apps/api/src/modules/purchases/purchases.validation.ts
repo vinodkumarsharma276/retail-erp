@@ -6,7 +6,7 @@ const purchaseItemSchema = z.object({
   modelNumber: z.string().min(1, 'Model number is required').max(200),
   serialNumber: z.string().max(200).nullable().optional(),
   mrp: z.number().positive('MRP must be positive'),
-  sellingPrice: z.number().positive('Selling price must be positive'),
+  sellingPrice: z.number().min(0, 'Selling price must be non-negative').optional(),
   purchasePrice: z.number().positive('Purchase price must be positive'),
   color: z.string().max(50).nullable().optional(),
   weightKg: z.number().positive('Weight must be positive').nullable().optional(),

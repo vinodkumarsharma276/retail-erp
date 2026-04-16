@@ -81,7 +81,6 @@ export const productsService = {
       where: { id },
       include: {
         category: {
-          select: { id: true, name: true, slug: true, path: true },
           include: {
             attributes: {
               where: { isActive: true },

@@ -516,6 +516,8 @@ export const salesService = {
             brand: true,
             modelNumber: true,
             serialNumber: true,
+            mrp: true,
+            purchasePrice: true,
             category: { select: { id: true, name: true, slug: true } },
           },
         },
