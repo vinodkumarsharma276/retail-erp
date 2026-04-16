@@ -18,6 +18,8 @@ import { CustomerDetailPage } from './pages/customers/CustomerDetailPage';
 import { SaleListPage } from './pages/sales/SaleListPage';
 import { SaleCreatePage } from './pages/sales/SaleCreatePage';
 import { SaleDetailPage } from './pages/sales/SaleDetailPage';
+import { InstallmentListPage } from './pages/installments/InstallmentListPage';
+import { InstallmentDetailPage } from './pages/installments/InstallmentDetailPage';
 import { ProtectedRoute, getDefaultRoute } from './routes/ProtectedRoute';
 import { RoleGuard } from './routes/RoleGuard';
 import { useAuthStore } from './stores/auth-store';
@@ -58,9 +60,10 @@ function App() {
             <Route path="/purchases" element={<PurchaseListPage />} />
             <Route path="/purchases/new" element={<PurchaseCreatePage />} />
             <Route path="/purchases/:id" element={<PurchaseDetailPage />} />
+            <Route path="/installments" element={<InstallmentListPage />} />
             <Route
-              path="/installments"
-              element={<Placeholder title="Installments" />}
+              path="/installments/:scheduleId"
+              element={<InstallmentDetailPage />}
             />
             <Route
               path="/expenses"
