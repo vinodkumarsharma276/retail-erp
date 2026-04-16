@@ -6,6 +6,12 @@ import { DashboardPage } from './pages/dashboard/DashboardPage';
 import { ProductListPage } from './pages/products/ProductListPage';
 import { ProductAddPage } from './pages/products/ProductAddPage';
 import { ProductDetailPage } from './pages/products/ProductDetailPage';
+import { DistributorListPage } from './pages/distributors/DistributorListPage';
+import { DistributorFormPage } from './pages/distributors/DistributorFormPage';
+import { DistributorDetailPage } from './pages/distributors/DistributorDetailPage';
+import { PurchaseListPage } from './pages/purchases/PurchaseListPage';
+import { PurchaseCreatePage } from './pages/purchases/PurchaseCreatePage';
+import { PurchaseDetailPage } from './pages/purchases/PurchaseDetailPage';
 import { ProtectedRoute, getDefaultRoute } from './routes/ProtectedRoute';
 import { RoleGuard } from './routes/RoleGuard';
 import { useAuthStore } from './stores/auth-store';
@@ -39,14 +45,13 @@ function App() {
           >
             <Route path="/products/new" element={<ProductAddPage />} />
             <Route path="/products/:id/edit" element={<ProductAddPage />} />
-            <Route
-              path="/distributors"
-              element={<Placeholder title="Distributors" />}
-            />
-            <Route
-              path="/purchases"
-              element={<Placeholder title="Purchases" />}
-            />
+            <Route path="/distributors" element={<DistributorListPage />} />
+            <Route path="/distributors/new" element={<DistributorFormPage />} />
+            <Route path="/distributors/:id" element={<DistributorDetailPage />} />
+            <Route path="/distributors/:id/edit" element={<DistributorFormPage />} />
+            <Route path="/purchases" element={<PurchaseListPage />} />
+            <Route path="/purchases/new" element={<PurchaseCreatePage />} />
+            <Route path="/purchases/:id" element={<PurchaseDetailPage />} />
             <Route
               path="/installments"
               element={<Placeholder title="Installments" />}

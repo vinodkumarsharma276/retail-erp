@@ -12,6 +12,8 @@ const statusStyles: Record<string, { bg: string; text: string; label: string }> 
   due_today: { bg: 'bg-orange-100', text: 'text-orange-700', label: 'Due Today' },
   partially_paid: { bg: 'bg-yellow-100', text: 'text-yellow-700', label: 'Partial' },
   rescheduled: { bg: 'bg-purple-100', text: 'text-purple-700', label: 'Rescheduled' },
+  pending: { bg: 'bg-orange-100', text: 'text-orange-700', label: 'Pending' },
+  partial: { bg: 'bg-yellow-100', text: 'text-yellow-700', label: 'Partial' },
 };
 
 interface StatusBadgeProps {

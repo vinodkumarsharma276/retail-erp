@@ -10,6 +10,8 @@ import { shopRoutes } from './modules/shops/shops.routes.js';
 import { userRoutes } from './modules/users/users.routes.js';
 import { categoryRoutes } from './modules/categories/categories.routes.js';
 import { productRoutes } from './modules/products/products.routes.js';
+import { distributorRoutes } from './modules/distributors/distributors.routes.js';
+import { purchaseRoutes } from './modules/purchases/purchases.routes.js';
 
 export async function buildApp() {
   const app = Fastify({
@@ -38,8 +40,8 @@ export async function buildApp() {
   await app.register(userRoutes, { prefix: '/api/v1/users' });
   await app.register(categoryRoutes, { prefix: '/api/v1/categories' });
   await app.register(productRoutes, { prefix: '/api/v1/products' });
-  // await app.register(distributorRoutes, { prefix: '/api/v1/distributors' });
-  // await app.register(purchaseRoutes, { prefix: '/api/v1/purchases' });
+  await app.register(distributorRoutes, { prefix: '/api/v1/distributors' });
+  await app.register(purchaseRoutes, { prefix: '/api/v1/purchases' });
   // await app.register(customerRoutes, { prefix: '/api/v1/customers' });
   // await app.register(saleRoutes, { prefix: '/api/v1/sales' });
   // await app.register(installmentRoutes, { prefix: '/api/v1/installments' });

@@ -1,0 +1,289 @@
+import { useState } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
+import {
+  Plus,
+  ChevronDown,
+  Calendar,
+  X,
+} from 'lucide-react';
+import { cn } from '../../lib/utils';
+import { usePurchasesQuery } from '../../hooks/usePurchases';
+import { useDistributorsQuery } from '../../hooks/useDistributors';
+import { DataTable } from '../../components/DataTable';
+import type { Column, PaginationState } from '../../components/DataTable';
+import { StatusBadge } from '../../components/StatusBadge';
+import { formatINR, formatDateIN } from '@retailerp/shared-utils';
+import type { Purchase } from '@retailerp/shared-types';
+
+const PAGE_SIZE = 20;
+
+export function PurchaseListPage() {
+  const navigate = useNavigate();
+
+  // ------ Filters state ------
+  const [page, setPage] = useState(1);
+  const [distributorId, setDistributorId] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [paymentStatus, setPaymentStatus] = useState('');
+
+  // Purchases query
+  const purchasesQuery = usePurchasesQuery({
+    page,
+    pageSize: PAGE_SIZE,
+    distributorId: distributorId || undefined,
+    dateFrom: dateFrom || undefined,
+    dateTo: dateTo || undefined,
+    paymentStatus: paymentStatus || undefined,
+  });
+
+  // Distributors for the filter dropdown (load all for dropdown)
+  const distributorsQuery = useDistributorsQuery({ page: 1, pageSize: 100 });
+  const distributorOptions = distributorsQuery.data?.data ?? [];
+
+  const purchases = purchasesQuery.data?.data ?? [];
+  const pagination = purchasesQuery.data?.pagination;
+
+  // ------ Clear filters ------
+  const hasFilters = distributorId || dateFrom || dateTo || paymentStatus;
+  const clearFilters = () => {
+    setDistributorId('');
+    setDateFrom('');
+    setDateTo('');
+    setPaymentStatus('');
+    setPage(1);
+  };
+
+  // ------ Table columns ------
+  const columns: Column<Purchase>[] = [
+    {
+      key: 'sno',
+      header: 'S.No',
+      render: (_row, idx) =>
+        pagination
+          ? (pagination.page - 1) * pagination.pageSize + idx + 1
+          : idx + 1,
+      className: 'w-16',
+    },
+    {
+      key: 'invoiceNumber',
+      header: 'Invoice #',
+      render: (row) => (
+        <button
+          onClick={() => navigate(`/purchases/${row.id}`)}
+          className="font-mono text-xs text-primary hover:underline text-left"
+        >
+          {row.invoiceNumber}
+        </button>
+      ),
+    },
+    {
+      key: 'date',
+      header: 'Date',
+      render: (row) => formatDateIN(row.invoiceDate),
+    },
+    {
+      key: 'distributor',
+      header: 'Distributor',
+      render: (row) => (
+        <span className="font-medium">
+          {row.distributor?.companyName ?? '-'}
+        </span>
+      ),
+    },
+    {
+      key: 'totalAmount',
+      header: 'Total',
+      align: 'right',
+      render: (row) => formatINR(row.totalAmount),
+    },
+    {
+      key: 'gstAmount',
+      header: 'GST',
+      align: 'right',
+      render: (row) => formatINR(row.gstAmount),
+    },
+    {
+      key: 'paid',
+      header: 'Paid',
+      align: 'right',
+      render: (row) => formatINR(row.amountPaid),
+    },
+    {
+      key: 'pending',
+      header: 'Pending',
+      align: 'right',
+      render: (row) => (
+        <span
+          className={cn(row.pendingAmount > 0 && 'text-red-600 font-medium')}
+        >
+          {formatINR(row.pendingAmount)}
+        </span>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (row) => <StatusBadge status={row.paymentStatus} />,
+    },
+  ];
+
+  // ------ Pagination state ------
+  const paginationState: PaginationState | undefined = pagination
+    ? {
+        page: pagination.page,
+        totalPages: pagination.totalPages,
+        totalItems: pagination.totalItems,
+        pageSize: pagination.pageSize,
+      }
+    : undefined;
+
+  return (
+    <div>
+      {/* Page header */}
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-2xl font-semibold">Purchases</h1>
+        <Link
+          to="/purchases/new"
+          className={cn(
+            'flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground',
+            'hover:bg-primary/90 transition-colors',
+          )}
+        >
+          <Plus className="h-4 w-4" />
+          New Purchase
+        </Link>
+      </div>
+
+      {/* Filters row */}
+      <div className="flex flex-wrap items-end gap-4 mb-6">
+        {/* Distributor dropdown */}
+        <div className="min-w-[200px]">
+          <label className="block text-xs font-medium text-muted-foreground mb-1">
+            Distributor
+          </label>
+          <div className="relative">
+            <select
+              value={distributorId}
+              onChange={(e) => {
+                setDistributorId(e.target.value);
+                setPage(1);
+              }}
+              className={cn(
+                'w-full appearance-none rounded-md border bg-background px-3 py-2 pr-8 text-sm',
+                'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+              )}
+            >
+              <option value="">All Distributors</option>
+              {distributorOptions.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.companyName}
+                </option>
+              ))}
+            </select>
+            <ChevronDown className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          </div>
+        </div>
+
+        {/* Date from */}
+        <div>
+          <label className="block text-xs font-medium text-muted-foreground mb-1">
+            From
+          </label>
+          <div className="relative">
+            <Calendar className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => {
+                setDateFrom(e.target.value);
+                setPage(1);
+              }}
+              className={cn(
+                'rounded-md border bg-background pl-9 pr-3 py-2 text-sm',
+                'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+              )}
+            />
+          </div>
+        </div>
+
+        {/* Date to */}
+        <div>
+          <label className="block text-xs font-medium text-muted-foreground mb-1">
+            To
+          </label>
+          <div className="relative">
+            <Calendar className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <input
+              type="date"
+              value={dateTo}
+              onChange={(e) => {
+                setDateTo(e.target.value);
+                setPage(1);
+              }}
+              className={cn(
+                'rounded-md border bg-background pl-9 pr-3 py-2 text-sm',
+                'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+              )}
+            />
+          </div>
+        </div>
+
+        {/* Payment Status */}
+        <div className="min-w-[160px]">
+          <label className="block text-xs font-medium text-muted-foreground mb-1">
+            Payment Status
+          </label>
+          <div className="relative">
+            <select
+              value={paymentStatus}
+              onChange={(e) => {
+                setPaymentStatus(e.target.value);
+                setPage(1);
+              }}
+              className={cn(
+                'w-full appearance-none rounded-md border bg-background px-3 py-2 pr-8 text-sm',
+                'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+              )}
+            >
+              <option value="">All</option>
+              <option value="pending">Pending</option>
+              <option value="partial">Partial</option>
+              <option value="paid">Paid</option>
+            </select>
+            <ChevronDown className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          </div>
+        </div>
+
+        {/* Clear filters */}
+        {hasFilters && (
+          <button
+            onClick={clearFilters}
+            className="flex items-center gap-1 rounded-md border px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+          >
+            <X className="h-3.5 w-3.5" />
+            Clear Filters
+          </button>
+        )}
+      </div>
+
+      {/* Error state */}
+      {purchasesQuery.isError && (
+        <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 mb-6 text-sm text-destructive">
+          Failed to load purchases. Please try again.
+        </div>
+      )}
+
+      {/* Data table */}
+      <DataTable<Purchase>
+        columns={columns}
+        data={purchases}
+        isLoading={purchasesQuery.isLoading}
+        pagination={paginationState}
+        onPageChange={setPage}
+        emptyMessage="No purchases found matching your filters."
+        rowKey={(row) => row.id}
+      />
+    </div>
+  );
+}
