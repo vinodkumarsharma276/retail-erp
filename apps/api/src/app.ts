@@ -8,6 +8,8 @@ import { errorHandler } from './middleware/error-handler.js';
 import { authRoutes } from './modules/auth/auth.routes.js';
 import { shopRoutes } from './modules/shops/shops.routes.js';
 import { userRoutes } from './modules/users/users.routes.js';
+import { categoryRoutes } from './modules/categories/categories.routes.js';
+import { productRoutes } from './modules/products/products.routes.js';
 
 export async function buildApp() {
   const app = Fastify({
@@ -34,8 +36,8 @@ export async function buildApp() {
   // Module routes
   await app.register(shopRoutes, { prefix: '/api/v1/shops' });
   await app.register(userRoutes, { prefix: '/api/v1/users' });
-  // await app.register(productRoutes, { prefix: '/api/v1/products' });
-  // await app.register(categoryRoutes, { prefix: '/api/v1/categories' });
+  await app.register(categoryRoutes, { prefix: '/api/v1/categories' });
+  await app.register(productRoutes, { prefix: '/api/v1/products' });
   // await app.register(distributorRoutes, { prefix: '/api/v1/distributors' });
   // await app.register(purchaseRoutes, { prefix: '/api/v1/purchases' });
   // await app.register(customerRoutes, { prefix: '/api/v1/customers' });

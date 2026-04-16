@@ -59,37 +59,44 @@ export async function seedCategories(prisma: PrismaClient): Promise<ProductCateg
 
   for (let i = 0; i < tree.length; i++) {
     const parent = tree[i];
-    const parentCat = await prisma.productCategory.upsert({
-      where: { slug_parentId: { slug: parent.slug, parentId: null! } },
-      update: {},
-      create: {
-        name: parent.name,
-        slug: parent.slug,
-        level: 0,
-        path: parent.slug,
-        displayOrder: i,
-        isLeaf: false,
-        icon: parent.icon,
-      },
+    // Root categories have null parentId — can't use composite unique upsert
+    let parentCat = await prisma.productCategory.findFirst({
+      where: { slug: parent.slug, parentId: null },
     });
+    if (!parentCat) {
+      parentCat = await prisma.productCategory.create({
+        data: {
+          name: parent.name,
+          slug: parent.slug,
+          level: 0,
+          path: parent.slug,
+          displayOrder: i,
+          isLeaf: false,
+          icon: parent.icon,
+        },
+      });
+    }
     categories.push(parentCat);
 
     for (let j = 0; j < parent.children.length; j++) {
       const child = parent.children[j];
-      const childCat = await prisma.productCategory.upsert({
-        where: { slug_parentId: { slug: child.slug, parentId: parentCat.id } },
-        update: {},
-        create: {
-          name: child.name,
-          slug: child.slug,
-          parentId: parentCat.id,
-          level: 1,
-          path: `${parent.slug}.${child.slug}`,
-          displayOrder: j,
-          isLeaf: true,
-          icon: parent.icon,
-        },
+      let childCat = await prisma.productCategory.findFirst({
+        where: { slug: child.slug, parentId: parentCat.id },
       });
+      if (!childCat) {
+        childCat = await prisma.productCategory.create({
+          data: {
+            name: child.name,
+            slug: child.slug,
+            parentId: parentCat.id,
+            level: 1,
+            path: `${parent.slug}.${child.slug}`,
+            displayOrder: j,
+            isLeaf: true,
+            icon: parent.icon,
+          },
+        });
+      }
       categories.push(childCat);
     }
   }

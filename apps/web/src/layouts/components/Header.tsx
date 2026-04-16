@@ -16,6 +16,7 @@ import { queryClient } from '../../lib/query-client';
 import { cn } from '../../lib/utils';
 import { UserRole } from '@retailerp/shared-types';
 import { Breadcrumbs } from './Breadcrumbs';
+import { GlobalSearch } from './GlobalSearch';
 
 export function Header() {
   const user = useAuthStore((s) => s.user);
@@ -167,6 +168,9 @@ export function Header() {
         </div>
 
         <div className="flex items-center gap-4">
+          {/* Global search */}
+          <GlobalSearch />
+
           {/* Notification bell placeholder */}
           <button
             className="relative rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"

@@ -11,6 +11,7 @@ const labelMap: Record<string, string> = {
   customers: 'Customers',
   sales: 'Sales',
   new: 'New',
+  edit: 'Edit',
   installments: 'Installments',
   transfers: 'Transfers',
   expenses: 'Expenses',

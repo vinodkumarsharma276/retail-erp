@@ -4,6 +4,8 @@ import { DashboardLayout } from './layouts/DashboardLayout';
 import { LoginPage } from './pages/auth/LoginPage';
 import { DashboardPage } from './pages/dashboard/DashboardPage';
 import { ProductListPage } from './pages/products/ProductListPage';
+import { ProductAddPage } from './pages/products/ProductAddPage';
+import { ProductDetailPage } from './pages/products/ProductDetailPage';
 import { ProtectedRoute, getDefaultRoute } from './routes/ProtectedRoute';
 import { RoleGuard } from './routes/RoleGuard';
 import { useAuthStore } from './stores/auth-store';
@@ -35,6 +37,8 @@ function App() {
               />
             }
           >
+            <Route path="/products/new" element={<ProductAddPage />} />
+            <Route path="/products/:id/edit" element={<ProductAddPage />} />
             <Route
               path="/distributors"
               element={<Placeholder title="Distributors" />}
@@ -70,6 +74,7 @@ function App() {
             }
           >
             <Route path="/products" element={<ProductListPage />} />
+            <Route path="/products/:id" element={<ProductDetailPage />} />
             <Route
               path="/customers"
               element={<Placeholder title="Customers" />}
