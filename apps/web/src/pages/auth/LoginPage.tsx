@@ -4,6 +4,7 @@ import { useShopsQuery, useLoginMutation } from '../../hooks/useAuth';
 import { useAuthStore } from '../../stores/auth-store';
 import { useShopStore } from '../../stores/shop-store';
 import { UserRole } from '@retailerp/shared-types';
+// Note: login/setShop called via getState() to avoid re-render loops
 import type { ShopListItem } from '@retailerp/shared-types';
 import {
   ChevronDown,
@@ -19,19 +20,15 @@ import { getDefaultRoute } from '../../routes/ProtectedRoute';
 
 export function LoginPage() {
   const navigate = useNavigate();
-  const login = useAuthStore((s) => s.login);
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
-  const setShop = useShopStore((s) => s.setShop);
+  const user = useAuthStore((s) => s.user);
 
-  // Redirect if already authenticated
+  // Redirect if already authenticated (user object must exist, not just token)
   useEffect(() => {
-    if (isAuthenticated) {
-      const user = useAuthStore.getState().user;
-      navigate(user ? getDefaultRoute(user.role) : '/products', {
-        replace: true,
-      });
+    if (isAuthenticated && user) {
+      navigate(getDefaultRoute(user.role), { replace: true });
     }
-  }, [isAuthenticated, navigate]);
+  }, [isAuthenticated, user, navigate]);
 
   // --- Step state ---
   const [selectedShop, setSelectedShop] = useState<ShopListItem | null>(null);
@@ -79,7 +76,7 @@ export function LoginPage() {
           }
 
           // Store tokens and user
-          login(
+          useAuthStore.getState().login(
             {
               id: data.user.id,
               username: data.user.username,
@@ -92,7 +89,7 @@ export function LoginPage() {
           );
 
           // Store shop
-          setShop(data.shop.id, data.shop.name, data.shop.code);
+          useShopStore.getState().setShop(data.shop.id, data.shop.name, data.shop.code);
 
           // Redirect
           navigate(getDefaultRoute(data.user.role), { replace: true });

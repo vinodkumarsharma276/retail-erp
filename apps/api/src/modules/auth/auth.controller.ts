@@ -94,7 +94,30 @@ export const authController = {
   },
 
   async me(request: FastifyRequest, reply: FastifyReply) {
-    return sendSuccess(reply, request.currentUser);
+    if (!request.currentUser) {
+      return sendError(reply, 'Authentication required', 401);
+    }
+
+    // Fetch full user with shops from DB (not just JWT payload)
+    const user = await authService.getUserWithShops(request.currentUser.userId);
+    if (!user) {
+      return sendError(reply, 'User not found', 404);
+    }
+
+    return sendSuccess(reply, {
+      user: {
+        id: user.id,
+        username: user.username,
+        fullName: user.fullName,
+        role: user.role,
+        isMobileOnly: user.isMobileOnly,
+      },
+      shops: user.userShops.map((us: any) => ({
+        id: us.shop.id,
+        name: us.shop.name,
+        code: us.shop.code,
+      })),
+    });
   },
 
   async logout(request: FastifyRequest<{ Body: { refreshToken: string } }>, reply: FastifyReply) {

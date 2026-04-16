@@ -141,16 +141,29 @@ export function DistributorFormPage() {
         paymentTerms: existingDistributor.paymentTerms ?? '',
         creditLimit: existingDistributor.creditLimit ?? '',
       });
-      // Set categories
-      if ((existingDistributor as any).categories) {
-        setSelectedCategoryIds(
-          (existingDistributor as any).categories.map(
-            (c: { id: string }) => c.id,
-          ),
-        );
+      // Set categories — map to root category IDs (the checkboxes show root categories)
+      const cats = (existingDistributor as any).categories ?? (existingDistributor as any).distributorCategories ?? [];
+      if (cats.length > 0 && rootCategories.length > 0) {
+        const rootIds = new Set<string>();
+        for (const dc of cats) {
+          const cat = dc.category ?? dc;
+          const catId = cat.id ?? dc.categoryId;
+          // Check if this is already a root category
+          const isRoot = rootCategories.some((rc: any) => rc.id === catId);
+          if (isRoot) {
+            rootIds.add(catId);
+          } else {
+            // It's a leaf — find its root parent from the tree
+            const parentRoot = rootCategories.find((rc: any) =>
+              rc.children?.some((child: any) => child.id === catId),
+            );
+            if (parentRoot) rootIds.add(parentRoot.id);
+          }
+        }
+        setSelectedCategoryIds(Array.from(rootIds));
       }
     }
-  }, [existingDistributor, isEditMode, reset]);
+  }, [existingDistributor, isEditMode, reset, rootCategories]);
 
   const toggleCategory = (catId: string) => {
     setSelectedCategoryIds((prev) =>

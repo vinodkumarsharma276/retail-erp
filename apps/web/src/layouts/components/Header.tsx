@@ -81,7 +81,7 @@ export function Header() {
         if (user) {
           loginStore(user, data.accessToken, refreshToken);
         }
-        sessionStorage.setItem('accessToken', data.accessToken);
+        localStorage.setItem('accessToken', data.accessToken);
 
         // Update shop
         setShop(data.shop.id, data.shop.name, data.shop.code);

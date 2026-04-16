@@ -67,9 +67,14 @@ export function DistributorDetailPage() {
     );
   }
 
-  const categories = (distributor as any).categories as
-    | Array<{ id: string; name: string }>
+  // categories is the DistributorCategory join table: [{ id, categoryId, category: { id, name, slug } }]
+  const rawCategories = (distributor as any).categories as
+    | Array<{ id: string; categoryId: string; category?: { id: string; name: string } }>
     | undefined;
+  const categories = rawCategories?.map((dc) => ({
+    id: dc.category?.id ?? dc.categoryId ?? dc.id,
+    name: dc.category?.name ?? (dc as any).name ?? 'Unknown',
+  }));
 
   return (
     <div>

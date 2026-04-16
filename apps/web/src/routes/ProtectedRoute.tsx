@@ -1,28 +1,26 @@
 import { Navigate, Outlet } from 'react-router-dom';
-import { useAuthStore } from '../stores/auth-store';
+import { useAuthStore, hasStoredToken } from '../stores/auth-store';
+import { useShopStore } from '../stores/shop-store';
 import { useMeQuery } from '../hooks/useAuth';
 import { Loader2 } from 'lucide-react';
 import { useEffect } from 'react';
-import { useShopStore } from '../stores/shop-store';
 import { UserRole } from '@retailerp/shared-types';
 
 export function ProtectedRoute() {
-  const user = useAuthStore((s) => s.user);
-  const login = useAuthStore((s) => s.login);
-  const setShop = useShopStore((s) => s.setShop);
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const isHydrated = useAuthStore((s) => s.isHydrated);
+  const tokenExists = hasStoredToken();
 
-  // If we have a token in sessionStorage but no user in memory (page refresh),
-  // fetch the current user via /auth/me to rehydrate the store.
-  const hasToken = !!sessionStorage.getItem('accessToken');
-  const needsRehydration = hasToken && !user;
+  // Need rehydration: token in storage but store not yet hydrated
+  const needsRehydration = tokenExists && !isHydrated;
 
   const { data, isLoading, isError } = useMeQuery(needsRehydration);
 
   useEffect(() => {
     if (data?.user) {
-      const accessToken = sessionStorage.getItem('accessToken') ?? '';
+      const accessToken = localStorage.getItem('accessToken') ?? '';
       const refreshToken = localStorage.getItem('refreshToken') ?? '';
-      login(
+      useAuthStore.getState().login(
         {
           id: data.user.id,
           username: data.user.username,
@@ -34,22 +32,29 @@ export function ProtectedRoute() {
         refreshToken,
       );
 
-      // Also rehydrate the available shops list if needed
       const shopId = localStorage.getItem('currentShopId');
       const shopName = localStorage.getItem('currentShopName');
       const shopCode = localStorage.getItem('currentShopCode');
       if (shopId && shopName && shopCode) {
-        setShop(shopId, shopName, shopCode);
+        useShopStore.getState().setShop(shopId, shopName, shopCode);
       }
     }
-  }, [data, login, setShop]);
+  }, [data]);
 
-  // No token at all — redirect to login
-  if (!hasToken) {
+  // Rehydration failed — clear token and send to login
+  useEffect(() => {
+    if (needsRehydration && isError) {
+      localStorage.removeItem('accessToken');
+      useAuthStore.getState().setHydrated();
+    }
+  }, [needsRehydration, isError]);
+
+  // No token at all — go to login
+  if (!tokenExists) {
     return <Navigate to="/login" replace />;
   }
 
-  // Token exists but we're rehydrating the user
+  // Rehydrating — show spinner
   if (needsRehydration && isLoading) {
     return (
       <div className="flex h-screen items-center justify-center">
@@ -58,9 +63,8 @@ export function ProtectedRoute() {
     );
   }
 
-  // Token was invalid
-  if (needsRehydration && isError) {
-    sessionStorage.removeItem('accessToken');
+  // Rehydration failed
+  if (!isAuthenticated && !isLoading) {
     return <Navigate to="/login" replace />;
   }
 

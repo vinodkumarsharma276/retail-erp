@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { UserRole } from '@retailerp/shared-types';
 
-interface AuthUser {
+export interface AuthUser {
   id: string;
   username: string;
   fullName: string;
@@ -12,22 +12,32 @@ interface AuthUser {
 interface AuthState {
   user: AuthUser | null;
   isAuthenticated: boolean;
+  isHydrated: boolean;
   login: (user: AuthUser, accessToken: string, refreshToken: string) => void;
   logout: () => void;
+  setHydrated: () => void;
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
   user: null,
-  isAuthenticated: !!sessionStorage.getItem('accessToken'),
+  isAuthenticated: false,
+  isHydrated: !localStorage.getItem('accessToken'),
   login: (user, accessToken, refreshToken) => {
-    sessionStorage.setItem('accessToken', accessToken);
+    localStorage.setItem('accessToken', accessToken);
     localStorage.setItem('refreshToken', refreshToken);
-    set({ user, isAuthenticated: true });
+    set({ user, isAuthenticated: true, isHydrated: true });
   },
   logout: () => {
-    sessionStorage.removeItem('accessToken');
+    localStorage.removeItem('accessToken');
     localStorage.removeItem('refreshToken');
     localStorage.removeItem('currentShopId');
-    set({ user: null, isAuthenticated: false });
+    localStorage.removeItem('currentShopName');
+    localStorage.removeItem('currentShopCode');
+    set({ user: null, isAuthenticated: false, isHydrated: true });
   },
+  setHydrated: () => set({ isHydrated: true }),
 }));
+
+export function hasStoredToken(): boolean {
+  return !!localStorage.getItem('accessToken');
+}

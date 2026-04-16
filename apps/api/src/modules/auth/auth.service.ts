@@ -124,4 +124,11 @@ export const authService = {
       data: { revokedAt: new Date() },
     });
   },
+
+  async getUserWithShops(userId: string) {
+    return prisma.user.findUnique({
+      where: { id: userId },
+      include: { userShops: { include: { shop: { select: { id: true, name: true, code: true } } } } },
+    });
+  },
 };

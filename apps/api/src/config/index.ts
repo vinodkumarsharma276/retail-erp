@@ -7,7 +7,7 @@ export const config = {
   jwt: {
     secret: process.env.JWT_SECRET || 'dev-secret',
     refreshSecret: process.env.JWT_REFRESH_SECRET || 'dev-refresh-secret',
-    accessExpiresIn: '15m',
+    accessExpiresIn: '1h',
     refreshExpiresIn: '7d',
   },
   database: {

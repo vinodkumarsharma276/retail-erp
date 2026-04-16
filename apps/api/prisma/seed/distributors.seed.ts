@@ -98,7 +98,7 @@ export async function seedDistributors(
       bankBranch: 'Vikhroli East Mumbai',
       paymentTerms: 'Net 60',
       creditLimit: 1800000,
-      categorySlugs: ['sofa', 'bed', 'dining-table', 'wardrobe'],
+      categorySlugs: ['furniture'],
     },
     {
       companyName: 'Whirlpool of India Ltd.',
