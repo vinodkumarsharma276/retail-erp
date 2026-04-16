@@ -19,6 +19,8 @@ import { transferRoutes } from './modules/transfers/transfers.routes.js';
 import { expenseRoutes } from './modules/expenses/expenses.routes.js';
 import { bankRoutes } from './modules/bank/bank.routes.js';
 import { dashboardRoutes } from './modules/dashboard/dashboard.routes.js';
+import { formRoutes } from './modules/forms/forms.routes.js';
+import { employeeRoutes } from './modules/employees/employees.routes.js';
 
 export async function buildApp() {
   const app = Fastify({
@@ -56,8 +58,8 @@ export async function buildApp() {
   await app.register(expenseRoutes, { prefix: '/api/v1/expenses' });
   await app.register(bankRoutes, { prefix: '/api/v1/bank' });
   await app.register(dashboardRoutes, { prefix: '/api/v1/dashboard' });
-  // await app.register(formRoutes, { prefix: '/api/v1/forms' });
-  // await app.register(employeeRoutes, { prefix: '/api/v1/employees' });
+  await app.register(formRoutes, { prefix: '/api/v1/forms' });
+  await app.register(employeeRoutes, { prefix: '/api/v1/employees' });
   // await app.register(notificationRoutes, { prefix: '/api/v1/notifications' });
 
   return app;

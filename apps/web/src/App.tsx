@@ -26,6 +26,11 @@ import { TransferDetailPage } from './pages/transfers/TransferDetailPage';
 import { ExpenseListPage } from './pages/expenses/ExpenseListPage';
 import { ExpenseFormPage } from './pages/expenses/ExpenseFormPage';
 import { BankPage } from './pages/bank/BankPage';
+import { EmployeeListPage } from './pages/employees/EmployeeListPage';
+import { EmployeeFormPage } from './pages/employees/EmployeeFormPage';
+import { SettingsPage } from './pages/settings/SettingsPage';
+import { FormBuilderPage } from './pages/settings/FormBuilderPage';
+import { CategoryManagerPage } from './pages/settings/CategoryManagerPage';
 import { ProtectedRoute, getDefaultRoute } from './routes/ProtectedRoute';
 import { RoleGuard } from './routes/RoleGuard';
 import { useAuthStore } from './stores/auth-store';
@@ -45,8 +50,13 @@ function App() {
           {/* Admin-only routes */}
           <Route element={<RoleGuard allowedRoles={[UserRole.ADMIN]} />}>
             <Route path="/dashboard" element={<DashboardPage />} />
-            <Route path="/employees" element={<Placeholder title="Employees" />} />
-            <Route path="/settings" element={<Placeholder title="Settings" />} />
+            <Route path="/employees" element={<EmployeeListPage />} />
+            <Route path="/employees/new" element={<EmployeeFormPage />} />
+            <Route path="/employees/:id/edit" element={<EmployeeFormPage />} />
+            <Route path="/settings" element={<SettingsPage />}>
+              <Route path="forms" element={<FormBuilderPage />} />
+              <Route path="categories" element={<CategoryManagerPage />} />
+            </Route>
           </Route>
 
           {/* Admin + Accountant routes */}
@@ -131,17 +141,6 @@ function RootRedirect() {
 
   const target = user ? getDefaultRoute(user.role) : '/products';
   return <Navigate to={target} replace />;
-}
-
-function Placeholder({ title }: { title: string }) {
-  return (
-    <div>
-      <h1 className="text-2xl font-semibold mb-4">{title}</h1>
-      <p className="text-muted-foreground">
-        This section will be built in upcoming phases.
-      </p>
-    </div>
-  );
 }
 
 export default App;

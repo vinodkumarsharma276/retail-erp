@@ -186,3 +186,155 @@ export function useUpdateProductMutation() {
     },
   });
 }
+
+// ---------------------------------------------------------------------------
+// Category CRUD mutations
+// ---------------------------------------------------------------------------
+export function useCreateCategoryMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (payload: {
+      name: string;
+      parentId?: string;
+      icon?: string;
+      displayOrder?: number;
+    }) => {
+      const { data } = await apiClient.post<ApiResponse<ProductCategory>>(
+        '/categories',
+        payload,
+      );
+      return data.data!;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.categories });
+    },
+  });
+}
+
+export function useUpdateCategoryMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      id,
+      payload,
+    }: {
+      id: string;
+      payload: { name?: string; icon?: string; displayOrder?: number; isActive?: boolean };
+    }) => {
+      const { data } = await apiClient.put<ApiResponse<ProductCategory>>(
+        `/categories/${id}`,
+        payload,
+      );
+      return data.data!;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.categories });
+    },
+  });
+}
+
+export function useDeleteCategoryMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      await apiClient.delete(`/categories/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.categories });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Category attribute mutations
+// ---------------------------------------------------------------------------
+export function useCreateCategoryAttributeMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      categoryId,
+      payload,
+    }: {
+      categoryId: string;
+      payload: {
+        attributeName: string;
+        attributeLabel: string;
+        attributeType: string;
+        isRequired?: boolean;
+        options?: unknown[];
+        displayOrder?: number;
+      };
+    }) => {
+      const { data } = await apiClient.post<ApiResponse<CategoryAttribute>>(
+        `/categories/${categoryId}/attributes`,
+        payload,
+      );
+      return data.data!;
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: keys.categoryAttributes(variables.categoryId),
+      });
+    },
+  });
+}
+
+export function useUpdateCategoryAttributeMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      categoryId,
+      attrId,
+      payload,
+    }: {
+      categoryId: string;
+      attrId: string;
+      payload: Partial<{
+        attributeName: string;
+        attributeLabel: string;
+        attributeType: string;
+        isRequired: boolean;
+        options: unknown[];
+        displayOrder: number;
+        isActive: boolean;
+      }>;
+    }) => {
+      const { data } = await apiClient.put<ApiResponse<CategoryAttribute>>(
+        `/categories/${categoryId}/attributes/${attrId}`,
+        payload,
+      );
+      return data.data!;
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: keys.categoryAttributes(variables.categoryId),
+      });
+    },
+  });
+}
+
+export function useDeleteCategoryAttributeMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      categoryId,
+      attrId,
+    }: {
+      categoryId: string;
+      attrId: string;
+    }) => {
+      await apiClient.delete(`/categories/${categoryId}/attributes/${attrId}`);
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: keys.categoryAttributes(variables.categoryId),
+      });
+    },
+  });
+}
