@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: retailerp-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: retailerp
+      POSTGRES_PASSWORD: retailerp
+      POSTGRES_DB: retailerp
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:

@@ -1,0 +1,50 @@
+{
+  "name": "@retailerp/web",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@retailerp/shared-types": "*",
+    "@retailerp/shared-utils": "*",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-router-dom": "^7.6.0",
+    "@tanstack/react-query": "^5.75.0",
+    "@tanstack/react-table": "^8.21.0",
+    "zustand": "^5.0.0",
+    "axios": "^1.9.0",
+    "react-hook-form": "^7.56.0",
+    "@hookform/resolvers": "^5.0.0",
+    "zod": "^3.24.0",
+    "recharts": "^2.15.0",
+    "lucide-react": "^0.511.0",
+    "clsx": "^2.1.0",
+    "tailwind-merge": "^3.3.0",
+    "class-variance-authority": "^0.7.1",
+    "date-fns": "^4.1.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.4",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^4.3.0",
+    "autoprefixer": "^10.4.21",
+    "eslint": "^9.17.0",
+    "eslint-plugin-react-hooks": "^5.1.0",
+    "eslint-plugin-react-refresh": "^0.4.16",
+    "globals": "^15.14.0",
+    "postcss": "^8.5.0",
+    "tailwindcss": "^3.4.0",
+    "typescript": "~5.7.0",
+    "typescript-eslint": "^8.18.0",
+    "vite": "^6.0.0"
+  }
+}
