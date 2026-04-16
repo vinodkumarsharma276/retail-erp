@@ -1,0 +1,52 @@
+# =============================================================================
+# RetailERP — Production Docker Compose
+# For local production testing or self-hosted deployment.
+# On Azure, the API runs on App Service and PostgreSQL on Flexible Server,
+# so this file is mainly for staging / local-prod testing.
+# =============================================================================
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: retailerp-api
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - apps/api/.env.production
+    environment:
+      NODE_ENV: production
+    networks:
+      - retailerp
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: retailerp-db-prod
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-retailerp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-retailerp}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata_prod:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-retailerp}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - retailerp
+
+volumes:
+  pgdata_prod:
+
+networks:
+  retailerp:
+    driver: bridge

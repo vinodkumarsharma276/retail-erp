@@ -1,4 +1,4 @@
-name: CI
+name: CI/CD
 
 on:
   push:
@@ -6,7 +6,15 @@ on:
   pull_request:
     branches: [main]
 
+# Cancel in-progress runs for the same branch
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  # ===========================================================================
+  # Build & Typecheck
+  # ===========================================================================
   build:
     runs-on: ubuntu-latest
 
@@ -44,5 +52,120 @@ jobs:
       - name: Typecheck
         run: npx turbo typecheck
 
-      - name: Build
+      - name: Build all
         run: npx turbo build
+
+      # Cache build artifacts for deploy jobs
+      - name: Upload API build artifact
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-build
+          path: |
+            apps/api/dist/
+            apps/api/prisma/
+            apps/api/package.json
+            packages/shared-types/src/
+            packages/shared-types/package.json
+            packages/shared-utils/src/
+            packages/shared-utils/package.json
+            package.json
+            package-lock.json
+          retention-days: 1
+
+      - name: Upload web build artifact
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-build
+          path: apps/web/dist/
+          retention-days: 1
+
+  # ===========================================================================
+  # Deploy API to Azure App Service
+  # Runs only on push to main after build succeeds
+  # ===========================================================================
+  deploy-api:
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    environment:
+      name: production
+      url: ${{ secrets.API_URL }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Download API build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: api-build
+          path: ./deploy
+
+      - name: Install production dependencies
+        working-directory: ./deploy
+        run: npm ci --omit=dev
+
+      - name: Generate Prisma client (production)
+        working-directory: ./deploy
+        run: npx prisma generate --schema=apps/api/prisma/schema.prisma
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+      - name: Run Prisma migrations
+        working-directory: ./deploy
+        run: npx prisma migrate deploy --schema=apps/api/prisma/schema.prisma
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+      - name: Create deployment package
+        run: |
+          cd deploy
+          zip -r ../deploy.zip . -x "*.map"
+
+      - name: Deploy to Azure App Service
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ secrets.AZURE_API_APP_NAME }}
+          publish-profile: ${{ secrets.AZURE_API_PUBLISH_PROFILE }}
+          package: deploy.zip
+          startup-command: 'node apps/api/dist/index.js'
+
+  # ===========================================================================
+  # Deploy Web to Azure Static Web Apps
+  # Runs only on push to main after build succeeds
+  # ===========================================================================
+  deploy-web:
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    environment:
+      name: production
+      url: ${{ secrets.WEB_URL }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download web build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: web-build
+          path: apps/web/dist
+
+      - name: Deploy to Azure Static Web Apps
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          action: 'upload'
+          app_location: 'apps/web'
+          output_location: 'dist'
+          skip_app_build: true
+          skip_api_build: true

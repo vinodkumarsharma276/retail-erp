@@ -1,0 +1,8 @@
+# This .dockerignore is at apps/api/ but the Docker build context is the repo root.
+# Place a .dockerignore at the repo root as well.
+node_modules
+dist
+.turbo
+.env
+.env.local
+*.log

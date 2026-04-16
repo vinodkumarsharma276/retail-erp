@@ -1,0 +1,26 @@
+# Docker build context exclusions (repo root)
+node_modules
+dist
+.turbo
+.git
+.github
+.vscode
+.idea
+.claude
+
+# Environment files (secrets must come from env vars, not baked into image)
+.env
+.env.*
+!.env.example
+!.env.production.example
+
+# Mobile app (not needed for API build)
+apps/mobile
+
+# Logs and OS files
+*.log
+.DS_Store
+Thumbs.db
+
+# Test/coverage
+coverage
