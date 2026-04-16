@@ -35,9 +35,13 @@ import { ProtectedRoute, getDefaultRoute } from './routes/ProtectedRoute';
 import { RoleGuard } from './routes/RoleGuard';
 import { useAuthStore } from './stores/auth-store';
 import { UserRole } from '@retailerp/shared-types';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { ToastContainer } from './components/Toast';
 
 function App() {
   return (
+    <ErrorBoundary>
+    <ToastContainer />
     <Routes>
       {/* Auth routes */}
       <Route element={<AuthLayout />}>
@@ -125,6 +129,7 @@ function App() {
       {/* Fallback — redirect unknown routes to login */}
       <Route path="*" element={<Navigate to="/login" replace />} />
     </Routes>
+    </ErrorBoundary>
   );
 }
 

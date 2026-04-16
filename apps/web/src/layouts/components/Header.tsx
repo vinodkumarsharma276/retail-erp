@@ -7,9 +7,11 @@ import {
   Store,
   Loader2,
   Check,
+  Menu,
 } from 'lucide-react';
 import { useAuthStore } from '../../stores/auth-store';
 import { useShopStore } from '../../stores/shop-store';
+import { useSidebarStore } from '../../stores/sidebar-store';
 import { useNavigate } from 'react-router-dom';
 import { useMeQuery, useLogoutMutation, useSwitchShopMutation } from '../../hooks/useAuth';
 import { queryClient } from '../../lib/query-client';
@@ -28,6 +30,7 @@ export function Header() {
   const loginStore = useAuthStore((s) => s.login);
   const navigate = useNavigate();
 
+  const openSidebar = useSidebarStore((s) => s.open);
   const logoutMutation = useLogoutMutation();
   const switchShopMutation = useSwitchShopMutation();
 
@@ -94,8 +97,17 @@ export function Header() {
   return (
     <div className="border-b bg-card">
       {/* Top bar */}
-      <header className="flex h-16 items-center justify-between px-6">
-        <div className="flex items-center gap-4">
+      <header className="flex h-16 items-center justify-between px-4 sm:px-6">
+        <div className="flex items-center gap-3 sm:gap-4">
+          {/* Mobile menu toggle */}
+          <button
+            onClick={openSidebar}
+            className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors lg:hidden"
+            aria-label="Open menu"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+
           {/* Shop badge / switcher */}
           {canSwitchShop && availableShops.length > 1 ? (
             <div className="relative" ref={shopDropdownRef}>

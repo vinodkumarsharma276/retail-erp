@@ -1,0 +1,10 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    "paths": {
+      "@retailerp/shared-types": ["../../packages/shared-types/src"],
+      "@retailerp/shared-utils": ["../../packages/shared-utils/src"]
+    }
+  }
+}

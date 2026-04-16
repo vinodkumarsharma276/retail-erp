@@ -1,0 +1,33 @@
+{
+  "expo": {
+    "name": "RetailERP Collect",
+    "slug": "retailerp-collect",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "retailerp",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "backgroundColor": "#1E40AF",
+      "resizeMode": "contain"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.retailerp.collect"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#1E40AF"
+      },
+      "package": "com.retailerp.collect"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
