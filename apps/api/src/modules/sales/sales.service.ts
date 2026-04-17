@@ -109,9 +109,14 @@ export const salesService = {
     const interestRate = data.interestRate ?? 0;
     const numInstallments = data.numInstallments ?? 0;
 
-    const netAmount = sellingPrice - discountAmount;
-    const gstAmount = Math.round(netAmount * gstRate / 100);
-    const totalAmount = netAmount + gstAmount;
+    // Selling price is GST-inclusive. Extract GST via reverse calculation.
+    const gstAmount = gstRate > 0 ? Math.round(sellingPrice * gstRate / (100 + gstRate)) : 0;
+    const netAmount = sellingPrice - gstAmount; // Pre-tax base price
+    const totalAmount = sellingPrice; // SP is already GST-inclusive
+
+    // Snapshot DP and calculate input GST (ITC) from purchase price
+    const purchasePrice = Number(product.purchasePrice);
+    const purchaseGstAmount = gstRate > 0 ? Math.round(purchasePrice * gstRate / (100 + gstRate)) : 0;
 
     // For self_finance: use calculateEMI to compute financing details
     let totalFinancedAmount: number | null = null;
@@ -120,7 +125,7 @@ export const salesService = {
 
     if (data.saleType === 'self_finance') {
       emiResult = calculateEMI({
-        sellingPrice: totalAmount,
+        sellingPrice, // SP is already GST-inclusive
         downPayment,
         interestRate,
         fileCharge,
@@ -160,6 +165,8 @@ export const salesService = {
           netAmount,
           gstRate,
           gstAmount,
+          purchasePrice,
+          purchaseGstAmount,
           totalAmount,
           downPayment,
           paymentMode: data.paymentMode as any,

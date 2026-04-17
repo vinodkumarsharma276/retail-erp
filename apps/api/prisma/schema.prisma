@@ -531,6 +531,8 @@ model SaleRecord {
   netAmount                   Decimal              @map("net_amount") @db.Decimal(12, 2)
   gstRate                     Decimal              @default(0) @map("gst_rate") @db.Decimal(4, 2)
   gstAmount                   Decimal              @default(0) @map("gst_amount") @db.Decimal(12, 2)
+  purchasePrice               Decimal              @default(0) @map("purchase_price") @db.Decimal(12, 2)
+  purchaseGstAmount           Decimal              @default(0) @map("purchase_gst_amount") @db.Decimal(12, 2)
   totalAmount                 Decimal              @map("total_amount") @db.Decimal(12, 2)
   downPayment                 Decimal              @default(0) @map("down_payment") @db.Decimal(12, 2)
   paymentMode                 PaymentMode          @map("payment_mode")

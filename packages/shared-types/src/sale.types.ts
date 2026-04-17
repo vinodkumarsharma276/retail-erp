@@ -15,6 +15,8 @@ export interface SaleRecord {
   netAmount: number;
   gstRate: number;
   gstAmount: number;
+  purchasePrice: number;
+  purchaseGstAmount: number;
   totalAmount: number;
   downPayment: number;
   paymentMode: PaymentMode;

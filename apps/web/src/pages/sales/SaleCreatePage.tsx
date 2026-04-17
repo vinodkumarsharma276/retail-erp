@@ -280,8 +280,9 @@ export function SaleCreatePage() {
   // -----------------------------------------------------------------------
   // Computed amounts
   // -----------------------------------------------------------------------
-  const gstAmount = sellingPrice * (gstRate / 100);
-  const totalAmount = sellingPrice + gstAmount;
+  // Selling price is GST-inclusive — extract GST via reverse calculation
+  const gstAmount = gstRate > 0 ? Math.round(sellingPrice * gstRate / (100 + gstRate)) : 0;
+  const totalAmount = sellingPrice; // SP is already the total (GST-inclusive)
 
   // Pending amount depends on sale type
   const pendingAmount = useMemo(() => {
@@ -599,7 +600,663 @@ export function SaleCreatePage() {
         </section>
 
         {/* =============================================================== */}
-        {/* SECTION 3: CUSTOMER */}
+        {/* SECTION 3: SALE TYPE */}
+        {/* =============================================================== */}
+        <section className="rounded-lg border bg-card p-6">
+          <h2 className="text-lg font-medium mb-4 flex items-center gap-2">
+            <CreditCard className="h-5 w-5 text-primary" />
+            Sale Type
+          </h2>
+
+          {/* Segmented control */}
+          <div className="flex flex-wrap gap-2 mb-6">
+            {/* Full Payment — always visible */}
+            <SaleTypeButton
+              active={saleType === SaleType.FULL_PAYMENT}
+              onClick={() => setValue('saleType', SaleType.FULL_PAYMENT)}
+              label="Full Payment"
+            />
+            {/* Partial with Promise — always visible */}
+            <SaleTypeButton
+              active={saleType === SaleType.PARTIAL_WITH_PROMISE}
+              onClick={() => setValue('saleType', SaleType.PARTIAL_WITH_PROMISE)}
+              label="Partial with Promise"
+            />
+            {/* Self Finance — hidden for "others" */}
+            {!isOthersRole && (
+              <SaleTypeButton
+                active={saleType === SaleType.SELF_FINANCE}
+                onClick={() => setValue('saleType', SaleType.SELF_FINANCE)}
+                label="Self Finance (Installment)"
+              />
+            )}
+            {/* Company Finance — hidden for "others" */}
+            {!isOthersRole && (
+              <SaleTypeButton
+                active={saleType === SaleType.COMPANY_FINANCE}
+                onClick={() => setValue('saleType', SaleType.COMPANY_FINANCE)}
+                label="Company Finance"
+              />
+            )}
+          </div>
+
+          {/* ---- FULL PAYMENT ---- */}
+          {saleType === SaleType.FULL_PAYMENT && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {/* Selling Price */}
+                <div>
+                  <label className="block text-sm font-medium mb-1.5">
+                    Selling Price <span className="text-destructive">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    {...register('sellingPrice', {
+                      required: 'Selling price is required',
+                      min: { value: 1, message: 'Must be greater than 0' },
+                    })}
+                    placeholder="0.00"
+                    className={cn(
+                      'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                      'placeholder:text-muted-foreground',
+                      'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                      errors.sellingPrice && 'border-destructive',
+                    )}
+                  />
+                  {errors.sellingPrice && (
+                    <p className="mt-1 text-xs text-destructive">
+                      {errors.sellingPrice.message}
+                    </p>
+                  )}
+                </div>
+
+                {/* Payment Mode */}
+                <div>
+                  <label className="block text-sm font-medium mb-1.5">
+                    Payment Mode
+                  </label>
+                  <PaymentModePills
+                    value={paymentMode}
+                    onChange={(val) => setValue('paymentMode', val)}
+                  />
+                </div>
+
+                {/* GST Section */}
+                <GstSelector
+                  gstType={saleGstType}
+                  onGstTypeChange={setSaleGstType}
+                  gstPercent={gstRate}
+                  onGstPercentChange={(val) => setValue('gstRate', val)}
+                  sellingPrice={sellingPrice}
+                />
+
+                {/* Pricing calculations */}
+                {selectedProduct && sellingPrice > 0 && (
+                  <SellingPriceCalculations
+                    sellingPrice={sellingPrice}
+                    mrp={selectedProduct.mrp}
+                    dp={selectedProduct.purchasePrice}
+                    gstRate={gstRate}
+                  />
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ---- PARTIAL WITH PROMISE ---- */}
+          {saleType === SaleType.PARTIAL_WITH_PROMISE && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {/* Selling Price */}
+                <div>
+                  <label className="block text-sm font-medium mb-1.5">
+                    Selling Price <span className="text-destructive">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    {...register('sellingPrice', {
+                      required: 'Selling price is required',
+                      min: { value: 1, message: 'Must be greater than 0' },
+                    })}
+                    placeholder="0.00"
+                    className={cn(
+                      'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                      'placeholder:text-muted-foreground',
+                      'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                      errors.sellingPrice && 'border-destructive',
+                    )}
+                  />
+                  {errors.sellingPrice && (
+                    <p className="mt-1 text-xs text-destructive">
+                      {errors.sellingPrice.message}
+                    </p>
+                  )}
+                </div>
+
+                {/* Down Payment */}
+                <div>
+                  <label className="block text-sm font-medium mb-1.5">
+                    Down Payment <span className="text-destructive">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    {...register('downPayment', {
+                      required: 'Down payment is required',
+                      min: { value: 0, message: 'Must be positive' },
+                    })}
+                    onChange={(e) => {
+                      setDownPaymentManuallySet(true);
+                      setValue('downPayment', Number(e.target.value) || '');
+                    }}
+                    placeholder="0.00"
+                    className={cn(
+                      'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                      'placeholder:text-muted-foreground',
+                      'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                      errors.downPayment && 'border-destructive',
+                    )}
+                  />
+                  {errors.downPayment && (
+                    <p className="mt-1 text-xs text-destructive">
+                      {errors.downPayment.message}
+                    </p>
+                  )}
+                </div>
+
+                {/* Payment Mode */}
+                <div>
+                  <label className="block text-sm font-medium mb-1.5">
+                    Payment Mode
+                  </label>
+                  <PaymentModePills
+                    value={paymentMode}
+                    onChange={(val) => setValue('paymentMode', val)}
+                  />
+                </div>
+
+                {/* Promise Date */}
+                <div>
+                  <label className="block text-sm font-medium mb-1.5">
+                    Promise Date <span className="text-destructive">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    {...register('promiseDate', {
+                      required: 'Promise date is required',
+                    })}
+                    className={cn(
+                      'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                      'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                      errors.promiseDate && 'border-destructive',
+                    )}
+                  />
+                  {errors.promiseDate && (
+                    <p className="mt-1 text-xs text-destructive">
+                      {errors.promiseDate.message}
+                    </p>
+                  )}
+                </div>
+
+                {/* Pending Amount (read-only) */}
+                <div>
+                  <label className="block text-sm font-medium mb-1.5">
+                    Pending Amount
+                  </label>
+                  <div className="rounded-md border bg-muted/50 px-3 py-2.5 text-sm font-medium text-red-600">
+                    {formatINR(pendingAmount)}
+                  </div>
+                </div>
+
+                {/* GST Section */}
+                <GstSelector
+                  gstType={saleGstType}
+                  onGstTypeChange={setSaleGstType}
+                  gstPercent={gstRate}
+                  onGstPercentChange={(val) => setValue('gstRate', val)}
+                  sellingPrice={sellingPrice}
+                />
+
+                {/* Pricing calculations */}
+                {selectedProduct && sellingPrice > 0 && (
+                  <SellingPriceCalculations
+                    sellingPrice={sellingPrice}
+                    mrp={selectedProduct.mrp}
+                    dp={selectedProduct.purchasePrice}
+                    gstRate={gstRate}
+                  />
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ---- SELF FINANCE (INSTALLMENT) ---- */}
+          {saleType === SaleType.SELF_FINANCE && !isOthersRole && (
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {/* Selling Price */}
+                <div>
+                  <label className="block text-sm font-medium mb-1.5">
+                    Selling Price <span className="text-destructive">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    {...register('sellingPrice', {
+                      required: 'Selling price is required',
+                      min: { value: 1, message: 'Must be greater than 0' },
+                    })}
+                    placeholder="0.00"
+                    className={cn(
+                      'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                      'placeholder:text-muted-foreground',
+                      'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                      errors.sellingPrice && 'border-destructive',
+                    )}
+                  />
+                  {errors.sellingPrice && (
+                    <p className="mt-1 text-xs text-destructive">
+                      {errors.sellingPrice.message}
+                    </p>
+                  )}
+                </div>
+
+                {/* Down Payment */}
+                <div>
+                  <label className="block text-sm font-medium mb-1.5">
+                    Down Payment <span className="text-destructive">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    {...register('downPayment', {
+                      required: 'Down payment is required',
+                      min: { value: 0, message: 'Must be positive' },
+                    })}
+                    onChange={(e) => {
+                      setDownPaymentManuallySet(true);
+                      setValue('downPayment', Number(e.target.value) || '');
+                    }}
+                    placeholder="0.00"
+                    className={cn(
+                      'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                      'placeholder:text-muted-foreground',
+                      'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                      errors.downPayment && 'border-destructive',
+                    )}
+                  />
+                  {errors.downPayment && (
+                    <p className="mt-1 text-xs text-destructive">
+                      {errors.downPayment.message}
+                    </p>
+                  )}
+                </div>
+
+                {/* Payment Mode (for down payment) */}
+                <div>
+                  <label className="block text-sm font-medium mb-1.5">
+                    Payment Mode (Down Payment)
+                  </label>
+                  <PaymentModePills
+                    value={paymentMode}
+                    onChange={(val) => setValue('paymentMode', val)}
+                  />
+                </div>
+
+                {/* Interest Rate */}
+                <div>
+                  <label className="block text-sm font-medium mb-1.5">
+                    Interest Rate (% per month) <span className="text-destructive">*</span>
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    {INTEREST_RATES.map((rate) => (
+                      <button
+                        key={rate}
+                        type="button"
+                        onClick={() => setValue('interestRate', rate)}
+                        className={cn(
+                          'rounded-md border px-3 py-1.5 text-sm font-medium transition-colors',
+                          interestRate === rate
+                            ? 'border-primary bg-primary text-primary-foreground'
+                            : 'hover:bg-muted',
+                        )}
+                      >
+                        {rate}%
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* File Charge */}
+                <div>
+                  <label className="block text-sm font-medium mb-1.5">
+                    File Charge
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    {...register('fileCharge', {
+                      min: { value: 0, message: 'Must be positive' },
+                    })}
+                    placeholder="0.00"
+                    className={cn(
+                      'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                      'placeholder:text-muted-foreground',
+                      'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                    )}
+                  />
+                </div>
+
+                {/* Number of Months */}
+                <div>
+                  <label className="block text-sm font-medium mb-1.5">
+                    Number of Months <span className="text-destructive">*</span>
+                  </label>
+                  <div className="relative">
+                    <select
+                      value={numInstallments}
+                      onChange={(e) =>
+                        setValue('numInstallments', Number(e.target.value))
+                      }
+                      className={cn(
+                        'w-full appearance-none rounded-md border bg-background px-3 py-2.5 pr-8 text-sm',
+                        'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                      )}
+                    >
+                      {INSTALLMENT_MONTHS.map((m) => (
+                        <option key={m} value={m}>
+                          {m} months
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  </div>
+                </div>
+
+                {/* GST Section */}
+                <GstSelector
+                  gstType={saleGstType}
+                  onGstTypeChange={setSaleGstType}
+                  gstPercent={gstRate}
+                  onGstPercentChange={(val) => setValue('gstRate', val)}
+                  sellingPrice={sellingPrice}
+                />
+
+                {/* Pricing calculations */}
+                {selectedProduct && sellingPrice > 0 && (
+                  <SellingPriceCalculations
+                    sellingPrice={sellingPrice}
+                    mrp={selectedProduct.mrp}
+                    dp={selectedProduct.purchasePrice}
+                    gstRate={gstRate}
+                  />
+                )}
+              </div>
+
+              {/* EMI Preview Panel */}
+              {emiResult && (
+                <div className="rounded-lg border-2 border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/30 p-5">
+                  <h3 className="text-base font-medium text-blue-900 dark:text-blue-100 mb-4">
+                    EMI Preview
+                  </h3>
+                  <p className="text-xs text-blue-600 dark:text-blue-400 mb-3">
+                    Principal = Selling Price ({formatINR(sellingPrice)}) - Down Payment ({formatINR(downPayment)}) = {formatINR(emiResult.principal)}
+                  </p>
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6 mb-4">
+                    <div>
+                      <p className="text-xs font-medium text-blue-700 dark:text-blue-400">Principal</p>
+                      <p className="text-lg font-semibold text-blue-900 dark:text-blue-100">
+                        {formatINR(emiResult.principal)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-medium text-blue-700 dark:text-blue-400">Total Interest</p>
+                      <p className="text-lg font-semibold text-blue-900 dark:text-blue-100">
+                        {formatINR(emiResult.totalInterest)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-medium text-blue-700 dark:text-blue-400">File Charge</p>
+                      <p className="text-lg font-semibold text-blue-900 dark:text-blue-100">
+                        {formatINR(emiResult.fileCharge)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-medium text-blue-700 dark:text-blue-400">
+                        Total Payable
+                      </p>
+                      <p className="text-lg font-bold text-blue-900 dark:text-blue-100">
+                        {formatINR(emiResult.totalPayable)}
+                      </p>
+                      <p className="text-[10px] text-blue-500 dark:text-blue-400">
+                        (Principal + Interest + File)
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-medium text-blue-700 dark:text-blue-400">EMI / Month</p>
+                      <p className="text-lg font-bold text-primary">
+                        {formatINR(emiResult.emiAmount)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-medium text-blue-700 dark:text-blue-400">
+                        Customer Total
+                      </p>
+                      <p className="text-lg font-bold text-red-600">
+                        {formatINR(downPayment + emiResult.totalPayable)}
+                      </p>
+                      <p className="text-[10px] text-blue-500 dark:text-blue-400">
+                        (Down + Installments)
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Schedule table */}
+                  <div className="max-h-64 overflow-y-auto rounded-md border border-blue-200 dark:border-blue-800 bg-card">
+                    <table className="w-full text-sm">
+                      <thead className="sticky top-0 bg-blue-100 dark:bg-blue-900/40">
+                        <tr>
+                          <th className="px-3 py-2 text-left font-medium text-blue-800 dark:text-blue-300">
+                            Month #
+                          </th>
+                          <th className="px-3 py-2 text-left font-medium text-blue-800 dark:text-blue-300">
+                            Due Date
+                          </th>
+                          <th className="px-3 py-2 text-right font-medium text-blue-800 dark:text-blue-300">
+                            Amount
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {emiResult.schedule.map((item) => (
+                          <tr
+                            key={item.installmentNumber}
+                            className="border-t border-blue-100 dark:border-blue-900"
+                          >
+                            <td className="px-3 py-1.5">
+                              {item.installmentNumber}
+                            </td>
+                            <td className="px-3 py-1.5">{item.dueDate}</td>
+                            <td className="px-3 py-1.5 text-right font-medium">
+                              {formatINR(item.amount)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ---- COMPANY FINANCE ---- */}
+          {saleType === SaleType.COMPANY_FINANCE && !isOthersRole && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {/* Selling Price */}
+                <div>
+                  <label className="block text-sm font-medium mb-1.5">
+                    Selling Price <span className="text-destructive">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    {...register('sellingPrice', {
+                      required: 'Selling price is required',
+                      min: { value: 1, message: 'Must be greater than 0' },
+                    })}
+                    placeholder="0.00"
+                    className={cn(
+                      'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                      'placeholder:text-muted-foreground',
+                      'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                      errors.sellingPrice && 'border-destructive',
+                    )}
+                  />
+                  {errors.sellingPrice && (
+                    <p className="mt-1 text-xs text-destructive">
+                      {errors.sellingPrice.message}
+                    </p>
+                  )}
+                </div>
+
+                {/* Finance Company */}
+                <div>
+                  <label className="block text-sm font-medium mb-1.5">
+                    Finance Company <span className="text-destructive">*</span>
+                  </label>
+                  <div className="relative">
+                    <select
+                      {...register('financeCompanyId', {
+                        required: 'Finance company is required',
+                      })}
+                      className={cn(
+                        'w-full appearance-none rounded-md border bg-background px-3 py-2.5 pr-8 text-sm',
+                        'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                        errors.financeCompanyId && 'border-destructive',
+                      )}
+                    >
+                      <option value="">Select company...</option>
+                      {financeCompanies?.map((fc) => (
+                        <option key={fc.id} value={fc.id}>
+                          {fc.name}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  </div>
+                  {errors.financeCompanyId && (
+                    <p className="mt-1 text-xs text-destructive">
+                      {errors.financeCompanyId.message}
+                    </p>
+                  )}
+                </div>
+
+                {/* Down Payment */}
+                <div>
+                  <label className="block text-sm font-medium mb-1.5">
+                    Down Payment
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    {...register('downPayment', {
+                      min: { value: 0, message: 'Must be positive' },
+                    })}
+                    onChange={(e) => {
+                      setDownPaymentManuallySet(true);
+                      setValue('downPayment', Number(e.target.value) || '');
+                    }}
+                    placeholder="0.00"
+                    className={cn(
+                      'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                      'placeholder:text-muted-foreground',
+                      'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                    )}
+                  />
+                </div>
+
+                {/* Payment Mode (for down payment) */}
+                <div>
+                  <label className="block text-sm font-medium mb-1.5">
+                    Payment Mode (Down Payment)
+                  </label>
+                  <PaymentModePills
+                    value={paymentMode}
+                    onChange={(val) => setValue('paymentMode', val)}
+                  />
+                </div>
+
+                {/* Financed Amount */}
+                <div>
+                  <label className="block text-sm font-medium mb-1.5">
+                    Financed Amount <span className="text-destructive">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    {...register('financedAmount', {
+                      required: 'Financed amount is required',
+                      min: { value: 1, message: 'Must be greater than 0' },
+                    })}
+                    placeholder="0.00"
+                    className={cn(
+                      'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                      'placeholder:text-muted-foreground',
+                      'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                      errors.financedAmount && 'border-destructive',
+                    )}
+                  />
+                  {errors.financedAmount && (
+                    <p className="mt-1 text-xs text-destructive">
+                      {errors.financedAmount.message}
+                    </p>
+                  )}
+                </div>
+
+                {/* Expected Payment Date */}
+                <div>
+                  <label className="block text-sm font-medium mb-1.5">
+                    Expected Payment Date
+                  </label>
+                  <input
+                    type="date"
+                    {...register('expectedPaymentDate')}
+                    className={cn(
+                      'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                      'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                    )}
+                  />
+                </div>
+
+                {/* GST Section */}
+                <GstSelector
+                  gstType={saleGstType}
+                  onGstTypeChange={setSaleGstType}
+                  gstPercent={gstRate}
+                  onGstPercentChange={(val) => setValue('gstRate', val)}
+                  sellingPrice={sellingPrice}
+                />
+
+                {/* Pricing calculations */}
+                {selectedProduct && sellingPrice > 0 && (
+                  <SellingPriceCalculations
+                    sellingPrice={sellingPrice}
+                    mrp={selectedProduct.mrp}
+                    dp={selectedProduct.purchasePrice}
+                    gstRate={gstRate}
+                  />
+                )}
+              </div>
+            </div>
+          )}
+        </section>
+
+        {/* =============================================================== */}
+        {/* SECTION 4: CUSTOMER + GUARANTOR */}
         {/* =============================================================== */}
         <section className="rounded-lg border bg-card p-6">
           <h2 className="text-lg font-medium mb-4 flex items-center gap-2">
@@ -908,945 +1565,287 @@ export function SaleCreatePage() {
               </button>
             </div>
           )}
-        </section>
 
-        {/* =============================================================== */}
-        {/* SECTION 4: SALE TYPE */}
-        {/* =============================================================== */}
-        <section className="rounded-lg border bg-card p-6">
-          <h2 className="text-lg font-medium mb-4 flex items-center gap-2">
-            <CreditCard className="h-5 w-5 text-primary" />
-            Sale Type
-          </h2>
-
-          {/* Segmented control */}
-          <div className="flex flex-wrap gap-2 mb-6">
-            {/* Full Payment — always visible */}
-            <SaleTypeButton
-              active={saleType === SaleType.FULL_PAYMENT}
-              onClick={() => setValue('saleType', SaleType.FULL_PAYMENT)}
-              label="Full Payment"
-            />
-            {/* Partial with Promise — always visible */}
-            <SaleTypeButton
-              active={saleType === SaleType.PARTIAL_WITH_PROMISE}
-              onClick={() => setValue('saleType', SaleType.PARTIAL_WITH_PROMISE)}
-              label="Partial with Promise"
-            />
-            {/* Self Finance — hidden for "others" */}
-            {!isOthersRole && (
-              <SaleTypeButton
-                active={saleType === SaleType.SELF_FINANCE}
-                onClick={() => setValue('saleType', SaleType.SELF_FINANCE)}
-                label="Self Finance (Installment)"
-              />
-            )}
-            {/* Company Finance — hidden for "others" */}
-            {!isOthersRole && (
-              <SaleTypeButton
-                active={saleType === SaleType.COMPANY_FINANCE}
-                onClick={() => setValue('saleType', SaleType.COMPANY_FINANCE)}
-                label="Company Finance"
-              />
-            )}
-          </div>
-
-          {/* ---- FULL PAYMENT ---- */}
-          {saleType === SaleType.FULL_PAYMENT && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {/* Selling Price */}
-                <div>
-                  <label className="block text-sm font-medium mb-1.5">
-                    Selling Price <span className="text-destructive">*</span>
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    {...register('sellingPrice', {
-                      required: 'Selling price is required',
-                      min: { value: 1, message: 'Must be greater than 0' },
-                    })}
-                    placeholder="0.00"
-                    className={cn(
-                      'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
-                      'placeholder:text-muted-foreground',
-                      'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                      errors.sellingPrice && 'border-destructive',
-                    )}
-                  />
-                  {errors.sellingPrice && (
-                    <p className="mt-1 text-xs text-destructive">
-                      {errors.sellingPrice.message}
-                    </p>
-                  )}
-                </div>
-
-                {/* Payment Mode */}
-                <div>
-                  <label className="block text-sm font-medium mb-1.5">
-                    Payment Mode
-                  </label>
-                  <PaymentModePills
-                    value={paymentMode}
-                    onChange={(val) => setValue('paymentMode', val)}
-                  />
-                </div>
-
-                {/* GST Section */}
-                <GstSelector
-                  gstType={saleGstType}
-                  onGstTypeChange={setSaleGstType}
-                  gstPercent={gstRate}
-                  onGstPercentChange={(val) => setValue('gstRate', val)}
-                  sellingPrice={sellingPrice}
-                />
-
-                {/* Pricing calculations */}
-                {selectedProduct && sellingPrice > 0 && (
-                  <SellingPriceCalculations
-                    sellingPrice={sellingPrice}
-                    mrp={selectedProduct.mrp}
-                    dp={selectedProduct.purchasePrice}
-                    gstRate={gstRate}
-                    gstType={saleGstType}
-                  />
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* ---- PARTIAL WITH PROMISE ---- */}
-          {saleType === SaleType.PARTIAL_WITH_PROMISE && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {/* Selling Price */}
-                <div>
-                  <label className="block text-sm font-medium mb-1.5">
-                    Selling Price <span className="text-destructive">*</span>
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    {...register('sellingPrice', {
-                      required: 'Selling price is required',
-                      min: { value: 1, message: 'Must be greater than 0' },
-                    })}
-                    placeholder="0.00"
-                    className={cn(
-                      'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
-                      'placeholder:text-muted-foreground',
-                      'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                      errors.sellingPrice && 'border-destructive',
-                    )}
-                  />
-                  {errors.sellingPrice && (
-                    <p className="mt-1 text-xs text-destructive">
-                      {errors.sellingPrice.message}
-                    </p>
-                  )}
-                </div>
-
-                {/* Down Payment */}
-                <div>
-                  <label className="block text-sm font-medium mb-1.5">
-                    Down Payment <span className="text-destructive">*</span>
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    {...register('downPayment', {
-                      required: 'Down payment is required',
-                      min: { value: 0, message: 'Must be positive' },
-                    })}
-                    onChange={(e) => {
-                      setDownPaymentManuallySet(true);
-                      setValue('downPayment', Number(e.target.value) || '');
-                    }}
-                    placeholder="0.00"
-                    className={cn(
-                      'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
-                      'placeholder:text-muted-foreground',
-                      'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                      errors.downPayment && 'border-destructive',
-                    )}
-                  />
-                  {errors.downPayment && (
-                    <p className="mt-1 text-xs text-destructive">
-                      {errors.downPayment.message}
-                    </p>
-                  )}
-                </div>
-
-                {/* Payment Mode */}
-                <div>
-                  <label className="block text-sm font-medium mb-1.5">
-                    Payment Mode
-                  </label>
-                  <PaymentModePills
-                    value={paymentMode}
-                    onChange={(val) => setValue('paymentMode', val)}
-                  />
-                </div>
-
-                {/* Promise Date */}
-                <div>
-                  <label className="block text-sm font-medium mb-1.5">
-                    Promise Date <span className="text-destructive">*</span>
-                  </label>
-                  <input
-                    type="date"
-                    {...register('promiseDate', {
-                      required: 'Promise date is required',
-                    })}
-                    className={cn(
-                      'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
-                      'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                      errors.promiseDate && 'border-destructive',
-                    )}
-                  />
-                  {errors.promiseDate && (
-                    <p className="mt-1 text-xs text-destructive">
-                      {errors.promiseDate.message}
-                    </p>
-                  )}
-                </div>
-
-                {/* Pending Amount (read-only) */}
-                <div>
-                  <label className="block text-sm font-medium mb-1.5">
-                    Pending Amount
-                  </label>
-                  <div className="rounded-md border bg-muted/50 px-3 py-2.5 text-sm font-medium text-red-600">
-                    {formatINR(pendingAmount)}
-                  </div>
-                </div>
-
-                {/* GST Section */}
-                <GstSelector
-                  gstType={saleGstType}
-                  onGstTypeChange={setSaleGstType}
-                  gstPercent={gstRate}
-                  onGstPercentChange={(val) => setValue('gstRate', val)}
-                  sellingPrice={sellingPrice}
-                />
-
-                {/* Pricing calculations */}
-                {selectedProduct && sellingPrice > 0 && (
-                  <SellingPriceCalculations
-                    sellingPrice={sellingPrice}
-                    mrp={selectedProduct.mrp}
-                    dp={selectedProduct.purchasePrice}
-                    gstRate={gstRate}
-                    gstType={saleGstType}
-                  />
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* ---- SELF FINANCE (INSTALLMENT) ---- */}
+          {/* Guarantor — shown only for self-finance */}
           {saleType === SaleType.SELF_FINANCE && !isOthersRole && (
-            <div className="space-y-6">
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {/* Selling Price */}
-                <div>
-                  <label className="block text-sm font-medium mb-1.5">
-                    Selling Price <span className="text-destructive">*</span>
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    {...register('sellingPrice', {
-                      required: 'Selling price is required',
-                      min: { value: 1, message: 'Must be greater than 0' },
-                    })}
-                    placeholder="0.00"
-                    className={cn(
-                      'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
-                      'placeholder:text-muted-foreground',
-                      'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                      errors.sellingPrice && 'border-destructive',
-                    )}
-                  />
-                  {errors.sellingPrice && (
-                    <p className="mt-1 text-xs text-destructive">
-                      {errors.sellingPrice.message}
-                    </p>
-                  )}
-                </div>
+            <div className="pt-4 border-t mt-4">
+              <h3 className="text-sm font-medium mb-3 flex items-center gap-2">
+                <Shield className="h-4 w-4 text-purple-600" />
+                Guarantor <span className="text-destructive">*</span>
+              </h3>
 
-                {/* Down Payment */}
-                <div>
-                  <label className="block text-sm font-medium mb-1.5">
-                    Down Payment <span className="text-destructive">*</span>
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    {...register('downPayment', {
-                      required: 'Down payment is required',
-                      min: { value: 0, message: 'Must be positive' },
-                    })}
-                    onChange={(e) => {
-                      setDownPaymentManuallySet(true);
-                      setValue('downPayment', Number(e.target.value) || '');
-                    }}
-                    placeholder="0.00"
-                    className={cn(
-                      'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
-                      'placeholder:text-muted-foreground',
-                      'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                      errors.downPayment && 'border-destructive',
-                    )}
-                  />
-                  {errors.downPayment && (
-                    <p className="mt-1 text-xs text-destructive">
-                      {errors.downPayment.message}
-                    </p>
-                  )}
-                </div>
-
-                {/* Payment Mode (for down payment) */}
-                <div>
-                  <label className="block text-sm font-medium mb-1.5">
-                    Payment Mode (Down Payment)
-                  </label>
-                  <PaymentModePills
-                    value={paymentMode}
-                    onChange={(val) => setValue('paymentMode', val)}
-                  />
-                </div>
-
-                {/* Interest Rate */}
-                <div>
-                  <label className="block text-sm font-medium mb-1.5">
-                    Interest Rate (% per month) <span className="text-destructive">*</span>
-                  </label>
-                  <div className="flex flex-wrap gap-2">
-                    {INTEREST_RATES.map((rate) => (
-                      <button
-                        key={rate}
-                        type="button"
-                        onClick={() => setValue('interestRate', rate)}
-                        className={cn(
-                          'rounded-md border px-3 py-1.5 text-sm font-medium transition-colors',
-                          interestRate === rate
-                            ? 'border-primary bg-primary text-primary-foreground'
-                            : 'hover:bg-muted',
-                        )}
-                      >
-                        {rate}%
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* File Charge */}
-                <div>
-                  <label className="block text-sm font-medium mb-1.5">
-                    File Charge
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    {...register('fileCharge', {
-                      min: { value: 0, message: 'Must be positive' },
-                    })}
-                    placeholder="0.00"
-                    className={cn(
-                      'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
-                      'placeholder:text-muted-foreground',
-                      'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                    )}
-                  />
-                </div>
-
-                {/* Number of Months */}
-                <div>
-                  <label className="block text-sm font-medium mb-1.5">
-                    Number of Months <span className="text-destructive">*</span>
-                  </label>
-                  <div className="relative">
-                    <select
-                      value={numInstallments}
-                      onChange={(e) =>
-                        setValue('numInstallments', Number(e.target.value))
-                      }
-                      className={cn(
-                        'w-full appearance-none rounded-md border bg-background px-3 py-2.5 pr-8 text-sm',
-                        'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                      )}
-                    >
-                      {INSTALLMENT_MONTHS.map((m) => (
-                        <option key={m} value={m}>
-                          {m} months
-                        </option>
-                      ))}
-                    </select>
-                    <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  </div>
-                </div>
-
-                {/* GST Section */}
-                <GstSelector
-                  gstType={saleGstType}
-                  onGstTypeChange={setSaleGstType}
-                  gstPercent={gstRate}
-                  onGstPercentChange={(val) => setValue('gstRate', val)}
-                  sellingPrice={sellingPrice}
-                />
-
-                {/* Pricing calculations */}
-                {selectedProduct && sellingPrice > 0 && (
-                  <SellingPriceCalculations
-                    sellingPrice={sellingPrice}
-                    mrp={selectedProduct.mrp}
-                    dp={selectedProduct.purchasePrice}
-                    gstRate={gstRate}
-                    gstType={saleGstType}
-                  />
-                )}
-              </div>
-
-              {/* EMI Preview Panel */}
-              {emiResult && (
-                <div className="rounded-lg border-2 border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/30 p-5">
-                  <h3 className="text-base font-medium text-blue-900 dark:text-blue-100 mb-4">
-                    EMI Preview
-                  </h3>
-                  <p className="text-xs text-blue-600 dark:text-blue-400 mb-3">
-                    Principal = Selling Price ({formatINR(sellingPrice)}) - Down Payment ({formatINR(downPayment)}) = {formatINR(emiResult.principal)}
-                  </p>
-                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6 mb-4">
+              {selectedGuarantor ? (
+                <div className="rounded-md border p-3 bg-purple-50 dark:bg-purple-950/30 border-purple-200 dark:border-purple-800">
+                  <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-xs font-medium text-blue-700 dark:text-blue-400">Principal</p>
-                      <p className="text-lg font-semibold text-blue-900 dark:text-blue-100">
-                        {formatINR(emiResult.principal)}
+                      <p className="text-sm font-medium text-purple-800 dark:text-purple-200">
+                        {selectedGuarantor.name}
                       </p>
-                    </div>
-                    <div>
-                      <p className="text-xs font-medium text-blue-700 dark:text-blue-400">Total Interest</p>
-                      <p className="text-lg font-semibold text-blue-900 dark:text-blue-100">
-                        {formatINR(emiResult.totalInterest)}
+                      <p className="text-xs text-purple-600 dark:text-purple-400">
+                        {selectedGuarantor.phone}
+                        {selectedGuarantor.customerCode &&
+                          ` | ${selectedGuarantor.customerCode}`}
                       </p>
-                    </div>
-                    <div>
-                      <p className="text-xs font-medium text-blue-700 dark:text-blue-400">File Charge</p>
-                      <p className="text-lg font-semibold text-blue-900 dark:text-blue-100">
-                        {formatINR(emiResult.fileCharge)}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs font-medium text-blue-700 dark:text-blue-400">
-                        Total Payable
-                      </p>
-                      <p className="text-lg font-bold text-blue-900 dark:text-blue-100">
-                        {formatINR(emiResult.totalPayable)}
-                      </p>
-                      <p className="text-[10px] text-blue-500 dark:text-blue-400">
-                        (Principal + Interest + File)
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs font-medium text-blue-700 dark:text-blue-400">EMI / Month</p>
-                      <p className="text-lg font-bold text-primary">
-                        {formatINR(emiResult.emiAmount)}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs font-medium text-blue-700 dark:text-blue-400">
-                        Customer Total
-                      </p>
-                      <p className="text-lg font-bold text-red-600">
-                        {formatINR(downPayment + emiResult.totalPayable)}
-                      </p>
-                      <p className="text-[10px] text-blue-500 dark:text-blue-400">
-                        (Down + Installments)
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Schedule table */}
-                  <div className="max-h-64 overflow-y-auto rounded-md border border-blue-200 dark:border-blue-800 bg-card">
-                    <table className="w-full text-sm">
-                      <thead className="sticky top-0 bg-blue-100 dark:bg-blue-900/40">
-                        <tr>
-                          <th className="px-3 py-2 text-left font-medium text-blue-800 dark:text-blue-300">
-                            Month #
-                          </th>
-                          <th className="px-3 py-2 text-left font-medium text-blue-800 dark:text-blue-300">
-                            Due Date
-                          </th>
-                          <th className="px-3 py-2 text-right font-medium text-blue-800 dark:text-blue-300">
-                            Amount
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {emiResult.schedule.map((item) => (
-                          <tr
-                            key={item.installmentNumber}
-                            className="border-t border-blue-100 dark:border-blue-900"
-                          >
-                            <td className="px-3 py-1.5">
-                              {item.installmentNumber}
-                            </td>
-                            <td className="px-3 py-1.5">{item.dueDate}</td>
-                            <td className="px-3 py-1.5 text-right font-medium">
-                              {formatINR(item.amount)}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-
-              {/* Guarantor Section */}
-              <div className="pt-4 border-t">
-                <h3 className="text-sm font-medium mb-3 flex items-center gap-2">
-                  <Shield className="h-4 w-4 text-purple-600" />
-                  Guarantor <span className="text-destructive">*</span>
-                </h3>
-
-                {selectedGuarantor ? (
-                  <div className="rounded-md border p-3 bg-purple-50 dark:bg-purple-950/30 border-purple-200 dark:border-purple-800">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-medium text-purple-800 dark:text-purple-200">
-                          {selectedGuarantor.name}
-                        </p>
-                        <p className="text-xs text-purple-600 dark:text-purple-400">
-                          {selectedGuarantor.phone}
-                          {selectedGuarantor.customerCode &&
-                            ` | ${selectedGuarantor.customerCode}`}
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedGuarantor(null);
-                          setGuarantorSearchText('');
-                          setShowNewGuarantorForm(false);
-                        }}
-                        className="text-sm text-primary hover:underline"
-                      >
-                        Change
-                      </button>
-                    </div>
-                  </div>
-                ) : showNewGuarantorForm ? (
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <h4 className="text-sm font-medium">Add New Guarantor</h4>
-                      <button
-                        type="button"
-                        onClick={() => setShowNewGuarantorForm(false)}
-                        className="text-sm text-muted-foreground hover:text-foreground"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                      <div>
-                        <label className="block text-sm font-medium mb-1">
-                          Guarantor Name <span className="text-destructive">*</span>
-                        </label>
-                        <input
-                          type="text"
-                          value={newGuarantor.name}
-                          onChange={(e) =>
-                            setNewGuarantor({ ...newGuarantor, name: e.target.value })
-                          }
-                          placeholder="Full name"
-                          className={cn(
-                            'w-full rounded-md border bg-background px-3 py-2 text-sm',
-                            'placeholder:text-muted-foreground',
-                            'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                          )}
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium mb-1">
-                          Guarantor Phone <span className="text-destructive">*</span>
-                        </label>
-                        <input
-                          type="tel"
-                          value={newGuarantor.phone}
-                          onChange={(e) =>
-                            setNewGuarantor({ ...newGuarantor, phone: e.target.value })
-                          }
-                          placeholder="10-digit number"
-                          className={cn(
-                            'w-full rounded-md border bg-background px-3 py-2 text-sm',
-                            'placeholder:text-muted-foreground',
-                            'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                          )}
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium mb-1">
-                          Alt. Phone
-                        </label>
-                        <input
-                          type="tel"
-                          value={newGuarantor.altPhone}
-                          onChange={(e) =>
-                            setNewGuarantor({ ...newGuarantor, altPhone: e.target.value })
-                          }
-                          placeholder="Optional"
-                          className={cn(
-                            'w-full rounded-md border bg-background px-3 py-2 text-sm',
-                            'placeholder:text-muted-foreground',
-                            'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                          )}
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium mb-1">
-                          Aadhaar
-                        </label>
-                        <input
-                          type="text"
-                          value={newGuarantor.aadhaarNumber}
-                          onChange={(e) =>
-                            setNewGuarantor({
-                              ...newGuarantor,
-                              aadhaarNumber: e.target.value,
-                            })
-                          }
-                          placeholder="12-digit number"
-                          className={cn(
-                            'w-full rounded-md border bg-background px-3 py-2 text-sm',
-                            'placeholder:text-muted-foreground',
-                            'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                          )}
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium mb-1">
-                          Address
-                        </label>
-                        <input
-                          type="text"
-                          value={newGuarantor.addressLine1}
-                          onChange={(e) =>
-                            setNewGuarantor({
-                              ...newGuarantor,
-                              addressLine1: e.target.value,
-                            })
-                          }
-                          placeholder="Street address"
-                          className={cn(
-                            'w-full rounded-md border bg-background px-3 py-2 text-sm',
-                            'placeholder:text-muted-foreground',
-                            'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                          )}
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium mb-1">
-                          City
-                        </label>
-                        <input
-                          type="text"
-                          value={newGuarantor.city}
-                          onChange={(e) =>
-                            setNewGuarantor({ ...newGuarantor, city: e.target.value })
-                          }
-                          placeholder="City"
-                          className={cn(
-                            'w-full rounded-md border bg-background px-3 py-2 text-sm',
-                            'placeholder:text-muted-foreground',
-                            'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                          )}
-                        />
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={handleCreateNewGuarantor}
-                      disabled={
-                        !newGuarantor.name.trim() ||
-                        !newGuarantor.phone.trim() ||
-                        createGuarantorMutation.isPending
-                      }
-                      className={cn(
-                        'flex items-center gap-2 rounded-md bg-purple-600 px-4 py-2 text-sm font-medium text-white',
-                        'hover:bg-purple-700 transition-colors',
-                        'disabled:opacity-50 disabled:cursor-not-allowed',
-                      )}
-                    >
-                      {createGuarantorMutation.isPending ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Check className="h-4 w-4" />
-                      )}
-                      Save Guarantor
-                    </button>
-                    {createGuarantorMutation.error && (
-                      <p className="text-xs text-destructive">
-                        {(createGuarantorMutation.error as any)?.response?.data?.error ??
-                          'Failed to create guarantor'}
-                      </p>
-                    )}
-                  </div>
-                ) : (
-                  <div>
-                    <div className="relative max-w-md">
-                      <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                      <input
-                        type="text"
-                        value={guarantorSearchText}
-                        onChange={(e) => {
-                          setGuarantorSearchText(e.target.value);
-                          setShowGuarantorDropdown(true);
-                        }}
-                        onFocus={() => setShowGuarantorDropdown(true)}
-                        placeholder="Search guarantor by name or phone..."
-                        className={cn(
-                          'w-full rounded-md border bg-background pl-9 pr-8 py-2.5 text-sm',
-                          'placeholder:text-muted-foreground',
-                          'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                        )}
-                      />
-                      {guarantorSearchText && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setGuarantorSearchText('');
-                            setShowGuarantorDropdown(false);
-                          }}
-                          className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                        >
-                          <X className="h-4 w-4" />
-                        </button>
-                      )}
-
-                      {showGuarantorDropdown &&
-                        debouncedGuarantorSearch.length >= 2 && (
-                          <div className="absolute z-20 mt-1 w-full rounded-md border bg-card shadow-lg max-h-48 overflow-y-auto">
-                            {guarantorSearchQuery.isLoading ? (
-                              <div className="flex items-center gap-2 p-3 text-sm text-muted-foreground">
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                                Searching...
-                              </div>
-                            ) : guarantorResults.length === 0 ? (
-                              <p className="p-3 text-sm text-muted-foreground">
-                                No customers found.
-                              </p>
-                            ) : (
-                              guarantorResults.map((cust) => (
-                                <button
-                                  key={cust.id}
-                                  type="button"
-                                  onClick={() => {
-                                    setSelectedGuarantor(cust);
-                                    setGuarantorSearchText('');
-                                    setShowGuarantorDropdown(false);
-                                  }}
-                                  className="w-full text-left px-3 py-2 hover:bg-muted transition-colors border-b last:border-0"
-                                >
-                                  <p className="text-sm font-medium">
-                                    {cust.name}
-                                  </p>
-                                  <p className="text-xs text-muted-foreground">
-                                    {cust.phone}
-                                    {cust.customerCode &&
-                                      ` | ${cust.customerCode}`}
-                                  </p>
-                                </button>
-                              ))
-                            )}
-                          </div>
-                        )}
                     </div>
                     <button
                       type="button"
                       onClick={() => {
-                        setShowNewGuarantorForm(true);
-                        setShowGuarantorDropdown(false);
+                        setSelectedGuarantor(null);
+                        setGuarantorSearchText('');
+                        setShowNewGuarantorForm(false);
                       }}
-                      className="mt-3 flex items-center gap-1.5 text-sm text-purple-600 hover:underline"
+                      className="text-sm text-primary hover:underline"
                     >
-                      <Plus className="h-4 w-4" />
-                      Add New Guarantor
+                      Change
                     </button>
-
-                    {/* Validation hint */}
-                    {!selectedGuarantor && (
-                      <p className="mt-2 text-xs text-destructive">
-                        Guarantor is required for self-finance sales.
-                      </p>
-                    )}
                   </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* ---- COMPANY FINANCE ---- */}
-          {saleType === SaleType.COMPANY_FINANCE && !isOthersRole && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {/* Selling Price */}
-                <div>
-                  <label className="block text-sm font-medium mb-1.5">
-                    Selling Price <span className="text-destructive">*</span>
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    {...register('sellingPrice', {
-                      required: 'Selling price is required',
-                      min: { value: 1, message: 'Must be greater than 0' },
-                    })}
-                    placeholder="0.00"
-                    className={cn(
-                      'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
-                      'placeholder:text-muted-foreground',
-                      'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                      errors.sellingPrice && 'border-destructive',
-                    )}
-                  />
-                  {errors.sellingPrice && (
-                    <p className="mt-1 text-xs text-destructive">
-                      {errors.sellingPrice.message}
-                    </p>
-                  )}
                 </div>
-
-                {/* Finance Company */}
-                <div>
-                  <label className="block text-sm font-medium mb-1.5">
-                    Finance Company <span className="text-destructive">*</span>
-                  </label>
-                  <div className="relative">
-                    <select
-                      {...register('financeCompanyId', {
-                        required: 'Finance company is required',
-                      })}
-                      className={cn(
-                        'w-full appearance-none rounded-md border bg-background px-3 py-2.5 pr-8 text-sm',
-                        'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                        errors.financeCompanyId && 'border-destructive',
-                      )}
+              ) : showNewGuarantorForm ? (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-sm font-medium">Add New Guarantor</h4>
+                    <button
+                      type="button"
+                      onClick={() => setShowNewGuarantorForm(false)}
+                      className="text-sm text-muted-foreground hover:text-foreground"
                     >
-                      <option value="">Select company...</option>
-                      {financeCompanies?.map((fc) => (
-                        <option key={fc.id} value={fc.id}>
-                          {fc.name}
-                        </option>
-                      ))}
-                    </select>
-                    <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      Cancel
+                    </button>
                   </div>
-                  {errors.financeCompanyId && (
-                    <p className="mt-1 text-xs text-destructive">
-                      {errors.financeCompanyId.message}
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    <div>
+                      <label className="block text-sm font-medium mb-1">
+                        Guarantor Name <span className="text-destructive">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={newGuarantor.name}
+                        onChange={(e) =>
+                          setNewGuarantor({ ...newGuarantor, name: e.target.value })
+                        }
+                        placeholder="Full name"
+                        className={cn(
+                          'w-full rounded-md border bg-background px-3 py-2 text-sm',
+                          'placeholder:text-muted-foreground',
+                          'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                        )}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">
+                        Guarantor Phone <span className="text-destructive">*</span>
+                      </label>
+                      <input
+                        type="tel"
+                        value={newGuarantor.phone}
+                        onChange={(e) =>
+                          setNewGuarantor({ ...newGuarantor, phone: e.target.value })
+                        }
+                        placeholder="10-digit number"
+                        className={cn(
+                          'w-full rounded-md border bg-background px-3 py-2 text-sm',
+                          'placeholder:text-muted-foreground',
+                          'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                        )}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">
+                        Alt. Phone
+                      </label>
+                      <input
+                        type="tel"
+                        value={newGuarantor.altPhone}
+                        onChange={(e) =>
+                          setNewGuarantor({ ...newGuarantor, altPhone: e.target.value })
+                        }
+                        placeholder="Optional"
+                        className={cn(
+                          'w-full rounded-md border bg-background px-3 py-2 text-sm',
+                          'placeholder:text-muted-foreground',
+                          'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                        )}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">
+                        Aadhaar
+                      </label>
+                      <input
+                        type="text"
+                        value={newGuarantor.aadhaarNumber}
+                        onChange={(e) =>
+                          setNewGuarantor({
+                            ...newGuarantor,
+                            aadhaarNumber: e.target.value,
+                          })
+                        }
+                        placeholder="12-digit number"
+                        className={cn(
+                          'w-full rounded-md border bg-background px-3 py-2 text-sm',
+                          'placeholder:text-muted-foreground',
+                          'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                        )}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">
+                        Address
+                      </label>
+                      <input
+                        type="text"
+                        value={newGuarantor.addressLine1}
+                        onChange={(e) =>
+                          setNewGuarantor({
+                            ...newGuarantor,
+                            addressLine1: e.target.value,
+                          })
+                        }
+                        placeholder="Street address"
+                        className={cn(
+                          'w-full rounded-md border bg-background px-3 py-2 text-sm',
+                          'placeholder:text-muted-foreground',
+                          'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                        )}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">
+                        City
+                      </label>
+                      <input
+                        type="text"
+                        value={newGuarantor.city}
+                        onChange={(e) =>
+                          setNewGuarantor({ ...newGuarantor, city: e.target.value })
+                        }
+                        placeholder="City"
+                        className={cn(
+                          'w-full rounded-md border bg-background px-3 py-2 text-sm',
+                          'placeholder:text-muted-foreground',
+                          'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                        )}
+                      />
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleCreateNewGuarantor}
+                    disabled={
+                      !newGuarantor.name.trim() ||
+                      !newGuarantor.phone.trim() ||
+                      createGuarantorMutation.isPending
+                    }
+                    className={cn(
+                      'flex items-center gap-2 rounded-md bg-purple-600 px-4 py-2 text-sm font-medium text-white',
+                      'hover:bg-purple-700 transition-colors',
+                      'disabled:opacity-50 disabled:cursor-not-allowed',
+                    )}
+                  >
+                    {createGuarantorMutation.isPending ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Check className="h-4 w-4" />
+                    )}
+                    Save Guarantor
+                  </button>
+                  {createGuarantorMutation.error && (
+                    <p className="text-xs text-destructive">
+                      {(createGuarantorMutation.error as any)?.response?.data?.error ??
+                        'Failed to create guarantor'}
                     </p>
                   )}
                 </div>
-
-                {/* Down Payment */}
+              ) : (
                 <div>
-                  <label className="block text-sm font-medium mb-1.5">
-                    Down Payment
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    {...register('downPayment', {
-                      min: { value: 0, message: 'Must be positive' },
-                    })}
-                    onChange={(e) => {
-                      setDownPaymentManuallySet(true);
-                      setValue('downPayment', Number(e.target.value) || '');
+                  <div className="relative max-w-md">
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <input
+                      type="text"
+                      value={guarantorSearchText}
+                      onChange={(e) => {
+                        setGuarantorSearchText(e.target.value);
+                        setShowGuarantorDropdown(true);
+                      }}
+                      onFocus={() => setShowGuarantorDropdown(true)}
+                      placeholder="Search guarantor by name or phone..."
+                      className={cn(
+                        'w-full rounded-md border bg-background pl-9 pr-8 py-2.5 text-sm',
+                        'placeholder:text-muted-foreground',
+                        'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                      )}
+                    />
+                    {guarantorSearchText && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setGuarantorSearchText('');
+                          setShowGuarantorDropdown(false);
+                        }}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    )}
+
+                    {showGuarantorDropdown &&
+                      debouncedGuarantorSearch.length >= 2 && (
+                        <div className="absolute z-20 mt-1 w-full rounded-md border bg-card shadow-lg max-h-48 overflow-y-auto">
+                          {guarantorSearchQuery.isLoading ? (
+                            <div className="flex items-center gap-2 p-3 text-sm text-muted-foreground">
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                              Searching...
+                            </div>
+                          ) : guarantorResults.length === 0 ? (
+                            <p className="p-3 text-sm text-muted-foreground">
+                              No customers found.
+                            </p>
+                          ) : (
+                            guarantorResults.map((cust) => (
+                              <button
+                                key={cust.id}
+                                type="button"
+                                onClick={() => {
+                                  setSelectedGuarantor(cust);
+                                  setGuarantorSearchText('');
+                                  setShowGuarantorDropdown(false);
+                                }}
+                                className="w-full text-left px-3 py-2 hover:bg-muted transition-colors border-b last:border-0"
+                              >
+                                <p className="text-sm font-medium">
+                                  {cust.name}
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                  {cust.phone}
+                                  {cust.customerCode &&
+                                    ` | ${cust.customerCode}`}
+                                </p>
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowNewGuarantorForm(true);
+                      setShowGuarantorDropdown(false);
                     }}
-                    placeholder="0.00"
-                    className={cn(
-                      'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
-                      'placeholder:text-muted-foreground',
-                      'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                    )}
-                  />
-                </div>
+                    className="mt-3 flex items-center gap-1.5 text-sm text-purple-600 hover:underline"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Add New Guarantor
+                  </button>
 
-                {/* Payment Mode (for down payment) */}
-                <div>
-                  <label className="block text-sm font-medium mb-1.5">
-                    Payment Mode (Down Payment)
-                  </label>
-                  <PaymentModePills
-                    value={paymentMode}
-                    onChange={(val) => setValue('paymentMode', val)}
-                  />
-                </div>
-
-                {/* Financed Amount */}
-                <div>
-                  <label className="block text-sm font-medium mb-1.5">
-                    Financed Amount <span className="text-destructive">*</span>
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    {...register('financedAmount', {
-                      required: 'Financed amount is required',
-                      min: { value: 1, message: 'Must be greater than 0' },
-                    })}
-                    placeholder="0.00"
-                    className={cn(
-                      'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
-                      'placeholder:text-muted-foreground',
-                      'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                      errors.financedAmount && 'border-destructive',
-                    )}
-                  />
-                  {errors.financedAmount && (
-                    <p className="mt-1 text-xs text-destructive">
-                      {errors.financedAmount.message}
+                  {/* Validation hint */}
+                  {!selectedGuarantor && (
+                    <p className="mt-2 text-xs text-destructive">
+                      Guarantor is required for self-finance sales.
                     </p>
                   )}
                 </div>
-
-                {/* Expected Payment Date */}
-                <div>
-                  <label className="block text-sm font-medium mb-1.5">
-                    Expected Payment Date
-                  </label>
-                  <input
-                    type="date"
-                    {...register('expectedPaymentDate')}
-                    className={cn(
-                      'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
-                      'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                    )}
-                  />
-                </div>
-
-                {/* GST Section */}
-                <GstSelector
-                  gstType={saleGstType}
-                  onGstTypeChange={setSaleGstType}
-                  gstPercent={gstRate}
-                  onGstPercentChange={(val) => setValue('gstRate', val)}
-                  sellingPrice={sellingPrice}
-                />
-
-                {/* Pricing calculations */}
-                {selectedProduct && sellingPrice > 0 && (
-                  <SellingPriceCalculations
-                    sellingPrice={sellingPrice}
-                    mrp={selectedProduct.mrp}
-                    dp={selectedProduct.purchasePrice}
-                    gstRate={gstRate}
-                    gstType={saleGstType}
-                  />
-                )}
-              </div>
+              )}
             </div>
           )}
         </section>
@@ -1874,77 +1873,93 @@ export function SaleCreatePage() {
         <section className="rounded-lg border-2 border-primary/20 bg-primary/5 p-6">
           <h2 className="text-lg font-medium mb-4">Sale Summary</h2>
           <div className="space-y-2 text-sm max-w-md">
-            <SummaryRow label="Selling Price" value={formatINR(sellingPrice)} />
+            <SummaryRow label="Selling Price (incl. GST)" value={formatINR(sellingPrice)} />
             {gstRate > 0 && (
               <SummaryRow
                 label={
                   saleGstType === 'CGST_SGST'
-                    ? `CGST ${gstRate / 2}% + SGST ${gstRate / 2}%`
+                    ? `CGST ${gstRate / 2}% + SGST ${gstRate / 2}% (included)`
                     : saleGstType === 'IGST'
-                      ? `IGST (${gstRate}%)`
-                      : `GST (${gstRate}%)`
+                      ? `IGST ${gstRate}% (included)`
+                      : `GST ${gstRate}% (included)`
                 }
                 value={formatINR(gstAmount)}
               />
             )}
-            <div className="flex justify-between border-t pt-2 font-semibold text-base">
-              <span>Total Amount</span>
-              <span className="text-primary">{formatINR(totalAmount)}</span>
-            </div>
 
-            {saleType !== SaleType.FULL_PAYMENT && (
+            {saleType === SaleType.FULL_PAYMENT && (
+              <div className="flex justify-between border-t pt-2 font-semibold text-base">
+                <span>Amount Payable</span>
+                <span className="text-primary">{formatINR(sellingPrice)}</span>
+              </div>
+            )}
+
+            {saleType === SaleType.PARTIAL_WITH_PROMISE && (
               <>
                 <SummaryRow
                   label="Down Payment"
                   value={formatINR(downPayment)}
                 />
-                {saleType === SaleType.COMPANY_FINANCE && (
-                  <>
-                    <SummaryRow
-                      label="Financed Amount"
-                      value={formatINR(financedAmount)}
-                    />
-                    {pendingAmount > 0 && (
-                      <div className="flex justify-between border-t pt-2 font-semibold">
-                        <span>Remaining (Unpaid)</span>
-                        <span className="text-red-600">
-                          {formatINR(pendingAmount)}
-                        </span>
-                      </div>
-                    )}
-                  </>
-                )}
-                {saleType === SaleType.SELF_FINANCE && emiResult && (
-                  <>
-                    <SummaryRow
-                      label="Principal (SP - Down)"
-                      value={formatINR(emiResult.principal)}
-                    />
-                    <SummaryRow
-                      label="Total Interest"
-                      value={formatINR(emiResult.totalInterest)}
-                    />
-                    {emiResult.fileCharge > 0 && (
-                      <SummaryRow
-                        label="File Charge"
-                        value={formatINR(emiResult.fileCharge)}
-                      />
-                    )}
-                    <div className="flex justify-between border-t pt-2 font-semibold">
-                      <span>Total Payable (EMIs)</span>
-                      <span className="text-red-600">
-                        {formatINR(emiResult.totalPayable)}
-                      </span>
-                    </div>
-                    <SummaryRow
-                      label="EMI / month"
-                      value={formatINR(emiResult.emiAmount)}
-                    />
-                  </>
-                )}
-                {saleType === SaleType.PARTIAL_WITH_PROMISE && pendingAmount > 0 && (
+                {pendingAmount > 0 && (
                   <div className="flex justify-between border-t pt-2 font-semibold">
                     <span>Pending Amount</span>
+                    <span className="text-red-600">
+                      {formatINR(pendingAmount)}
+                    </span>
+                  </div>
+                )}
+              </>
+            )}
+
+            {saleType === SaleType.SELF_FINANCE && emiResult && (
+              <>
+                <SummaryRow
+                  label="Down Payment"
+                  value={formatINR(downPayment)}
+                />
+                <SummaryRow
+                  label="Principal (SP - Down)"
+                  value={formatINR(emiResult.principal)}
+                />
+                <SummaryRow
+                  label="Total Interest"
+                  value={formatINR(emiResult.totalInterest)}
+                />
+                {emiResult.fileCharge > 0 && (
+                  <SummaryRow
+                    label="File Charge"
+                    value={formatINR(emiResult.fileCharge)}
+                  />
+                )}
+                <SummaryRow
+                  label="EMI / month"
+                  value={formatINR(emiResult.emiAmount)}
+                />
+                <div className="flex justify-between border-t pt-2 font-semibold text-base">
+                  <span>Total Amount</span>
+                  <span className="text-primary">
+                    {formatINR(sellingPrice + emiResult.totalInterest + emiResult.fileCharge)}
+                  </span>
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  SP ({formatINR(sellingPrice)}) + Interest ({formatINR(emiResult.totalInterest)}) + File ({formatINR(emiResult.fileCharge)})
+                </p>
+              </>
+            )}
+
+            {saleType === SaleType.COMPANY_FINANCE && (
+              <>
+                <SummaryRow
+                  label="Down Payment"
+                  value={formatINR(downPayment)}
+                />
+                <SummaryRow
+                  label="Financed Amount"
+                  value={formatINR(financedAmount)}
+                />
+                {pendingAmount > 0 && (
+                  <div className="flex justify-between border-t pt-2 font-semibold">
+                    <span>Remaining (Unpaid)</span>
                     <span className="text-red-600">
                       {formatINR(pendingAmount)}
                     </span>
@@ -2083,13 +2098,14 @@ function GstSelector({
   onGstPercentChange: (val: number) => void;
   sellingPrice: number;
 }) {
-  const gstAmount = sellingPrice * (gstPercent / 100);
+  // SP is GST-inclusive — extract GST via reverse calculation
+  const gstAmount = gstPercent > 0 ? Math.round(sellingPrice * gstPercent / (100 + gstPercent)) : 0;
 
   return (
     <div className="sm:col-span-2 lg:col-span-3 space-y-3">
       {/* GST Type radio */}
       <div>
-        <label className="block text-sm font-medium mb-1.5">GST Type</label>
+        <label className="block text-sm font-medium mb-1.5">GST Type <span className="text-xs text-muted-foreground font-normal">(included in Selling Price)</span></label>
         <div className="flex flex-wrap gap-4">
           <label className="flex items-center gap-2 cursor-pointer">
             <input
@@ -2151,15 +2167,15 @@ function GstSelector({
               </div>
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1.5">CGST Amount</label>
+              <label className="block text-sm font-medium mb-1.5">CGST (included)</label>
               <div className="rounded-md border bg-muted/50 px-3 py-2.5 text-sm font-medium">
-                {gstPercent / 2}% = {formatINR(gstAmount / 2)}
+                {gstPercent / 2}% = {formatINR(Math.round(gstAmount / 2))}
               </div>
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1.5">SGST Amount</label>
+              <label className="block text-sm font-medium mb-1.5">SGST (included)</label>
               <div className="rounded-md border bg-muted/50 px-3 py-2.5 text-sm font-medium">
-                {gstPercent / 2}% = {formatINR(gstAmount / 2)}
+                {gstPercent / 2}% = {formatINR(Math.round(gstAmount / 2))}
               </div>
             </div>
           </>
@@ -2189,7 +2205,7 @@ function GstSelector({
             </div>
             <div>
               <label className="block text-sm font-medium mb-1.5">
-                {gstType === 'IGST' ? 'IGST Amount' : 'GST Amount'}
+                {gstType === 'IGST' ? 'IGST (included)' : 'GST (included)'}
               </label>
               <div className="rounded-md border bg-muted/50 px-3 py-2.5 text-sm font-medium">
                 {formatINR(gstAmount)}
@@ -2207,23 +2223,25 @@ function SellingPriceCalculations({
   mrp,
   dp,
   gstRate,
-  gstType,
 }: {
   sellingPrice: number;
   mrp: number;
   dp: number;
   gstRate: number;
-  gstType: GstType;
 }) {
   if (sellingPrice <= 0) return null;
 
   const discount = mrp - sellingPrice;
+  const discountPct = mrp > 0 ? ((discount / mrp) * 100).toFixed(1) : '0.0';
   const profit = sellingPrice - dp;
   const profitPct = dp > 0 ? ((profit / dp) * 100).toFixed(1) : '0.0';
-  const gstAmount = sellingPrice * (gstRate / 100);
-  const totalWithGst = sellingPrice + gstAmount;
   const isBelowDP = sellingPrice < dp;
   const isAboveMRP = sellingPrice > mrp;
+
+  const outputGst = gstRate > 0 ? Math.round(sellingPrice * gstRate / (100 + gstRate)) : 0;
+  const inputGst = gstRate > 0 ? Math.round(dp * gstRate / (100 + gstRate)) : 0;
+  const gstPayable = outputGst - inputGst;
+  const netProfit = (sellingPrice - outputGst) - (dp - inputGst);
 
   return (
     <div className="sm:col-span-2 lg:col-span-3">
@@ -2241,12 +2259,12 @@ function SellingPriceCalculations({
             : `Selling price is above MRP (${formatINR(mrp)}).`}
         </div>
       )}
-      {/* Calculations */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 rounded-md bg-muted/50 px-3 py-2.5">
+      {/* Calculations — no "Total" row since SP is GST-inclusive */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 rounded-md bg-muted/50 px-3 py-2.5">
         <div>
           <span className="text-xs text-muted-foreground">Discount (MRP - SP)</span>
           <p className={cn('text-sm font-semibold', discount >= 0 ? 'text-green-600' : 'text-red-600')}>
-            {formatINR(discount)}
+            {formatINR(discount)} <span className="text-xs font-normal">({discountPct}%)</span>
           </p>
         </div>
         <div>
@@ -2261,15 +2279,29 @@ function SellingPriceCalculations({
             {profitPct}%
           </p>
         </div>
-        <div>
-          <span className="text-xs text-muted-foreground">
-            Total (SP + {gstType === 'CGST_SGST' ? 'CGST+SGST' : gstType === 'IGST' ? 'IGST' : 'GST'})
-          </span>
-          <p className="text-sm font-semibold text-primary">
-            {formatINR(totalWithGst)}
-          </p>
-        </div>
       </div>
+      {gstRate > 0 && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 rounded-md bg-muted/50 px-3 py-2.5 mt-2">
+          <div>
+            <span className="text-xs text-muted-foreground">Output GST (on sale)</span>
+            <p className="text-sm font-semibold">{formatINR(outputGst)}</p>
+          </div>
+          <div>
+            <span className="text-xs text-muted-foreground">Input Tax Credit (on purchase)</span>
+            <p className="text-sm font-semibold text-green-600">{formatINR(inputGst)}</p>
+          </div>
+          <div>
+            <span className="text-xs text-muted-foreground">GST Payable to Govt</span>
+            <p className="text-sm font-semibold text-amber-600">{formatINR(gstPayable)}</p>
+          </div>
+          <div>
+            <span className="text-xs text-muted-foreground">Net Profit (after GST)</span>
+            <p className={cn('text-sm font-semibold', netProfit >= 0 ? 'text-green-600' : 'text-red-600')}>
+              {formatINR(netProfit)}
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

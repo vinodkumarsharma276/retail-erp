@@ -140,17 +140,41 @@ export function SaleDetailPage() {
                     value={formatINR(sale.mrp - sale.sellingPrice)}
                   />
                   <InfoRow
-                    label="Profit (SP - DP)"
+                    label="Gross Profit (SP - DP)"
                     value={formatINR(sale.sellingPrice - sale.product.purchasePrice)}
                   />
-                  <InfoRow
-                    label="Profit %"
-                    value={
-                      sale.product.purchasePrice > 0
-                        ? `${(((sale.sellingPrice - sale.product.purchasePrice) / sale.product.purchasePrice) * 100).toFixed(1)}%`
-                        : '0.0%'
-                    }
-                  />
+                  {sale.gstAmount > 0 ? (
+                    <>
+                      <InfoRow
+                        label="Output GST (on sale)"
+                        value={formatINR(sale.gstAmount)}
+                      />
+                      <InfoRow
+                        label="Input Tax Credit (from purchase)"
+                        value={formatINR(sale.purchaseGstAmount ?? 0)}
+                      />
+                      <InfoRow
+                        label="GST Payable to Govt"
+                        value={formatINR(sale.gstAmount - (sale.purchaseGstAmount ?? 0))}
+                      />
+                      <InfoRow
+                        label="Net Profit (after GST)"
+                        value={formatINR(
+                          (sale.sellingPrice - sale.gstAmount) -
+                          (sale.product.purchasePrice - (sale.purchaseGstAmount ?? 0))
+                        )}
+                      />
+                    </>
+                  ) : (
+                    <InfoRow
+                      label="Profit %"
+                      value={
+                        sale.product.purchasePrice > 0
+                          ? `${(((sale.sellingPrice - sale.product.purchasePrice) / sale.product.purchasePrice) * 100).toFixed(1)}%`
+                          : '0.0%'
+                      }
+                    />
+                  )}
                 </>
               )}
               {sale.discountAmount > 0 && (
@@ -163,7 +187,7 @@ export function SaleDetailPage() {
               {sale.gstAmount > 0 && (
                 <>
                   <InfoRow label="GST Rate" value={`${sale.gstRate}%`} />
-                  <InfoRow label="GST Amount" value={formatINR(sale.gstAmount)} />
+                  <InfoRow label="GST (included in SP)" value={formatINR(sale.gstAmount)} />
                 </>
               )}
               <InfoRow
