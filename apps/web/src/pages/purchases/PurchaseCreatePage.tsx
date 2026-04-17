@@ -132,15 +132,7 @@ export function PurchaseCreatePage() {
     [watchedItems],
   );
 
-  // Total expanded product count
-  const totalExpandedCount = useMemo(
-    () =>
-      parsedSerials.reduce(
-        (sum, serials) => sum + Math.max(1, serials.length),
-        0,
-      ),
-    [parsedSerials],
-  );
+  // totalExpandedCount is computed inline below with totalPurchasePrice
 
   // Detect duplicate serial numbers across all items' parsed serials
   const serialDuplicateMap = useMemo(() => {
@@ -172,15 +164,15 @@ export function PurchaseCreatePage() {
     return map;
   }, [parsedSerials]);
 
-  // Computed totals
-  const totalPurchasePrice = useMemo(
-    () =>
-      watchedItems.reduce((sum, item, idx) => {
-        const qty = Math.max(1, parsedSerials[idx]?.length ?? 1);
-        return sum + (Number(item.purchasePrice) || 0) * qty;
-      }, 0),
-    [watchedItems, parsedSerials],
-  );
+  // Computed totals — no useMemo, recalculate every render since watch() is reactive
+  const totalPurchasePrice = watchedItems.reduce((sum, item, idx) => {
+    const qty = Math.max(1, parsedSerials[idx]?.length ?? 1);
+    return sum + (Number(item.purchasePrice) || 0) * qty;
+  }, 0);
+
+  const totalExpandedCount = watchedItems.reduce((sum, _item, idx) => {
+    return sum + Math.max(1, parsedSerials[idx]?.length ?? 1);
+  }, 0);
 
   const gstAmount = Math.round((totalPurchasePrice * gstPercent) / 100 * 100) / 100;
   const netAmount = totalPurchasePrice + gstAmount;
@@ -299,12 +291,20 @@ export function PurchaseCreatePage() {
       return serials.map((sn) => ({ ...baseItem, serialNumber: sn }));
     });
 
+    // Recalculate totals from expanded items (in case watchedItems were stale)
+    const calcTotalPurchase = expandedItems.reduce(
+      (sum, item) => sum + (Number(item.purchasePrice) || 0), 0,
+    );
+    const calcGst = Math.round((calcTotalPurchase * gstPercent) / 100 * 100) / 100;
+    const calcNet = calcTotalPurchase + calcGst;
+
     const payload: Record<string, unknown> = {
       distributorId: selectedDistributor.id,
       invoiceNumber: formData.invoiceNumber.trim(),
       invoiceDate: formData.invoiceDate,
       notes: formData.notes.trim() || undefined,
-      gstAmount,
+      totalAmount: calcTotalPurchase,
+      gstAmount: calcGst,
       discountAmount: 0,
       amountPaid: 0,
       items: expandedItems,
