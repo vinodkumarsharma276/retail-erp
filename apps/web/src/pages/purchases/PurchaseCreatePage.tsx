@@ -10,7 +10,6 @@ import {
   Plus,
   Check,
   Search,
-  ChevronDown,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useDebounce } from '../../hooks/useDebounce';
@@ -19,18 +18,20 @@ import { useCreatePurchaseMutation } from '../../hooks/usePurchases';
 import { CategoryCascader } from '../../components/CategoryCascader';
 import { DynamicAttributeFields } from '../../components/DynamicAttributeFields';
 import { formatINR } from '@retailerp/shared-utils';
-import { PaymentMode } from '@retailerp/shared-types';
 import type { DistributorListItem } from '@retailerp/shared-types';
 import { apiClient } from '../../lib/api-client';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
+type GstType = 'GST' | 'CGST_SGST';
+const GST_SLABS = [0, 5, 12, 18, 28] as const;
+
 interface ProductItem {
   categoryId: string;
   brand: string;
   modelNumber: string;
-  serialNumber: string;
+  serialNumbers: string; // textarea: one serial per line, supports multiple
   mrp: number | '';
   purchasePrice: number | '';
   color: string;
@@ -44,18 +45,13 @@ interface PurchaseFormValues {
   invoiceDate: string;
   notes: string;
   items: ProductItem[];
-  gstAmount: number | '';
-  discountAmount: number | '';
-  amountPaid: number | '';
-  paymentMode: string;
-  paymentReference: string;
 }
 
 const emptyProductItem: ProductItem = {
   categoryId: '',
   brand: '',
   modelNumber: '',
-  serialNumber: '',
+  serialNumbers: '',
   mrp: '',
   purchasePrice: '',
   color: '',
@@ -68,7 +64,7 @@ const STEPS = [
   'Select Distributor',
   'Invoice Details',
   'Add Products',
-  'Payment',
+  'GST & Totals',
   'Review',
 ] as const;
 
@@ -101,11 +97,6 @@ export function PurchaseCreatePage() {
       invoiceDate: new Date().toISOString().split('T')[0],
       notes: '',
       items: [{ ...emptyProductItem }],
-      gstAmount: '',
-      discountAmount: '',
-      amountPaid: '',
-      paymentMode: PaymentMode.BANK_TRANSFER,
-      paymentReference: '',
     },
   });
 
@@ -124,45 +115,75 @@ export function PurchaseCreatePage() {
   });
 
   const watchedItems = watch('items');
-  const watchedGst = watch('gstAmount');
-  const watchedDiscount = watch('discountAmount');
-  const watchedAmountPaid = watch('amountPaid');
 
-  // Detect duplicate serial numbers within items
-  const serialDuplicateMap = useMemo(() => {
-    const map = new Map<number, string>();
-    const seen = new Map<string, number>();
-    for (let i = 0; i < watchedItems.length; i++) {
-      const sn = watchedItems[i].serialNumber?.trim();
-      if (!sn) continue;
-      const prevIndex = seen.get(sn);
-      if (prevIndex !== undefined) {
-        map.set(i, `This serial number is already used in item #${prevIndex + 1}`);
-        // Also mark the first occurrence if not already marked
-        if (!map.has(prevIndex)) {
-          map.set(prevIndex, `This serial number is also used in item #${i + 1}`);
-        }
-      } else {
-        seen.set(sn, i);
-      }
-    }
-    return map;
-  }, [watchedItems]);
+  // GST state (invoice-level)
+  const [gstType, setGstType] = useState<GstType>('GST');
+  const [gstPercent, setGstPercent] = useState<number>(18);
 
-  // Computed totals
-  const totalPurchasePrice = useMemo(
+  // Parse serial numbers from textarea for each item
+  const parsedSerials = useMemo(
     () =>
-      watchedItems.reduce(
-        (sum, item) => sum + (Number(item.purchasePrice) || 0),
-        0,
+      watchedItems.map((item) =>
+        (item.serialNumbers || '')
+          .split('\n')
+          .map((s) => s.trim())
+          .filter(Boolean),
       ),
     [watchedItems],
   );
 
-  const gstAmount = Number(watchedGst) || 0;
-  const discountAmount = Number(watchedDiscount) || 0;
-  const netAmount = totalPurchasePrice + gstAmount - discountAmount;
-  const amountPaid = Number(watchedAmountPaid) || 0;
+  // Total expanded product count
+  const totalExpandedCount = useMemo(
+    () =>
+      parsedSerials.reduce(
+        (sum, serials) => sum + Math.max(1, serials.length),
+        0,
+      ),
+    [parsedSerials],
+  );
+
+  // Detect duplicate serial numbers across all items' parsed serials
+  const serialDuplicateMap = useMemo(() => {
+    const map = new Map<number, string>();
+    // serial -> { itemIndex, lineIndex }
+    const seen = new Map<string, { itemIdx: number; lineIdx: number }>();
+    for (let i = 0; i < parsedSerials.length; i++) {
+      const serials = parsedSerials[i];
+      const localSeen = new Set<string>();
+      for (let j = 0; j < serials.length; j++) {
+        const sn = serials[j];
+        if (localSeen.has(sn)) {
+          // Duplicate within same item
+          map.set(i, `Duplicate serial "${sn}" within this item`);
+          continue;
+        }
+        localSeen.add(sn);
+        const prev = seen.get(sn);
+        if (prev !== undefined) {
+          map.set(i, `Serial "${sn}" is also used in item #${prev.itemIdx + 1}`);
+          if (!map.has(prev.itemIdx)) {
+            map.set(prev.itemIdx, `Serial "${sn}" is also used in item #${i + 1}`);
+          }
+        } else {
+          seen.set(sn, { itemIdx: i, lineIdx: j });
+        }
+      }
+    }
+    return map;
+  }, [parsedSerials]);
+
+  // Computed totals
+  const totalPurchasePrice = useMemo(
+    () =>
+      watchedItems.reduce((sum, item, idx) => {
+        const qty = Math.max(1, parsedSerials[idx]?.length ?? 1);
+        return sum + (Number(item.purchasePrice) || 0) * qty;
+      }, 0),
+    [watchedItems, parsedSerials],
+  );
+
+  const gstAmount = Math.round((totalPurchasePrice * gstPercent) / 100 * 100) / 100;
+  const netAmount = totalPurchasePrice + gstAmount;
 
   // Mutation
   const createMutation = useCreatePurchaseMutation();
@@ -189,10 +210,22 @@ export function PurchaseCreatePage() {
     }
   };
 
+  const scrollToFirstError = () => {
+    setTimeout(() => {
+      const firstError = document.querySelector('.border-destructive');
+      if (firstError) {
+        firstError.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 100);
+  };
+
   const goNext = async () => {
     if (currentStep === 1) {
       const valid = await trigger(['invoiceNumber', 'invoiceDate']);
-      if (!valid) return;
+      if (!valid) {
+        scrollToFirstError();
+        return;
+      }
 
       // Check invoice number duplicate against backend
       const invoiceNum = watch('invoiceNumber')?.trim();
@@ -200,9 +233,6 @@ export function PurchaseCreatePage() {
         setIsCheckingInvoice(true);
         setInvoiceCheckError('');
         try {
-          const { data } = await apiClient.get('/purchases', {
-            params: { pageSize: 1, distributorId: selectedDistributor.id },
-          });
           // Check all purchases for this distributor for matching invoice number
           const { data: allData } = await apiClient.get('/purchases', {
             params: { pageSize: 1000, distributorId: selectedDistributor.id, allShops: true },
@@ -223,9 +253,15 @@ export function PurchaseCreatePage() {
     }
     if (currentStep === 2) {
       const valid = await trigger('items');
-      if (!valid) return;
+      if (!valid) {
+        scrollToFirstError();
+        return;
+      }
       // Check serial number duplicates (already blocked by canGoNext via serialDuplicateMap)
-      if (serialDuplicateMap.size > 0) return;
+      if (serialDuplicateMap.size > 0) {
+        scrollToFirstError();
+        return;
+      }
     }
     setCurrentStep((prev) => Math.min(prev + 1, STEPS.length - 1));
   };
@@ -240,28 +276,38 @@ export function PurchaseCreatePage() {
   const onSubmit = (formData: PurchaseFormValues) => {
     if (!selectedDistributor) return;
 
-    const payload: Record<string, unknown> = {
-      distributorId: selectedDistributor.id,
-      invoiceNumber: formData.invoiceNumber.trim(),
-      invoiceDate: formData.invoiceDate,
-      notes: formData.notes.trim() || undefined,
-      gstAmount: Number(formData.gstAmount) || 0,
-      discountAmount: Number(formData.discountAmount) || 0,
-      amountPaid: Number(formData.amountPaid) || 0,
-      paymentMode: formData.amountPaid ? formData.paymentMode : undefined,
-      paymentReference: formData.paymentReference.trim() || undefined,
-      items: formData.items.map((item, idx) => ({
+    // Expand items: each serial number becomes a separate product
+    const expandedItems = formData.items.flatMap((item, idx) => {
+      const serials = (item.serialNumbers || '')
+        .split('\n')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const baseItem = {
         categoryId: itemCategoryIds[idx] || item.categoryId,
         brand: ((item.dynamicAttributes?.brand as string) || item.brand || '').trim(),
         modelNumber: item.modelNumber.trim(),
-        serialNumber: item.serialNumber.trim() || undefined,
         mrp: Number(item.mrp) || 0,
         purchasePrice: Number(item.purchasePrice),
         color: item.color.trim() || undefined,
         warrantyMonths: item.warrantyMonths ? Number(item.warrantyMonths) : undefined,
         barcode: item.barcode.trim() || undefined,
         dynamicAttributes: item.dynamicAttributes,
-      })),
+      };
+      if (serials.length === 0) {
+        return [{ ...baseItem, serialNumber: undefined }];
+      }
+      return serials.map((sn) => ({ ...baseItem, serialNumber: sn }));
+    });
+
+    const payload: Record<string, unknown> = {
+      distributorId: selectedDistributor.id,
+      invoiceNumber: formData.invoiceNumber.trim(),
+      invoiceDate: formData.invoiceDate,
+      notes: formData.notes.trim() || undefined,
+      gstAmount,
+      discountAmount: 0,
+      amountPaid: 0,
+      items: expandedItems,
     };
 
     createMutation.mutate(payload, {
@@ -487,23 +533,6 @@ export function PurchaseCreatePage() {
                   )}
                 </div>
 
-                {/* Notes */}
-                <div className="sm:col-span-2 lg:col-span-3">
-                  <label htmlFor="notes" className="block text-sm font-medium mb-1.5">
-                    Notes
-                  </label>
-                  <textarea
-                    id="notes"
-                    rows={3}
-                    {...register('notes')}
-                    placeholder="Any additional notes about this purchase..."
-                    className={cn(
-                      'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
-                      'placeholder:text-muted-foreground',
-                      'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                    )}
-                  />
-                </div>
               </div>
             </section>
           )}
@@ -582,27 +611,37 @@ export function PurchaseCreatePage() {
                       )}
                     </div>
 
-                    {/* Serial Number */}
-                    <div>
+                    {/* Serial Numbers (multi-line) */}
+                    <div className="sm:col-span-2 lg:col-span-3">
                       <label className="block text-sm font-medium mb-1.5">
-                        Serial Number
+                        Serial Numbers{' '}
+                        <span className="text-xs text-muted-foreground font-normal">
+                          (one per line)
+                        </span>
                       </label>
-                      <input
-                        type="text"
-                        {...register(`items.${index}.serialNumber`)}
-                        placeholder="SN-12345678"
+                      <textarea
+                        rows={3}
+                        {...register(`items.${index}.serialNumbers`)}
+                        placeholder={'SN-00001\nSN-00002\nSN-00003'}
                         className={cn(
-                          'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                          'w-full rounded-md border bg-background px-3 py-2.5 text-sm font-mono',
                           'placeholder:text-muted-foreground',
                           'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                           serialDuplicateMap.has(index) && 'border-destructive',
                         )}
                       />
-                      {serialDuplicateMap.has(index) && (
-                        <p className="mt-1 text-xs text-destructive">
-                          {serialDuplicateMap.get(index)}
-                        </p>
-                      )}
+                      <div className="flex items-center gap-3 mt-1">
+                        {parsedSerials[index]?.length > 0 && (
+                          <span className="inline-flex items-center rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary">
+                            {parsedSerials[index].length} serial{parsedSerials[index].length !== 1 ? 's' : ''} = {parsedSerials[index].length} product{parsedSerials[index].length !== 1 ? 's' : ''} will be created
+                          </span>
+                        )}
+                        {serialDuplicateMap.has(index) && (
+                          <p className="text-xs text-destructive">
+                            {serialDuplicateMap.get(index)}
+                          </p>
+                        )}
+                      </div>
                     </div>
 
                     {/* MRP */}
@@ -735,14 +774,107 @@ export function PurchaseCreatePage() {
             </section>
           )}
 
-          {/* Step 4: Payment */}
+          {/* Step 4: Payment / GST */}
           {currentStep === 3 && (
             <section className="rounded-lg border bg-card p-6">
-              <h2 className="text-lg font-medium mb-4">Payment Details</h2>
+              <h2 className="text-lg font-medium mb-4">GST & Totals</h2>
+
+              {/* GST Type toggle */}
+              <div className="mb-6">
+                <label className="block text-sm font-medium mb-2">GST Type</label>
+                <div className="flex items-center gap-4">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="gstType"
+                      checked={gstType === 'GST'}
+                      onChange={() => setGstType('GST')}
+                      className="h-4 w-4 text-primary"
+                    />
+                    <span className="text-sm">GST</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="gstType"
+                      checked={gstType === 'CGST_SGST'}
+                      onChange={() => setGstType('CGST_SGST')}
+                      className="h-4 w-4 text-primary"
+                    />
+                    <span className="text-sm">CGST + SGST</span>
+                  </label>
+                </div>
+              </div>
+
+              {/* GST % selection */}
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 mb-6">
+                {gstType === 'GST' ? (
+                  <div>
+                    <label className="block text-sm font-medium mb-1.5">GST %</label>
+                    <select
+                      value={gstPercent}
+                      onChange={(e) => setGstPercent(Number(e.target.value))}
+                      className={cn(
+                        'w-full appearance-none rounded-md border bg-background px-3 py-2.5 text-sm',
+                        'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                      )}
+                    >
+                      {GST_SLABS.map((slab) => (
+                        <option key={slab} value={slab}>
+                          {slab}%
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : (
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium mb-1.5">
+                        CGST %{' '}
+                        <span className="text-xs text-muted-foreground font-normal">(auto)</span>
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <select
+                          value={gstPercent}
+                          onChange={(e) => setGstPercent(Number(e.target.value))}
+                          className={cn(
+                            'w-full appearance-none rounded-md border bg-background px-3 py-2.5 text-sm',
+                            'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                          )}
+                        >
+                          {GST_SLABS.map((slab) => (
+                            <option key={slab} value={slab}>
+                              {slab}% total &rarr; {slab / 2}% CGST
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1.5">CGST %</label>
+                      <input
+                        type="text"
+                        readOnly
+                        value={`${gstPercent / 2}%`}
+                        className="w-full rounded-md border bg-muted px-3 py-2.5 text-sm cursor-not-allowed"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1.5">SGST %</label>
+                      <input
+                        type="text"
+                        readOnly
+                        value={`${gstPercent / 2}%`}
+                        className="w-full rounded-md border bg-muted px-3 py-2.5 text-sm cursor-not-allowed"
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
 
               {/* Totals summary */}
               <div className="rounded-md bg-muted/50 p-4 mb-6">
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                   <div>
                     <p className="text-xs font-medium text-muted-foreground">
                       Total (Dealer Prices)
@@ -750,22 +882,25 @@ export function PurchaseCreatePage() {
                     <p className="text-lg font-semibold mt-0.5">
                       {formatINR(totalPurchasePrice)}
                     </p>
+                    <p className="text-xs text-muted-foreground">
+                      {totalExpandedCount} product{totalExpandedCount !== 1 ? 's' : ''}
+                    </p>
                   </div>
                   <div>
                     <p className="text-xs font-medium text-muted-foreground">
-                      GST Amount
+                      GST Amount{' '}
+                      <span className="font-normal">
+                        ({gstType === 'CGST_SGST' ? `${gstPercent / 2}% + ${gstPercent / 2}%` : `${gstPercent}%`})
+                      </span>
                     </p>
                     <p className="text-lg font-semibold mt-0.5">
                       {formatINR(gstAmount)}
                     </p>
-                  </div>
-                  <div>
-                    <p className="text-xs font-medium text-muted-foreground">
-                      Discount
-                    </p>
-                    <p className="text-lg font-semibold mt-0.5">
-                      {formatINR(discountAmount)}
-                    </p>
+                    {gstType === 'CGST_SGST' && gstAmount > 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        CGST: {formatINR(gstAmount / 2)} + SGST: {formatINR(gstAmount / 2)}
+                      </p>
+                    )}
                   </div>
                   <div>
                     <p className="text-xs font-medium text-muted-foreground">
@@ -778,134 +913,29 @@ export function PurchaseCreatePage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {/* GST Amount */}
-                <div>
-                  <label htmlFor="gstAmount" className="block text-sm font-medium mb-1.5">
-                    GST Amount
-                  </label>
-                  <input
-                    id="gstAmount"
-                    type="number"
-                    step="0.01"
-                    {...register('gstAmount', {
-                      min: { value: 0, message: 'Must be positive' },
-                    })}
-                    placeholder="0.00"
-                    className={cn(
-                      'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
-                      'placeholder:text-muted-foreground',
-                      'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                    )}
-                  />
-                </div>
-
-                {/* Discount */}
-                <div>
-                  <label htmlFor="discountAmount" className="block text-sm font-medium mb-1.5">
-                    Discount
-                  </label>
-                  <input
-                    id="discountAmount"
-                    type="number"
-                    step="0.01"
-                    {...register('discountAmount', {
-                      min: { value: 0, message: 'Must be positive' },
-                    })}
-                    placeholder="0.00"
-                    className={cn(
-                      'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
-                      'placeholder:text-muted-foreground',
-                      'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                    )}
-                  />
-                </div>
-
-                {/* Amount Paid */}
-                <div>
-                  <label htmlFor="amountPaid" className="block text-sm font-medium mb-1.5">
-                    Amount Paid
-                  </label>
-                  <input
-                    id="amountPaid"
-                    type="number"
-                    step="0.01"
-                    {...register('amountPaid', {
-                      min: { value: 0, message: 'Must be positive' },
-                    })}
-                    placeholder="0.00"
-                    className={cn(
-                      'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
-                      'placeholder:text-muted-foreground',
-                      'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                    )}
-                  />
-                </div>
-
-                {/* Payment Mode */}
-                <div>
-                  <label htmlFor="paymentMode" className="block text-sm font-medium mb-1.5">
-                    Payment Mode
-                  </label>
-                  <div className="relative">
-                    <select
-                      id="paymentMode"
-                      {...register('paymentMode')}
-                      className={cn(
-                        'w-full appearance-none rounded-md border bg-background px-3 py-2.5 pr-8 text-sm',
-                        'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                      )}
-                    >
-                      <option value={PaymentMode.CASH}>Cash</option>
-                      <option value={PaymentMode.BANK_TRANSFER}>Bank Transfer</option>
-                      <option value={PaymentMode.UPI}>UPI</option>
-                      <option value={PaymentMode.CHEQUE}>Cheque</option>
-                      <option value={PaymentMode.CREDIT_CARD}>Credit Card</option>
-                      <option value={PaymentMode.DEBIT_CARD}>Debit Card</option>
-                    </select>
-                    <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  </div>
-                </div>
-
-                {/* Payment Reference */}
-                <div>
-                  <label htmlFor="paymentReference" className="block text-sm font-medium mb-1.5">
-                    Reference Number
-                  </label>
-                  <input
-                    id="paymentReference"
-                    type="text"
-                    {...register('paymentReference')}
-                    placeholder="Transaction/Cheque number"
-                    className={cn(
-                      'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
-                      'placeholder:text-muted-foreground',
-                      'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                    )}
-                  />
-                </div>
+              {/* Notes */}
+              <div>
+                <label htmlFor="notes" className="block text-sm font-medium mb-1.5">
+                  Notes
+                </label>
+                <textarea
+                  id="notes"
+                  rows={3}
+                  {...register('notes')}
+                  placeholder="Any additional notes about this purchase..."
+                  className={cn(
+                    'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                    'placeholder:text-muted-foreground',
+                    'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                  )}
+                />
               </div>
 
-              {/* Pending amount indicator */}
-              {netAmount > 0 && (
-                <div className="mt-4 p-3 rounded-md border">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">
-                      Pending after this payment:
-                    </span>
-                    <span
-                      className={cn(
-                        'font-semibold',
-                        netAmount - amountPaid > 0
-                          ? 'text-red-600'
-                          : 'text-green-600',
-                      )}
-                    >
-                      {formatINR(Math.max(0, netAmount - amountPaid))}
-                    </span>
-                  </div>
-                </div>
-              )}
+              <div className="mt-4 p-3 rounded-md border bg-amber-50 border-amber-200">
+                <p className="text-sm text-amber-800">
+                  Payment will be recorded as pending. Use the distributor page to record lump-sum payments against invoices.
+                </p>
+              </div>
             </section>
           )}
 
@@ -947,10 +977,10 @@ export function PurchaseCreatePage() {
                 </div>
               </div>
 
-              {/* Products */}
+              {/* Products (expanded view showing each serial as a row) */}
               <div className="rounded-lg border bg-card p-6">
                 <h3 className="text-base font-medium mb-3">
-                  Products ({watchedItems.length})
+                  Products ({totalExpandedCount} total)
                 </h3>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
@@ -977,24 +1007,47 @@ export function PurchaseCreatePage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {watchedItems.map((item, idx) => (
-                        <tr key={idx} className="border-b last:border-0">
-                          <td className="px-3 py-2">{idx + 1}</td>
-                          <td className="px-3 py-2 font-medium">
-                            {(item.dynamicAttributes?.brand as string) || item.brand || '-'}
-                          </td>
-                          <td className="px-3 py-2">{item.modelNumber}</td>
-                          <td className="px-3 py-2 font-mono text-xs">
-                            {item.serialNumber || '-'}
-                          </td>
-                          <td className="px-3 py-2 text-right">
-                            {formatINR(Number(item.mrp) || 0)}
-                          </td>
-                          <td className="px-3 py-2 text-right font-medium">
-                            {formatINR(Number(item.purchasePrice) || 0)}
-                          </td>
-                        </tr>
-                      ))}
+                      {(() => {
+                        let rowNum = 0;
+                        return watchedItems.flatMap((item, idx) => {
+                          const serials = parsedSerials[idx] ?? [];
+                          const brand = (item.dynamicAttributes?.brand as string) || item.brand || '-';
+                          if (serials.length === 0) {
+                            rowNum++;
+                            return [(
+                              <tr key={`${idx}-0`} className="border-b last:border-0">
+                                <td className="px-3 py-2">{rowNum}</td>
+                                <td className="px-3 py-2 font-medium">{brand}</td>
+                                <td className="px-3 py-2">{item.modelNumber}</td>
+                                <td className="px-3 py-2 font-mono text-xs">-</td>
+                                <td className="px-3 py-2 text-right">
+                                  {formatINR(Number(item.mrp) || 0)}
+                                </td>
+                                <td className="px-3 py-2 text-right font-medium">
+                                  {formatINR(Number(item.purchasePrice) || 0)}
+                                </td>
+                              </tr>
+                            )];
+                          }
+                          return serials.map((sn, snIdx) => {
+                            rowNum++;
+                            return (
+                              <tr key={`${idx}-${snIdx}`} className="border-b last:border-0">
+                                <td className="px-3 py-2">{rowNum}</td>
+                                <td className="px-3 py-2 font-medium">{brand}</td>
+                                <td className="px-3 py-2">{item.modelNumber}</td>
+                                <td className="px-3 py-2 font-mono text-xs">{sn}</td>
+                                <td className="px-3 py-2 text-right">
+                                  {formatINR(Number(item.mrp) || 0)}
+                                </td>
+                                <td className="px-3 py-2 text-right font-medium">
+                                  {formatINR(Number(item.purchasePrice) || 0)}
+                                </td>
+                              </tr>
+                            );
+                          });
+                        });
+                      })()}
                     </tbody>
                   </table>
                 </div>
@@ -1002,50 +1055,26 @@ export function PurchaseCreatePage() {
 
               {/* Payment Summary */}
               <div className="rounded-lg border bg-card p-6">
-                <h3 className="text-base font-medium mb-3">Payment Summary</h3>
+                <h3 className="text-base font-medium mb-3">Summary</h3>
                 <div className="space-y-2 text-sm max-w-sm">
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Total (Dealer Prices)</span>
                     <span>{formatINR(totalPurchasePrice)}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">GST</span>
+                    <span className="text-muted-foreground">
+                      GST ({gstType === 'CGST_SGST' ? `CGST ${gstPercent / 2}% + SGST ${gstPercent / 2}%` : `${gstPercent}%`})
+                    </span>
                     <span>{formatINR(gstAmount)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Discount</span>
-                    <span>- {formatINR(discountAmount)}</span>
                   </div>
                   <div className="flex justify-between border-t pt-2 font-semibold">
                     <span>Net Amount</span>
                     <span>{formatINR(netAmount)}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Amount Paid</span>
-                    <span className="text-green-600">
-                      {formatINR(amountPaid)}
-                    </span>
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>Payment Status</span>
+                    <span className="text-amber-600 font-medium">Pending</span>
                   </div>
-                  <div className="flex justify-between border-t pt-2 font-semibold">
-                    <span>Pending</span>
-                    <span
-                      className={
-                        netAmount - amountPaid > 0
-                          ? 'text-red-600'
-                          : 'text-green-600'
-                      }
-                    >
-                      {formatINR(Math.max(0, netAmount - amountPaid))}
-                    </span>
-                  </div>
-                  {amountPaid > 0 && (
-                    <div className="flex justify-between text-xs text-muted-foreground">
-                      <span>Payment Mode</span>
-                      <span className="capitalize">
-                        {watch('paymentMode')?.replace(/_/g, ' ')}
-                      </span>
-                    </div>
-                  )}
                 </div>
               </div>
             </section>
