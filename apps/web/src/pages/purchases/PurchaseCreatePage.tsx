@@ -21,6 +21,7 @@ import { DynamicAttributeFields } from '../../components/DynamicAttributeFields'
 import { formatINR } from '@retailerp/shared-utils';
 import { PaymentMode } from '@retailerp/shared-types';
 import type { DistributorListItem } from '@retailerp/shared-types';
+import { apiClient } from '../../lib/api-client';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -166,6 +167,10 @@ export function PurchaseCreatePage() {
   // Mutation
   const createMutation = useCreatePurchaseMutation();
 
+  // Invoice duplicate check state
+  const [invoiceCheckError, setInvoiceCheckError] = useState('');
+  const [isCheckingInvoice, setIsCheckingInvoice] = useState(false);
+
   // ---------------------------------------------------------------------------
   // Navigation
   // ---------------------------------------------------------------------------
@@ -174,7 +179,7 @@ export function PurchaseCreatePage() {
       case 0:
         return !!selectedDistributor;
       case 1:
-        return true; // Will be validated by trigger
+        return !invoiceCheckError && !isCheckingInvoice; // Block if duplicate detected
       case 2:
         return watchedItems.length > 0 && watchedItems.every((item) => (item.dynamicAttributes?.brand || item.brand) && item.modelNumber && item.purchasePrice) && serialDuplicateMap.size === 0;
       case 3:
@@ -188,10 +193,39 @@ export function PurchaseCreatePage() {
     if (currentStep === 1) {
       const valid = await trigger(['invoiceNumber', 'invoiceDate']);
       if (!valid) return;
+
+      // Check invoice number duplicate against backend
+      const invoiceNum = watch('invoiceNumber')?.trim();
+      if (invoiceNum && selectedDistributor) {
+        setIsCheckingInvoice(true);
+        setInvoiceCheckError('');
+        try {
+          const { data } = await apiClient.get('/purchases', {
+            params: { pageSize: 1, distributorId: selectedDistributor.id },
+          });
+          // Check all purchases for this distributor for matching invoice number
+          const { data: allData } = await apiClient.get('/purchases', {
+            params: { pageSize: 1000, distributorId: selectedDistributor.id, allShops: true },
+          });
+          const duplicate = (allData?.data ?? []).find(
+            (p: any) => p.invoiceNumber?.toLowerCase() === invoiceNum.toLowerCase(),
+          );
+          if (duplicate) {
+            setInvoiceCheckError(`Invoice number "${invoiceNum}" already exists for this distributor`);
+            setIsCheckingInvoice(false);
+            return;
+          }
+        } catch {
+          // If check fails, allow proceeding — backend will catch it at submit
+        }
+        setIsCheckingInvoice(false);
+      }
     }
     if (currentStep === 2) {
       const valid = await trigger('items');
       if (!valid) return;
+      // Check serial number duplicates (already blocked by canGoNext via serialDuplicateMap)
+      if (serialDuplicateMap.size > 0) return;
     }
     setCurrentStep((prev) => Math.min(prev + 1, STEPS.length - 1));
   };
@@ -407,18 +441,24 @@ export function PurchaseCreatePage() {
                     type="text"
                     {...register('invoiceNumber', {
                       required: 'Invoice number is required',
+                      onChange: () => setInvoiceCheckError(''), // Clear error on change
                     })}
                     placeholder="e.g. INV-2026-001"
                     className={cn(
                       'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
                       'placeholder:text-muted-foreground',
                       'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                      errors.invoiceNumber && 'border-destructive',
+                      (errors.invoiceNumber || invoiceCheckError) && 'border-destructive',
                     )}
                   />
                   {errors.invoiceNumber && (
                     <p className="mt-1 text-xs text-destructive">
                       {errors.invoiceNumber.message}
+                    </p>
+                  )}
+                  {invoiceCheckError && (
+                    <p className="mt-1 text-xs text-destructive">
+                      {invoiceCheckError}
                     </p>
                   )}
                 </div>
