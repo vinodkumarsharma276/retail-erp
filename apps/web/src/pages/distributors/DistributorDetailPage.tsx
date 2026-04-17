@@ -193,10 +193,20 @@ export function DistributorDetailPage() {
 // ---------------------------------------------------------------------------
 // Products Tab
 // ---------------------------------------------------------------------------
+function getDateDaysAgo(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return d.toISOString().split('T')[0];
+}
+
+function getToday(): string {
+  return new Date().toISOString().split('T')[0];
+}
+
 function ProductsTab({ distributorId }: { distributorId: string }) {
   const [page, setPage] = useState(1);
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+  const [dateFrom, setDateFrom] = useState(getDateDaysAgo(7));
+  const [dateTo, setDateTo] = useState(getToday());
 
   const productsQuery = useDistributorProductsQuery(distributorId, {
     page,
@@ -305,11 +315,11 @@ function ProductsTab({ distributorId }: { distributorId: string }) {
             />
           </div>
         </div>
-        {(dateFrom || dateTo) && (
+        {(dateFrom !== getDateDaysAgo(7) || dateTo !== getToday()) && (
           <button
             onClick={() => {
-              setDateFrom('');
-              setDateTo('');
+              setDateFrom(getDateDaysAgo(7));
+              setDateTo(getToday());
               setPage(1);
             }}
             className="rounded-md border px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"

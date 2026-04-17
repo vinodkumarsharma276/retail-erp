@@ -13,6 +13,16 @@ import { SaleType } from '@retailerp/shared-types';
 
 const PAGE_SIZE = 20;
 
+function getDateDaysAgo(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return d.toISOString().split('T')[0];
+}
+
+function getToday(): string {
+  return new Date().toISOString().split('T')[0];
+}
+
 const SALE_TYPE_OPTIONS = [
   { value: '', label: 'All Types' },
   { value: SaleType.FULL_PAYMENT, label: 'Full Payment' },
@@ -29,8 +39,8 @@ export function SaleListPage() {
   const [customerSearch, setCustomerSearch] = useState('');
   const debouncedCustomerSearch = useDebounce(customerSearch, 300);
   const [saleType, setSaleType] = useState('');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+  const [dateFrom, setDateFrom] = useState(getDateDaysAgo(7));
+  const [dateTo, setDateTo] = useState(getToday());
 
   // Sales query
   const salesQuery = useSalesQuery({
@@ -46,12 +56,12 @@ export function SaleListPage() {
   const pagination = salesQuery.data?.pagination;
 
   // ------ Clear filters ------
-  const hasFilters = !!customerSearch || !!saleType || !!dateFrom || !!dateTo;
+  const hasFilters = !!customerSearch || !!saleType || dateFrom !== getDateDaysAgo(7) || dateTo !== getToday();
   const clearFilters = () => {
     setCustomerSearch('');
     setSaleType('');
-    setDateFrom('');
-    setDateTo('');
+    setDateFrom(getDateDaysAgo(7));
+    setDateTo(getToday());
     setPage(1);
   };
 

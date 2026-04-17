@@ -17,14 +17,24 @@ import type { Purchase } from '@retailerp/shared-types';
 
 const PAGE_SIZE = 20;
 
+function getDateDaysAgo(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return d.toISOString().split('T')[0];
+}
+
+function getToday(): string {
+  return new Date().toISOString().split('T')[0];
+}
+
 export function PurchaseListPage() {
   const navigate = useNavigate();
 
   // ------ Filters state ------
   const [page, setPage] = useState(1);
   const [distributorId, setDistributorId] = useState('');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+  const [dateFrom, setDateFrom] = useState(getDateDaysAgo(7));
+  const [dateTo, setDateTo] = useState(getToday());
   const [paymentStatus, setPaymentStatus] = useState('');
 
   // Purchases query
@@ -45,11 +55,11 @@ export function PurchaseListPage() {
   const pagination = purchasesQuery.data?.pagination;
 
   // ------ Clear filters ------
-  const hasFilters = distributorId || dateFrom || dateTo || paymentStatus;
+  const hasFilters = distributorId || paymentStatus || dateFrom !== getDateDaysAgo(7) || dateTo !== getToday();
   const clearFilters = () => {
     setDistributorId('');
-    setDateFrom('');
-    setDateTo('');
+    setDateFrom(getDateDaysAgo(7));
+    setDateTo(getToday());
     setPaymentStatus('');
     setPage(1);
   };

@@ -77,7 +77,7 @@ const defaultValues: SaleFormValues = {
   gstRate: '',
   paymentMode: PaymentMode.CASH,
   downPayment: '',
-  promiseDate: '',
+  promiseDate: getDateDaysFromNow(7),
   interestRate: 1,
   fileCharge: '',
   numInstallments: 6,
@@ -158,6 +158,12 @@ const INDIAN_STATES = [
 function getTomorrowDate(): string {
   const d = new Date();
   d.setDate(d.getDate() + 1);
+  return d.toISOString().split('T')[0];
+}
+
+function getDateDaysFromNow(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
   return d.toISOString().split('T')[0];
 }
 

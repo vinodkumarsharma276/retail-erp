@@ -28,6 +28,16 @@ import { useAuthStore } from '../../stores/auth-store';
 
 const PAGE_SIZE = 20;
 
+function getDateDaysAgo(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return d.toISOString().split('T')[0];
+}
+
+function getToday(): string {
+  return new Date().toISOString().split('T')[0];
+}
+
 const CATEGORY_OPTIONS = Object.values(ExpenseCategory);
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -48,8 +58,8 @@ export function ExpenseListPage() {
   // ------ Filters state ------
   const [page, setPage] = useState(1);
   const [category, setCategory] = useState('');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+  const [dateFrom, setDateFrom] = useState(getDateDaysAgo(7));
+  const [dateTo, setDateTo] = useState(getToday());
   const [search, setSearch] = useState('');
   const [searchInput, setSearchInput] = useState('');
 
@@ -84,11 +94,11 @@ export function ExpenseListPage() {
   };
 
   // ------ Clear filters ------
-  const hasFilters = category || dateFrom || dateTo || search;
+  const hasFilters = category || search || dateFrom !== getDateDaysAgo(7) || dateTo !== getToday();
   const clearFilters = () => {
     setCategory('');
-    setDateFrom('');
-    setDateTo('');
+    setDateFrom(getDateDaysAgo(7));
+    setDateTo(getToday());
     setSearch('');
     setSearchInput('');
     setPage(1);

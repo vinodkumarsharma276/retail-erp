@@ -92,6 +92,10 @@ export function defaultLast30Days(): DateRange {
   return { dateFrom: daysAgoISO(30), dateTo: todayISO() };
 }
 
+export function defaultLastWeek(): DateRange {
+  return { dateFrom: daysAgoISO(7), dateTo: todayISO() };
+}
+
 export function defaultNext30Days(): DateRange {
   const today = todayISO();
   const d = new Date();

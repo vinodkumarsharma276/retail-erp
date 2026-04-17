@@ -27,6 +27,16 @@ import { UserRole } from '@retailerp/shared-types';
 
 const PAGE_SIZE = 20;
 
+function getDateDaysAgo(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return d.toISOString().split('T')[0];
+}
+
+function getToday(): string {
+  return new Date().toISOString().split('T')[0];
+}
+
 type Tab = 'all' | 'incoming';
 
 export function TransferListPage() {
@@ -41,8 +51,8 @@ export function TransferListPage() {
   // ------ Filters state (for All tab) ------
   const [page, setPage] = useState(1);
   const [status, setStatus] = useState('');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+  const [dateFrom, setDateFrom] = useState(getDateDaysAgo(7));
+  const [dateTo, setDateTo] = useState(getToday());
 
   // All transfers query
   const transfersQuery = useTransfersQuery({
@@ -61,11 +71,11 @@ export function TransferListPage() {
   const incomingTransfers = incomingQuery.data ?? [];
 
   // ------ Clear filters ------
-  const hasFilters = status || dateFrom || dateTo;
+  const hasFilters = status || dateFrom !== getDateDaysAgo(7) || dateTo !== getToday();
   const clearFilters = () => {
     setStatus('');
-    setDateFrom('');
-    setDateTo('');
+    setDateFrom(getDateDaysAgo(7));
+    setDateTo(getToday());
     setPage(1);
   };
 

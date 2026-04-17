@@ -40,7 +40,7 @@ const tabs: { key: TabKey; label: string }[] = [
 // Component
 // ---------------------------------------------------------------------------
 export function InstallmentListPage() {
-  const [activeTab, setActiveTab] = useState<TabKey>('active');
+  const [activeTab, setActiveTab] = useState<TabKey>('collections');
 
   return (
     <div>
