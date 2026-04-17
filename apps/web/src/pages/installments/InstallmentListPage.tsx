@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Loader2,
   AlertCircle,
@@ -40,7 +40,29 @@ const tabs: { key: TabKey; label: string }[] = [
 // Component
 // ---------------------------------------------------------------------------
 export function InstallmentListPage() {
-  const [activeTab, setActiveTab] = useState<TabKey>('collections');
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const activeTab = (searchParams.get('tab') as TabKey) || 'collections';
+  const page = Number(searchParams.get('page')) || 1;
+
+  const updateFilters = (updates: Record<string, string>) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      for (const [key, value] of Object.entries(updates)) {
+        if (value) {
+          next.set(key, value);
+        } else {
+          next.delete(key);
+        }
+      }
+      return next;
+    }, { replace: true });
+  };
+
+  const setActiveTab = (tab: TabKey) => {
+    // Reset page when switching tabs
+    updateFilters({ tab: tab === 'collections' ? '' : tab, page: '' });
+  };
 
   return (
     <div>
@@ -70,9 +92,9 @@ export function InstallmentListPage() {
       </div>
 
       {/* Tab content */}
-      {activeTab === 'active' && <ActiveSchedulesTab />}
+      {activeTab === 'active' && <ActiveSchedulesTab page={page} onPageChange={(p) => updateFilters({ page: String(p) })} />}
       {activeTab === 'overdue' && <OverdueTab />}
-      {activeTab === 'completed' && <CompletedTab />}
+      {activeTab === 'completed' && <CompletedTab page={page} onPageChange={(p) => updateFilters({ page: String(p) })} />}
       {activeTab === 'collections' && <CollectionsTab />}
     </div>
   );
@@ -81,9 +103,8 @@ export function InstallmentListPage() {
 // ---------------------------------------------------------------------------
 // Active Schedules Tab
 // ---------------------------------------------------------------------------
-function ActiveSchedulesTab() {
+function ActiveSchedulesTab({ page, onPageChange }: { page: number; onPageChange: (p: number) => void }) {
   const navigate = useNavigate();
-  const [page, setPage] = useState(1);
   const pageSize = 20;
 
   const { data, isLoading } = useInstallmentSchedulesQuery({
@@ -176,7 +197,7 @@ function ActiveSchedulesTab() {
             }
           : undefined
       }
-      onPageChange={setPage}
+      onPageChange={onPageChange}
     />
   );
 }
@@ -353,9 +374,8 @@ function OverdueTab() {
 // ---------------------------------------------------------------------------
 // Completed Tab
 // ---------------------------------------------------------------------------
-function CompletedTab() {
+function CompletedTab({ page, onPageChange }: { page: number; onPageChange: (p: number) => void }) {
   const navigate = useNavigate();
-  const [page, setPage] = useState(1);
   const pageSize = 20;
 
   const { data, isLoading } = useInstallmentSchedulesQuery({
@@ -442,7 +462,7 @@ function CompletedTab() {
             }
           : undefined
       }
-      onPageChange={setPage}
+      onPageChange={onPageChange}
     />
   );
 }

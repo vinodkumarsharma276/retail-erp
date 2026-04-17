@@ -1,5 +1,4 @@
-import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import {
   Plus,
   ChevronDown,
@@ -29,13 +28,28 @@ function getToday(): string {
 
 export function PurchaseListPage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  // ------ Filters state ------
-  const [page, setPage] = useState(1);
-  const [distributorId, setDistributorId] = useState('');
-  const [dateFrom, setDateFrom] = useState(getDateDaysAgo(7));
-  const [dateTo, setDateTo] = useState(getToday());
-  const [paymentStatus, setPaymentStatus] = useState('');
+  // ------ Filters state (URL search params) ------
+  const page = Number(searchParams.get('page')) || 1;
+  const distributorId = searchParams.get('distributorId') || '';
+  const dateFrom = searchParams.get('dateFrom') || getDateDaysAgo(7);
+  const dateTo = searchParams.get('dateTo') || getToday();
+  const paymentStatus = searchParams.get('paymentStatus') || '';
+
+  const updateFilters = (updates: Record<string, string>) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      for (const [key, value] of Object.entries(updates)) {
+        if (value) {
+          next.set(key, value);
+        } else {
+          next.delete(key);
+        }
+      }
+      return next;
+    }, { replace: true });
+  };
 
   // Purchases query
   const purchasesQuery = usePurchasesQuery({
@@ -57,11 +71,7 @@ export function PurchaseListPage() {
   // ------ Clear filters ------
   const hasFilters = distributorId || paymentStatus || dateFrom !== getDateDaysAgo(7) || dateTo !== getToday();
   const clearFilters = () => {
-    setDistributorId('');
-    setDateFrom(getDateDaysAgo(7));
-    setDateTo(getToday());
-    setPaymentStatus('');
-    setPage(1);
+    setSearchParams({}, { replace: true });
   };
 
   // ------ Table columns ------
@@ -176,8 +186,7 @@ export function PurchaseListPage() {
             <select
               value={distributorId}
               onChange={(e) => {
-                setDistributorId(e.target.value);
-                setPage(1);
+                updateFilters({ distributorId: e.target.value, page: '1' });
               }}
               className={cn(
                 'w-full appearance-none rounded-md border bg-background px-3 py-2 pr-8 text-sm',
@@ -206,8 +215,7 @@ export function PurchaseListPage() {
               type="date"
               value={dateFrom}
               onChange={(e) => {
-                setDateFrom(e.target.value);
-                setPage(1);
+                updateFilters({ dateFrom: e.target.value, page: '1' });
               }}
               className={cn(
                 'rounded-md border bg-background pl-9 pr-3 py-2 text-sm',
@@ -228,8 +236,7 @@ export function PurchaseListPage() {
               type="date"
               value={dateTo}
               onChange={(e) => {
-                setDateTo(e.target.value);
-                setPage(1);
+                updateFilters({ dateTo: e.target.value, page: '1' });
               }}
               className={cn(
                 'rounded-md border bg-background pl-9 pr-3 py-2 text-sm',
@@ -248,8 +255,7 @@ export function PurchaseListPage() {
             <select
               value={paymentStatus}
               onChange={(e) => {
-                setPaymentStatus(e.target.value);
-                setPage(1);
+                updateFilters({ paymentStatus: e.target.value, page: '1' });
               }}
               className={cn(
                 'w-full appearance-none rounded-md border bg-background px-3 py-2 pr-8 text-sm',
@@ -290,7 +296,7 @@ export function PurchaseListPage() {
         data={purchases}
         isLoading={purchasesQuery.isLoading}
         pagination={paginationState}
-        onPageChange={setPage}
+        onPageChange={(p) => updateFilters({ page: String(p) })}
         emptyMessage="No purchases found matching your filters."
         rowKey={(row) => row.id}
       />

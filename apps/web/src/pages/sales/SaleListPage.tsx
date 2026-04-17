@@ -1,5 +1,4 @@
-import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { Plus, Search, X, ChevronDown } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useDebounce } from '../../hooks/useDebounce';
@@ -33,14 +32,29 @@ const SALE_TYPE_OPTIONS = [
 
 export function SaleListPage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  // ------ Filters state ------
-  const [page, setPage] = useState(1);
-  const [customerSearch, setCustomerSearch] = useState('');
+  // ------ Filters state (URL search params) ------
+  const page = Number(searchParams.get('page')) || 1;
+  const customerSearch = searchParams.get('customerSearch') || '';
   const debouncedCustomerSearch = useDebounce(customerSearch, 300);
-  const [saleType, setSaleType] = useState('');
-  const [dateFrom, setDateFrom] = useState(getDateDaysAgo(7));
-  const [dateTo, setDateTo] = useState(getToday());
+  const saleType = searchParams.get('saleType') || '';
+  const dateFrom = searchParams.get('dateFrom') || getDateDaysAgo(7);
+  const dateTo = searchParams.get('dateTo') || getToday();
+
+  const updateFilters = (updates: Record<string, string>) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      for (const [key, value] of Object.entries(updates)) {
+        if (value) {
+          next.set(key, value);
+        } else {
+          next.delete(key);
+        }
+      }
+      return next;
+    }, { replace: true });
+  };
 
   // Sales query
   const salesQuery = useSalesQuery({
@@ -58,11 +72,7 @@ export function SaleListPage() {
   // ------ Clear filters ------
   const hasFilters = !!customerSearch || !!saleType || dateFrom !== getDateDaysAgo(7) || dateTo !== getToday();
   const clearFilters = () => {
-    setCustomerSearch('');
-    setSaleType('');
-    setDateFrom(getDateDaysAgo(7));
-    setDateTo(getToday());
-    setPage(1);
+    setSearchParams({}, { replace: true });
   };
 
   // ------ Resolve payment status ------
@@ -110,23 +120,29 @@ export function SaleListPage() {
     {
       key: 'customer',
       header: 'Customer',
-      render: (row) => (
-        <div>
-          <p className="text-sm font-medium">{row.customerName || '-'}</p>
-          {row.customerCode && (
-            <p className="text-xs text-muted-foreground">{row.customerCode}</p>
-          )}
-        </div>
-      ),
+      render: (row) => {
+        const c = (row as any).customer;
+        return (
+          <div>
+            <p className="text-sm font-medium">{c?.name || row.customerName || '-'}</p>
+            {(c?.customerCode || row.customerCode) && (
+              <p className="text-xs text-muted-foreground">{c?.customerCode || row.customerCode}</p>
+            )}
+          </div>
+        );
+      },
     },
     {
       key: 'product',
       header: 'Product',
-      render: (row) => (
-        <span className="text-sm">
-          {row.productBrand} {row.productModel}
-        </span>
-      ),
+      render: (row) => {
+        const p = (row as any).product;
+        return (
+          <span className="text-sm">
+            {p?.brand || row.productBrand || ''} {p?.modelNumber || row.productModel || '-'}
+          </span>
+        );
+      },
     },
     {
       key: 'saleType',
@@ -149,9 +165,12 @@ export function SaleListPage() {
     {
       key: 'createdBy',
       header: 'Created By',
-      render: (row) => (
-        <span className="text-xs text-muted-foreground">{row.createdBy}</span>
-      ),
+      render: (row) => {
+        const creator = (row as any).creator;
+        return (
+          <span className="text-xs text-muted-foreground">{creator?.fullName || creator?.username || '-'}</span>
+        );
+      },
     },
   ];
 
@@ -196,8 +215,7 @@ export function SaleListPage() {
               type="text"
               value={customerSearch}
               onChange={(e) => {
-                setCustomerSearch(e.target.value);
-                setPage(1);
+                updateFilters({ customerSearch: e.target.value, page: '1' });
               }}
               placeholder="Name or phone (min 2 chars)..."
               className={cn(
@@ -209,8 +227,7 @@ export function SaleListPage() {
             {customerSearch && (
               <button
                 onClick={() => {
-                  setCustomerSearch('');
-                  setPage(1);
+                  updateFilters({ customerSearch: '', page: '1' });
                 }}
                 className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
               >
@@ -229,8 +246,7 @@ export function SaleListPage() {
             <select
               value={saleType}
               onChange={(e) => {
-                setSaleType(e.target.value);
-                setPage(1);
+                updateFilters({ saleType: e.target.value, page: '1' });
               }}
               className={cn(
                 'w-full appearance-none rounded-md border bg-background px-3 py-2 pr-8 text-sm',
@@ -256,8 +272,7 @@ export function SaleListPage() {
             type="date"
             value={dateFrom}
             onChange={(e) => {
-              setDateFrom(e.target.value);
-              setPage(1);
+              updateFilters({ dateFrom: e.target.value, page: '1' });
             }}
             className={cn(
               'w-full rounded-md border bg-background px-3 py-2 text-sm',
@@ -275,8 +290,7 @@ export function SaleListPage() {
             type="date"
             value={dateTo}
             onChange={(e) => {
-              setDateTo(e.target.value);
-              setPage(1);
+              updateFilters({ dateTo: e.target.value, page: '1' });
             }}
             className={cn(
               'w-full rounded-md border bg-background px-3 py-2 text-sm',
@@ -309,7 +323,7 @@ export function SaleListPage() {
         data={sales}
         isLoading={salesQuery.isLoading}
         pagination={paginationState}
-        onPageChange={setPage}
+        onPageChange={(p) => updateFilters({ page: String(p) })}
         emptyMessage="No sales found matching your filters."
         rowKey={(row) => row.id}
       />

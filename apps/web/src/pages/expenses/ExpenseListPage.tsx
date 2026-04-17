@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   Plus,
   ChevronDown,
@@ -55,13 +55,29 @@ export function ExpenseListPage() {
   const user = useAuthStore((s) => s.user);
   const isAdmin = user?.role === UserRole.ADMIN;
 
-  // ------ Filters state ------
-  const [page, setPage] = useState(1);
-  const [category, setCategory] = useState('');
-  const [dateFrom, setDateFrom] = useState(getDateDaysAgo(7));
-  const [dateTo, setDateTo] = useState(getToday());
-  const [search, setSearch] = useState('');
-  const [searchInput, setSearchInput] = useState('');
+  // ------ Filters state (URL search params) ------
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const page = Number(searchParams.get('page')) || 1;
+  const category = searchParams.get('category') || '';
+  const dateFrom = searchParams.get('dateFrom') || getDateDaysAgo(7);
+  const dateTo = searchParams.get('dateTo') || getToday();
+  const search = searchParams.get('search') || '';
+  const [searchInput, setSearchInput] = useState(search);
+
+  const updateFilters = (updates: Record<string, string>) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      for (const [key, value] of Object.entries(updates)) {
+        if (value) {
+          next.set(key, value);
+        } else {
+          next.delete(key);
+        }
+      }
+      return next;
+    }, { replace: true });
+  };
 
   // ------ Delete state ------
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -89,19 +105,14 @@ export function ExpenseListPage() {
 
   // ------ Search handler ------
   const handleSearch = () => {
-    setSearch(searchInput.trim());
-    setPage(1);
+    updateFilters({ search: searchInput.trim(), page: '1' });
   };
 
   // ------ Clear filters ------
   const hasFilters = category || search || dateFrom !== getDateDaysAgo(7) || dateTo !== getToday();
   const clearFilters = () => {
-    setCategory('');
-    setDateFrom(getDateDaysAgo(7));
-    setDateTo(getToday());
-    setSearch('');
     setSearchInput('');
-    setPage(1);
+    setSearchParams({}, { replace: true });
   };
 
   // ------ Delete handler ------
@@ -302,8 +313,7 @@ export function ExpenseListPage() {
             <select
               value={category}
               onChange={(e) => {
-                setCategory(e.target.value);
-                setPage(1);
+                updateFilters({ category: e.target.value, page: '1' });
               }}
               className={cn(
                 'w-full appearance-none rounded-md border bg-background px-3 py-2 pr-8 text-sm',
@@ -332,8 +342,7 @@ export function ExpenseListPage() {
               type="date"
               value={dateFrom}
               onChange={(e) => {
-                setDateFrom(e.target.value);
-                setPage(1);
+                updateFilters({ dateFrom: e.target.value, page: '1' });
               }}
               className={cn(
                 'rounded-md border bg-background pl-9 pr-3 py-2 text-sm',
@@ -354,8 +363,7 @@ export function ExpenseListPage() {
               type="date"
               value={dateTo}
               onChange={(e) => {
-                setDateTo(e.target.value);
-                setPage(1);
+                updateFilters({ dateTo: e.target.value, page: '1' });
               }}
               className={cn(
                 'rounded-md border bg-background pl-9 pr-3 py-2 text-sm',
@@ -422,7 +430,7 @@ export function ExpenseListPage() {
         data={expenses}
         isLoading={expensesQuery.isLoading}
         pagination={paginationState}
-        onPageChange={setPage}
+        onPageChange={(p) => updateFilters({ page: String(p) })}
         emptyMessage="No expenses found matching your filters."
         rowKey={(row) => row.id}
       />

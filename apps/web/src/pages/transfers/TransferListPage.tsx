@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import {
   Plus,
   ChevronDown,
@@ -45,14 +45,28 @@ export function TransferListPage() {
   const currentShopId = useShopStore((s) => s.currentShopId);
   const isAdmin = user?.role === UserRole.ADMIN;
 
-  // ------ Tab state ------
-  const [activeTab, setActiveTab] = useState<Tab>('all');
+  // ------ Filters state (URL search params) ------
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  // ------ Filters state (for All tab) ------
-  const [page, setPage] = useState(1);
-  const [status, setStatus] = useState('');
-  const [dateFrom, setDateFrom] = useState(getDateDaysAgo(7));
-  const [dateTo, setDateTo] = useState(getToday());
+  const activeTab = (searchParams.get('tab') as Tab) || 'all';
+  const page = Number(searchParams.get('page')) || 1;
+  const status = searchParams.get('status') || '';
+  const dateFrom = searchParams.get('dateFrom') || getDateDaysAgo(7);
+  const dateTo = searchParams.get('dateTo') || getToday();
+
+  const updateFilters = (updates: Record<string, string>) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      for (const [key, value] of Object.entries(updates)) {
+        if (value) {
+          next.set(key, value);
+        } else {
+          next.delete(key);
+        }
+      }
+      return next;
+    }, { replace: true });
+  };
 
   // All transfers query
   const transfersQuery = useTransfersQuery({
@@ -73,10 +87,8 @@ export function TransferListPage() {
   // ------ Clear filters ------
   const hasFilters = status || dateFrom !== getDateDaysAgo(7) || dateTo !== getToday();
   const clearFilters = () => {
-    setStatus('');
-    setDateFrom(getDateDaysAgo(7));
-    setDateTo(getToday());
-    setPage(1);
+    // Keep the current tab when clearing filters
+    setSearchParams(activeTab !== 'all' ? { tab: activeTab } : {}, { replace: true });
   };
 
   // ------ Receive mutation (for incoming tab) ------
@@ -204,7 +216,7 @@ export function TransferListPage() {
       {/* Tabs */}
       <div className="flex items-center gap-1 border-b mb-6">
         <button
-          onClick={() => setActiveTab('all')}
+          onClick={() => updateFilters({ tab: '', page: '1', status: '', dateFrom: '', dateTo: '' })}
           className={cn(
             'flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px',
             activeTab === 'all'
@@ -216,7 +228,7 @@ export function TransferListPage() {
           All Transfers
         </button>
         <button
-          onClick={() => setActiveTab('incoming')}
+          onClick={() => updateFilters({ tab: 'incoming', page: '1', status: '', dateFrom: '', dateTo: '' })}
           className={cn(
             'flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px',
             activeTab === 'incoming'
@@ -248,8 +260,7 @@ export function TransferListPage() {
                 <select
                   value={status}
                   onChange={(e) => {
-                    setStatus(e.target.value);
-                    setPage(1);
+                    updateFilters({ status: e.target.value, page: '1' });
                   }}
                   className={cn(
                     'w-full appearance-none rounded-md border bg-background px-3 py-2 pr-8 text-sm',
@@ -277,8 +288,7 @@ export function TransferListPage() {
                   type="date"
                   value={dateFrom}
                   onChange={(e) => {
-                    setDateFrom(e.target.value);
-                    setPage(1);
+                    updateFilters({ dateFrom: e.target.value, page: '1' });
                   }}
                   className={cn(
                     'rounded-md border bg-background pl-9 pr-3 py-2 text-sm',
@@ -299,8 +309,7 @@ export function TransferListPage() {
                   type="date"
                   value={dateTo}
                   onChange={(e) => {
-                    setDateTo(e.target.value);
-                    setPage(1);
+                    updateFilters({ dateTo: e.target.value, page: '1' });
                   }}
                   className={cn(
                     'rounded-md border bg-background pl-9 pr-3 py-2 text-sm',
@@ -335,7 +344,7 @@ export function TransferListPage() {
             data={transfers}
             isLoading={transfersQuery.isLoading}
             pagination={paginationState}
-            onPageChange={setPage}
+            onPageChange={(p) => updateFilters({ page: String(p) })}
             emptyMessage="No transfers found matching your filters."
             rowKey={(row) => row.id}
           />

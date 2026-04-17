@@ -1,5 +1,4 @@
-import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { Plus, Search, X, Pencil } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useDebounce } from '../../hooks/useDebounce';
@@ -13,11 +12,26 @@ const PAGE_SIZE = 20;
 
 export function CustomerListPage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  // ------ Filters state ------
-  const [page, setPage] = useState(1);
-  const [searchText, setSearchText] = useState('');
+  // ------ Filters state (URL search params) ------
+  const page = Number(searchParams.get('page')) || 1;
+  const searchText = searchParams.get('search') || '';
   const debouncedSearch = useDebounce(searchText, 300);
+
+  const updateFilters = (updates: Record<string, string>) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      for (const [key, value] of Object.entries(updates)) {
+        if (value) {
+          next.set(key, value);
+        } else {
+          next.delete(key);
+        }
+      }
+      return next;
+    }, { replace: true });
+  };
 
   // Customers query
   const customersQuery = useCustomersQuery({
@@ -32,8 +46,7 @@ export function CustomerListPage() {
   // ------ Clear filters ------
   const hasFilters = !!searchText;
   const clearFilters = () => {
-    setSearchText('');
-    setPage(1);
+    setSearchParams({}, { replace: true });
   };
 
   // ------ Table columns ------
@@ -164,8 +177,7 @@ export function CustomerListPage() {
               type="text"
               value={searchText}
               onChange={(e) => {
-                setSearchText(e.target.value);
-                setPage(1);
+                updateFilters({ search: e.target.value, page: '1' });
               }}
               placeholder="Name, phone, or customer code (min 2 chars)..."
               className={cn(
@@ -177,8 +189,7 @@ export function CustomerListPage() {
             {searchText && (
               <button
                 onClick={() => {
-                  setSearchText('');
-                  setPage(1);
+                  updateFilters({ search: '', page: '1' });
                 }}
                 className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
               >
@@ -212,7 +223,7 @@ export function CustomerListPage() {
         data={customers}
         isLoading={customersQuery.isLoading}
         pagination={paginationState}
-        onPageChange={setPage}
+        onPageChange={(p) => updateFilters({ page: String(p) })}
         emptyMessage="No customers found matching your search."
         rowKey={(row) => row.id}
       />

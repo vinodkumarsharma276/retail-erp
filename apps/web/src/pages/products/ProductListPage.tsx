@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useMemo } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Search,
   X,
@@ -21,14 +21,29 @@ const PAGE_SIZE = 20;
 
 export function ProductListPage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  // ------ Filters state ------
-  const [page, setPage] = useState(1);
-  const [rootCategoryId, setRootCategoryId] = useState('');
-  const [subCategoryId, setSubCategoryId] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
-  const [searchText, setSearchText] = useState('');
+  // ------ Filters state (URL search params) ------
+  const page = Number(searchParams.get('page')) || 1;
+  const rootCategoryId = searchParams.get('rootCategoryId') || '';
+  const subCategoryId = searchParams.get('subCategoryId') || '';
+  const statusFilter = searchParams.get('statusFilter') || '';
+  const searchText = searchParams.get('searchText') || '';
   const debouncedSearch = useDebounce(searchText, 300);
+
+  const updateFilters = (updates: Record<string, string>) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      for (const [key, value] of Object.entries(updates)) {
+        if (value) {
+          next.set(key, value);
+        } else {
+          next.delete(key);
+        }
+      }
+      return next;
+    }, { replace: true });
+  };
 
   // Categories
   const { data: categoryTree } = useCategoryTreeQuery();
@@ -57,28 +72,20 @@ export function ProductListPage() {
   // ------ Clear filters ------
   const hasFilters = rootCategoryId || statusFilter || searchText;
   const clearFilters = () => {
-    setRootCategoryId('');
-    setSubCategoryId('');
-    setStatusFilter('');
-    setSearchText('');
-    setPage(1);
+    setSearchParams({}, { replace: true });
   };
 
   // ------ Handlers ------
   const handleRootCategoryChange = (id: string) => {
-    setRootCategoryId(id);
-    setSubCategoryId('');
-    setPage(1);
+    updateFilters({ rootCategoryId: id, subCategoryId: '', page: '1' });
   };
 
   const handleSubCategoryChange = (id: string) => {
-    setSubCategoryId(id);
-    setPage(1);
+    updateFilters({ subCategoryId: id, page: '1' });
   };
 
   const handleStatusChange = (status: string) => {
-    setStatusFilter(status);
-    setPage(1);
+    updateFilters({ statusFilter: status, page: '1' });
   };
 
   // ------ Table columns ------
@@ -278,8 +285,7 @@ export function ProductListPage() {
               type="text"
               value={searchText}
               onChange={(e) => {
-                setSearchText(e.target.value);
-                setPage(1);
+                updateFilters({ searchText: e.target.value, page: '1' });
               }}
               placeholder="Brand, model, or serial (min 3 chars)..."
               className={cn(
@@ -291,8 +297,7 @@ export function ProductListPage() {
             {searchText && (
               <button
                 onClick={() => {
-                  setSearchText('');
-                  setPage(1);
+                  updateFilters({ searchText: '', page: '1' });
                 }}
                 className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
               >
@@ -326,7 +331,7 @@ export function ProductListPage() {
         data={products}
         isLoading={productsQuery.isLoading}
         pagination={paginationState}
-        onPageChange={setPage}
+        onPageChange={(p) => updateFilters({ page: String(p) })}
         emptyMessage="No products found matching your filters."
         rowKey={(row) => row.id}
       />
