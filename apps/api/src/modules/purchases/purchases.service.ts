@@ -2,7 +2,7 @@ import { prisma } from '../../config/database.js';
 import type { Prisma } from '@prisma/client';
 
 export const purchasesService = {
-  async list(shopId: string, filters: {
+  async list(shopId: string | null, filters: {
     skip: number;
     take: number;
     page: number;
@@ -12,9 +12,12 @@ export const purchasesService = {
     dateTo?: string;
     paymentStatus?: string;
   }) {
-    const where: Prisma.PurchaseWhereInput = {
-      shopId,
-    };
+    const where: Prisma.PurchaseWhereInput = {};
+
+    // Only apply shop scoping when shopId is provided
+    if (shopId) {
+      where.shopId = shopId;
+    }
 
     if (filters.distributorId) {
       where.distributorId = filters.distributorId;
@@ -43,6 +46,9 @@ export const purchasesService = {
           },
           creator: {
             select: { id: true, username: true, fullName: true },
+          },
+          shop: {
+            select: { id: true, name: true, code: true },
           },
           _count: {
             select: { products: true, payments: true },

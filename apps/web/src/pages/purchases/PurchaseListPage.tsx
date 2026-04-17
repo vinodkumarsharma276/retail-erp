@@ -33,7 +33,7 @@ export function PurchaseListPage() {
   // ------ Filters state (URL search params) ------
   const page = Number(searchParams.get('page')) || 1;
   const distributorId = searchParams.get('distributorId') || '';
-  const dateFrom = searchParams.get('dateFrom') || getDateDaysAgo(7);
+  const dateFrom = searchParams.get('dateFrom') || getDateDaysAgo(90);
   const dateTo = searchParams.get('dateTo') || getToday();
   const paymentStatus = searchParams.get('paymentStatus') || '';
 
@@ -69,7 +69,7 @@ export function PurchaseListPage() {
   const pagination = purchasesQuery.data?.pagination;
 
   // ------ Clear filters ------
-  const hasFilters = distributorId || paymentStatus || dateFrom !== getDateDaysAgo(7) || dateTo !== getToday();
+  const hasFilters = distributorId || paymentStatus || dateFrom !== getDateDaysAgo(90) || dateTo !== getToday();
   const clearFilters = () => {
     setSearchParams({}, { replace: true });
   };

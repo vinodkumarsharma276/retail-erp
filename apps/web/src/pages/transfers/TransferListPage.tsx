@@ -51,7 +51,7 @@ export function TransferListPage() {
   const activeTab = (searchParams.get('tab') as Tab) || 'all';
   const page = Number(searchParams.get('page')) || 1;
   const status = searchParams.get('status') || '';
-  const dateFrom = searchParams.get('dateFrom') || getDateDaysAgo(7);
+  const dateFrom = searchParams.get('dateFrom') || getDateDaysAgo(90);
   const dateTo = searchParams.get('dateTo') || getToday();
 
   const updateFilters = (updates: Record<string, string>) => {
@@ -85,7 +85,7 @@ export function TransferListPage() {
   const incomingTransfers = incomingQuery.data ?? [];
 
   // ------ Clear filters ------
-  const hasFilters = status || dateFrom !== getDateDaysAgo(7) || dateTo !== getToday();
+  const hasFilters = status || dateFrom !== getDateDaysAgo(90) || dateTo !== getToday();
   const clearFilters = () => {
     // Keep the current tab when clearing filters
     setSearchParams(activeTab !== 'all' ? { tab: activeTab } : {}, { replace: true });

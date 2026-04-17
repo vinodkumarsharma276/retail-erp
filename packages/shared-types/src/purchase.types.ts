@@ -30,6 +30,11 @@ export interface Purchase {
     contactPerson: string;
     phone: string;
   };
+  shop?: {
+    id: string;
+    name: string;
+    code: string;
+  };
   products?: PurchaseProduct[];
   payments?: PurchasePayment[];
 }

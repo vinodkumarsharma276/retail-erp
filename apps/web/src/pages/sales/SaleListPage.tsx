@@ -39,7 +39,7 @@ export function SaleListPage() {
   const customerSearch = searchParams.get('customerSearch') || '';
   const debouncedCustomerSearch = useDebounce(customerSearch, 300);
   const saleType = searchParams.get('saleType') || '';
-  const dateFrom = searchParams.get('dateFrom') || getDateDaysAgo(7);
+  const dateFrom = searchParams.get('dateFrom') || getDateDaysAgo(90);
   const dateTo = searchParams.get('dateTo') || getToday();
 
   const updateFilters = (updates: Record<string, string>) => {
@@ -70,7 +70,7 @@ export function SaleListPage() {
   const pagination = salesQuery.data?.pagination;
 
   // ------ Clear filters ------
-  const hasFilters = !!customerSearch || !!saleType || dateFrom !== getDateDaysAgo(7) || dateTo !== getToday();
+  const hasFilters = !!customerSearch || !!saleType || dateFrom !== getDateDaysAgo(90) || dateTo !== getToday();
   const clearFilters = () => {
     setSearchParams({}, { replace: true });
   };

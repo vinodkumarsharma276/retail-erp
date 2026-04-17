@@ -205,7 +205,7 @@ function getToday(): string {
 
 function ProductsTab({ distributorId }: { distributorId: string }) {
   const [page, setPage] = useState(1);
-  const [dateFrom, setDateFrom] = useState(getDateDaysAgo(7));
+  const [dateFrom, setDateFrom] = useState(getDateDaysAgo(90));
   const [dateTo, setDateTo] = useState(getToday());
 
   const productsQuery = useDistributorProductsQuery(distributorId, {
@@ -320,10 +320,10 @@ function ProductsTab({ distributorId }: { distributorId: string }) {
             />
           </div>
         </div>
-        {(dateFrom !== getDateDaysAgo(7) || dateTo !== getToday()) && (
+        {(dateFrom !== getDateDaysAgo(90) || dateTo !== getToday()) && (
           <button
             onClick={() => {
-              setDateFrom(getDateDaysAgo(7));
+              setDateFrom(getDateDaysAgo(90));
               setDateTo(getToday());
               setPage(1);
             }}
@@ -431,6 +431,7 @@ function PendingInvoicesTab({ distributorId }: { distributorId: string }) {
     pageSize: PAGE_SIZE,
     distributorId,
     paymentStatus: '', // Get all invoices, we filter visually
+    allShops: true, // Show invoices across all shops for this distributor
   });
 
   const purchases = purchasesQuery.data?.data ?? [];
@@ -459,6 +460,11 @@ function PendingInvoicesTab({ distributorId }: { distributorId: string }) {
           {row.invoiceNumber}
         </Link>
       ),
+    },
+    {
+      key: 'shop',
+      header: 'Shop',
+      render: (row) => (row as any).shop?.name ?? '-',
     },
     {
       key: 'date',

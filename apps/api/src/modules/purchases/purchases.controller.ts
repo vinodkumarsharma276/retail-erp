@@ -13,14 +13,21 @@ export const purchasesController = {
         dateFrom?: string;
         dateTo?: string;
         paymentStatus?: string;
+        allShops?: string;
       };
     }>,
     reply: FastifyReply,
   ) {
     try {
       const { page, pageSize, skip, take } = parsePagination(request.query);
-      const { distributorId, dateFrom, dateTo, paymentStatus } = request.query;
-      const shopId = request.shopFilter!.shopId;
+      const { distributorId, dateFrom, dateTo, paymentStatus, allShops } = request.query;
+
+      // If allShops=true, user is admin, and distributorId is provided, skip shop scoping
+      const skipShopScope =
+        allShops === 'true' &&
+        request.currentUser?.role === 'admin' &&
+        !!distributorId;
+      const shopId = skipShopScope ? null : request.shopFilter!.shopId;
 
       const { purchases, totalItems } = await purchasesService.list(shopId, {
         page,

@@ -60,7 +60,7 @@ export function ExpenseListPage() {
 
   const page = Number(searchParams.get('page')) || 1;
   const category = searchParams.get('category') || '';
-  const dateFrom = searchParams.get('dateFrom') || getDateDaysAgo(7);
+  const dateFrom = searchParams.get('dateFrom') || getDateDaysAgo(90);
   const dateTo = searchParams.get('dateTo') || getToday();
   const search = searchParams.get('search') || '';
   const [searchInput, setSearchInput] = useState(search);
@@ -109,7 +109,7 @@ export function ExpenseListPage() {
   };
 
   // ------ Clear filters ------
-  const hasFilters = category || search || dateFrom !== getDateDaysAgo(7) || dateTo !== getToday();
+  const hasFilters = category || search || dateFrom !== getDateDaysAgo(90) || dateTo !== getToday();
   const clearFilters = () => {
     setSearchInput('');
     setSearchParams({}, { replace: true });
