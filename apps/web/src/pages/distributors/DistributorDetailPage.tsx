@@ -6,17 +6,22 @@ import {
   Pencil,
   AlertCircle,
   Calendar,
+  Banknote,
+  X,
+  CheckCircle,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import {
   useDistributorDetailQuery,
   useDistributorProductsQuery,
   useDistributorPaymentsQuery,
+  useRecordDistributorPaymentMutation,
 } from '../../hooks/useDistributors';
 import { usePurchasesQuery } from '../../hooks/usePurchases';
 import { DataTable } from '../../components/DataTable';
 import type { Column, PaginationState } from '../../components/DataTable';
 import { StatusBadge } from '../../components/StatusBadge';
+import { useToast } from '../../stores/toast-store';
 import { formatINR, formatDateIN } from '@retailerp/shared-utils';
 import type {
   DistributorProduct,
@@ -35,8 +40,26 @@ export function DistributorDetailPage() {
   // Active tab
   const [activeTab, setActiveTab] = useState<TabType>('products');
 
+  // Payment dialog state
+  const [showPaymentDialog, setShowPaymentDialog] = useState(false);
+
   // Distributor detail
   const { data: distributor, isLoading, isError } = useDistributorDetailQuery(id);
+
+  // Fetch all purchases to compute pending total (large page to get all)
+  const allPurchasesQuery = usePurchasesQuery({
+    page: 1,
+    pageSize: 1000,
+    distributorId: id,
+    paymentStatus: '',
+    allShops: true,
+  });
+  const allPurchases = allPurchasesQuery.data?.data ?? [];
+  const pendingPurchases = allPurchases.filter((p) => p.paymentStatus !== 'paid');
+  const totalPending = pendingPurchases.reduce(
+    (sum, p) => sum + (Number(p.netAmount) - Number(p.amountPaid)),
+    0,
+  );
 
   // Loading
   if (isLoading) {
@@ -97,16 +120,33 @@ export function DistributorDetailPage() {
           </div>
         </div>
 
-        <button
-          onClick={() => navigate(`/distributors/${distributor.id}/edit`)}
-          className={cn(
-            'flex items-center gap-2 rounded-md border px-4 py-2 text-sm font-medium',
-            'hover:bg-muted transition-colors',
+        <div className="flex items-center gap-3">
+          {totalPending > 0 && (
+            <button
+              onClick={() => setShowPaymentDialog(true)}
+              className={cn(
+                'flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium',
+                'bg-primary text-primary-foreground hover:bg-primary/90 transition-colors',
+              )}
+            >
+              <Banknote className="h-4 w-4" />
+              Make Payment
+              <span className="ml-1 text-xs opacity-90">
+                ({formatINR(totalPending)})
+              </span>
+            </button>
           )}
-        >
-          <Pencil className="h-4 w-4" />
-          Edit
-        </button>
+          <button
+            onClick={() => navigate(`/distributors/${distributor.id}/edit`)}
+            className={cn(
+              'flex items-center gap-2 rounded-md border px-4 py-2 text-sm font-medium',
+              'hover:bg-muted transition-colors',
+            )}
+          >
+            <Pencil className="h-4 w-4" />
+            Edit
+          </button>
+        </div>
       </div>
 
       {/* Info card */}
@@ -186,6 +226,16 @@ export function DistributorDetailPage() {
       {activeTab === 'products' && <ProductsTab distributorId={id!} />}
       {activeTab === 'payments' && <PaymentsTab distributorId={id!} />}
       {activeTab === 'invoices' && <PendingInvoicesTab distributorId={id!} />}
+
+      {/* Lumpsum Payment Dialog */}
+      {showPaymentDialog && (
+        <LumpsumPaymentDialog
+          distributorId={id!}
+          totalPending={totalPending}
+          pendingInvoiceCount={pendingPurchases.length}
+          onClose={() => setShowPaymentDialog(false)}
+        />
+      )}
     </div>
   );
 }
@@ -530,6 +580,268 @@ function PendingInvoicesTab({ distributorId }: { distributorId: string }) {
       emptyMessage="No pending invoices for this distributor."
       rowKey={(row) => row.id}
     />
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Lumpsum Payment Dialog
+// ---------------------------------------------------------------------------
+function LumpsumPaymentDialog({
+  distributorId,
+  totalPending,
+  pendingInvoiceCount,
+  onClose,
+}: {
+  distributorId: string;
+  totalPending: number;
+  pendingInvoiceCount: number;
+  onClose: () => void;
+}) {
+  const toast = useToast();
+  const mutation = useRecordDistributorPaymentMutation();
+
+  const [amount, setAmount] = useState(String(totalPending));
+  const [paymentMode, setPaymentMode] = useState('cash');
+  const [paymentDate, setPaymentDate] = useState(
+    new Date().toISOString().split('T')[0],
+  );
+  const [referenceNumber, setReferenceNumber] = useState('');
+  const [notes, setNotes] = useState('');
+  const [result, setResult] = useState<{
+    totalDistributed: number;
+    invoicesPaidFull: number;
+    invoicesPaidPartial: number;
+    remainingAmount: number;
+  } | null>(null);
+
+  const parsedAmount = parseFloat(amount) || 0;
+  const isValid = parsedAmount > 0 && paymentMode && paymentDate;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isValid) return;
+
+    try {
+      const res = await mutation.mutateAsync({
+        id: distributorId,
+        payload: {
+          amount: parsedAmount,
+          paymentMode,
+          paymentDate,
+          referenceNumber: referenceNumber || undefined,
+          notes: notes || undefined,
+        },
+      });
+      setResult(res);
+      toast.success(
+        `Payment of ${formatINR(res.totalDistributed)} distributed across ${res.invoicesPaidFull + res.invoicesPaidPartial} invoice(s)`,
+      );
+    } catch (error: any) {
+      const message =
+        error?.response?.data?.error || error?.message || 'Failed to record payment';
+      toast.error(message);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      {/* Backdrop */}
+      <div
+        className="absolute inset-0 bg-black/50"
+        onClick={onClose}
+      />
+
+      {/* Dialog */}
+      <div className="relative w-full max-w-md rounded-lg border bg-card p-6 shadow-lg mx-4">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold">Make Payment</h2>
+          <button
+            onClick={onClose}
+            className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        {result ? (
+          /* Success result view */
+          <div className="space-y-4">
+            <div className="flex items-center gap-3 p-4 rounded-lg bg-green-50 border border-green-200">
+              <CheckCircle className="h-8 w-8 text-green-600 flex-shrink-0" />
+              <div>
+                <p className="font-medium text-green-800">Payment Recorded</p>
+                <p className="text-sm text-green-700 mt-1">
+                  {formatINR(result.totalDistributed)} distributed across invoices
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div className="rounded-md border p-3">
+                <p className="text-muted-foreground">Invoices Paid in Full</p>
+                <p className="text-lg font-semibold mt-1">{result.invoicesPaidFull}</p>
+              </div>
+              <div className="rounded-md border p-3">
+                <p className="text-muted-foreground">Invoices Partially Paid</p>
+                <p className="text-lg font-semibold mt-1">{result.invoicesPaidPartial}</p>
+              </div>
+              <div className="rounded-md border p-3">
+                <p className="text-muted-foreground">Total Distributed</p>
+                <p className="text-lg font-semibold mt-1">{formatINR(result.totalDistributed)}</p>
+              </div>
+              <div className="rounded-md border p-3">
+                <p className="text-muted-foreground">Remaining (Unallocated)</p>
+                <p className="text-lg font-semibold mt-1">{formatINR(result.remainingAmount)}</p>
+              </div>
+            </div>
+
+            <button
+              onClick={onClose}
+              className={cn(
+                'w-full rounded-md px-4 py-2.5 text-sm font-medium',
+                'bg-primary text-primary-foreground hover:bg-primary/90 transition-colors',
+              )}
+            >
+              Close
+            </button>
+          </div>
+        ) : (
+          /* Payment form */
+          <form onSubmit={handleSubmit} className="space-y-4">
+            {/* Pending summary */}
+            <div className="rounded-md bg-muted/50 border p-3 text-sm">
+              <span className="text-muted-foreground">Total Pending: </span>
+              <span className="font-semibold text-red-600">{formatINR(totalPending)}</span>
+              <span className="text-muted-foreground"> across </span>
+              <span className="font-medium">{pendingInvoiceCount} invoice(s)</span>
+            </div>
+
+            {/* Amount */}
+            <div>
+              <label className="block text-sm font-medium mb-1">Amount</label>
+              <input
+                type="number"
+                step="0.01"
+                min="0.01"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                className={cn(
+                  'w-full rounded-md border bg-background px-3 py-2 text-sm',
+                  'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                )}
+                placeholder="Enter amount"
+                required
+              />
+              {parsedAmount > totalPending && (
+                <p className="text-xs text-amber-600 mt-1">
+                  Amount exceeds total pending. Excess ({formatINR(parsedAmount - totalPending)}) will remain unallocated.
+                </p>
+              )}
+            </div>
+
+            {/* Payment Mode */}
+            <div>
+              <label className="block text-sm font-medium mb-1">Payment Mode</label>
+              <select
+                value={paymentMode}
+                onChange={(e) => setPaymentMode(e.target.value)}
+                className={cn(
+                  'w-full rounded-md border bg-background px-3 py-2 text-sm',
+                  'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                )}
+                required
+              >
+                <option value="cash">Cash</option>
+                <option value="bank_transfer">Bank Transfer</option>
+                <option value="cheque">Cheque</option>
+                <option value="upi">UPI</option>
+              </select>
+            </div>
+
+            {/* Payment Date */}
+            <div>
+              <label className="block text-sm font-medium mb-1">Payment Date</label>
+              <input
+                type="date"
+                value={paymentDate}
+                onChange={(e) => setPaymentDate(e.target.value)}
+                className={cn(
+                  'w-full rounded-md border bg-background px-3 py-2 text-sm',
+                  'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                )}
+                required
+              />
+            </div>
+
+            {/* Reference Number */}
+            <div>
+              <label className="block text-sm font-medium mb-1">
+                Reference Number <span className="text-muted-foreground font-normal">(optional)</span>
+              </label>
+              <input
+                type="text"
+                value={referenceNumber}
+                onChange={(e) => setReferenceNumber(e.target.value)}
+                className={cn(
+                  'w-full rounded-md border bg-background px-3 py-2 text-sm',
+                  'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                )}
+                placeholder="Cheque no., UTR, etc."
+              />
+            </div>
+
+            {/* Notes */}
+            <div>
+              <label className="block text-sm font-medium mb-1">
+                Notes <span className="text-muted-foreground font-normal">(optional)</span>
+              </label>
+              <textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                rows={2}
+                className={cn(
+                  'w-full rounded-md border bg-background px-3 py-2 text-sm resize-none',
+                  'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                )}
+                placeholder="Any additional notes..."
+              />
+            </div>
+
+            {/* Submit */}
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className={cn(
+                  'flex-1 rounded-md border px-4 py-2.5 text-sm font-medium',
+                  'hover:bg-muted transition-colors',
+                )}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={!isValid || mutation.isPending}
+                className={cn(
+                  'flex-1 rounded-md px-4 py-2.5 text-sm font-medium',
+                  'bg-primary text-primary-foreground hover:bg-primary/90 transition-colors',
+                  'disabled:opacity-50 disabled:cursor-not-allowed',
+                )}
+              >
+                {mutation.isPending ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Processing...
+                  </span>
+                ) : (
+                  'Confirm Payment'
+                )}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
   );
 }
 

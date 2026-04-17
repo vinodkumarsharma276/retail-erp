@@ -324,6 +324,102 @@ export const distributorsService = {
     return { products, totalItems };
   },
 
+  async recordLumpsumPayment(
+    distributorId: string,
+    data: {
+      amount: number;
+      paymentMode: string;
+      paymentDate: string;
+      referenceNumber?: string;
+      notes?: string;
+    },
+    userId: string,
+  ) {
+    // Verify distributor exists
+    const distributor = await prisma.distributor.findUnique({
+      where: { id: distributorId },
+    });
+    if (!distributor) {
+      throw new Error('Distributor not found');
+    }
+
+    // Find all unpaid/partial purchases, oldest first (FIFO)
+    const pendingPurchases = await prisma.purchase.findMany({
+      where: {
+        distributorId,
+        paymentStatus: { not: 'paid' },
+      },
+      orderBy: { invoiceDate: 'asc' },
+    });
+
+    if (pendingPurchases.length === 0) {
+      throw new Error('No pending invoices found for this distributor');
+    }
+
+    let remaining = data.amount;
+    let invoicesPaidFull = 0;
+    let invoicesPaidPartial = 0;
+    let totalDistributed = 0;
+
+    const result = await prisma.$transaction(async (tx) => {
+      for (const purchase of pendingPurchases) {
+        if (remaining <= 0) break;
+
+        const pending = Number(purchase.netAmount) - Number(purchase.amountPaid);
+        if (pending <= 0) continue;
+
+        const payAmount = Math.min(remaining, pending);
+
+        // Create PurchasePayment record
+        await tx.purchasePayment.create({
+          data: {
+            purchaseId: purchase.id,
+            amount: payAmount,
+            paymentMode: data.paymentMode as any,
+            paymentDate: new Date(data.paymentDate),
+            referenceNumber: data.referenceNumber ?? null,
+            notes: data.notes ?? null,
+            createdBy: userId,
+          },
+        });
+
+        const newAmountPaid = Number(purchase.amountPaid) + payAmount;
+        const netAmount = Number(purchase.netAmount);
+
+        // Determine new payment status
+        let paymentStatus: string;
+        if (newAmountPaid >= netAmount) {
+          paymentStatus = 'paid';
+          invoicesPaidFull++;
+        } else {
+          paymentStatus = 'partial';
+          invoicesPaidPartial++;
+        }
+
+        // Update purchase
+        await tx.purchase.update({
+          where: { id: purchase.id },
+          data: {
+            amountPaid: newAmountPaid,
+            paymentStatus,
+          },
+        });
+
+        totalDistributed += payAmount;
+        remaining -= payAmount;
+      }
+
+      return {
+        totalDistributed,
+        invoicesPaidFull,
+        invoicesPaidPartial,
+        remainingAmount: remaining,
+      };
+    });
+
+    return result;
+  },
+
   async getPayments(distributorId: string) {
     // Verify distributor exists
     const distributor = await prisma.distributor.findUnique({

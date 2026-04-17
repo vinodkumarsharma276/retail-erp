@@ -167,6 +167,39 @@ export const distributorsController = {
     }
   },
 
+  async recordLumpsumPayment(
+    request: FastifyRequest<{
+      Params: { id: string };
+      Body: {
+        amount: number;
+        paymentMode: string;
+        paymentDate: string;
+        referenceNumber?: string;
+        notes?: string;
+      };
+    }>,
+    reply: FastifyReply,
+  ) {
+    try {
+      const userId = request.currentUser!.userId;
+      const result = await distributorsService.recordLumpsumPayment(
+        request.params.id,
+        request.body,
+        userId,
+      );
+      return sendSuccess(reply, result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to record payment';
+      if (message === 'Distributor not found') {
+        return sendError(reply, message, 404);
+      }
+      if (message === 'No pending invoices found for this distributor') {
+        return sendError(reply, message, 400);
+      }
+      return sendError(reply, message, 500);
+    }
+  },
+
   async getPayments(
     request: FastifyRequest<{ Params: { id: string } }>,
     reply: FastifyReply,
