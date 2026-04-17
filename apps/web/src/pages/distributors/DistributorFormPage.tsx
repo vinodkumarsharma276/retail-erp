@@ -115,6 +115,7 @@ export function DistributorFormPage() {
     register,
     handleSubmit,
     reset,
+    setError,
     formState: { errors },
   } = useForm<DistributorFormValues>({ defaultValues });
 
@@ -196,20 +197,30 @@ export function DistributorFormPage() {
       categoryIds: selectedCategoryIds,
     };
 
+    const onError = (error: unknown) => {
+      const msg = (error as any)?.response?.data?.error ?? '';
+      // Highlight the specific field that has the duplicate
+      if (msg.includes('GST number')) {
+        setError('gstNumber', { type: 'server', message: msg });
+      } else if (msg.includes('PAN number')) {
+        setError('panNumber', { type: 'server', message: msg });
+      } else if (msg.includes('bank account')) {
+        setError('bankAccountNumber', { type: 'server', message: msg });
+      }
+    };
+
     if (isEditMode && id) {
       updateMutation.mutate(
         { id, payload },
         {
-          onSuccess: () => {
-            navigate('/distributors', { replace: true });
-          },
+          onSuccess: () => navigate('/distributors', { replace: true }),
+          onError,
         },
       );
     } else {
       createMutation.mutate(payload, {
-        onSuccess: () => {
-          navigate('/distributors', { replace: true });
-        },
+        onSuccess: () => navigate('/distributors', { replace: true }),
+        onError,
       });
     }
   };
@@ -608,8 +619,12 @@ export function DistributorFormPage() {
                   'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
                   'placeholder:text-muted-foreground',
                   'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                  errors.bankAccountNumber && 'border-destructive',
                 )}
               />
+              {errors.bankAccountNumber && (
+                <p className="text-xs text-destructive mt-1">{errors.bankAccountNumber.message}</p>
+              )}
             </div>
 
             {/* IFSC */}
