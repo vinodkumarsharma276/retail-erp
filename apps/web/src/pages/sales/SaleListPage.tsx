@@ -170,7 +170,8 @@ export function SaleListPage() {
       {/* Page header */}
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-semibold">Sales</h1>
-        <Link
+        {/* Hidden for now — sales initiated from Products page "Sell" button */}
+        {/* <Link
           to="/sales/new"
           className={cn(
             'flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground',
@@ -179,7 +180,7 @@ export function SaleListPage() {
         >
           <Plus className="h-4 w-4" />
           New Sale
-        </Link>
+        </Link> */}
       </div>
 
       {/* Filters row */}
