@@ -116,8 +116,8 @@ export function PurchaseDetailPage() {
           <InfoRow label="Amount Paid" value={formatINR(purchase.amountPaid)} />
           <InfoRow
             label="Pending"
-            value={formatINR(purchase.pendingAmount)}
-            highlight={purchase.pendingAmount > 0}
+            value={formatINR((Number(purchase.netAmount) || 0) - (Number(purchase.amountPaid) || 0))}
+            highlight={(Number(purchase.netAmount) || 0) - (Number(purchase.amountPaid) || 0) > 0}
           />
           {purchase.notes && (
             <div className="sm:col-span-2 lg:col-span-4">
@@ -271,7 +271,7 @@ export function PurchaseDetailPage() {
       {showPaymentDialog && (
         <RecordPaymentDialog
           purchaseId={id!}
-          pendingAmount={purchase.pendingAmount}
+          pendingAmount={(Number(purchase.netAmount) || 0) - (Number(purchase.amountPaid) || 0)}
           onClose={() => setShowPaymentDialog(false)}
         />
       )}

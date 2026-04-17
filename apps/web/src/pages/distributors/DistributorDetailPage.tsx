@@ -487,11 +487,14 @@ function PendingInvoicesTab({ distributorId }: { distributorId: string }) {
       key: 'pending',
       header: 'Pending',
       align: 'right',
-      render: (row) => (
-        <span className="text-red-600 font-medium">
-          {formatINR(row.pendingAmount)}
-        </span>
-      ),
+      render: (row) => {
+        const pending = (Number(row.netAmount) || 0) - (Number(row.amountPaid) || 0);
+        return (
+          <span className={cn(pending > 0 ? 'text-red-600 font-medium' : '')}>
+            {formatINR(pending)}
+          </span>
+        );
+      },
     },
     {
       key: 'status',
