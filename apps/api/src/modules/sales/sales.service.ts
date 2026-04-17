@@ -293,7 +293,7 @@ export const salesService = {
         installmentSchedule: {
           include: {
             installments: {
-              orderBy: { installmentNumber: 'asc' },
+              orderBy: [{ dueDate: 'asc' }, { installmentNumber: 'asc' }],
             },
           },
         },
@@ -539,7 +539,7 @@ export const salesService = {
         installmentSchedule: {
           include: {
             installments: {
-              orderBy: { installmentNumber: 'asc' },
+              orderBy: [{ dueDate: 'asc' }, { installmentNumber: 'asc' }],
               include: {
                 payments: {
                   orderBy: { paymentDate: 'desc' },
@@ -570,7 +570,7 @@ export const salesService = {
       where: { saleId },
       include: {
         installments: {
-          orderBy: { installmentNumber: 'asc' },
+          orderBy: [{ dueDate: 'asc' }, { installmentNumber: 'asc' }],
           include: {
             payments: {
               include: {

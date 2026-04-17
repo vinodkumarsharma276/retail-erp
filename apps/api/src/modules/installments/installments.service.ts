@@ -377,7 +377,7 @@ export const installmentsService = {
           },
         },
         installments: {
-          orderBy: [{ installmentNumber: 'asc' }, { createdAt: 'asc' }],
+          orderBy: [{ dueDate: 'asc' }, { installmentNumber: 'asc' }, { createdAt: 'asc' }],
           include: {
             payments: {
               include: {
@@ -439,7 +439,7 @@ export const installmentsService = {
           },
         },
         installments: {
-          orderBy: [{ installmentNumber: 'asc' }, { createdAt: 'asc' }],
+          orderBy: [{ dueDate: 'asc' }, { installmentNumber: 'asc' }, { createdAt: 'asc' }],
           include: {
             payments: {
               include: {

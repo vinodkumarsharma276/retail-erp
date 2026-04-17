@@ -552,7 +552,7 @@ export function SaleCreatePage() {
               {...register('ledgerNumber', {
                 required: 'Ledger number is required',
               })}
-              placeholder="e.g. 1234"
+              placeholder="e.g., VE001"
               className={cn(
                 'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
                 'placeholder:text-muted-foreground',
@@ -560,6 +560,9 @@ export function SaleCreatePage() {
                 errors.ledgerNumber && 'border-destructive',
               )}
             />
+            <p className="mt-1 text-xs text-muted-foreground">
+              Format: 2 capital letters + up to 5 digits (e.g., VE001, AB123, NE045)
+            </p>
             {errors.ledgerNumber && (
               <p className="mt-1 text-xs text-destructive">
                 {errors.ledgerNumber.message}

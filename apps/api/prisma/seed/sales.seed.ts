@@ -61,7 +61,7 @@ export async function seedSales(
       shopId: ve.id,
       product: findProduct('VE', 'Samsung', 'QA55Q60B'),
       customer: customerByName('Rajesh Kumar'),
-      ledgerNumber: 'VE-2026-001',
+      ledgerNumber: 'VE001',
       saleType: 'full_payment' as const,
       sellingPrice: 79990,
       discountAmount: 0,
@@ -76,7 +76,7 @@ export async function seedSales(
       shopId: ne.id,
       product: findProduct('NE', 'Samsung', 'Galaxy S24'),
       customer: customerByName('Priya Sharma'),
-      ledgerNumber: 'NE-2026-001',
+      ledgerNumber: 'NE001',
       saleType: 'partial_with_promise' as const,
       sellingPrice: 74999,
       discountAmount: 0,
@@ -92,7 +92,7 @@ export async function seedSales(
       shopId: vha.id,
       product: findProduct('VHA', 'Godrej', 'Viva Queen'),
       customer: customerByName('Amit Verma'),
-      ledgerNumber: 'VHA-2026-001',
+      ledgerNumber: 'VA001',
       saleType: 'self_finance' as const,
       sellingPrice: 32990,
       discountAmount: 0,
@@ -111,7 +111,7 @@ export async function seedSales(
       shopId: nhe.id,
       product: findProduct('NHE', 'Blue Star', 'WFA312LN'),
       customer: customerByName('Sunita Devi'),
-      ledgerNumber: 'NHE-2026-001',
+      ledgerNumber: 'NH001',
       saleType: 'company_finance' as const,
       sellingPrice: 26990,
       discountAmount: 0,
@@ -127,7 +127,7 @@ export async function seedSales(
       shopId: ve.id,
       product: findProduct('VE', 'LG', '43LM5760'),
       customer: customerByName('Mohit Singh'),
-      ledgerNumber: 'VE-2026-002',
+      ledgerNumber: 'VE002',
       saleType: 'self_finance' as const,
       sellingPrice: 32990,
       discountAmount: 0,
@@ -159,6 +159,31 @@ export async function seedSales(
     });
     if (existing) {
       sales.push(existing);
+      continue;
+    }
+
+    // Also check by saleNumber prefix + shopId to handle ledger number format migration.
+    // If an old seed created a sale with the old ledger format (e.g. VE-2026-001),
+    // find it by saleNumber and update its ledgerNumber to the new short format.
+    const existingBySaleNumber = await prisma.saleRecord.findFirst({
+      where: { shopId: def.shopId, saleNumber: { startsWith: `SALE-${def.shopCode}-` } },
+      orderBy: { saleNumber: 'asc' },
+    });
+    if (existingBySaleNumber && existingBySaleNumber.ledgerNumber !== def.ledgerNumber) {
+      // Update ledger number to new short format
+      await prisma.saleRecord.update({
+        where: { id: existingBySaleNumber.id },
+        data: { ledgerNumber: def.ledgerNumber },
+      });
+      // Also update the sanitized record
+      await prisma.saleRecordSanitized.updateMany({
+        where: { id: existingBySaleNumber.id },
+        data: { ledgerNumber: def.ledgerNumber },
+      });
+      sales.push({ ...existingBySaleNumber, ledgerNumber: def.ledgerNumber });
+      continue;
+    } else if (existingBySaleNumber) {
+      sales.push(existingBySaleNumber);
       continue;
     }
 

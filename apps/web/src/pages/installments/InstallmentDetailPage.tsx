@@ -248,6 +248,9 @@ export function InstallmentDetailPage() {
                   >
                     <td className="px-3 py-2.5 font-medium">
                       {inst.installmentNumber}
+                      {inst.rescheduledFromId && (
+                        <span className="ml-1 text-xs text-amber-600 font-normal">(Remainder)</span>
+                      )}
                     </td>
                     <td className="px-3 py-2.5">
                       {formatDateIN(inst.dueDate)}
