@@ -132,6 +132,36 @@ export const distributorsService = {
   }, userId: string) {
     const { categoryIds, ...distributorData } = data;
 
+    // Check for duplicate GST number
+    if (distributorData.gstNumber) {
+      const existingGst = await prisma.distributor.findFirst({
+        where: { gstNumber: distributorData.gstNumber },
+      });
+      if (existingGst) {
+        throw new Error(`A distributor with GST number "${distributorData.gstNumber}" already exists (${existingGst.companyName})`);
+      }
+    }
+
+    // Check for duplicate PAN number
+    if (distributorData.panNumber) {
+      const existingPan = await prisma.distributor.findFirst({
+        where: { panNumber: distributorData.panNumber },
+      });
+      if (existingPan) {
+        throw new Error(`A distributor with PAN number "${distributorData.panNumber}" already exists (${existingPan.companyName})`);
+      }
+    }
+
+    // Check for duplicate bank account number
+    if (distributorData.bankAccountNumber) {
+      const existingBank = await prisma.distributor.findFirst({
+        where: { bankAccountNumber: distributorData.bankAccountNumber },
+      });
+      if (existingBank) {
+        throw new Error(`A distributor with bank account "${distributorData.bankAccountNumber}" already exists (${existingBank.companyName})`);
+      }
+    }
+
     // Validate categories exist if provided
     if (categoryIds && categoryIds.length > 0) {
       const categories = await prisma.productCategory.findMany({
@@ -213,6 +243,36 @@ export const distributorsService = {
     }
 
     const { categoryIds, ...updateData } = data;
+
+    // Check for duplicate GST number (exclude self)
+    if (updateData.gstNumber) {
+      const existingGst = await prisma.distributor.findFirst({
+        where: { gstNumber: updateData.gstNumber, id: { not: id } },
+      });
+      if (existingGst) {
+        throw new Error(`A distributor with GST number "${updateData.gstNumber}" already exists (${existingGst.companyName})`);
+      }
+    }
+
+    // Check for duplicate PAN number (exclude self)
+    if (updateData.panNumber) {
+      const existingPan = await prisma.distributor.findFirst({
+        where: { panNumber: updateData.panNumber, id: { not: id } },
+      });
+      if (existingPan) {
+        throw new Error(`A distributor with PAN number "${updateData.panNumber}" already exists (${existingPan.companyName})`);
+      }
+    }
+
+    // Check for duplicate bank account number (exclude self)
+    if (updateData.bankAccountNumber) {
+      const existingBank = await prisma.distributor.findFirst({
+        where: { bankAccountNumber: updateData.bankAccountNumber, id: { not: id } },
+      });
+      if (existingBank) {
+        throw new Error(`A distributor with bank account "${updateData.bankAccountNumber}" already exists (${existingBank.companyName})`);
+      }
+    }
 
     // Validate categories exist if provided
     if (categoryIds && categoryIds.length > 0) {

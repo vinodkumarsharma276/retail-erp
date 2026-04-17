@@ -84,6 +84,9 @@ export const distributorsController = {
       if (message === 'One or more category IDs are invalid') {
         return sendError(reply, message, 400);
       }
+      if (message.includes('already exists')) {
+        return sendError(reply, message, 409);
+      }
       return sendError(reply, message, 500);
     }
   },
@@ -126,6 +129,9 @@ export const distributorsController = {
       const message = error instanceof Error ? error.message : 'Failed to update distributor';
       if (message === 'One or more category IDs are invalid') {
         return sendError(reply, message, 400);
+      }
+      if (message.includes('already exists')) {
+        return sendError(reply, message, 409);
       }
       return sendError(reply, message, 500);
     }
