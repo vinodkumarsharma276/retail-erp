@@ -165,7 +165,7 @@ export function ProductListPage() {
           {row.status === ProductStatus.IN_STOCK && (
             <button
               onClick={() => navigate(`/sales/new?productId=${row.id}`)}
-              className="rounded-md px-2.5 py-1 text-xs font-medium text-green-700 bg-green-100 hover:bg-green-200 transition-colors"
+              className="rounded-md px-2.5 py-1 text-xs font-medium text-green-700 dark:text-green-400 bg-green-100 dark:bg-green-900/30 hover:bg-green-200 dark:hover:bg-green-900/50 transition-colors"
               title="Sell this product"
             >
               <span className="flex items-center gap-1">

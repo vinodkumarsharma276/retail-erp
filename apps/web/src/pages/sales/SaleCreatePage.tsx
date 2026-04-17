@@ -581,13 +581,13 @@ export function SaleCreatePage() {
           </h2>
 
           {selectedCustomer ? (
-            <div className="rounded-md border p-4 bg-green-50 border-green-200">
+            <div className="rounded-md border p-4 bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="font-medium text-green-800">
+                  <p className="font-medium text-green-800 dark:text-green-200">
                     {selectedCustomer.name}
                   </p>
-                  <p className="text-sm text-green-600 mt-0.5">
+                  <p className="text-sm text-green-600 dark:text-green-400 mt-0.5">
                     {selectedCustomer.phone}
                     {selectedCustomer.customerCode &&
                       ` | ${selectedCustomer.customerCode}`}
@@ -1363,37 +1363,37 @@ export function SaleCreatePage() {
 
               {/* EMI Preview Panel */}
               {emiResult && (
-                <div className="rounded-lg border-2 border-blue-200 bg-blue-50 p-5">
-                  <h3 className="text-base font-medium text-blue-900 mb-4">
+                <div className="rounded-lg border-2 border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/30 p-5">
+                  <h3 className="text-base font-medium text-blue-900 dark:text-blue-100 mb-4">
                     EMI Preview
                   </h3>
                   <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5 mb-4">
                     <div>
-                      <p className="text-xs font-medium text-blue-700">Principal</p>
-                      <p className="text-lg font-semibold text-blue-900">
+                      <p className="text-xs font-medium text-blue-700 dark:text-blue-400">Principal</p>
+                      <p className="text-lg font-semibold text-blue-900 dark:text-blue-100">
                         {formatINR(emiResult.principal)}
                       </p>
                     </div>
                     <div>
-                      <p className="text-xs font-medium text-blue-700">Total Interest</p>
-                      <p className="text-lg font-semibold text-blue-900">
+                      <p className="text-xs font-medium text-blue-700 dark:text-blue-400">Total Interest</p>
+                      <p className="text-lg font-semibold text-blue-900 dark:text-blue-100">
                         {formatINR(emiResult.totalInterest)}
                       </p>
                     </div>
                     <div>
-                      <p className="text-xs font-medium text-blue-700">File Charge</p>
-                      <p className="text-lg font-semibold text-blue-900">
+                      <p className="text-xs font-medium text-blue-700 dark:text-blue-400">File Charge</p>
+                      <p className="text-lg font-semibold text-blue-900 dark:text-blue-100">
                         {formatINR(emiResult.fileCharge)}
                       </p>
                     </div>
                     <div>
-                      <p className="text-xs font-medium text-blue-700">Total Payable</p>
-                      <p className="text-lg font-bold text-blue-900">
+                      <p className="text-xs font-medium text-blue-700 dark:text-blue-400">Total Payable</p>
+                      <p className="text-lg font-bold text-blue-900 dark:text-blue-100">
                         {formatINR(emiResult.totalPayable)}
                       </p>
                     </div>
                     <div>
-                      <p className="text-xs font-medium text-blue-700">EMI / Month</p>
+                      <p className="text-xs font-medium text-blue-700 dark:text-blue-400">EMI / Month</p>
                       <p className="text-lg font-bold text-primary">
                         {formatINR(emiResult.emiAmount)}
                       </p>
@@ -1401,17 +1401,17 @@ export function SaleCreatePage() {
                   </div>
 
                   {/* Schedule table */}
-                  <div className="max-h-64 overflow-y-auto rounded-md border border-blue-200 bg-white">
+                  <div className="max-h-64 overflow-y-auto rounded-md border border-blue-200 dark:border-blue-800 bg-card">
                     <table className="w-full text-sm">
-                      <thead className="sticky top-0 bg-blue-100">
+                      <thead className="sticky top-0 bg-blue-100 dark:bg-blue-900/40">
                         <tr>
-                          <th className="px-3 py-2 text-left font-medium text-blue-800">
+                          <th className="px-3 py-2 text-left font-medium text-blue-800 dark:text-blue-300">
                             Month #
                           </th>
-                          <th className="px-3 py-2 text-left font-medium text-blue-800">
+                          <th className="px-3 py-2 text-left font-medium text-blue-800 dark:text-blue-300">
                             Due Date
                           </th>
-                          <th className="px-3 py-2 text-right font-medium text-blue-800">
+                          <th className="px-3 py-2 text-right font-medium text-blue-800 dark:text-blue-300">
                             Amount
                           </th>
                         </tr>
@@ -1420,7 +1420,7 @@ export function SaleCreatePage() {
                         {emiResult.schedule.map((item) => (
                           <tr
                             key={item.installmentNumber}
-                            className="border-t border-blue-100"
+                            className="border-t border-blue-100 dark:border-blue-900"
                           >
                             <td className="px-3 py-1.5">
                               {item.installmentNumber}
@@ -1445,13 +1445,13 @@ export function SaleCreatePage() {
                 </h3>
 
                 {selectedGuarantor ? (
-                  <div className="rounded-md border p-3 bg-purple-50 border-purple-200">
+                  <div className="rounded-md border p-3 bg-purple-50 dark:bg-purple-950/30 border-purple-200 dark:border-purple-800">
                     <div className="flex items-center justify-between">
                       <div>
-                        <p className="text-sm font-medium text-purple-800">
+                        <p className="text-sm font-medium text-purple-800 dark:text-purple-200">
                           {selectedGuarantor.name}
                         </p>
-                        <p className="text-xs text-purple-600">
+                        <p className="text-xs text-purple-600 dark:text-purple-400">
                           {selectedGuarantor.phone}
                           {selectedGuarantor.customerCode &&
                             ` | ${selectedGuarantor.customerCode}`}
@@ -2121,8 +2121,8 @@ function SellingPriceCalculations({
         <div className={cn(
           'flex items-center gap-2 rounded-md px-3 py-2 text-xs font-medium mb-2',
           isBelowDP
-            ? 'bg-red-50 text-red-700 border border-red-200'
-            : 'bg-amber-50 text-amber-700 border border-amber-200',
+            ? 'bg-red-50 text-red-700 border border-red-200 dark:bg-red-950/30 dark:text-red-400 dark:border-red-800'
+            : 'bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-800',
         )}>
           <AlertCircle className="h-3.5 w-3.5 shrink-0" />
           {isBelowDP

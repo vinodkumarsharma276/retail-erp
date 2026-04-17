@@ -274,10 +274,10 @@ function OverdueTab() {
             className={cn(
               'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold',
               row.daysOverdue > 30
-                ? 'bg-red-100 text-red-700'
+                ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
                 : row.daysOverdue > 7
-                  ? 'bg-orange-100 text-orange-700'
-                  : 'bg-yellow-100 text-yellow-700',
+                  ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
+                  : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
             )}
           >
             {row.daysOverdue}d
@@ -703,21 +703,21 @@ function getCollectionStatus(item: CollectionItem): {
 } {
   if (item.status === 'overdue' || item.daysOverdue > 0) {
     return {
-      bg: 'bg-red-100',
-      text: 'text-red-700',
+      bg: 'bg-red-100 dark:bg-red-900/30',
+      text: 'text-red-700 dark:text-red-400',
       label: `Overdue ${item.daysOverdue}d`,
     };
   }
   if (item.status === 'rescheduled') {
     return {
-      bg: 'bg-amber-100',
-      text: 'text-amber-700',
+      bg: 'bg-amber-100 dark:bg-amber-900/30',
+      text: 'text-amber-700 dark:text-amber-400',
       label: 'Rescheduled',
     };
   }
   return {
-    bg: 'bg-blue-100',
-    text: 'text-blue-700',
+    bg: 'bg-blue-100 dark:bg-blue-900/30',
+    text: 'text-blue-700 dark:text-blue-400',
     label: 'Due Today',
   };
 }

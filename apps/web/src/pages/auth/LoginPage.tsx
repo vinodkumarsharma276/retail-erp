@@ -110,12 +110,14 @@ export function LoginPage() {
       : null;
 
   return (
-    <div className="w-full max-w-md rounded-lg border bg-card p-8 shadow-sm">
+    <div className="w-full max-w-md rounded-xl border bg-card p-8 shadow-lg shadow-black/5 dark:shadow-black/20">
       {/* Logo / Title */}
       <div className="flex flex-col items-center mb-8">
-        <div className="flex items-center gap-2 mb-2">
-          <ShoppingCart className="h-8 w-8 text-primary" />
-          <h1 className="text-2xl font-bold">RetailERP</h1>
+        <div className="flex items-center gap-2.5 mb-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary shadow-sm">
+            <ShoppingCart className="h-5 w-5 text-primary-foreground" />
+          </div>
+          <h1 className="text-2xl font-bold tracking-tight">RetailERP</h1>
         </div>
         <p className="text-sm text-muted-foreground">
           Sign in to manage your shop

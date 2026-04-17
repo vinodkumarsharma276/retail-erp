@@ -457,11 +457,11 @@ export function PurchaseCreatePage() {
 
               {/* Selected distributor summary */}
               {selectedDistributor && (
-                <div className="mt-4 p-4 rounded-md bg-green-50 border border-green-200">
-                  <p className="text-sm font-medium text-green-800">
+                <div className="mt-4 p-4 rounded-md bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800">
+                  <p className="text-sm font-medium text-green-800 dark:text-green-200">
                     Selected: {selectedDistributor.companyName}
                   </p>
-                  <p className="text-xs text-green-600 mt-0.5">
+                  <p className="text-xs text-green-600 dark:text-green-400 mt-0.5">
                     {selectedDistributor.contactPerson} &middot;{' '}
                     {selectedDistributor.phone}
                     {selectedDistributor.gstNumber &&
@@ -553,7 +553,7 @@ export function PurchaseCreatePage() {
                       <button
                         type="button"
                         onClick={() => removeProductItem(index)}
-                        className="flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 transition-colors"
+                        className="flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30 hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors"
                       >
                         <Trash2 className="h-3 w-3" />
                         Remove
@@ -931,8 +931,8 @@ export function PurchaseCreatePage() {
                 />
               </div>
 
-              <div className="mt-4 p-3 rounded-md border bg-amber-50 border-amber-200">
-                <p className="text-sm text-amber-800">
+              <div className="mt-4 p-3 rounded-md border bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800">
+                <p className="text-sm text-amber-800 dark:text-amber-200">
                   Payment will be recorded as pending. Use the distributor page to record lump-sum payments against invoices.
                 </p>
               </div>

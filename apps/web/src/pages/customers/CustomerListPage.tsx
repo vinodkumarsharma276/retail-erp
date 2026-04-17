@@ -104,7 +104,7 @@ export function CustomerListPage() {
       header: 'Guarantor',
       render: (row) =>
         row.isGuarantor ? (
-          <span className="inline-flex items-center rounded-full bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-700">
+          <span className="inline-flex items-center rounded-full bg-purple-100 dark:bg-purple-900/30 px-2 py-0.5 text-xs font-medium text-purple-700 dark:text-purple-400">
             Is Guarantor
           </span>
         ) : row.guarantorId ? (

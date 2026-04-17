@@ -8,6 +8,8 @@ import {
   Loader2,
   Check,
   Menu,
+  Sun,
+  Moon,
 } from 'lucide-react';
 import { useAuthStore } from '../../stores/auth-store';
 import { useShopStore } from '../../stores/shop-store';
@@ -33,6 +35,23 @@ export function Header() {
   const openSidebar = useSidebarStore((s) => s.open);
   const logoutMutation = useLogoutMutation();
   const switchShopMutation = useSwitchShopMutation();
+
+  // --- Dark mode toggle ---
+  const [isDark, setIsDark] = useState(() => {
+    const stored = localStorage.getItem('theme');
+    if (stored) return stored === 'dark';
+    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+  });
+
+  useEffect(() => {
+    if (isDark) {
+      document.documentElement.classList.add('dark');
+      localStorage.setItem('theme', 'dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+      localStorage.setItem('theme', 'light');
+    }
+  }, [isDark]);
 
   // Fetch available shops for the current user (admin/accountant can switch)
   const canSwitchShop =
@@ -179,7 +198,7 @@ export function Header() {
           ) : null}
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2 sm:gap-3">
           {/* Global search — hidden for now, enable when needed */}
           {/* <GlobalSearch /> */}
 
@@ -191,11 +210,27 @@ export function Header() {
             <Bell className="h-4 w-4" />
           </button>
 
+          {/* Dark mode toggle */}
+          <button
+            onClick={() => setIsDark(!isDark)}
+            className="relative rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+            title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+          >
+            {isDark ? (
+              <Sun className="h-4 w-4" />
+            ) : (
+              <Moon className="h-4 w-4" />
+            )}
+          </button>
+
+          {/* Separator */}
+          <div className="hidden sm:block h-6 w-px bg-border" />
+
           {/* User info */}
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <div className="hidden sm:flex items-center gap-2 text-sm text-muted-foreground">
             <User className="h-4 w-4" />
             <span>{user?.fullName}</span>
-            <span className="rounded bg-muted px-1.5 py-0.5 text-xs uppercase">
+            <span className="rounded bg-muted px-1.5 py-0.5 text-xs uppercase font-medium">
               {user?.role}
             </span>
           </div>
@@ -204,14 +239,14 @@ export function Header() {
           <button
             onClick={handleLogout}
             disabled={logoutMutation.isPending}
-            className="flex items-center gap-1 rounded-md px-2 py-1 text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+            className="flex items-center gap-1 rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
           >
             {logoutMutation.isPending ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
               <LogOut className="h-4 w-4" />
             )}
-            Logout
+            <span className="hidden sm:inline">Logout</span>
           </button>
         </div>
       </header>

@@ -22,7 +22,7 @@ export function OverdueTable() {
           </p>
         </div>
         {data && data.length > 0 && (
-          <span className="rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-semibold text-red-700">
+          <span className="rounded-full bg-red-100 dark:bg-red-900/30 px-2.5 py-0.5 text-xs font-semibold text-red-700 dark:text-red-400">
             {data.length} overdue
           </span>
         )}
@@ -104,7 +104,7 @@ export function OverdueTable() {
                   <td className="px-3 py-3 text-center font-medium">
                     #{item.installmentNumber}
                   </td>
-                  <td className="px-3 py-3 text-right font-semibold text-red-600">
+                  <td className="px-3 py-3 text-right font-semibold text-red-600 dark:text-red-400">
                     {formatINR(item.amountDue)}
                   </td>
                   <td className="px-3 py-3 text-muted-foreground">
@@ -132,10 +132,10 @@ function OverdueBadge({ days }: { days: number }) {
       className={cn(
         'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold',
         days > 30
-          ? 'bg-red-100 text-red-700'
+          ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
           : days > 7
-            ? 'bg-amber-100 text-amber-700'
-            : 'bg-blue-100 text-blue-700',
+            ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+            : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
       )}
     >
       {days}d

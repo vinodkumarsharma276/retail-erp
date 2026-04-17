@@ -341,7 +341,7 @@ function InfoRow({
           <span
             className={cn(
               'text-sm',
-              highlight && 'text-red-600 font-semibold',
+              highlight && 'text-red-600 dark:text-red-400 font-semibold',
               mono && 'font-mono text-xs',
             )}
           >

@@ -42,9 +42,9 @@ const MATCH_TYPE_LABELS: Record<string, string> = {
 // ---------------------------------------------------------------------------
 function ConfidenceBadge({ confidence }: { confidence: number }) {
   const pct = Math.round(confidence * 100);
-  let color = 'text-red-600 bg-red-100';
-  if (pct >= 80) color = 'text-green-600 bg-green-100';
-  else if (pct >= 50) color = 'text-amber-600 bg-amber-100';
+  let color = 'text-red-600 bg-red-100 dark:text-red-400 dark:bg-red-900/30';
+  if (pct >= 80) color = 'text-green-600 bg-green-100 dark:text-green-400 dark:bg-green-900/30';
+  else if (pct >= 50) color = 'text-amber-600 bg-amber-100 dark:text-amber-400 dark:bg-amber-900/30';
 
   return (
     <span
@@ -246,7 +246,7 @@ export function ReconciliationPanel({
                         <div className="flex items-start justify-between gap-3">
                           <div className="flex-1 space-y-1">
                             <div className="flex items-center gap-2">
-                              <span className="text-xs font-medium px-2 py-0.5 rounded bg-blue-100 text-blue-700">
+                              <span className="text-xs font-medium px-2 py-0.5 rounded bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
                                 {MATCH_TYPE_LABELS[suggestion.type] ??
                                   suggestion.type}
                               </span>

@@ -39,50 +39,50 @@ const statusConfig: Record<
   }
 > = {
   [InstallmentStatus.PAID]: {
-    color: 'text-green-600',
-    bgColor: 'bg-green-100',
-    borderColor: 'border-green-300',
-    lineColor: 'bg-green-300',
+    color: 'text-green-600 dark:text-green-400',
+    bgColor: 'bg-green-100 dark:bg-green-900/30',
+    borderColor: 'border-green-300 dark:border-green-700',
+    lineColor: 'bg-green-300 dark:bg-green-700',
     icon: <CheckCircle2 className="h-5 w-5" />,
     label: 'Paid',
   },
   [InstallmentStatus.OVERDUE]: {
-    color: 'text-red-600',
-    bgColor: 'bg-red-100',
-    borderColor: 'border-red-300',
-    lineColor: 'bg-red-300',
+    color: 'text-red-600 dark:text-red-400',
+    bgColor: 'bg-red-100 dark:bg-red-900/30',
+    borderColor: 'border-red-300 dark:border-red-700',
+    lineColor: 'bg-red-300 dark:bg-red-700',
     icon: <AlertTriangle className="h-5 w-5" />,
     label: 'Overdue',
   },
   [InstallmentStatus.DUE_TODAY]: {
-    color: 'text-blue-600',
-    bgColor: 'bg-blue-100',
-    borderColor: 'border-blue-300',
-    lineColor: 'bg-blue-300',
+    color: 'text-blue-600 dark:text-blue-400',
+    bgColor: 'bg-blue-100 dark:bg-blue-900/30',
+    borderColor: 'border-blue-300 dark:border-blue-700',
+    lineColor: 'bg-blue-300 dark:bg-blue-700',
     icon: <Clock className="h-5 w-5" />,
     label: 'Due Today',
   },
   [InstallmentStatus.UPCOMING]: {
-    color: 'text-blue-500',
-    bgColor: 'bg-blue-50',
-    borderColor: 'border-blue-200',
-    lineColor: 'bg-blue-200',
+    color: 'text-blue-500 dark:text-blue-400',
+    bgColor: 'bg-blue-50 dark:bg-blue-900/20',
+    borderColor: 'border-blue-200 dark:border-blue-800',
+    lineColor: 'bg-blue-200 dark:bg-blue-800',
     icon: <Circle className="h-5 w-5" />,
     label: 'Upcoming',
   },
   [InstallmentStatus.PARTIALLY_PAID]: {
-    color: 'text-yellow-600',
-    bgColor: 'bg-yellow-100',
-    borderColor: 'border-yellow-300',
-    lineColor: 'bg-yellow-300',
+    color: 'text-yellow-600 dark:text-yellow-400',
+    bgColor: 'bg-yellow-100 dark:bg-yellow-900/30',
+    borderColor: 'border-yellow-300 dark:border-yellow-700',
+    lineColor: 'bg-yellow-300 dark:bg-yellow-700',
     icon: <IndianRupee className="h-5 w-5" />,
     label: 'Partially Paid',
   },
   [InstallmentStatus.RESCHEDULED]: {
-    color: 'text-gray-500',
-    bgColor: 'bg-gray-100',
-    borderColor: 'border-gray-300',
-    lineColor: 'bg-gray-300',
+    color: 'text-gray-500 dark:text-gray-400',
+    bgColor: 'bg-gray-100 dark:bg-gray-800/50',
+    borderColor: 'border-gray-300 dark:border-gray-700',
+    lineColor: 'bg-gray-300 dark:bg-gray-700',
     icon: <Ban className="h-5 w-5" />,
     label: 'Rescheduled',
   },
@@ -91,10 +91,10 @@ const statusConfig: Record<
 function getStatusConfig(status: string) {
   return (
     statusConfig[status] ?? {
-      color: 'text-gray-500',
-      bgColor: 'bg-gray-50',
-      borderColor: 'border-gray-200',
-      lineColor: 'bg-gray-200',
+      color: 'text-gray-500 dark:text-gray-400',
+      bgColor: 'bg-gray-50 dark:bg-gray-800/50',
+      borderColor: 'border-gray-200 dark:border-gray-700',
+      lineColor: 'bg-gray-200 dark:bg-gray-700',
       icon: <Circle className="h-5 w-5" />,
       label: status.replace(/_/g, ' '),
     }
@@ -151,10 +151,10 @@ export function PaymentTimeline({ scheduleId }: PaymentTimelineProps) {
           const paidLate = wasPaidLate(event);
 
           // Override color if paid late
-          const nodeColor = paidLate ? 'text-yellow-600' : config.color;
-          const nodeBg = paidLate ? 'bg-yellow-100' : config.bgColor;
-          const nodeBorder = paidLate ? 'border-yellow-300' : config.borderColor;
-          const lineCol = paidLate ? 'bg-yellow-300' : config.lineColor;
+          const nodeColor = paidLate ? 'text-yellow-600 dark:text-yellow-400' : config.color;
+          const nodeBg = paidLate ? 'bg-yellow-100 dark:bg-yellow-900/30' : config.bgColor;
+          const nodeBorder = paidLate ? 'border-yellow-300 dark:border-yellow-700' : config.borderColor;
+          const lineCol = paidLate ? 'bg-yellow-300 dark:bg-yellow-700' : config.lineColor;
 
           return (
             <div key={event.id} className="relative flex gap-4">
@@ -218,7 +218,7 @@ export function PaymentTimeline({ scheduleId }: PaymentTimelineProps) {
                         key={payment.id}
                         className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground bg-muted/50 rounded-md px-3 py-2"
                       >
-                        <span className="flex items-center gap-1 font-medium text-green-600">
+                        <span className="flex items-center gap-1 font-medium text-green-600 dark:text-green-400">
                           <IndianRupee className="h-3 w-3" />
                           {formatINR(payment.amount)}
                         </span>
@@ -243,7 +243,7 @@ export function PaymentTimeline({ scheduleId }: PaymentTimelineProps) {
 
                 {/* Rescheduled info */}
                 {event.isRescheduled && (
-                  <div className="mt-1.5 flex items-center gap-2 text-xs text-gray-500">
+                  <div className="mt-1.5 flex items-center gap-2 text-xs text-muted-foreground">
                     <ArrowRight className="h-3.5 w-3.5" />
                     <span>Rescheduled to a new date</span>
                   </div>
@@ -252,7 +252,7 @@ export function PaymentTimeline({ scheduleId }: PaymentTimelineProps) {
                 {/* Partially paid remaining */}
                 {event.status === InstallmentStatus.PARTIALLY_PAID &&
                   event.remainingAmount > 0 && (
-                    <div className="mt-1.5 text-xs text-yellow-600">
+                    <div className="mt-1.5 text-xs text-yellow-600 dark:text-yellow-400">
                       Remaining: {formatINR(event.remainingAmount)}
                     </div>
                   )}
