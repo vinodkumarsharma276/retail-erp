@@ -3,7 +3,7 @@ import { useAuthStore, hasStoredToken } from '../stores/auth-store';
 import { useShopStore } from '../stores/shop-store';
 import { useMeQuery } from '../hooks/useAuth';
 import { Loader2 } from 'lucide-react';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { UserRole } from '@retailerp/shared-types';
 
 export function ProtectedRoute() {
@@ -14,7 +14,10 @@ export function ProtectedRoute() {
   // Need rehydration: token in storage but store not yet hydrated
   const needsRehydration = tokenExists && !isHydrated;
 
-  const { data, isLoading, isError } = useMeQuery(needsRehydration);
+  const { data, isLoading, isError, isSuccess } = useMeQuery(needsRehydration);
+
+  // Track if we've received data but haven't processed it in useEffect yet
+  const pendingHydration = useRef(false);
 
   useEffect(() => {
     if (data?.user) {
@@ -38,10 +41,16 @@ export function ProtectedRoute() {
       if (shopId && shopName && shopCode) {
         useShopStore.getState().setShop(shopId, shopName, shopCode);
       }
+      pendingHydration.current = false;
     }
   }, [data]);
 
-  // Rehydration failed — clear token and send to login
+  // Mark pending when query succeeds but effect hasn't run yet
+  if (isSuccess && data?.user && !isAuthenticated) {
+    pendingHydration.current = true;
+  }
+
+  // Rehydration failed — clear token
   useEffect(() => {
     if (needsRehydration && isError) {
       localStorage.removeItem('accessToken');
@@ -54,8 +63,8 @@ export function ProtectedRoute() {
     return <Navigate to="/login" replace />;
   }
 
-  // Rehydrating — show spinner
-  if (needsRehydration && isLoading) {
+  // Rehydrating — show spinner (query loading OR data received but not yet processed)
+  if (needsRehydration && (isLoading || pendingHydration.current)) {
     return (
       <div className="flex h-screen items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -63,9 +72,18 @@ export function ProtectedRoute() {
     );
   }
 
-  // Rehydration failed
-  if (!isAuthenticated && !isLoading) {
+  // Rehydration definitively failed (error, not pending, not authenticated)
+  if (!isAuthenticated && isError) {
     return <Navigate to="/login" replace />;
+  }
+
+  // Still waiting for auth to settle — show spinner rather than redirecting
+  if (!isAuthenticated && !isHydrated) {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
   }
 
   return <Outlet />;
