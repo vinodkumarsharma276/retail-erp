@@ -545,8 +545,18 @@ export function PurchaseCreatePage() {
                     />
                   </div>
 
-                  {/* Product fields */}
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {/* Product fields — disabled until category is selected */}
+                  {!itemCategoryIds[index] && (
+                    <div className="rounded-md border border-dashed border-muted-foreground/30 bg-muted/20 p-6 text-center mb-4">
+                      <p className="text-sm text-muted-foreground">
+                        Please select a category and subcategory above to enable product fields
+                      </p>
+                    </div>
+                  )}
+                  <div className={cn(
+                    'grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3',
+                    !itemCategoryIds[index] && 'opacity-40 pointer-events-none',
+                  )}>
                     {/* Model */}
                     <div>
                       <label className="block text-sm font-medium mb-1.5">
