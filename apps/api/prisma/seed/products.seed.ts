@@ -427,6 +427,39 @@ export async function seedProducts(
           createdBy: adminMap[group.shopCode],
         },
       });
+
+      // Create PurchasePayment records for paid / partial purchases
+      if (ps.paidFraction > 0) {
+        await prisma.purchasePayment.create({
+          data: {
+            purchaseId: purchase.id,
+            amount: amountPaid,
+            paymentMode: 'bank_transfer',
+            paymentDate: invDate,
+            referenceNumber: `PAY-${invoiceNum}`,
+            createdBy: adminMap[group.shopCode],
+          },
+        });
+      }
+    } else {
+      // Idempotent: create PurchasePayment if purchase exists but has no payments
+      if (ps.paidFraction > 0) {
+        const existingPayment = await prisma.purchasePayment.findFirst({
+          where: { purchaseId: purchase.id },
+        });
+        if (!existingPayment) {
+          await prisma.purchasePayment.create({
+            data: {
+              purchaseId: purchase.id,
+              amount: amountPaid,
+              paymentMode: 'bank_transfer',
+              paymentDate: invDate,
+              referenceNumber: `PAY-${invoiceNum}`,
+              createdBy: adminMap[group.shopCode],
+            },
+          });
+        }
+      }
     }
 
     // Create each product in this purchase group

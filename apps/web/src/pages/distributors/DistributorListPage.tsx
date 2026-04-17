@@ -80,7 +80,12 @@ export function DistributorListPage() {
     {
       key: 'phone',
       header: 'Phone',
-      render: (row) => row.phone,
+      render: (row) => (
+        <div>
+          <p>{row.phone}</p>
+          {row.altPhone && <p className="text-xs text-muted-foreground">{row.altPhone}</p>}
+        </div>
+      ),
     },
     {
       key: 'gstNumber',

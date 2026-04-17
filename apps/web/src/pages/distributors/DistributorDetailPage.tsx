@@ -240,18 +240,23 @@ function ProductsTab({ distributorId }: { distributorId: string }) {
     {
       key: 'category',
       header: 'Category',
-      render: (row) => row.categoryName ?? '-',
+      render: (row) => row.category?.name ?? row.categoryName ?? '-',
     },
     {
       key: 'purchaseDate',
       header: 'Purchase Date',
-      render: (row) => formatDateIN(row.purchaseDate),
+      render: (row) => {
+        const date = row.purchase?.invoiceDate ?? row.purchaseDate;
+        return date ? formatDateIN(date) : '-';
+      },
     },
     {
       key: 'invoiceNumber',
       header: 'Invoice #',
       render: (row) => (
-        <span className="font-mono text-xs">{row.invoiceNumber}</span>
+        <span className="font-mono text-xs">
+          {row.purchase?.invoiceNumber ?? row.invoiceNumber ?? '-'}
+        </span>
       ),
     },
     {
@@ -389,7 +394,9 @@ function PaymentsTab({ distributorId }: { distributorId: string }) {
       key: 'invoice',
       header: 'Invoice #',
       render: (row) => (
-        <span className="font-mono text-xs">{row.invoiceNumber}</span>
+        <span className="font-mono text-xs">
+          {row.purchase?.invoiceNumber ?? row.invoiceNumber ?? '-'}
+        </span>
       ),
     },
   ];
