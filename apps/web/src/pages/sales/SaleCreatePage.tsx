@@ -43,6 +43,12 @@ import type { Customer, Product } from '@retailerp/shared-types';
 import type { EMICalculationResult } from '@retailerp/shared-types';
 
 // ---------------------------------------------------------------------------
+// GST types and slabs
+// ---------------------------------------------------------------------------
+type GstType = 'GST' | 'CGST_SGST' | 'IGST';
+const GST_SLABS = [0, 5, 12, 18, 28] as const;
+
+// ---------------------------------------------------------------------------
 // Form values
 // ---------------------------------------------------------------------------
 interface SaleFormValues {
@@ -50,7 +56,6 @@ interface SaleFormValues {
   saleType: SaleType;
   // Pricing
   sellingPrice: number | '';
-  discountAmount: number | '';
   gstRate: number | '';
   // Payment
   paymentMode: PaymentMode;
@@ -73,8 +78,7 @@ const defaultValues: SaleFormValues = {
   ledgerNumber: '',
   saleType: SaleType.FULL_PAYMENT,
   sellingPrice: '',
-  discountAmount: '',
-  gstRate: '',
+  gstRate: 18,
   paymentMode: PaymentMode.CASH,
   downPayment: '',
   promiseDate: getDateDaysFromNow(7),
@@ -226,6 +230,16 @@ export function SaleCreatePage() {
   const { data: financeCompanies } = useFinanceCompaniesQuery();
 
   // -----------------------------------------------------------------------
+  // GST type state
+  // -----------------------------------------------------------------------
+  const [saleGstType, setSaleGstType] = useState<GstType>('GST');
+
+  // -----------------------------------------------------------------------
+  // Track whether user has manually edited down payment
+  // -----------------------------------------------------------------------
+  const [downPaymentManuallySet, setDownPaymentManuallySet] = useState(false);
+
+  // -----------------------------------------------------------------------
   // Sale form
   // -----------------------------------------------------------------------
   const {
@@ -238,7 +252,6 @@ export function SaleCreatePage() {
 
   const saleType = watch('saleType');
   const sellingPrice = Number(watch('sellingPrice')) || 0;
-  const discountAmount = Number(watch('discountAmount')) || 0;
   const gstRate = Number(watch('gstRate')) || 0;
   const downPayment = Number(watch('downPayment')) || 0;
   const paymentMode = watch('paymentMode');
@@ -247,19 +260,28 @@ export function SaleCreatePage() {
   const numInstallments = watch('numInstallments');
   const financedAmount = Number(watch('financedAmount')) || 0;
 
-  // Pre-fill selling price with MRP as default (max they can charge)
+  // Pre-fill selling price with MRP and down payment with 50% when product is selected
   useEffect(() => {
     if (selectedProduct && !watch('sellingPrice')) {
       setValue('sellingPrice', selectedProduct.mrp);
+      // Set initial down payment to 50% of MRP
+      setValue('downPayment', Math.round(selectedProduct.mrp / 2));
+      setDownPaymentManuallySet(false);
     }
   }, [selectedProduct, setValue, watch]);
+
+  // Auto-update down payment to 50% of selling price when SP changes (only if user hasn't manually edited)
+  useEffect(() => {
+    if (!downPaymentManuallySet && sellingPrice > 0) {
+      setValue('downPayment', Math.round(sellingPrice / 2));
+    }
+  }, [sellingPrice, downPaymentManuallySet, setValue]);
 
   // -----------------------------------------------------------------------
   // Computed amounts
   // -----------------------------------------------------------------------
-  const netAmount = sellingPrice - discountAmount;
-  const gstAmount = netAmount * (gstRate / 100);
-  const totalAmount = netAmount + gstAmount;
+  const gstAmount = sellingPrice * (gstRate / 100);
+  const totalAmount = sellingPrice + gstAmount;
 
   // Pending amount depends on sale type
   const pendingAmount = useMemo(() => {
@@ -303,16 +325,21 @@ export function SaleCreatePage() {
   const onSubmit = (formData: SaleFormValues) => {
     if (!selectedProduct || !selectedCustomer) return;
 
+    // Discount is auto-calculated as MRP - Selling Price
+    const autoDiscount = selectedProduct.mrp - Number(formData.sellingPrice);
+
     const payload: Record<string, unknown> = {
       productId: selectedProduct.id,
       customerId: selectedCustomer.id,
       ledgerNumber: formData.ledgerNumber.trim(),
       saleType: formData.saleType,
       sellingPrice: Number(formData.sellingPrice),
-      discountAmount: Number(formData.discountAmount) || 0,
+      discountAmount: autoDiscount > 0 ? autoDiscount : 0,
       gstRate: Number(formData.gstRate) || 0,
       paymentMode: formData.paymentMode,
-      notes: formData.notes.trim() || undefined,
+      notes: formData.notes.trim()
+        ? `${formData.notes.trim()} | GST Type: ${saleGstType}`
+        : `GST Type: ${saleGstType}`,
     };
 
     // Type-specific fields
@@ -966,45 +993,14 @@ export function SaleCreatePage() {
                   />
                 </div>
 
-                {/* Discount */}
-                <div>
-                  <label className="block text-sm font-medium mb-1.5">
-                    Discount Amount
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    {...register('discountAmount', {
-                      min: { value: 0, message: 'Must be positive' },
-                    })}
-                    placeholder="0.00"
-                    className={cn(
-                      'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
-                      'placeholder:text-muted-foreground',
-                      'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                    )}
-                  />
-                </div>
-
-                {/* GST Rate */}
-                <div>
-                  <label className="block text-sm font-medium mb-1.5">
-                    GST Rate (%)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    {...register('gstRate', {
-                      min: { value: 0, message: 'Must be positive' },
-                    })}
-                    placeholder="0"
-                    className={cn(
-                      'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
-                      'placeholder:text-muted-foreground',
-                      'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                    )}
-                  />
-                </div>
+                {/* GST Section */}
+                <GstSelector
+                  gstType={saleGstType}
+                  onGstTypeChange={setSaleGstType}
+                  gstPercent={gstRate}
+                  onGstPercentChange={(val) => setValue('gstRate', val)}
+                  sellingPrice={sellingPrice}
+                />
 
                 {/* Pricing calculations */}
                 {selectedProduct && sellingPrice > 0 && (
@@ -1012,6 +1008,8 @@ export function SaleCreatePage() {
                     sellingPrice={sellingPrice}
                     mrp={selectedProduct.mrp}
                     dp={selectedProduct.purchasePrice}
+                    gstRate={gstRate}
+                    gstType={saleGstType}
                   />
                 )}
               </div>
@@ -1061,6 +1059,10 @@ export function SaleCreatePage() {
                       required: 'Down payment is required',
                       min: { value: 0, message: 'Must be positive' },
                     })}
+                    onChange={(e) => {
+                      setDownPaymentManuallySet(true);
+                      setValue('downPayment', Number(e.target.value) || '');
+                    }}
                     placeholder="0.00"
                     className={cn(
                       'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
@@ -1120,45 +1122,14 @@ export function SaleCreatePage() {
                   </div>
                 </div>
 
-                {/* Discount */}
-                <div>
-                  <label className="block text-sm font-medium mb-1.5">
-                    Discount Amount
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    {...register('discountAmount', {
-                      min: { value: 0, message: 'Must be positive' },
-                    })}
-                    placeholder="0.00"
-                    className={cn(
-                      'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
-                      'placeholder:text-muted-foreground',
-                      'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                    )}
-                  />
-                </div>
-
-                {/* GST Rate */}
-                <div>
-                  <label className="block text-sm font-medium mb-1.5">
-                    GST Rate (%)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    {...register('gstRate', {
-                      min: { value: 0, message: 'Must be positive' },
-                    })}
-                    placeholder="0"
-                    className={cn(
-                      'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
-                      'placeholder:text-muted-foreground',
-                      'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                    )}
-                  />
-                </div>
+                {/* GST Section */}
+                <GstSelector
+                  gstType={saleGstType}
+                  onGstTypeChange={setSaleGstType}
+                  gstPercent={gstRate}
+                  onGstPercentChange={(val) => setValue('gstRate', val)}
+                  sellingPrice={sellingPrice}
+                />
 
                 {/* Pricing calculations */}
                 {selectedProduct && sellingPrice > 0 && (
@@ -1166,6 +1137,8 @@ export function SaleCreatePage() {
                     sellingPrice={sellingPrice}
                     mrp={selectedProduct.mrp}
                     dp={selectedProduct.purchasePrice}
+                    gstRate={gstRate}
+                    gstType={saleGstType}
                   />
                 )}
               </div>
@@ -1215,6 +1188,10 @@ export function SaleCreatePage() {
                       required: 'Down payment is required',
                       min: { value: 0, message: 'Must be positive' },
                     })}
+                    onChange={(e) => {
+                      setDownPaymentManuallySet(true);
+                      setValue('downPayment', Number(e.target.value) || '');
+                    }}
                     placeholder="0.00"
                     className={cn(
                       'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
@@ -1311,45 +1288,14 @@ export function SaleCreatePage() {
                   </div>
                 </div>
 
-                {/* Discount */}
-                <div>
-                  <label className="block text-sm font-medium mb-1.5">
-                    Discount Amount
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    {...register('discountAmount', {
-                      min: { value: 0, message: 'Must be positive' },
-                    })}
-                    placeholder="0.00"
-                    className={cn(
-                      'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
-                      'placeholder:text-muted-foreground',
-                      'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                    )}
-                  />
-                </div>
-
-                {/* GST Rate */}
-                <div>
-                  <label className="block text-sm font-medium mb-1.5">
-                    GST Rate (%)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    {...register('gstRate', {
-                      min: { value: 0, message: 'Must be positive' },
-                    })}
-                    placeholder="0"
-                    className={cn(
-                      'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
-                      'placeholder:text-muted-foreground',
-                      'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                    )}
-                  />
-                </div>
+                {/* GST Section */}
+                <GstSelector
+                  gstType={saleGstType}
+                  onGstTypeChange={setSaleGstType}
+                  gstPercent={gstRate}
+                  onGstPercentChange={(val) => setValue('gstRate', val)}
+                  sellingPrice={sellingPrice}
+                />
 
                 {/* Pricing calculations */}
                 {selectedProduct && sellingPrice > 0 && (
@@ -1357,6 +1303,8 @@ export function SaleCreatePage() {
                     sellingPrice={sellingPrice}
                     mrp={selectedProduct.mrp}
                     dp={selectedProduct.purchasePrice}
+                    gstRate={gstRate}
+                    gstType={saleGstType}
                   />
                 )}
               </div>
@@ -1367,7 +1315,10 @@ export function SaleCreatePage() {
                   <h3 className="text-base font-medium text-blue-900 dark:text-blue-100 mb-4">
                     EMI Preview
                   </h3>
-                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5 mb-4">
+                  <p className="text-xs text-blue-600 dark:text-blue-400 mb-3">
+                    Principal = Selling Price ({formatINR(sellingPrice)}) - Down Payment ({formatINR(downPayment)}) = {formatINR(emiResult.principal)}
+                  </p>
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6 mb-4">
                     <div>
                       <p className="text-xs font-medium text-blue-700 dark:text-blue-400">Principal</p>
                       <p className="text-lg font-semibold text-blue-900 dark:text-blue-100">
@@ -1387,15 +1338,31 @@ export function SaleCreatePage() {
                       </p>
                     </div>
                     <div>
-                      <p className="text-xs font-medium text-blue-700 dark:text-blue-400">Total Payable</p>
+                      <p className="text-xs font-medium text-blue-700 dark:text-blue-400">
+                        Total Payable
+                      </p>
                       <p className="text-lg font-bold text-blue-900 dark:text-blue-100">
                         {formatINR(emiResult.totalPayable)}
+                      </p>
+                      <p className="text-[10px] text-blue-500 dark:text-blue-400">
+                        (Principal + Interest + File)
                       </p>
                     </div>
                     <div>
                       <p className="text-xs font-medium text-blue-700 dark:text-blue-400">EMI / Month</p>
                       <p className="text-lg font-bold text-primary">
                         {formatINR(emiResult.emiAmount)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-medium text-blue-700 dark:text-blue-400">
+                        Customer Total
+                      </p>
+                      <p className="text-lg font-bold text-red-600">
+                        {formatINR(downPayment + emiResult.totalPayable)}
+                      </p>
+                      <p className="text-[10px] text-blue-500 dark:text-blue-400">
+                        (Down + Installments)
                       </p>
                     </div>
                   </div>
@@ -1794,6 +1761,10 @@ export function SaleCreatePage() {
                     {...register('downPayment', {
                       min: { value: 0, message: 'Must be positive' },
                     })}
+                    onChange={(e) => {
+                      setDownPaymentManuallySet(true);
+                      setValue('downPayment', Number(e.target.value) || '');
+                    }}
                     placeholder="0.00"
                     className={cn(
                       'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
@@ -1856,45 +1827,14 @@ export function SaleCreatePage() {
                   />
                 </div>
 
-                {/* Discount */}
-                <div>
-                  <label className="block text-sm font-medium mb-1.5">
-                    Discount Amount
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    {...register('discountAmount', {
-                      min: { value: 0, message: 'Must be positive' },
-                    })}
-                    placeholder="0.00"
-                    className={cn(
-                      'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
-                      'placeholder:text-muted-foreground',
-                      'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                    )}
-                  />
-                </div>
-
-                {/* GST Rate */}
-                <div>
-                  <label className="block text-sm font-medium mb-1.5">
-                    GST Rate (%)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    {...register('gstRate', {
-                      min: { value: 0, message: 'Must be positive' },
-                    })}
-                    placeholder="0"
-                    className={cn(
-                      'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
-                      'placeholder:text-muted-foreground',
-                      'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                    )}
-                  />
-                </div>
+                {/* GST Section */}
+                <GstSelector
+                  gstType={saleGstType}
+                  onGstTypeChange={setSaleGstType}
+                  gstPercent={gstRate}
+                  onGstPercentChange={(val) => setValue('gstRate', val)}
+                  sellingPrice={sellingPrice}
+                />
 
                 {/* Pricing calculations */}
                 {selectedProduct && sellingPrice > 0 && (
@@ -1902,6 +1842,8 @@ export function SaleCreatePage() {
                     sellingPrice={sellingPrice}
                     mrp={selectedProduct.mrp}
                     dp={selectedProduct.purchasePrice}
+                    gstRate={gstRate}
+                    gstType={saleGstType}
                   />
                 )}
               </div>
@@ -1933,16 +1875,15 @@ export function SaleCreatePage() {
           <h2 className="text-lg font-medium mb-4">Sale Summary</h2>
           <div className="space-y-2 text-sm max-w-md">
             <SummaryRow label="Selling Price" value={formatINR(sellingPrice)} />
-            {discountAmount > 0 && (
-              <SummaryRow
-                label="Discount"
-                value={`- ${formatINR(discountAmount)}`}
-              />
-            )}
-            <SummaryRow label="Net Amount" value={formatINR(netAmount)} />
             {gstRate > 0 && (
               <SummaryRow
-                label={`GST (${gstRate}%)`}
+                label={
+                  saleGstType === 'CGST_SGST'
+                    ? `CGST ${gstRate / 2}% + SGST ${gstRate / 2}%`
+                    : saleGstType === 'IGST'
+                      ? `IGST (${gstRate}%)`
+                      : `GST (${gstRate}%)`
+                }
                 value={formatINR(gstAmount)}
               />
             )}
@@ -1958,18 +1899,50 @@ export function SaleCreatePage() {
                   value={formatINR(downPayment)}
                 />
                 {saleType === SaleType.COMPANY_FINANCE && (
-                  <SummaryRow
-                    label="Financed Amount"
-                    value={formatINR(financedAmount)}
-                  />
+                  <>
+                    <SummaryRow
+                      label="Financed Amount"
+                      value={formatINR(financedAmount)}
+                    />
+                    {pendingAmount > 0 && (
+                      <div className="flex justify-between border-t pt-2 font-semibold">
+                        <span>Remaining (Unpaid)</span>
+                        <span className="text-red-600">
+                          {formatINR(pendingAmount)}
+                        </span>
+                      </div>
+                    )}
+                  </>
                 )}
                 {saleType === SaleType.SELF_FINANCE && emiResult && (
-                  <SummaryRow
-                    label="EMI / month"
-                    value={formatINR(emiResult.emiAmount)}
-                  />
+                  <>
+                    <SummaryRow
+                      label="Principal (SP - Down)"
+                      value={formatINR(emiResult.principal)}
+                    />
+                    <SummaryRow
+                      label="Total Interest"
+                      value={formatINR(emiResult.totalInterest)}
+                    />
+                    {emiResult.fileCharge > 0 && (
+                      <SummaryRow
+                        label="File Charge"
+                        value={formatINR(emiResult.fileCharge)}
+                      />
+                    )}
+                    <div className="flex justify-between border-t pt-2 font-semibold">
+                      <span>Total Payable (EMIs)</span>
+                      <span className="text-red-600">
+                        {formatINR(emiResult.totalPayable)}
+                      </span>
+                    </div>
+                    <SummaryRow
+                      label="EMI / month"
+                      value={formatINR(emiResult.emiAmount)}
+                    />
+                  </>
                 )}
-                {pendingAmount > 0 && (
+                {saleType === SaleType.PARTIAL_WITH_PROMISE && pendingAmount > 0 && (
                   <div className="flex justify-between border-t pt-2 font-semibold">
                     <span>Pending Amount</span>
                     <span className="text-red-600">
@@ -2097,20 +2070,158 @@ function SummaryRow({ label, value }: { label: string; value: string }) {
   );
 }
 
+function GstSelector({
+  gstType,
+  onGstTypeChange,
+  gstPercent,
+  onGstPercentChange,
+  sellingPrice,
+}: {
+  gstType: GstType;
+  onGstTypeChange: (val: GstType) => void;
+  gstPercent: number;
+  onGstPercentChange: (val: number) => void;
+  sellingPrice: number;
+}) {
+  const gstAmount = sellingPrice * (gstPercent / 100);
+
+  return (
+    <div className="sm:col-span-2 lg:col-span-3 space-y-3">
+      {/* GST Type radio */}
+      <div>
+        <label className="block text-sm font-medium mb-1.5">GST Type</label>
+        <div className="flex flex-wrap gap-4">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="radio"
+              name="saleGstType"
+              checked={gstType === 'GST'}
+              onChange={() => onGstTypeChange('GST')}
+              className="h-4 w-4 text-primary"
+            />
+            <span className="text-sm">GST</span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="radio"
+              name="saleGstType"
+              checked={gstType === 'CGST_SGST'}
+              onChange={() => onGstTypeChange('CGST_SGST')}
+              className="h-4 w-4 text-primary"
+            />
+            <span className="text-sm">CGST + SGST</span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="radio"
+              name="saleGstType"
+              checked={gstType === 'IGST'}
+              onChange={() => onGstTypeChange('IGST')}
+              className="h-4 w-4 text-primary"
+            />
+            <span className="text-sm">IGST</span>
+          </label>
+        </div>
+      </div>
+
+      {/* GST % dropdown + computed amount */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {gstType === 'CGST_SGST' ? (
+          <>
+            <div>
+              <label className="block text-sm font-medium mb-1.5">
+                Total GST %
+              </label>
+              <div className="relative">
+                <select
+                  value={gstPercent}
+                  onChange={(e) => onGstPercentChange(Number(e.target.value))}
+                  className={cn(
+                    'w-full appearance-none rounded-md border bg-background px-3 py-2.5 pr-8 text-sm',
+                    'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                  )}
+                >
+                  {GST_SLABS.map((slab) => (
+                    <option key={slab} value={slab}>
+                      {slab}% total &rarr; {slab / 2}% each
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1.5">CGST Amount</label>
+              <div className="rounded-md border bg-muted/50 px-3 py-2.5 text-sm font-medium">
+                {gstPercent / 2}% = {formatINR(gstAmount / 2)}
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1.5">SGST Amount</label>
+              <div className="rounded-md border bg-muted/50 px-3 py-2.5 text-sm font-medium">
+                {gstPercent / 2}% = {formatINR(gstAmount / 2)}
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
+            <div>
+              <label className="block text-sm font-medium mb-1.5">
+                {gstType === 'IGST' ? 'IGST %' : 'GST %'}
+              </label>
+              <div className="relative">
+                <select
+                  value={gstPercent}
+                  onChange={(e) => onGstPercentChange(Number(e.target.value))}
+                  className={cn(
+                    'w-full appearance-none rounded-md border bg-background px-3 py-2.5 pr-8 text-sm',
+                    'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                  )}
+                >
+                  {GST_SLABS.map((slab) => (
+                    <option key={slab} value={slab}>
+                      {slab}%
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1.5">
+                {gstType === 'IGST' ? 'IGST Amount' : 'GST Amount'}
+              </label>
+              <div className="rounded-md border bg-muted/50 px-3 py-2.5 text-sm font-medium">
+                {formatINR(gstAmount)}
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function SellingPriceCalculations({
   sellingPrice,
   mrp,
   dp,
+  gstRate,
+  gstType,
 }: {
   sellingPrice: number;
   mrp: number;
   dp: number;
+  gstRate: number;
+  gstType: GstType;
 }) {
   if (sellingPrice <= 0) return null;
 
   const discount = mrp - sellingPrice;
   const profit = sellingPrice - dp;
   const profitPct = dp > 0 ? ((profit / dp) * 100).toFixed(1) : '0.0';
+  const gstAmount = sellingPrice * (gstRate / 100);
+  const totalWithGst = sellingPrice + gstAmount;
   const isBelowDP = sellingPrice < dp;
   const isAboveMRP = sellingPrice > mrp;
 
@@ -2131,7 +2242,7 @@ function SellingPriceCalculations({
         </div>
       )}
       {/* Calculations */}
-      <div className="grid grid-cols-3 gap-3 rounded-md bg-muted/50 px-3 py-2.5">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 rounded-md bg-muted/50 px-3 py-2.5">
         <div>
           <span className="text-xs text-muted-foreground">Discount (MRP - SP)</span>
           <p className={cn('text-sm font-semibold', discount >= 0 ? 'text-green-600' : 'text-red-600')}>
@@ -2148,6 +2259,14 @@ function SellingPriceCalculations({
           <span className="text-xs text-muted-foreground">Profit %</span>
           <p className={cn('text-sm font-semibold', profit >= 0 ? 'text-green-600' : 'text-red-600')}>
             {profitPct}%
+          </p>
+        </div>
+        <div>
+          <span className="text-xs text-muted-foreground">
+            Total (SP + {gstType === 'CGST_SGST' ? 'CGST+SGST' : gstType === 'IGST' ? 'IGST' : 'GST'})
+          </span>
+          <p className="text-sm font-semibold text-primary">
+            {formatINR(totalWithGst)}
           </p>
         </div>
       </div>
