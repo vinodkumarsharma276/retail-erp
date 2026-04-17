@@ -10,6 +10,7 @@ export const createCategorySchema = z.object({
   parentId: z.string().uuid('Parent ID must be a valid UUID').nullable().optional(),
   isLeaf: z.boolean().optional(),
   icon: z.string().max(100).nullable().optional(),
+  hsnCode: z.string().max(8).optional(),
   displayOrder: z.number().int().min(0).optional(),
 });
 
@@ -24,6 +25,7 @@ export const updateCategorySchema = z.object({
   parentId: z.string().uuid('Parent ID must be a valid UUID').nullable().optional(),
   isLeaf: z.boolean().optional(),
   icon: z.string().max(100).nullable().optional(),
+  hsnCode: z.string().max(8).nullable().optional(),
   displayOrder: z.number().int().min(0).optional(),
   isActive: z.boolean().optional(),
 });

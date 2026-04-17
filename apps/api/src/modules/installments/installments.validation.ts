@@ -22,6 +22,7 @@ export const recordPaymentSchema = z
         errorMap: () => ({ message: 'Invalid payment mode' }),
       })
       .optional(),
+    paymentDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be in YYYY-MM-DD format').optional(),
     newDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be in YYYY-MM-DD format').optional(),
     referenceNumber: z.string().max(100).optional(),
     notes: z.string().optional(),

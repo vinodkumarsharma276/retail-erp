@@ -15,15 +15,25 @@ export const createSaleSchema = z.object({
   paymentMode: z.enum(['cash', 'credit_card', 'debit_card', 'upi', 'bank_transfer', 'cheque'], {
     errorMap: () => ({ message: 'Invalid payment mode' }),
   }),
+  paymentBreakdown: z.array(z.object({
+    mode: z.enum(['cash', 'credit_card', 'debit_card', 'upi', 'bank_transfer', 'cheque']),
+    amount: z.number().min(0),
+  })).max(3).optional(),
   // Partial with promise
   promiseDate: z.string().nullable().optional(),
   // Self finance
   interestRate: z.number().min(0).max(100).nullable().optional(),
   fileCharge: z.number().min(0).nullable().optional(),
   numInstallments: z.number().int().min(1).max(60).nullable().optional(),
-  guarantorId: z.string().uuid('Guarantor ID must be a valid UUID').nullable().optional(),
+  guarantorId: z.preprocess(
+    (v) => (v === '' || v === null ? undefined : v),
+    z.string().uuid('Guarantor ID must be a valid UUID').optional(),
+  ),
   // Company finance
-  financeCompanyId: z.string().uuid('Finance company ID must be a valid UUID').nullable().optional(),
+  financeCompanyId: z.preprocess(
+    (v) => (v === '' || v === null ? undefined : v),
+    z.string().uuid('Finance company ID must be a valid UUID').optional(),
+  ),
   financedAmount: z.number().min(0).nullable().optional(),
   expectedPaymentDate: z.string().nullable().optional(),
   // Notes
@@ -45,4 +55,16 @@ export const recordFinancePaymentSchema = z.object({
   }),
   financePaymentReceivedDate: z.string().nullable().optional(),
   financeReferenceNumber: z.string().max(100).nullable().optional(),
+});
+
+export const recordPendingPaymentSchema = z.object({
+  amount: z.number().positive('Amount must be positive'),
+  paymentMode: z.enum(['cash', 'credit_card', 'debit_card', 'upi', 'bank_transfer', 'cheque'], {
+    errorMap: () => ({ message: 'Invalid payment mode' }),
+  }),
+  paymentBreakdown: z.array(z.object({
+    mode: z.enum(['cash', 'credit_card', 'debit_card', 'upi', 'bank_transfer', 'cheque']),
+    amount: z.number().min(0),
+  })).max(3).optional(),
+  notes: z.string().nullable().optional(),
 });

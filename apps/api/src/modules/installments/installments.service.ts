@@ -152,13 +152,31 @@ export const installmentsService = {
       orderBy: { dueDate: 'asc' },
     });
 
-    // Enrich with days overdue
-    return overdueInstallments.map((inst) => ({
-      ...inst,
-      daysOverdue: Math.floor(
-        (today.getTime() - new Date(inst.dueDate).getTime()) / (1000 * 60 * 60 * 24),
-      ),
-    }));
+    // Flatten and enrich with days overdue
+    return overdueInstallments.map((inst) => {
+      const sale = inst.schedule?.sale;
+      const customer = sale?.customer;
+      const product = sale?.product;
+      return {
+        id: inst.id,
+        scheduleId: inst.scheduleId,
+        installmentNumber: inst.installmentNumber,
+        dueDate: inst.dueDate,
+        amountDue: inst.amountDue,
+        amountPaid: inst.amountPaid,
+        remainingAmount: inst.remainingAmount,
+        status: inst.status,
+        daysOverdue: Math.floor(
+          (today.getTime() - new Date(inst.dueDate).getTime()) / (1000 * 60 * 60 * 24),
+        ),
+        customerName: customer?.name ?? '',
+        customerPhone: customer?.phone ?? '',
+        customerAddress: [customer?.addressLine1, customer?.city].filter(Boolean).join(', ') || undefined,
+        productName: product?.modelNumber ?? '',
+        productBrand: product?.brand ?? '',
+        saleId: sale?.id ?? '',
+      };
+    });
   },
 
   /**
@@ -318,7 +336,164 @@ export const installmentsService = {
       },
     });
 
-    return { collections, rescheduledNotes };
+    return { collections: flattenCollections(collections), rescheduledNotes };
+  },
+
+  /**
+   * Get all installments due within a date range for a shop.
+   * Used to show pending collections for a period (e.g., last 2 weeks to today).
+   * Optionally filter by assigned employee.
+   */
+  async getCollectionsForDateRange(
+    shopId: string,
+    dateFrom: string,
+    dateTo: string,
+    employeeId?: string,
+  ) {
+    const fromDate = new Date(dateFrom);
+    fromDate.setHours(0, 0, 0, 0);
+    const toDate = new Date(dateTo);
+    toDate.setHours(23, 59, 59, 999);
+
+    const where: Prisma.InstallmentWhereInput = {
+      dueDate: { gte: fromDate, lte: toDate },
+      status: { notIn: ['paid', 'rescheduled'] },
+      isRescheduled: false,
+      schedule: {
+        sale: { shopId },
+        status: 'active',
+      },
+    };
+
+    if (employeeId) {
+      where.schedule = {
+        ...where.schedule as object,
+        collectionAssigns: {
+          some: {
+            employeeId,
+            isActive: true,
+          },
+        },
+      };
+    }
+
+    const collections = await prisma.installment.findMany({
+      where,
+      include: {
+        schedule: {
+          select: {
+            id: true,
+            emiAmount: true,
+            numInstallments: true,
+            totalPayable: true,
+            sale: {
+              select: {
+                id: true,
+                saleNumber: true,
+                ledgerNumber: true,
+                saleDate: true,
+                totalAmount: true,
+                downPayment: true,
+                customer: {
+                  select: {
+                    id: true,
+                    name: true,
+                    phone: true,
+                    customerCode: true,
+                    addressLine1: true,
+                    addressLine2: true,
+                    city: true,
+                    pincode: true,
+                  },
+                },
+                product: {
+                  select: {
+                    id: true,
+                    brand: true,
+                    modelNumber: true,
+                    serialNumber: true,
+                    category: { select: { id: true, name: true } },
+                  },
+                },
+                guarantor: {
+                  select: {
+                    id: true,
+                    name: true,
+                    phone: true,
+                  },
+                },
+              },
+            },
+            collectionAssigns: {
+              where: { isActive: true },
+              select: {
+                employee: {
+                  select: { id: true, fullName: true, username: true },
+                },
+              },
+            },
+          },
+        },
+        payments: {
+          orderBy: { paymentDate: 'desc' },
+          select: {
+            id: true,
+            amount: true,
+            paymentMode: true,
+            paymentDate: true,
+          },
+        },
+        rescheduledFrom: {
+          select: {
+            id: true,
+            installmentNumber: true,
+            dueDate: true,
+            amountDue: true,
+            notes: true,
+          },
+        },
+      },
+      orderBy: { dueDate: 'asc' },
+    });
+
+    // Also find installments where a rescheduled version exists on a LATER date
+    // but the original due date is within the range — these should show with a note
+    const rescheduledNotes = await prisma.installment.findMany({
+      where: {
+        dueDate: { gte: fromDate, lte: toDate },
+        status: 'rescheduled',
+        isRescheduled: true,
+        schedule: {
+          sale: { shopId },
+          status: 'active',
+        },
+      },
+      include: {
+        rescheduledTo: {
+          select: {
+            id: true,
+            dueDate: true,
+            amountDue: true,
+            status: true,
+          },
+        },
+        schedule: {
+          select: {
+            id: true,
+            sale: {
+              select: {
+                saleNumber: true,
+                customer: {
+                  select: { id: true, name: true, phone: true },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    return { collections: flattenCollections(collections), rescheduledNotes };
   },
 
   /**
@@ -589,6 +764,7 @@ export const installmentsService = {
       scenario: 'full_payment' | 'reschedule' | 'partial_reschedule';
       amountPaid?: number;
       paymentMode?: string;
+      paymentDate?: string;
       newDate?: string;
       referenceNumber?: string;
       notes?: string;
@@ -636,15 +812,23 @@ export const installmentsService = {
           );
         }
 
-        // Mark installment as paid
+        // Determine payment date (employee can override)
+        const paidOnDate = data.paymentDate ? new Date(data.paymentDate) : new Date();
+
+        // Mark installment as paid; update dueDate if employee changed it
+        const updateData: any = {
+          amountPaid: { increment: amount },
+          remainingAmount: 0,
+          status: 'paid',
+          notes: data.notes ?? null,
+        };
+        if (data.paymentDate) {
+          updateData.dueDate = paidOnDate;
+        }
+
         await tx.installment.update({
           where: { id: installmentId },
-          data: {
-            amountPaid: { increment: amount },
-            remainingAmount: 0,
-            status: 'paid',
-            notes: data.notes ?? null,
-          },
+          data: updateData,
         });
 
         // Create payment record
@@ -653,7 +837,7 @@ export const installmentsService = {
             installmentId,
             amount,
             paymentMode: data.paymentMode as any,
-            paymentDate: new Date(),
+            paymentDate: paidOnDate,
             collectedBy: userId,
             referenceNumber: data.referenceNumber ?? null,
             notes: data.notes ?? null,
@@ -803,6 +987,83 @@ export const installmentsService = {
   },
 
   /**
+   * Search installment schedules by ledger number, sale number, customer phone, or customer name.
+   * Used for quick lookup when a customer walks in to pay.
+   */
+  async searchSchedules(shopId: string, query: string, filterBy: string) {
+    const searchTerm = query.trim();
+    if (!searchTerm) return [];
+
+    // Build sale filter based on search type
+    let saleFilter: any = { shopId };
+
+    switch (filterBy) {
+      case 'ledger_number':
+        saleFilter.ledgerNumber = { contains: searchTerm, mode: 'insensitive' };
+        break;
+      case 'sale_number':
+        saleFilter.saleNumber = { contains: searchTerm, mode: 'insensitive' };
+        break;
+      case 'customer_phone':
+        saleFilter.customer = { phone: { contains: searchTerm } };
+        break;
+      case 'customer_name':
+        saleFilter.customer = { name: { contains: searchTerm, mode: 'insensitive' } };
+        break;
+      case 'all':
+      default:
+        saleFilter.OR = [
+          { ledgerNumber: { contains: searchTerm, mode: 'insensitive' } },
+          { saleNumber: { contains: searchTerm, mode: 'insensitive' } },
+          { customer: { phone: { contains: searchTerm } } },
+          { customer: { name: { contains: searchTerm, mode: 'insensitive' } } },
+        ];
+        break;
+    }
+
+    return prisma.installmentSchedule.findMany({
+      where: {
+        status: 'active',
+        sale: saleFilter,
+      },
+      take: 10,
+      include: {
+        sale: {
+          select: {
+            id: true,
+            saleNumber: true,
+            ledgerNumber: true,
+            saleDate: true,
+            sellingPrice: true,
+            totalAmount: true,
+            downPayment: true,
+            customer: {
+              select: { id: true, name: true, phone: true, customerCode: true },
+            },
+            product: {
+              select: { id: true, brand: true, modelNumber: true },
+            },
+          },
+        },
+        installments: {
+          where: { isRescheduled: false },
+          orderBy: [{ installmentNumber: 'asc' }, { dueDate: 'asc' }],
+          select: {
+            id: true,
+            installmentNumber: true,
+            dueDate: true,
+            amountDue: true,
+            amountPaid: true,
+            remainingAmount: true,
+            status: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  },
+
+  /**
    * Dedicated reschedule method (Scenario 2).
    * Creates new installment on the new date, marks original as rescheduled.
    */
@@ -892,3 +1153,37 @@ export const installmentsService = {
     return newInstallment;
   },
 };
+
+/**
+ * Flatten nested Prisma collection data into flat objects for the frontend.
+ */
+function flattenCollections(collections: any[]) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  return collections.map((inst: any) => {
+    const sale = inst.schedule?.sale;
+    const customer = sale?.customer;
+    const product = sale?.product;
+    return {
+      id: inst.id,
+      scheduleId: inst.scheduleId,
+      installmentNumber: inst.installmentNumber,
+      totalInstallments: inst.schedule?.numInstallments ?? 0,
+      dueDate: inst.dueDate,
+      amountDue: inst.amountDue,
+      amountPaid: inst.amountPaid,
+      remainingAmount: inst.remainingAmount,
+      status: inst.status,
+      daysOverdue: Math.max(0, Math.floor(
+        (today.getTime() - new Date(inst.dueDate).getTime()) / (1000 * 60 * 60 * 24),
+      )),
+      customerName: customer?.name ?? '',
+      customerPhone: customer?.phone ?? '',
+      customerAddress: [customer?.addressLine1, customer?.city].filter(Boolean).join(', ') || undefined,
+      productName: product?.modelNumber ?? '',
+      productBrand: product?.brand ?? '',
+      saleId: sale?.id ?? '',
+    };
+  });
+}

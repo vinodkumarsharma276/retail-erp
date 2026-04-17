@@ -4,7 +4,7 @@ import { authenticate } from '../../middleware/auth.js';
 import { authorize } from '../../middleware/rbac.js';
 import { shopScope } from '../../middleware/shop-scope.js';
 import { validate } from '../../middleware/validate.js';
-import { createSaleSchema, recordFinancePaymentSchema } from './sales.validation.js';
+import { createSaleSchema, recordFinancePaymentSchema, recordPendingPaymentSchema } from './sales.validation.js';
 import { UserRole } from '@retailerp/shared-types';
 
 export async function saleRoutes(app: FastifyInstance) {
@@ -24,6 +24,9 @@ export async function saleRoutes(app: FastifyInstance) {
     authorize([UserRole.ADMIN, UserRole.ACCOUNTANT]),
     shopScope,
   ];
+
+  // List finance companies (any authenticated user)
+  app.get('/finance-companies', { preHandler: [authenticate] }, salesController.listFinanceCompanies as any);
 
   // List sales (admin, accountant, others — shop-scoped)
   // Controller passes role to service for RBAC data isolation
@@ -46,4 +49,9 @@ export async function saleRoutes(app: FastifyInstance) {
   app.put('/:id/finance-payment', {
     preHandler: [...adminAccountantShopScoped, validate(recordFinancePaymentSchema)],
   }, salesController.recordFinancePayment as any);
+
+  // Record pending payment (admin, accountant only)
+  app.put('/:id/record-payment', {
+    preHandler: [...adminAccountantShopScoped, validate(recordPendingPaymentSchema)],
+  }, salesController.recordPendingPayment as any);
 }

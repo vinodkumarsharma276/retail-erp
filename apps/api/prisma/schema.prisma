@@ -239,6 +239,7 @@ model ProductCategory {
   displayOrder Int      @default(0) @map("display_order")
   isLeaf       Boolean  @default(false) @map("is_leaf")
   icon         String?  @db.VarChar(100)
+  hsnCode      String?  @map("hsn_code") @db.VarChar(8)
   isActive     Boolean  @default(true) @map("is_active")
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz()
   updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
@@ -536,6 +537,7 @@ model SaleRecord {
   totalAmount                 Decimal              @map("total_amount") @db.Decimal(12, 2)
   downPayment                 Decimal              @default(0) @map("down_payment") @db.Decimal(12, 2)
   paymentMode                 PaymentMode          @map("payment_mode")
+  paymentBreakdown            Json?                @map("payment_breakdown")
   // Partial with promise
   promiseDate                 DateTime?            @map("promise_date") @db.Date
   pendingAmount               Decimal              @default(0) @map("pending_amount") @db.Decimal(12, 2)

@@ -71,15 +71,14 @@ export async function handleInvoiceDownload(saleId: string): Promise<void> {
     productSerial: sale.product?.serialNumber || undefined,
     productCategory:
       (sale.product as any)?.category?.name || undefined,
-    // Pricing
-    sellingPrice: sale.sellingPrice,
-    gstRate: sale.gstRate,
+    hsnCode: (sale.product as any)?.category?.hsnCode || undefined,
+    // Pricing — coerce Prisma Decimals to numbers
+    sellingPrice: Number(sale.sellingPrice) || 0,
+    gstRate: Number(sale.gstRate) || 0,
     gstType: parseGstType(sale.notes),
     // Payment
     paymentMode: sale.paymentMode,
-    saleType: sale.saleType,
-    downPayment: sale.downPayment,
-    pendingAmount: sale.pendingAmount,
+    paymentBreakdown: sale.paymentBreakdown ?? null,
   };
 
   // Dynamic import to keep bundle small for non-invoice pages

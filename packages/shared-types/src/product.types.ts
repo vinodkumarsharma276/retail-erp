@@ -10,6 +10,7 @@ export interface ProductCategory {
   displayOrder: number;
   isLeaf: boolean;
   icon?: string;
+  hsnCode?: string | null;
   isActive: boolean;
   children?: ProductCategory[];
 }

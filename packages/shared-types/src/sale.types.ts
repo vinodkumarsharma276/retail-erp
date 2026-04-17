@@ -20,6 +20,7 @@ export interface SaleRecord {
   totalAmount: number;
   downPayment: number;
   paymentMode: PaymentMode;
+  paymentBreakdown?: Array<{mode: string; amount: number}> | null;
   // Partial with promise
   promiseDate?: string;
   pendingAmount: number;
@@ -70,6 +71,7 @@ export interface CreateSaleRequest {
   gstRate?: number;
   downPayment?: number;
   paymentMode: PaymentMode;
+  paymentBreakdown?: Array<{mode: string; amount: number}> | null;
   // Partial with promise
   promiseDate?: string;
   // Self finance

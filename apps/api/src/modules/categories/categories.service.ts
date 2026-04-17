@@ -11,6 +11,7 @@ interface CategoryTreeNode {
   displayOrder: number;
   isLeaf: boolean;
   icon: string | null;
+  hsnCode: string | null;
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -66,6 +67,7 @@ export const categoriesService = {
     parentId?: string | null;
     isLeaf?: boolean;
     icon?: string | null;
+    hsnCode?: string;
     displayOrder?: number;
   }) {
     let level = 0;
@@ -92,6 +94,7 @@ export const categoriesService = {
         displayOrder: data.displayOrder ?? 0,
         isLeaf: data.isLeaf ?? false,
         icon: data.icon ?? null,
+        hsnCode: data.hsnCode ?? null,
       },
     });
 
@@ -104,6 +107,7 @@ export const categoriesService = {
     parentId?: string | null;
     isLeaf?: boolean;
     icon?: string | null;
+    hsnCode?: string | null;
     displayOrder?: number;
     isActive?: boolean;
   }) {

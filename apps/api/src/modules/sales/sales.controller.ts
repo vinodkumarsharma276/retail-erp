@@ -54,6 +54,7 @@ export const salesController = {
         gstRate?: number;
         downPayment?: number;
         paymentMode: string;
+        paymentBreakdown?: Array<{mode: string; amount: number}> | null;
         promiseDate?: string | null;
         interestRate?: number | null;
         fileCharge?: number | null;
@@ -158,6 +159,49 @@ export const salesController = {
       if (message === 'Finance payment can only be recorded for company-finance sales') {
         return sendError(reply, message, 400);
       }
+      return sendError(reply, message, 500);
+    }
+  },
+
+  async recordPendingPayment(
+    request: FastifyRequest<{
+      Params: { id: string };
+      Body: {
+        amount: number;
+        paymentMode: string;
+        paymentBreakdown?: Array<{mode: string; amount: number}> | null;
+        notes?: string | null;
+      };
+    }>,
+    reply: FastifyReply,
+  ) {
+    try {
+      const updated = await salesService.recordPendingPayment(
+        request.params.id,
+        request.body,
+      );
+      return sendSuccess(reply, updated);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to record payment';
+      if (message === 'Sale not found') {
+        return sendError(reply, message, 404);
+      }
+      if (message.includes('pending') || message.includes('exceeds')) {
+        return sendError(reply, message, 400);
+      }
+      return sendError(reply, message, 500);
+    }
+  },
+
+  async listFinanceCompanies(
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ) {
+    try {
+      const companies = await salesService.listFinanceCompanies();
+      return sendSuccess(reply, companies);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to fetch finance companies';
       return sendError(reply, message, 500);
     }
   },

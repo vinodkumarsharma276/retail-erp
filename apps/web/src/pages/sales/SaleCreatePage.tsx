@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import {
@@ -58,7 +58,6 @@ interface SaleFormValues {
   sellingPrice: number | '';
   gstRate: number | '';
   // Payment
-  paymentMode: PaymentMode;
   downPayment: number | '';
   // Partial with promise
   promiseDate: string;
@@ -79,7 +78,6 @@ const defaultValues: SaleFormValues = {
   saleType: SaleType.FULL_PAYMENT,
   sellingPrice: '',
   gstRate: 18,
-  paymentMode: PaymentMode.CASH,
   downPayment: '',
   promiseDate: getDateDaysFromNow(7),
   interestRate: 1,
@@ -240,6 +238,13 @@ export function SaleCreatePage() {
   const [downPaymentManuallySet, setDownPaymentManuallySet] = useState(false);
 
   // -----------------------------------------------------------------------
+  // Payment splits — up to 3 modes that add up to down payment (or full amount)
+  // -----------------------------------------------------------------------
+  const [paymentSplits, setPaymentSplits] = useState<Array<{mode: PaymentMode; amount: number | ''}>>([
+    { mode: PaymentMode.CASH, amount: '' },
+  ]);
+
+  // -----------------------------------------------------------------------
   // Sale form
   // -----------------------------------------------------------------------
   const {
@@ -254,7 +259,6 @@ export function SaleCreatePage() {
   const sellingPrice = Number(watch('sellingPrice')) || 0;
   const gstRate = Number(watch('gstRate')) || 0;
   const downPayment = Number(watch('downPayment')) || 0;
-  const paymentMode = watch('paymentMode');
   const interestRate = watch('interestRate');
   const fileCharge = Number(watch('fileCharge')) || 0;
   const numInstallments = watch('numInstallments');
@@ -292,12 +296,37 @@ export function SaleCreatePage() {
     }
   }, [selectedProduct, setValue]);
 
-  // Auto-update down payment to 50% of selling price when SP changes (only if user hasn't manually edited)
+  // Auto-update down payment when SP changes (only if user hasn't manually edited)
+  // Company finance: default 0, others: default 50%
   useEffect(() => {
     if (!downPaymentManuallySet && sellingPrice > 0) {
+      if (saleType === SaleType.COMPANY_FINANCE) {
+        setValue('downPayment', 0);
+        setValue('financedAmount', sellingPrice);
+      } else {
+        setValue('downPayment', Math.round(sellingPrice / 2));
+      }
+    }
+  }, [sellingPrice, downPaymentManuallySet, saleType, setValue]);
+
+  // Auto-adjust financed amount = SP - down payment (for company finance)
+  useEffect(() => {
+    if (saleType === SaleType.COMPANY_FINANCE && sellingPrice > 0) {
+      setValue('financedAmount', Math.max(0, sellingPrice - downPayment));
+    }
+  }, [saleType, sellingPrice, downPayment, setValue]);
+
+  // Reset payment splits and down payment defaults when sale type changes
+  useEffect(() => {
+    setPaymentSplits([{ mode: PaymentMode.CASH, amount: '' }]);
+    setDownPaymentManuallySet(false);
+    if (saleType === SaleType.COMPANY_FINANCE) {
+      setValue('downPayment', 0);
+      if (sellingPrice > 0) setValue('financedAmount', sellingPrice);
+    } else if (sellingPrice > 0) {
       setValue('downPayment', Math.round(sellingPrice / 2));
     }
-  }, [sellingPrice, downPaymentManuallySet, setValue]);
+  }, [saleType]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // -----------------------------------------------------------------------
   // Computed amounts
@@ -351,6 +380,16 @@ export function SaleCreatePage() {
     // Discount is auto-calculated as MRP - Selling Price
     const autoDiscount = selectedProduct.mrp - Number(formData.sellingPrice);
 
+    // Build payment breakdown from splits
+    const breakdown = paymentSplits
+      .filter(s => Number(s.amount) > 0)
+      .map(s => ({ mode: s.mode, amount: Number(s.amount) }));
+
+    // Primary payment mode = the largest split (or first)
+    const primaryMode = breakdown.length > 0
+      ? breakdown.reduce((a, b) => b.amount > a.amount ? b : a).mode
+      : PaymentMode.CASH;
+
     const payload: Record<string, unknown> = {
       productId: selectedProduct.id,
       customerId: selectedCustomer.id,
@@ -359,7 +398,8 @@ export function SaleCreatePage() {
       sellingPrice: Number(formData.sellingPrice),
       discountAmount: autoDiscount > 0 ? autoDiscount : 0,
       gstRate: Number(formData.gstRate) || 0,
-      paymentMode: formData.paymentMode,
+      paymentMode: primaryMode,
+      paymentBreakdown: breakdown.length > 1 ? breakdown : undefined,
       notes: formData.notes.trim()
         ? `${formData.notes.trim()} | GST Type: ${saleGstType}`
         : `GST Type: ${saleGstType}`,
@@ -383,7 +423,9 @@ export function SaleCreatePage() {
         break;
       case SaleType.COMPANY_FINANCE:
         payload.downPayment = Number(formData.downPayment) || 0;
-        payload.financeCompanyId = formData.financeCompanyId || undefined;
+        if (formData.financeCompanyId && formData.financeCompanyId.trim()) {
+          payload.financeCompanyId = formData.financeCompanyId.trim();
+        }
         payload.financedAmount = Number(formData.financedAmount) || 0;
         payload.expectedPaymentDate = formData.expectedPaymentDate || undefined;
         break;
@@ -693,17 +735,6 @@ export function SaleCreatePage() {
                   )}
                 </div>
 
-                {/* Payment Mode */}
-                <div>
-                  <label className="block text-sm font-medium mb-1.5">
-                    Payment Mode
-                  </label>
-                  <PaymentModePills
-                    value={paymentMode}
-                    onChange={(val) => setValue('paymentMode', val)}
-                  />
-                </div>
-
                 {/* GST Section */}
                 <GstSelector
                   gstType={saleGstType}
@@ -712,6 +743,18 @@ export function SaleCreatePage() {
                   onGstPercentChange={(val) => setValue('gstRate', val)}
                   sellingPrice={sellingPrice}
                 />
+
+                {/* Payment */}
+                <div className="sm:col-span-2 lg:col-span-3">
+                  <label className="block text-sm font-medium mb-1.5">
+                    Payment
+                  </label>
+                  <PaymentSplitSection
+                    splits={paymentSplits}
+                    onChange={setPaymentSplits}
+                    totalRequired={sellingPrice}
+                  />
+                </div>
 
                 {/* Pricing calculations */}
                 {selectedProduct && sellingPrice > 0 && (
@@ -788,17 +831,6 @@ export function SaleCreatePage() {
                   )}
                 </div>
 
-                {/* Payment Mode */}
-                <div>
-                  <label className="block text-sm font-medium mb-1.5">
-                    Payment Mode
-                  </label>
-                  <PaymentModePills
-                    value={paymentMode}
-                    onChange={(val) => setValue('paymentMode', val)}
-                  />
-                </div>
-
                 {/* Promise Date */}
                 <div>
                   <label className="block text-sm font-medium mb-1.5">
@@ -840,6 +872,18 @@ export function SaleCreatePage() {
                   onGstPercentChange={(val) => setValue('gstRate', val)}
                   sellingPrice={sellingPrice}
                 />
+
+                {/* Payment (Down Payment) */}
+                <div className="sm:col-span-2 lg:col-span-3">
+                  <label className="block text-sm font-medium mb-1.5">
+                    Payment (Down Payment)
+                  </label>
+                  <PaymentSplitSection
+                    splits={paymentSplits}
+                    onChange={setPaymentSplits}
+                    totalRequired={downPayment}
+                  />
+                </div>
 
                 {/* Pricing calculations */}
                 {selectedProduct && sellingPrice > 0 && (
@@ -914,17 +958,6 @@ export function SaleCreatePage() {
                       {errors.downPayment.message}
                     </p>
                   )}
-                </div>
-
-                {/* Payment Mode (for down payment) */}
-                <div>
-                  <label className="block text-sm font-medium mb-1.5">
-                    Payment Mode (Down Payment)
-                  </label>
-                  <PaymentModePills
-                    value={paymentMode}
-                    onChange={(val) => setValue('paymentMode', val)}
-                  />
                 </div>
 
                 {/* Interest Rate */}
@@ -1005,6 +1038,18 @@ export function SaleCreatePage() {
                   onGstPercentChange={(val) => setValue('gstRate', val)}
                   sellingPrice={sellingPrice}
                 />
+
+                {/* Payment (Down Payment) */}
+                <div className="sm:col-span-2 lg:col-span-3">
+                  <label className="block text-sm font-medium mb-1.5">
+                    Payment (Down Payment)
+                  </label>
+                  <PaymentSplitSection
+                    splits={paymentSplits}
+                    onChange={setPaymentSplits}
+                    totalRequired={downPayment}
+                  />
+                </div>
 
                 {/* Pricing calculations */}
                 {selectedProduct && sellingPrice > 0 && (
@@ -1201,17 +1246,6 @@ export function SaleCreatePage() {
                   />
                 </div>
 
-                {/* Payment Mode (for down payment) */}
-                <div>
-                  <label className="block text-sm font-medium mb-1.5">
-                    Payment Mode (Down Payment)
-                  </label>
-                  <PaymentModePills
-                    value={paymentMode}
-                    onChange={(val) => setValue('paymentMode', val)}
-                  />
-                </div>
-
                 {/* Financed Amount */}
                 <div>
                   <label className="block text-sm font-medium mb-1.5">
@@ -1262,6 +1296,18 @@ export function SaleCreatePage() {
                   onGstPercentChange={(val) => setValue('gstRate', val)}
                   sellingPrice={sellingPrice}
                 />
+
+                {/* Payment (Down Payment) */}
+                <div className="sm:col-span-2 lg:col-span-3">
+                  <label className="block text-sm font-medium mb-1.5">
+                    Payment (Down Payment)
+                  </label>
+                  <PaymentSplitSection
+                    splits={paymentSplits}
+                    onChange={setPaymentSplits}
+                    totalRequired={downPayment}
+                  />
+                </div>
 
                 {/* Pricing calculations */}
                 {selectedProduct && sellingPrice > 0 && (
@@ -2070,30 +2116,157 @@ function SaleTypeButton({
   );
 }
 
-function PaymentModePills({
-  value,
+function PaymentSplitSection({
+  splits,
   onChange,
+  totalRequired,
 }: {
-  value: PaymentMode;
-  onChange: (val: PaymentMode) => void;
+  splits: Array<{mode: PaymentMode; amount: number | ''}>;
+  onChange: (splits: Array<{mode: PaymentMode; amount: number | ''}>) => void;
+  totalRequired: number;
 }) {
+  const prevTotalRef = useRef(totalRequired);
+  const userEditedRef = useRef(false);
+
+  // Auto-fill single split amount to match totalRequired
+  useEffect(() => {
+    if (splits.length === 1) {
+      const currentAmt = splits[0].amount;
+      const prevTotal = prevTotalRef.current;
+      // Auto-fill if: amount is empty, or it matches previous totalRequired (user hasn't manually edited)
+      if (!userEditedRef.current || currentAmt === '' || currentAmt === prevTotal) {
+        onChange([{ ...splits[0], amount: totalRequired || '' }]);
+        userEditedRef.current = false;
+      }
+    }
+    prevTotalRef.current = totalRequired;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [totalRequired]);
+
+  const totalEntered = splits.reduce((sum, s) => sum + (Number(s.amount) || 0), 0);
+  const isMatch = Math.abs(totalEntered - totalRequired) < 0.01;
+
+  const updateSplit = (index: number, field: 'mode' | 'amount', value: PaymentMode | number | '') => {
+    const next = splits.map((s, i) => {
+      if (i !== index) return s;
+      if (field === 'mode') return { ...s, mode: value as PaymentMode };
+      return { ...s, amount: value as number | '' };
+    });
+    if (field === 'amount') {
+      userEditedRef.current = true;
+    }
+    onChange(next);
+  };
+
+  const addSplit = () => {
+    if (splits.length >= 3) return;
+    // Pick a mode not already used, or default to CASH
+    const usedModes = new Set(splits.map(s => s.mode));
+    const available = PAYMENT_MODES.find(m => !usedModes.has(m.value));
+    onChange([...splits, { mode: available?.value ?? PaymentMode.CASH, amount: '' }]);
+    userEditedRef.current = true;
+  };
+
+  const removeSplit = (index: number) => {
+    const next = splits.filter((_, i) => i !== index);
+    // If back to 1 split, auto-fill
+    if (next.length === 1) {
+      next[0] = { ...next[0], amount: totalRequired || '' };
+      userEditedRef.current = false;
+    }
+    onChange(next);
+  };
+
   return (
-    <div className="flex flex-wrap gap-2">
-      {PAYMENT_MODES.map((mode) => (
-        <button
-          key={mode.value}
-          type="button"
-          onClick={() => onChange(mode.value)}
-          className={cn(
-            'rounded-full border px-3 py-1.5 text-xs font-medium transition-colors',
-            value === mode.value
-              ? 'border-primary bg-primary text-primary-foreground'
-              : 'hover:bg-muted',
+    <div className="space-y-3">
+      {splits.map((split, index) => (
+        <div key={index} className="flex items-center gap-2">
+          {/* Mode dropdown */}
+          <div className="relative w-40 shrink-0">
+            <select
+              value={split.mode}
+              onChange={(e) => updateSplit(index, 'mode', e.target.value as PaymentMode)}
+              className={cn(
+                'w-full appearance-none rounded-md border bg-background px-3 py-2.5 pr-8 text-sm',
+                'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+              )}
+            >
+              {PAYMENT_MODES.map((mode) => (
+                <option key={mode.value} value={mode.value}>
+                  {mode.label}
+                </option>
+              ))}
+            </select>
+            <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          </div>
+
+          {/* Amount input */}
+          <div className="relative flex-1">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+              ₹
+            </span>
+            <input
+              type="number"
+              step="0.01"
+              value={split.amount}
+              onChange={(e) => {
+                const val = e.target.value === '' ? '' : Number(e.target.value);
+                updateSplit(index, 'amount', val);
+              }}
+              placeholder="0.00"
+              className={cn(
+                'w-full rounded-md border bg-background pl-7 pr-3 py-2.5 text-sm',
+                'placeholder:text-muted-foreground',
+                'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+              )}
+            />
+          </div>
+
+          {/* Remove button — only shown for 2nd+ splits */}
+          {splits.length > 1 && (
+            <button
+              type="button"
+              onClick={() => removeSplit(index)}
+              className="rounded-md p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
+              title="Remove payment mode"
+            >
+              <X className="h-4 w-4" />
+            </button>
           )}
-        >
-          {mode.label}
-        </button>
+        </div>
       ))}
+
+      {/* Add button + validation summary */}
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        {splits.length < 3 && (
+          <button
+            type="button"
+            onClick={addSplit}
+            className="flex items-center gap-1.5 text-sm text-primary hover:underline"
+          >
+            <Plus className="h-4 w-4" />
+            Add Payment Mode
+          </button>
+        )}
+        {splits.length >= 3 && <div />}
+
+        {/* Validation summary */}
+        {totalRequired > 0 && (
+          <div className={cn(
+            'text-xs font-medium',
+            isMatch ? 'text-green-600' : 'text-amber-600',
+          )}>
+            Total: {formatINR(totalEntered)} / {formatINR(totalRequired)} required
+            {isMatch ? (
+              <Check className="inline-block ml-1 h-3.5 w-3.5" />
+            ) : (
+              <span className="ml-1">
+                ({totalEntered > totalRequired ? '+' : '-'}{formatINR(Math.abs(totalEntered - totalRequired))})
+              </span>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -2255,82 +2428,65 @@ function SellingPriceCalculations({
 
   const discount = mrp - sellingPrice;
   const discountPct = mrp > 0 ? ((discount / mrp) * 100).toFixed(1) : '0.0';
-  const profit = sellingPrice - dp;
-  const profitPct = dp > 0 ? ((profit / dp) * 100).toFixed(1) : '0.0';
-  const isBelowDP = sellingPrice < dp;
   const isAboveMRP = sellingPrice > mrp;
 
+  // GST-aware profit: both SP and DP are GST-inclusive, so strip GST from both
   const outputGst = gstRate > 0 ? Math.round(sellingPrice * gstRate / (100 + gstRate)) : 0;
   const inputGst = gstRate > 0 ? Math.round(dp * gstRate / (100 + gstRate)) : 0;
+  const spExclGst = sellingPrice - outputGst;
+  const dpExclGst = dp - inputGst;
   const gstPayable = outputGst - inputGst;
-  const netProfit = (sellingPrice - outputGst) - (dp - inputGst);
-  const netProfitPct = (dp - inputGst) > 0 ? ((netProfit / (dp - inputGst)) * 100).toFixed(1) : '0.0';
+  const netProfit = spExclGst - dpExclGst;
+  const netProfitPct = dpExclGst > 0 ? ((netProfit / dpExclGst) * 100).toFixed(1) : '0.0';
+  const isLoss = netProfit < 0;
 
   return (
     <div className="sm:col-span-2 lg:col-span-3">
-      {/* Warning if outside range */}
-      {(isBelowDP || isAboveMRP) && (
+      {/* Warning if selling at loss or above MRP */}
+      {(isLoss || isAboveMRP) && (
         <div className={cn(
           'flex items-center gap-2 rounded-md px-3 py-2 text-xs font-medium mb-2',
-          isBelowDP
+          isLoss
             ? 'bg-red-50 text-red-700 border border-red-200 dark:bg-red-950/30 dark:text-red-400 dark:border-red-800'
             : 'bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-800',
         )}>
           <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-          {isBelowDP
-            ? `Selling price is below DP (${formatINR(dp)}). You will make a loss of ${formatINR(Math.abs(profit))}.`
+          {isLoss
+            ? `Selling at a loss of ${formatINR(Math.abs(netProfit))} (after GST).`
             : `Selling price is above MRP (${formatINR(mrp)}).`}
         </div>
       )}
-      {/* Calculations — no "Total" row since SP is GST-inclusive */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 rounded-md bg-muted/50 px-3 py-2.5">
+      {/* Profit & GST breakdown */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 rounded-md bg-muted/50 px-3 py-2.5">
         <div>
           <span className="text-xs text-muted-foreground">Discount (MRP - SP)</span>
           <p className={cn('text-sm font-semibold', discount >= 0 ? 'text-green-600' : 'text-red-600')}>
             {formatINR(discount)} <span className="text-xs font-normal">({discountPct}%)</span>
           </p>
         </div>
+        {gstRate > 0 && (
+          <>
+            <div>
+              <span className="text-xs text-muted-foreground">Output GST (on sale)</span>
+              <p className="text-sm font-semibold">{formatINR(outputGst)}</p>
+            </div>
+            <div>
+              <span className="text-xs text-muted-foreground">Input Tax Credit (on purchase)</span>
+              <p className="text-sm font-semibold text-green-600">{formatINR(inputGst)}</p>
+            </div>
+            <div>
+              <span className="text-xs text-muted-foreground">GST to Govt</span>
+              <p className="text-sm font-semibold text-amber-600">{formatINR(gstPayable)}</p>
+            </div>
+          </>
+        )}
         <div>
-          <span className="text-xs text-muted-foreground">Profit (SP - DP)</span>
-          <p className={cn('text-sm font-semibold', profit >= 0 ? 'text-green-600' : 'text-red-600')}>
-            {formatINR(profit)}
-          </p>
-        </div>
-        <div>
-          <span className="text-xs text-muted-foreground">Profit %</span>
-          <p className={cn('text-sm font-semibold', profit >= 0 ? 'text-green-600' : 'text-red-600')}>
-            {profitPct}%
+          <span className="text-xs text-muted-foreground">Net Profit</span>
+          <p className={cn('text-sm font-semibold', netProfit >= 0 ? 'text-green-600' : 'text-red-600')}>
+            {formatINR(netProfit)} <span className="text-xs font-normal">({netProfitPct}%)</span>
           </p>
         </div>
       </div>
-      {gstRate > 0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 rounded-md bg-muted/50 px-3 py-2.5 mt-2">
-          <div>
-            <span className="text-xs text-muted-foreground">Output GST (on sale)</span>
-            <p className="text-sm font-semibold">{formatINR(outputGst)}</p>
-          </div>
-          <div>
-            <span className="text-xs text-muted-foreground">Input Tax Credit (on purchase)</span>
-            <p className="text-sm font-semibold text-green-600">{formatINR(inputGst)}</p>
-          </div>
-          <div>
-            <span className="text-xs text-muted-foreground">GST Payable to Govt</span>
-            <p className="text-sm font-semibold text-amber-600">{formatINR(gstPayable)}</p>
-          </div>
-          <div>
-            <span className="text-xs text-muted-foreground">Net Profit (after GST)</span>
-            <p className={cn('text-sm font-semibold', netProfit >= 0 ? 'text-green-600' : 'text-red-600')}>
-              {formatINR(netProfit)}
-            </p>
-          </div>
-          <div>
-            <span className="text-xs text-muted-foreground">Net Profit %</span>
-            <p className={cn('text-sm font-semibold', netProfit >= 0 ? 'text-green-600' : 'text-red-600')}>
-              {netProfitPct}%
-            </p>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

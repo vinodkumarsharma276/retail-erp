@@ -40,11 +40,17 @@ export async function installmentRoutes(app: FastifyInstance) {
   // Get overdue installments (admin, accountant — shop-scoped)
   app.get('/overdue', { preHandler: adminAccountantShopScoped }, installmentsController.getOverdue as any);
 
+  // Get collections for date range (admin, accountant, employee — shop-scoped)
+  app.get('/collections/range', { preHandler: collectionRoles }, installmentsController.getCollectionsForDateRange as any);
+
   // Get today's collections (admin, accountant, employee — shop-scoped)
   app.get('/collections/today', { preHandler: collectionRoles }, installmentsController.getCollectionsToday as any);
 
   // Get collections for a specific date (admin, accountant, employee — shop-scoped)
   app.get('/collections/date/:date', { preHandler: collectionRoles }, installmentsController.getCollectionsForDate as any);
+
+  // Search installment schedules (admin, accountant, employee — shop-scoped)
+  app.get('/search', { preHandler: collectionRoles }, installmentsController.searchSchedules as any);
 
   // Get schedule detail (admin, accountant, employee)
   app.get('/:scheduleId', { preHandler: adminAccountantEmployee }, installmentsController.getScheduleDetail as any);

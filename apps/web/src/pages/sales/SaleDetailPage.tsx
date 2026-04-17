@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -15,6 +15,7 @@ import {
   useSaleDetailQuery,
   useSaleInstallmentsQuery,
   useRecordFinancePaymentMutation,
+  useRecordPendingPaymentMutation,
 } from '../../hooks/useSales';
 import { useAuthStore } from '../../stores/auth-store';
 import { StatusBadge } from '../../components/StatusBadge';
@@ -52,6 +53,35 @@ export function SaleDetailPage() {
       setIsDownloading(false);
     }
   };
+
+  // Record pending payment dialog state
+  const [showPaymentDialog, setShowPaymentDialog] = useState(false);
+  const [paymentAmount, setPaymentAmount] = useState<number | ''>('');
+  const [paymentMode, setPaymentMode] = useState('cash');
+  const [paymentNotes, setPaymentNotes] = useState('');
+  const recordPaymentMutation = useRecordPendingPaymentMutation();
+
+  const handleRecordPayment = () => {
+    if (!id || !paymentAmount || paymentAmount <= 0) return;
+
+    recordPaymentMutation.mutate(
+      { saleId: id, data: { amount: Number(paymentAmount), paymentMode, notes: paymentNotes.trim() || undefined } },
+      {
+        onSuccess: () => {
+          setShowPaymentDialog(false);
+          setPaymentAmount('');
+          setPaymentMode('cash');
+          setPaymentNotes('');
+        },
+      },
+    );
+  };
+
+  useEffect(() => {
+    if (showPaymentDialog && sale) {
+      setPaymentAmount(Number(sale.pendingAmount));
+    }
+  }, [showPaymentDialog, sale]);
 
   // Finance payment dialog state
   const [showFinanceDialog, setShowFinanceDialog] = useState(false);
@@ -146,9 +176,9 @@ export function SaleDetailPage() {
         </button>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
-        {/* Left column (60%) */}
-        <div className="lg:col-span-3 space-y-6">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        {/* Left column (67%) */}
+        <div className="lg:col-span-2 space-y-6">
           {/* Sale Info Card */}
           <div className="rounded-lg border bg-card p-6">
             <h2 className="text-lg font-medium mb-4">Sale Information</h2>
@@ -161,85 +191,47 @@ export function SaleDetailPage() {
                 value={sale.saleType.replace(/_/g, ' ')}
               />
               <InfoRow label="MRP" value={formatINR(sale.mrp)} />
-              <InfoRow label="Selling Price" value={formatINR(sale.sellingPrice)} />
-              {sale.product && (
-                <>
-                  <InfoRow
-                    label="DP (Dealer Price)"
-                    value={formatINR(sale.product.purchasePrice)}
-                  />
-                  <InfoRow
-                    label="Discount (MRP - SP)"
-                    value={formatINR(sale.mrp - sale.sellingPrice)}
-                  />
-                  <InfoRow
-                    label="Gross Profit (SP - DP)"
-                    value={formatINR(sale.sellingPrice - sale.product.purchasePrice)}
-                  />
-                  {sale.gstAmount > 0 ? (
-                    <>
-                      <InfoRow
-                        label="Output GST (on sale)"
-                        value={formatINR(sale.gstAmount)}
-                      />
-                      <InfoRow
-                        label="Input Tax Credit (from purchase)"
-                        value={formatINR(sale.purchaseGstAmount ?? 0)}
-                      />
-                      <InfoRow
-                        label="GST Payable to Govt"
-                        value={formatINR(sale.gstAmount - (sale.purchaseGstAmount ?? 0))}
-                      />
-                      <InfoRow
-                        label="Net Profit (after GST)"
-                        value={formatINR(
-                          (sale.sellingPrice - sale.gstAmount) -
-                          (sale.product.purchasePrice - (sale.purchaseGstAmount ?? 0))
-                        )}
-                      />
-                    </>
-                  ) : (
-                    <InfoRow
-                      label="Profit %"
-                      value={
-                        sale.product.purchasePrice > 0
-                          ? `${(((sale.sellingPrice - sale.product.purchasePrice) / sale.product.purchasePrice) * 100).toFixed(1)}%`
-                          : '0.0%'
-                      }
-                    />
-                  )}
-                </>
-              )}
-              {sale.discountAmount > 0 && (
-                <InfoRow
-                  label="Discount"
-                  value={formatINR(sale.discountAmount)}
-                />
-              )}
-              <InfoRow label="Net Amount" value={formatINR(sale.netAmount)} />
+              <InfoRow label="Selling Price (incl. GST)" value={formatINR(sale.sellingPrice)} />
               {sale.gstAmount > 0 && (
-                <>
-                  <InfoRow label="GST Rate" value={`${sale.gstRate}%`} />
-                  <InfoRow label="GST (included in SP)" value={formatINR(sale.gstAmount)} />
-                </>
+                <InfoRow label={`GST ${sale.gstRate}% (included)`} value={formatINR(sale.gstAmount)} />
               )}
-              <InfoRow
-                label="Total Amount"
-                value={formatINR(sale.totalAmount)}
-              />
+              <InfoRow label="Total Amount" value={formatINR(sale.totalAmount)} />
               <InfoRow
                 label="Down Payment"
                 value={formatINR(sale.downPayment)}
               />
               <InfoRow
                 label="Payment Mode"
-                value={sale.paymentMode.replace(/_/g, ' ')}
+                value={
+                  sale.paymentBreakdown && sale.paymentBreakdown.length > 0
+                    ? sale.paymentBreakdown
+                        .map((p: {mode: string; amount: number}) =>
+                          `${p.mode.replace(/_/g, ' ')}: ${formatINR(p.amount)}`
+                        )
+                        .join(' + ')
+                    : sale.paymentMode.replace(/_/g, ' ')
+                }
               />
               {sale.pendingAmount > 0 && (
                 <InfoRow
                   label="Pending Amount"
                   value={formatINR(sale.pendingAmount)}
                 />
+              )}
+              {sale.pendingAmount > 0 && isAdminOrAccountant && (
+                <div className="sm:col-span-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowPaymentDialog(true)}
+                    className={cn(
+                      'flex items-center gap-2 rounded-md bg-green-600 px-4 py-2 text-sm font-medium text-white',
+                      'hover:bg-green-700 transition-colors',
+                    )}
+                  >
+                    <CreditCard className="h-4 w-4" />
+                    Record Payment
+                  </button>
+                </div>
               )}
               {sale.promiseDate && (
                 <InfoRow
@@ -267,6 +259,18 @@ export function SaleDetailPage() {
               />
             </dl>
           </div>
+
+          {/* Profit & GST Breakdown Card (admin/accountant only) */}
+          {isAdminOrAccountant && sale.product && (
+            <ProfitBreakdownCard
+              sellingPrice={sale.sellingPrice}
+              purchasePrice={sale.product.purchasePrice}
+              mrp={sale.mrp}
+              gstRate={sale.gstRate}
+              gstAmount={sale.gstAmount}
+              purchaseGstAmount={sale.purchaseGstAmount ?? 0}
+            />
+          )}
 
           {/* Self Finance details (admin/accountant only) */}
           {isAdminOrAccountant &&
@@ -297,6 +301,55 @@ export function SaleDetailPage() {
                     value={String(sale.numInstallments ?? 0)}
                   />
                 </dl>
+
+                {/* Total Earnings — product profit + financing income */}
+                {sale.product && (() => {
+                  const sp = Number(sale.sellingPrice);
+                  const dp = Number(sale.product.purchasePrice);
+                  const outGst = Number(sale.gstAmount);
+                  const inGst = Number(sale.purchaseGstAmount ?? 0);
+                  const netProductProfit = (sp - outGst) - (dp - inGst);
+                  const principal = sp - Number(sale.downPayment);
+                  const rate = Number(sale.interestRate ?? 0);
+                  const months = Number(sale.numInstallments ?? 0);
+                  const totalInterest = principal * (rate / 100) * months;
+                  const fc = Number(sale.fileCharge ?? 0);
+                  const totalEarnings = netProductProfit + totalInterest + fc;
+
+                  return (
+                    <div className="mt-4 pt-4 border-t">
+                      <h3 className="text-sm font-medium mb-3">Total Earnings from this Sale</h3>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                        <div>
+                          <p className="text-xs text-muted-foreground">Net Product Profit</p>
+                          <p className={cn('text-sm font-semibold', netProductProfit >= 0 ? 'text-green-600' : 'text-red-600')}>
+                            {formatINR(netProductProfit)}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Interest Earned</p>
+                          <p className="text-sm font-semibold text-green-600">
+                            {formatINR(totalInterest)}
+                          </p>
+                        </div>
+                        {fc > 0 && (
+                          <div>
+                            <p className="text-xs text-muted-foreground">File Charge</p>
+                            <p className="text-sm font-semibold text-green-600">
+                              {formatINR(fc)}
+                            </p>
+                          </div>
+                        )}
+                        <div>
+                          <p className="text-xs text-muted-foreground">Total Earnings</p>
+                          <p className={cn('text-lg font-bold', totalEarnings >= 0 ? 'text-green-600' : 'text-red-600')}>
+                            {formatINR(totalEarnings)}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* Guarantor */}
                 {sale.guarantor && (
@@ -491,8 +544,8 @@ export function SaleDetailPage() {
             )}
         </div>
 
-        {/* Right column (40%) */}
-        <div className="lg:col-span-2 space-y-6">
+        {/* Right column (33%) */}
+        <div className="lg:col-span-1 space-y-6">
           {/* Product Card */}
           {sale.product && (
             <div className="rounded-lg border bg-card p-6">
@@ -540,6 +593,92 @@ export function SaleDetailPage() {
           )}
         </div>
       </div>
+
+      {/* Record Payment Dialog */}
+      {showPaymentDialog && sale.pendingAmount > 0 && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="rounded-lg border bg-card p-6 shadow-xl w-full max-w-md mx-4">
+            <h3 className="text-lg font-medium mb-4">Record Payment</h3>
+
+            <div className="space-y-4">
+              <div>
+                <p className="text-sm text-muted-foreground mb-2">
+                  Pending Amount: <span className="font-semibold text-red-600">{formatINR(sale.pendingAmount)}</span>
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1.5">Amount</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  max={Number(sale.pendingAmount)}
+                  value={paymentAmount}
+                  onChange={(e) => setPaymentAmount(Number(e.target.value) || '')}
+                  placeholder="Enter amount"
+                  className="w-full rounded-md border bg-background px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1.5">Payment Mode</label>
+                <select
+                  value={paymentMode}
+                  onChange={(e) => setPaymentMode(e.target.value)}
+                  className="w-full appearance-none rounded-md border bg-background px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                >
+                  <option value="cash">Cash</option>
+                  <option value="upi">UPI</option>
+                  <option value="credit_card">Credit Card</option>
+                  <option value="debit_card">Debit Card</option>
+                  <option value="bank_transfer">Bank Transfer</option>
+                  <option value="cheque">Cheque</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1.5">Notes (optional)</label>
+                <input
+                  type="text"
+                  value={paymentNotes}
+                  onChange={(e) => setPaymentNotes(e.target.value)}
+                  placeholder="e.g., Remaining amount collected"
+                  className="w-full rounded-md border bg-background px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                />
+              </div>
+
+              {recordPaymentMutation.error && (
+                <p className="text-xs text-destructive">
+                  {(recordPaymentMutation.error as any)?.response?.data?.error ?? 'Failed to record payment'}
+                </p>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-3 mt-6">
+              <button
+                type="button"
+                onClick={() => { setShowPaymentDialog(false); recordPaymentMutation.reset(); }}
+                className="rounded-md border px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-muted transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleRecordPayment}
+                disabled={!paymentAmount || paymentAmount <= 0 || paymentAmount > Number(sale.pendingAmount) || recordPaymentMutation.isPending}
+                className="flex items-center gap-2 rounded-md bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {recordPaymentMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <CheckCircle className="h-4 w-4" />
+                )}
+                Confirm Payment
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -553,6 +692,94 @@ function InfoRow({ label, value }: { label: string; value: string }) {
     <div>
       <dt className="text-sm font-medium text-muted-foreground">{label}</dt>
       <dd className="mt-0.5 text-sm capitalize">{value}</dd>
+    </div>
+  );
+}
+
+function ProfitBreakdownCard({
+  sellingPrice,
+  purchasePrice,
+  mrp,
+  gstRate,
+  gstAmount,
+  purchaseGstAmount,
+}: {
+  sellingPrice: number;
+  purchasePrice: number;
+  mrp: number;
+  gstRate: number;
+  gstAmount: number;
+  purchaseGstAmount: number;
+}) {
+  const spExclGst = sellingPrice - gstAmount;
+  const dpExclGst = purchasePrice - purchaseGstAmount;
+  const discount = mrp - sellingPrice;
+  const discountPct = mrp > 0 ? ((discount / mrp) * 100).toFixed(1) : '0.0';
+  const gstPayable = gstAmount - purchaseGstAmount;
+  const netProfit = spExclGst - dpExclGst;
+  const netProfitPct = dpExclGst > 0 ? ((netProfit / dpExclGst) * 100).toFixed(1) : '0.0';
+
+  return (
+    <div className="rounded-lg border bg-card p-6">
+      <h2 className="text-lg font-medium mb-4">Profit & GST Breakdown</h2>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b text-left">
+              <th className="pb-2 font-medium text-muted-foreground"></th>
+              <th className="pb-2 font-medium text-muted-foreground text-right">Sale (to Customer)</th>
+              <th className="pb-2 font-medium text-muted-foreground text-right">Purchase (from Distributor)</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y">
+            <tr>
+              <td className="py-2 text-muted-foreground">Price (incl. GST)</td>
+              <td className="py-2 text-right font-medium">{formatINR(sellingPrice)}</td>
+              <td className="py-2 text-right font-medium">{formatINR(purchasePrice)}</td>
+            </tr>
+            {gstRate > 0 && (
+              <tr>
+                <td className="py-2 text-muted-foreground">GST @ {gstRate}% (extracted)</td>
+                <td className="py-2 text-right">{formatINR(gstAmount)}</td>
+                <td className="py-2 text-right">{formatINR(purchaseGstAmount)}</td>
+              </tr>
+            )}
+            <tr>
+              <td className="py-2 text-muted-foreground">Base Price (excl. GST)</td>
+              <td className="py-2 text-right font-medium">{formatINR(spExclGst)}</td>
+              <td className="py-2 text-right font-medium">{formatINR(dpExclGst)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      {/* Summary metrics */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-4 pt-4 border-t">
+        <div>
+          <p className="text-xs text-muted-foreground">Discount (MRP - SP)</p>
+          <p className={cn('text-sm font-semibold', discount >= 0 ? 'text-green-600' : 'text-red-600')}>
+            {formatINR(discount)} <span className="text-xs font-normal">({discountPct}%)</span>
+          </p>
+        </div>
+        {gstRate > 0 && (
+          <div>
+            <p className="text-xs text-muted-foreground">GST Payable to Govt</p>
+            <p className="text-sm font-semibold text-amber-600">{formatINR(gstPayable)}</p>
+          </div>
+        )}
+        <div>
+          <p className="text-xs text-muted-foreground">Net Profit</p>
+          <p className={cn('text-sm font-semibold', netProfit >= 0 ? 'text-green-600' : 'text-red-600')}>
+            {formatINR(netProfit)}
+          </p>
+        </div>
+        <div>
+          <p className="text-xs text-muted-foreground">Net Profit %</p>
+          <p className={cn('text-sm font-semibold', netProfit >= 0 ? 'text-green-600' : 'text-red-600')}>
+            {netProfitPct}%
+          </p>
+        </div>
+      </div>
     </div>
   );
 }

@@ -19,6 +19,7 @@ interface RecordPaymentDialogProps {
   installmentId: string;
   amountDue: number;
   installmentNumber?: number;
+  defaultDate?: string; // ISO date string for the installment due date
   onSuccess: () => void;
   onClose: () => void;
 }
@@ -42,14 +43,17 @@ export function RecordPaymentDialog({
   installmentId,
   amountDue,
   installmentNumber,
+  defaultDate,
   onSuccess,
   onClose,
 }: RecordPaymentDialogProps) {
+  const todayStr = new Date().toISOString().split('T')[0];
   const [scenario, setScenario] = useState<Scenario>('full_payment');
 
   // Full payment state
   const [fullAmount, setFullAmount] = useState<string>(String(amountDue));
   const [fullMode, setFullMode] = useState<PaymentMode>(PaymentMode.CASH);
+  const [fullDate, setFullDate] = useState<string>(defaultDate || todayStr);
   const [fullNotes, setFullNotes] = useState('');
 
   // Reschedule state
@@ -79,6 +83,7 @@ export function RecordPaymentDialog({
       scenario: Scenario;
       amountPaid?: number;
       paymentMode?: string;
+      paymentDate?: string;
       newDate?: string;
       notes?: string;
     };
@@ -88,6 +93,7 @@ export function RecordPaymentDialog({
         scenario: 'full_payment',
         amountPaid: Number(fullAmount),
         paymentMode: fullMode,
+        paymentDate: fullDate || undefined,
         notes: fullNotes.trim() || undefined,
       };
     } else if (scenario === 'reschedule') {
@@ -210,6 +216,22 @@ export function RecordPaymentDialog({
                 className={cn(
                   'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
                   'placeholder:text-muted-foreground',
+                  'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                )}
+              />
+            </div>
+
+            {/* Payment Date */}
+            <div>
+              <label className="block text-sm font-medium mb-1.5">
+                Payment Date <span className="text-destructive">*</span>
+              </label>
+              <input
+                type="date"
+                value={fullDate}
+                onChange={(e) => setFullDate(e.target.value)}
+                className={cn(
+                  'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
                   'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                 )}
               />

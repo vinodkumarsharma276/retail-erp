@@ -19,6 +19,7 @@ export const salesService = {
     gstRate?: number;
     downPayment?: number;
     paymentMode: string;
+    paymentBreakdown?: Array<{mode: string; amount: number}> | null;
     promiseDate?: string | null;
     interestRate?: number | null;
     fileCharge?: number | null;
@@ -170,6 +171,7 @@ export const salesService = {
           totalAmount,
           downPayment,
           paymentMode: data.paymentMode as any,
+          paymentBreakdown: data.paymentBreakdown ?? null,
           // Partial with promise
           promiseDate: data.saleType === 'partial_with_promise' && data.promiseDate
             ? new Date(data.promiseDate)
@@ -279,7 +281,7 @@ export const salesService = {
             brand: true,
             modelNumber: true,
             serialNumber: true,
-            category: { select: { id: true, name: true, slug: true } },
+            category: { select: { id: true, name: true, slug: true, hsnCode: true } },
           },
         },
         customer: {
@@ -381,7 +383,7 @@ export const salesService = {
               brand: true,
               modelNumber: true,
               serialNumber: true,
-              category: { select: { id: true, name: true, slug: true } },
+              category: { select: { id: true, name: true, slug: true, hsnCode: true } },
             },
           },
           customer: {
@@ -525,7 +527,7 @@ export const salesService = {
             serialNumber: true,
             mrp: true,
             purchasePrice: true,
-            category: { select: { id: true, name: true, slug: true } },
+            category: { select: { id: true, name: true, slug: true, hsnCode: true } },
           },
         },
         customer: {
@@ -660,5 +662,45 @@ export const salesService = {
     });
 
     return updated;
+  },
+
+  /**
+   * Record payment against a sale's pending amount (for partial_with_promise or any sale with pendingAmount > 0).
+   */
+  async recordPendingPayment(saleId: string, data: {
+    amount: number;
+    paymentMode: string;
+    paymentBreakdown?: Array<{mode: string; amount: number}> | null;
+    notes?: string | null;
+  }) {
+    const sale = await prisma.saleRecord.findUnique({ where: { id: saleId } });
+    if (!sale) throw new Error('Sale not found');
+    if (Number(sale.pendingAmount) <= 0) throw new Error('No pending amount for this sale');
+    if (data.amount > Number(sale.pendingAmount)) throw new Error('Payment amount exceeds pending amount');
+
+    const newPending = Number(sale.pendingAmount) - data.amount;
+    const newDownPayment = Number(sale.downPayment) + data.amount;
+
+    // Append payment info to notes for audit trail
+    const paymentNote = `Payment received: ₹${data.amount} via ${data.paymentMode}${data.notes ? ' - ' + data.notes : ''} on ${new Date().toISOString().split('T')[0]}`;
+    const updatedNotes = sale.notes ? `${sale.notes}\n${paymentNote}` : paymentNote;
+
+    const updated = await prisma.saleRecord.update({
+      where: { id: saleId },
+      data: {
+        pendingAmount: newPending,
+        downPayment: newDownPayment,
+        notes: updatedNotes,
+      },
+    });
+
+    return updated;
+  },
+
+  async listFinanceCompanies() {
+    return prisma.financeCompany.findMany({
+      where: { isActive: true },
+      orderBy: { name: 'asc' },
+    });
   },
 };

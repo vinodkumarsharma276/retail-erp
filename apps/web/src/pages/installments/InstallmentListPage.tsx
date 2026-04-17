@@ -4,36 +4,46 @@ import {
   Loader2,
   AlertCircle,
   CalendarDays,
-  Phone,
-  MapPin,
   Eye,
   Banknote,
   Calendar,
+  Search,
+  X,
+  ChevronDown,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { DataTable, type Column } from '../../components/DataTable';
 import { StatusBadge } from '../../components/StatusBadge';
 import { RecordPaymentDialog } from '../../components/RecordPaymentDialog';
 import {
-  useInstallmentSchedulesQuery,
   useOverdueInstallmentsQuery,
-  useCollectionsQuery,
-  type ScheduleListItem,
+  useCollectionsRangeQuery,
+  useInstallmentSearchQuery,
   type OverdueInstallmentItem,
   type CollectionItem,
 } from '../../hooks/useInstallments';
+import { useDebounce } from '../../hooks/useDebounce';
 import { formatINR, formatDateIN } from '@retailerp/shared-utils';
+
+// ---------------------------------------------------------------------------
+// Search filter options
+// ---------------------------------------------------------------------------
+const SEARCH_FILTERS = [
+  { value: 'ledger_number', label: 'Ledger #' },
+  { value: 'sale_number', label: 'Sale Number' },
+  { value: 'customer_phone', label: 'Customer Phone' },
+  { value: 'customer_name', label: 'Customer Name' },
+  { value: 'all', label: 'All' },
+];
 
 // ---------------------------------------------------------------------------
 // Tabs
 // ---------------------------------------------------------------------------
-type TabKey = 'active' | 'overdue' | 'completed' | 'collections';
+type TabKey = 'collections' | 'overdue';
 
 const tabs: { key: TabKey; label: string }[] = [
-  { key: 'active', label: 'Active Schedules' },
-  { key: 'overdue', label: 'Overdue' },
-  { key: 'completed', label: 'Completed' },
-  { key: 'collections', label: "Today's Collections" },
+  { key: 'collections', label: "Today's Scheduled" },
+  { key: 'overdue', label: 'All Overdue' },
 ];
 
 // ---------------------------------------------------------------------------
@@ -43,7 +53,22 @@ export function InstallmentListPage() {
   const [searchParams, setSearchParams] = useSearchParams();
 
   const activeTab = (searchParams.get('tab') as TabKey) || 'collections';
-  const page = Number(searchParams.get('page')) || 1;
+
+  // Search state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchFilter, setSearchFilter] = useState('ledger_number');
+  const debouncedSearch = useDebounce(searchQuery, 300);
+
+  // Search results query
+  const { data: searchResults, isLoading: isSearching } = useInstallmentSearchQuery(debouncedSearch, searchFilter);
+
+  // Payment dialog state for search results
+  const [searchPaymentTarget, setSearchPaymentTarget] = useState<{
+    id: string;
+    amount: number;
+    number: number;
+    dueDate?: string;
+  } | null>(null);
 
   const updateFilters = (updates: Record<string, string>) => {
     setSearchParams((prev) => {
@@ -73,6 +98,142 @@ export function InstallmentListPage() {
         </p>
       </div>
 
+      {/* Search Section */}
+      <div className="rounded-lg border bg-card p-4 mb-6">
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Filter dropdown */}
+          <div className="relative">
+            <select
+              value={searchFilter}
+              onChange={(e) => setSearchFilter(e.target.value)}
+              className={cn(
+                'appearance-none rounded-md border bg-background pl-3 pr-8 py-2 text-sm',
+                'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+              )}
+            >
+              {SEARCH_FILTERS.map((f) => (
+                <option key={f.value} value={f.value}>
+                  {f.label}
+                </option>
+              ))}
+            </select>
+            <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          </div>
+
+          {/* Search input */}
+          <div className="relative flex-1 min-w-[200px] max-w-md">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search installments..."
+              className={cn(
+                'w-full rounded-md border bg-background pl-9 pr-9 py-2 text-sm',
+                'placeholder:text-muted-foreground',
+                'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+              )}
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-sm p-0.5 text-muted-foreground hover:text-foreground"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+
+          {/* Loading indicator */}
+          {isSearching && (
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          )}
+        </div>
+
+        {/* Search results */}
+        {searchResults && searchResults.length > 0 && (
+          <div className="mt-4 space-y-3">
+            {searchResults.map((schedule: any) => (
+              <div key={schedule.id} className="rounded-md border p-4">
+                {/* Header: Customer + Product + Sale info */}
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <p className="font-medium">{schedule.sale.customer.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {schedule.sale.customer.phone} | {schedule.sale.product.brand} {schedule.sale.product.modelNumber}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Ledger: {schedule.sale.ledgerNumber} | Sale: {schedule.sale.saleNumber}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-medium">EMI: {formatINR(schedule.emiAmount)}/month</p>
+                    <p className="text-xs text-muted-foreground">{schedule.numInstallments} installments</p>
+                  </div>
+                </div>
+
+                {/* Installments table */}
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b text-left">
+                        <th className="pb-2 text-xs font-medium text-muted-foreground">EMI #</th>
+                        <th className="pb-2 text-xs font-medium text-muted-foreground">Due Date</th>
+                        <th className="pb-2 text-xs font-medium text-muted-foreground text-right">Amount</th>
+                        <th className="pb-2 text-xs font-medium text-muted-foreground text-right">Paid</th>
+                        <th className="pb-2 text-xs font-medium text-muted-foreground text-right">Remaining</th>
+                        <th className="pb-2 text-xs font-medium text-muted-foreground">Status</th>
+                        <th className="pb-2 text-xs font-medium text-muted-foreground">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {schedule.installments.map((inst: any) => (
+                        <tr key={inst.id}>
+                          <td className="py-2">#{inst.installmentNumber}</td>
+                          <td className="py-2">{formatDateIN(inst.dueDate)}</td>
+                          <td className="py-2 text-right">{formatINR(inst.amountDue)}</td>
+                          <td className="py-2 text-right text-green-600">{formatINR(inst.amountPaid)}</td>
+                          <td className="py-2 text-right text-red-600">{formatINR(inst.remainingAmount)}</td>
+                          <td className="py-2"><StatusBadge status={inst.status} /></td>
+                          <td className="py-2">
+                            {Number(inst.remainingAmount) > 0 && inst.status !== 'rescheduled' && inst.status !== 'partially_paid' && (
+                              <button
+                                onClick={() =>
+                                  setSearchPaymentTarget({
+                                    id: inst.id,
+                                    amount: Number(inst.remainingAmount),
+                                    number: inst.installmentNumber,
+                                    dueDate: typeof inst.dueDate === 'string' ? inst.dueDate.split('T')[0] : new Date(inst.dueDate).toISOString().split('T')[0],
+                                  })
+                                }
+                                className={cn(
+                                  'flex items-center gap-1 rounded-md bg-green-600 px-2.5 py-1.5 text-xs font-medium text-white',
+                                  'hover:bg-green-700 transition-colors',
+                                )}
+                              >
+                                <Banknote className="h-3.5 w-3.5" />
+                                Pay
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* No results message */}
+        {debouncedSearch.trim().length >= 2 && !isSearching && searchResults && searchResults.length === 0 && (
+          <div className="mt-4 flex items-center justify-center py-6 text-muted-foreground">
+            <p className="text-sm">No results found for &ldquo;{debouncedSearch}&rdquo;</p>
+          </div>
+        )}
+      </div>
+
       {/* Tab navigation */}
       <div className="flex gap-1 rounded-lg bg-muted p-1 mb-6 overflow-x-auto">
         {tabs.map((tab) => (
@@ -92,113 +253,21 @@ export function InstallmentListPage() {
       </div>
 
       {/* Tab content */}
-      {activeTab === 'active' && <ActiveSchedulesTab page={page} onPageChange={(p) => updateFilters({ page: String(p) })} />}
-      {activeTab === 'overdue' && <OverdueTab />}
-      {activeTab === 'completed' && <CompletedTab page={page} onPageChange={(p) => updateFilters({ page: String(p) })} />}
       {activeTab === 'collections' && <CollectionsTab />}
+      {activeTab === 'overdue' && <OverdueTab />}
+
+      {/* Payment dialog for search results */}
+      {searchPaymentTarget && (
+        <RecordPaymentDialog
+          installmentId={searchPaymentTarget.id}
+          amountDue={searchPaymentTarget.amount}
+          installmentNumber={searchPaymentTarget.number}
+          defaultDate={searchPaymentTarget.dueDate}
+          onSuccess={() => setSearchPaymentTarget(null)}
+          onClose={() => setSearchPaymentTarget(null)}
+        />
+      )}
     </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Active Schedules Tab
-// ---------------------------------------------------------------------------
-function ActiveSchedulesTab({ page, onPageChange }: { page: number; onPageChange: (p: number) => void }) {
-  const navigate = useNavigate();
-  const pageSize = 20;
-
-  const { data, isLoading } = useInstallmentSchedulesQuery({
-    page,
-    pageSize,
-    status: 'active',
-  });
-
-  const columns: Column<ScheduleListItem>[] = useMemo(
-    () => [
-      {
-        key: 'customer',
-        header: 'Customer',
-        render: (row) => (
-          <div>
-            <button
-              onClick={() => navigate(`/installments/${row.id}`)}
-              className="font-medium text-primary hover:underline text-left"
-            >
-              {row.customerName}
-            </button>
-            <p className="text-xs text-muted-foreground">{row.customerPhone}</p>
-          </div>
-        ),
-      },
-      {
-        key: 'product',
-        header: 'Product',
-        render: (row) => (
-          <div>
-            <p className="text-sm">{row.productBrand}</p>
-            <p className="text-xs text-muted-foreground">{row.productName}</p>
-          </div>
-        ),
-      },
-      {
-        key: 'emiAmount',
-        header: 'EMI Amount',
-        align: 'right' as const,
-        render: (row) => (
-          <span className="font-medium">{formatINR(row.emiAmount)}</span>
-        ),
-      },
-      {
-        key: 'progress',
-        header: 'Total / Paid / Remaining',
-        render: (row) => (
-          <div className="text-sm">
-            <span>{formatINR(row.totalPayable)}</span>
-            <span className="text-green-600 mx-1">/</span>
-            <span className="text-green-600">{formatINR(row.totalPaid)}</span>
-            <span className="text-red-600 mx-1">/</span>
-            <span className="text-red-600">{formatINR(row.totalRemaining)}</span>
-          </div>
-        ),
-      },
-      {
-        key: 'nextDue',
-        header: 'Next Due Date',
-        render: (row) =>
-          row.nextDueDate ? (
-            <span className="text-sm">{formatDateIN(row.nextDueDate)}</span>
-          ) : (
-            <span className="text-sm text-muted-foreground">--</span>
-          ),
-      },
-      {
-        key: 'status',
-        header: 'Status',
-        render: (row) => <StatusBadge status={row.status} />,
-      },
-    ],
-    [navigate],
-  );
-
-  return (
-    <DataTable<ScheduleListItem>
-      columns={columns}
-      data={data?.data ?? []}
-      isLoading={isLoading}
-      emptyMessage="No active installment schedules."
-      rowKey={(row) => row.id}
-      pagination={
-        data?.pagination
-          ? {
-              page: data.pagination.page,
-              totalPages: data.pagination.totalPages,
-              totalItems: data.pagination.totalItems,
-              pageSize: data.pagination.pageSize,
-            }
-          : undefined
-      }
-      onPageChange={onPageChange}
-    />
   );
 }
 
@@ -372,110 +441,21 @@ function OverdueTab() {
 }
 
 // ---------------------------------------------------------------------------
-// Completed Tab
+// Today's Scheduled Tab (date range)
 // ---------------------------------------------------------------------------
-function CompletedTab({ page, onPageChange }: { page: number; onPageChange: (p: number) => void }) {
-  const navigate = useNavigate();
-  const pageSize = 20;
-
-  const { data, isLoading } = useInstallmentSchedulesQuery({
-    page,
-    pageSize,
-    status: 'completed',
-  });
-
-  const columns: Column<ScheduleListItem>[] = useMemo(
-    () => [
-      {
-        key: 'customer',
-        header: 'Customer',
-        render: (row) => (
-          <div>
-            <button
-              onClick={() => navigate(`/installments/${row.id}`)}
-              className="font-medium text-primary hover:underline text-left"
-            >
-              {row.customerName}
-            </button>
-            <p className="text-xs text-muted-foreground">{row.customerPhone}</p>
-          </div>
-        ),
-      },
-      {
-        key: 'product',
-        header: 'Product',
-        render: (row) => (
-          <div>
-            <p className="text-sm">{row.productBrand}</p>
-            <p className="text-xs text-muted-foreground">{row.productName}</p>
-          </div>
-        ),
-      },
-      {
-        key: 'emiAmount',
-        header: 'EMI Amount',
-        align: 'right' as const,
-        render: (row) => (
-          <span className="font-medium">{formatINR(row.emiAmount)}</span>
-        ),
-      },
-      {
-        key: 'totalPayable',
-        header: 'Total Paid',
-        align: 'right' as const,
-        render: (row) => (
-          <span className="font-medium text-green-600">
-            {formatINR(row.totalPaid)}
-          </span>
-        ),
-      },
-      {
-        key: 'installments',
-        header: 'Installments',
-        render: (row) => (
-          <span className="text-sm">{row.numInstallments} EMIs</span>
-        ),
-      },
-      {
-        key: 'status',
-        header: 'Status',
-        render: (row) => <StatusBadge status={row.status} />,
-      },
-    ],
-    [navigate],
-  );
-
-  return (
-    <DataTable<ScheduleListItem>
-      columns={columns}
-      data={data?.data ?? []}
-      isLoading={isLoading}
-      emptyMessage="No completed installment schedules yet."
-      rowKey={(row) => row.id}
-      pagination={
-        data?.pagination
-          ? {
-              page: data.pagination.page,
-              totalPages: data.pagination.totalPages,
-              totalItems: data.pagination.totalItems,
-              pageSize: data.pagination.pageSize,
-            }
-          : undefined
-      }
-      onPageChange={onPageChange}
-    />
-  );
+function getDateDaysAgo(days: number): string {
+  return new Date(Date.now() - days * 86400000).toISOString().split('T')[0];
 }
 
-// ---------------------------------------------------------------------------
-// Today's Collections Tab
-// ---------------------------------------------------------------------------
 function CollectionsTab() {
   const navigate = useNavigate();
   const today = new Date().toISOString().split('T')[0];
-  const [selectedDate, setSelectedDate] = useState(today);
 
-  const { data: collections, isLoading, isError } = useCollectionsQuery(selectedDate);
+  const [dateFrom, setDateFrom] = useState(today);
+  const [dateTo, setDateTo] = useState(today);
+
+  const { data: rangeData, isLoading, isError } = useCollectionsRangeQuery(dateFrom, dateTo);
+  const collections = rangeData?.collections ?? [];
 
   // Payment dialog state
   const [paymentTarget, setPaymentTarget] = useState<{
@@ -484,33 +464,168 @@ function CollectionsTab() {
     number: number;
   } | null>(null);
 
-  const isToday = selectedDate === today;
+  const isTodayOnly = dateFrom === today && dateTo === today;
+
+  const collectionColumns: Column<CollectionItem>[] = useMemo(
+    () => [
+      {
+        key: 'dueDate',
+        header: 'Due Date',
+        render: (row) => {
+          const dateStr = typeof row.dueDate === 'string'
+            ? row.dueDate.split('T')[0]
+            : new Date(row.dueDate).toISOString().split('T')[0];
+          const isOverdue = dateStr < today;
+          return (
+            <div className="flex items-center gap-2">
+              <span className="text-sm">{formatDateIN(row.dueDate)}</span>
+              {isOverdue && (
+                <span className="inline-flex items-center rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-700 dark:bg-red-900/30 dark:text-red-400">
+                  {row.daysOverdue}d
+                </span>
+              )}
+            </div>
+          );
+        },
+      },
+      {
+        key: 'customer',
+        header: 'Customer',
+        render: (row) => (
+          <div>
+            <p className="font-medium">{row.customerName}</p>
+            <a
+              href={`tel:${row.customerPhone}`}
+              className="text-xs text-primary hover:underline"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {row.customerPhone}
+            </a>
+          </div>
+        ),
+      },
+      {
+        key: 'product',
+        header: 'Product',
+        render: (row) => (
+          <span className="text-sm">{row.productBrand} {row.productName}</span>
+        ),
+      },
+      {
+        key: 'emiNumber',
+        header: 'EMI #',
+        render: (row) => (
+          <span className="text-sm font-medium">
+            #{row.installmentNumber} of {row.totalInstallments}
+          </span>
+        ),
+      },
+      {
+        key: 'amountDue',
+        header: 'Amount Due',
+        align: 'right' as const,
+        render: (row) => (
+          <span className="font-semibold">{formatINR(row.remainingAmount)}</span>
+        ),
+      },
+      {
+        key: 'status',
+        header: 'Status',
+        render: (row) => <StatusBadge status={row.status} />,
+      },
+      {
+        key: 'actions',
+        header: 'Actions',
+        render: (row) => (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setPaymentTarget({
+                  id: row.id,
+                  amount: Number(row.remainingAmount),
+                  number: row.installmentNumber,
+                });
+              }}
+              className={cn(
+                'flex items-center gap-1 rounded-md bg-green-600 px-2.5 py-1.5 text-xs font-medium text-white',
+                'hover:bg-green-700 transition-colors',
+              )}
+            >
+              <Banknote className="h-3.5 w-3.5" />
+              Pay
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                navigate(`/sales/${row.saleId}`);
+              }}
+              className={cn(
+                'flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-xs font-medium',
+                'hover:bg-muted transition-colors',
+              )}
+            >
+              <Eye className="h-3.5 w-3.5" />
+              View
+            </button>
+          </div>
+        ),
+      },
+    ],
+    [navigate, today],
+  );
 
   return (
     <div>
-      {/* Date picker */}
-      <div className="flex items-center gap-3 mb-6">
+      {/* Date range picker */}
+      <div className="flex flex-wrap items-center gap-3 mb-6">
         <div className="flex items-center gap-2">
           <Calendar className="h-4 w-4 text-muted-foreground" />
-          <label className="text-sm font-medium">Collection Date:</label>
+          <label className="text-sm font-medium">From:</label>
         </div>
         <input
           type="date"
-          value={selectedDate}
-          onChange={(e) => setSelectedDate(e.target.value)}
+          value={dateFrom}
+          onChange={(e) => setDateFrom(e.target.value)}
           className={cn(
             'rounded-md border bg-background px-3 py-2 text-sm',
             'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
           )}
         />
-        {!isToday && (
+        <div className="flex items-center gap-2">
+          <label className="text-sm font-medium">To:</label>
+        </div>
+        <input
+          type="date"
+          value={dateTo}
+          onChange={(e) => setDateTo(e.target.value)}
+          className={cn(
+            'rounded-md border bg-background px-3 py-2 text-sm',
+            'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+          )}
+        />
+        <div className="flex items-center gap-2">
+          {!isTodayOnly && (
+            <button
+              onClick={() => { setDateFrom(today); setDateTo(today); }}
+              className="rounded-md border px-3 py-2 text-sm font-medium hover:bg-muted transition-colors"
+            >
+              Today
+            </button>
+          )}
           <button
-            onClick={() => setSelectedDate(today)}
-            className="text-sm text-primary hover:underline"
+            onClick={() => { setDateFrom(getDateDaysAgo(7)); setDateTo(today); }}
+            className="rounded-md border px-3 py-2 text-sm font-medium hover:bg-muted transition-colors"
           >
-            Back to Today
+            Last 7 Days
           </button>
-        )}
+          <button
+            onClick={() => { setDateFrom(getDateDaysAgo(14)); setDateTo(today); }}
+            className="rounded-md border px-3 py-2 text-sm font-medium hover:bg-muted transition-colors"
+          >
+            Last 2 Weeks
+          </button>
+        </div>
       </div>
 
       {/* Loading */}
@@ -531,21 +646,31 @@ function CollectionsTab() {
       )}
 
       {/* Empty state */}
-      {!isLoading && !isError && collections && collections.length === 0 && (
+      {!isLoading && !isError && collections.length === 0 && (
         <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
           <CalendarDays className="h-12 w-12 mb-3 opacity-50" />
-          <p className="text-lg font-medium">No collections for this date</p>
-          <p className="text-sm mt-1">
-            {isToday
-              ? 'No installments are due today.'
-              : `No installments were due on ${formatDateIN(selectedDate)}.`}
+          <p className="text-lg font-medium">
+            {isTodayOnly ? 'No collections due today' : 'No collections for this period'}
           </p>
+          <p className="text-sm mt-1">
+            {isTodayOnly
+              ? 'All installments for today are either paid or none are scheduled.'
+              : `No pending installments between ${formatDateIN(dateFrom)} and ${formatDateIN(dateTo)}.`}
+          </p>
+          {isTodayOnly && (
+            <button
+              onClick={() => { setDateFrom(getDateDaysAgo(14)); setDateTo(today); }}
+              className="mt-4 rounded-md border px-4 py-2 text-sm font-medium text-primary hover:bg-muted transition-colors"
+            >
+              Check last 2 weeks instead
+            </button>
+          )}
         </div>
       )}
 
-      {/* Collection cards */}
-      {!isLoading && !isError && collections && collections.length > 0 && (
-        <div className="space-y-3">
+      {/* Collection table */}
+      {!isLoading && !isError && collections.length > 0 && (
+        <div className="space-y-4">
           {/* Summary bar */}
           <div className="rounded-lg border bg-card p-4 flex flex-wrap items-center gap-6">
             <div>
@@ -560,29 +685,20 @@ function CollectionsTab() {
               </p>
               <p className="text-lg font-semibold">
                 {formatINR(
-                  collections.reduce((sum, c) => sum + c.remainingAmount, 0),
+                  collections.reduce((sum: number, c: CollectionItem) => sum + Number(c.remainingAmount), 0),
                 )}
               </p>
             </div>
           </div>
 
-          {/* Cards */}
-          <div className="grid gap-3 grid-cols-1 lg:grid-cols-2">
-            {collections.map((item) => (
-              <CollectionCard
-                key={item.id}
-                item={item}
-                onRecordPayment={() =>
-                  setPaymentTarget({
-                    id: item.id,
-                    amount: item.remainingAmount,
-                    number: item.installmentNumber,
-                  })
-                }
-                onViewSale={() => navigate(`/sales/${item.saleId}`)}
-              />
-            ))}
-          </div>
+          {/* Table */}
+          <DataTable<CollectionItem>
+            columns={collectionColumns}
+            data={collections}
+            isLoading={false}
+            emptyMessage=""
+            rowKey={(row) => row.id}
+          />
         </div>
       )}
 
@@ -600,124 +716,3 @@ function CollectionsTab() {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Collection Card
-// ---------------------------------------------------------------------------
-function CollectionCard({
-  item,
-  onRecordPayment,
-  onViewSale,
-}: {
-  item: CollectionItem;
-  onRecordPayment: () => void;
-  onViewSale: () => void;
-}) {
-  const statusIndicator = getCollectionStatus(item);
-
-  return (
-    <div className="rounded-lg border bg-card p-4 hover:shadow-md transition-shadow">
-      <div className="flex items-start justify-between mb-3">
-        <div className="flex-1 min-w-0">
-          <h3 className="font-semibold text-base truncate">
-            {item.customerName}
-          </h3>
-          <a
-            href={`tel:${item.customerPhone}`}
-            className="flex items-center gap-1 text-sm text-primary hover:underline mt-0.5"
-          >
-            <Phone className="h-3.5 w-3.5" />
-            {item.customerPhone}
-          </a>
-        </div>
-        {/* Status indicator */}
-        <span
-          className={cn(
-            'inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium shrink-0',
-            statusIndicator.bg,
-            statusIndicator.text,
-          )}
-        >
-          {statusIndicator.label}
-        </span>
-      </div>
-
-      {/* Product + EMI info */}
-      <div className="space-y-1 mb-3">
-        <p className="text-sm text-muted-foreground">
-          {item.productBrand} {item.productName}
-        </p>
-        <p className="text-sm">
-          <span className="font-medium">
-            EMI {item.installmentNumber} of {item.totalInstallments}
-          </span>
-        </p>
-      </div>
-
-      {/* Amount */}
-      <div className="mb-3">
-        <p className="text-2xl font-bold">{formatINR(item.remainingAmount)}</p>
-      </div>
-
-      {/* Address */}
-      {item.customerAddress && (
-        <div className="flex items-start gap-1 mb-3 text-xs text-muted-foreground">
-          <MapPin className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-          <span>{item.customerAddress}</span>
-        </div>
-      )}
-
-      {/* Actions */}
-      <div className="flex items-center gap-2 pt-2 border-t">
-        <button
-          onClick={onRecordPayment}
-          className={cn(
-            'flex-1 flex items-center justify-center gap-2 rounded-md bg-green-600 px-3 py-2 text-sm font-medium text-white',
-            'hover:bg-green-700 transition-colors',
-          )}
-        >
-          <Banknote className="h-4 w-4" />
-          Record Payment
-        </button>
-        <button
-          onClick={onViewSale}
-          className={cn(
-            'flex items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium',
-            'hover:bg-muted transition-colors',
-          )}
-        >
-          <Eye className="h-4 w-4" />
-          View Sale
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-function getCollectionStatus(item: CollectionItem): {
-  bg: string;
-  text: string;
-  label: string;
-} {
-  if (item.status === 'overdue' || item.daysOverdue > 0) {
-    return {
-      bg: 'bg-red-100 dark:bg-red-900/30',
-      text: 'text-red-700 dark:text-red-400',
-      label: `Overdue ${item.daysOverdue}d`,
-    };
-  }
-  if (item.status === 'rescheduled') {
-    return {
-      bg: 'bg-amber-100 dark:bg-amber-900/30',
-      text: 'text-amber-700 dark:text-amber-400',
-      label: 'Rescheduled',
-    };
-  }
-  return {
-    bg: 'bg-blue-100 dark:bg-blue-900/30',
-    text: 'text-blue-700 dark:text-blue-400',
-    label: 'Due Today',
-  };
-}

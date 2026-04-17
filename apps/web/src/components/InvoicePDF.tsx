@@ -5,6 +5,7 @@ import {
   View,
   Text,
   StyleSheet,
+  pdf,
 } from '@react-pdf/renderer';
 
 // ---------------------------------------------------------------------------
@@ -30,15 +31,14 @@ export interface InvoiceData {
   productModel: string;
   productSerial?: string;
   productCategory?: string;
+  hsnCode?: string;
   // Pricing (SP is GST-inclusive)
   sellingPrice: number;
   gstRate: number;
   gstType: string; // "GST", "CGST_SGST", or "IGST"
   // Payment
   paymentMode: string;
-  saleType: string;
-  downPayment: number;
-  pendingAmount: number;
+  paymentBreakdown?: Array<{mode: string; amount: number}> | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -66,11 +66,12 @@ function threeDigitToWords(n: number): string {
   return ones[h] + ' Hundred' + (rem ? ' and ' + twoDigitToWords(rem) : '');
 }
 
-export function numberToWords(num: number): string {
-  if (num === 0) return 'Zero Rupees Only';
+export function numberToWords(num: number | string | null | undefined): string {
+  const n = Number(num) || 0;
+  if (n === 0) return 'Zero Rupees Only';
 
-  const rupees = Math.floor(Math.abs(num));
-  const paise = Math.round((Math.abs(num) - rupees) * 100);
+  const rupees = Math.floor(Math.abs(n));
+  const paise = Math.round((Math.abs(n) - rupees) * 100);
 
   if (rupees === 0 && paise === 0) return 'Zero Rupees Only';
 
@@ -113,12 +114,13 @@ export function numberToWords(num: number): string {
 // ---------------------------------------------------------------------------
 // Simple INR formatter for PDF (no Intl)
 // ---------------------------------------------------------------------------
-function formatRupees(amount: number): string {
-  const fixed = amount.toFixed(2);
+function formatRupees(amount: number | string | null | undefined): string {
+  const num = Number(amount) || 0;
+  const fixed = num.toFixed(2);
   const [intPart, decPart] = fixed.split('.');
   // Indian grouping: last 3 digits, then groups of 2
   const intStr = intPart.replace(/^-/, '');
-  const isNeg = amount < 0;
+  const isNeg = num < 0;
   let grouped: string;
   if (intStr.length <= 3) {
     grouped = intStr;
@@ -402,11 +404,7 @@ function formatPaymentMode(mode: string): string {
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-function formatSaleType(type: string): string {
-  return type
-    .replace(/_/g, ' ')
-    .replace(/\b\w/g, (c) => c.toUpperCase());
-}
+
 
 // ---------------------------------------------------------------------------
 // Invoice PDF Component
@@ -500,7 +498,7 @@ export function InvoicePDF({ data }: { data: InvoiceData }) {
               )}
             </View>
             <View style={styles.colHsn}>
-              <Text style={styles.cellText}>-</Text>
+              <Text style={styles.cellText}>{data.hsnCode || '-'}</Text>
             </View>
             <View style={styles.colQty}>
               <Text style={styles.cellText}>1</Text>
@@ -562,37 +560,25 @@ export function InvoicePDF({ data }: { data: InvoiceData }) {
             </View>
           </View>
 
-          {/* Payment details */}
+          {/* Payment details — always shown as full payment on invoice */}
           <View style={styles.paymentSection}>
             <Text style={styles.sectionTitle}>Payment Details</Text>
             <View style={styles.paymentRow}>
               <Text style={styles.paymentLabel}>Payment Mode:</Text>
               <Text style={styles.paymentValue}>
-                {formatPaymentMode(data.paymentMode)}
+                {data.paymentBreakdown && data.paymentBreakdown.length > 1
+                  ? data.paymentBreakdown
+                      .map((p) => `${formatPaymentMode(p.mode)} - Rs. ${formatRupees(p.amount)}`)
+                      .join(', ')
+                  : formatPaymentMode(data.paymentMode)}
               </Text>
             </View>
             <View style={styles.paymentRow}>
-              <Text style={styles.paymentLabel}>Sale Type:</Text>
+              <Text style={styles.paymentLabel}>Amount Received:</Text>
               <Text style={styles.paymentValue}>
-                {formatSaleType(data.saleType)}
+                Rs. {formatRupees(data.sellingPrice)}
               </Text>
             </View>
-            {data.downPayment > 0 && (
-              <View style={styles.paymentRow}>
-                <Text style={styles.paymentLabel}>Down Payment:</Text>
-                <Text style={styles.paymentValue}>
-                  Rs. {formatRupees(data.downPayment)}
-                </Text>
-              </View>
-            )}
-            {data.pendingAmount > 0 && (
-              <View style={styles.paymentRow}>
-                <Text style={styles.paymentLabel}>Pending Amount:</Text>
-                <Text style={styles.paymentValue}>
-                  Rs. {formatRupees(data.pendingAmount)}
-                </Text>
-              </View>
-            )}
           </View>
 
           {/* Amount in words */}
@@ -632,7 +618,6 @@ export function InvoicePDF({ data }: { data: InvoiceData }) {
 // Download helper
 // ---------------------------------------------------------------------------
 export async function downloadInvoicePDF(data: InvoiceData): Promise<void> {
-  const { pdf } = await import('@react-pdf/renderer');
   const blob = await pdf(React.createElement(InvoicePDF, { data })).toBlob();
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');

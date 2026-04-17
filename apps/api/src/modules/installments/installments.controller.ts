@@ -114,6 +114,56 @@ export const installmentsController = {
     }
   },
 
+  async getCollectionsForDateRange(
+    request: FastifyRequest<{
+      Querystring: { dateFrom?: string; dateTo?: string; employeeId?: string };
+    }>,
+    reply: FastifyReply,
+  ) {
+    try {
+      const shopId = request.shopFilter!.shopId;
+      const today = new Date().toISOString().split('T')[0];
+      const twoWeeksAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+      const dateFrom = request.query.dateFrom || twoWeeksAgo;
+      const dateTo = request.query.dateTo || today;
+      const employeeId = request.query.employeeId;
+
+      // For employees, auto-filter to their own assignments
+      const effectiveEmployeeId =
+        request.currentUser!.role === 'employee'
+          ? request.currentUser!.userId
+          : employeeId;
+
+      const result = await installmentsService.getCollectionsForDateRange(
+        shopId, dateFrom, dateTo, effectiveEmployeeId,
+      );
+      return sendSuccess(reply, result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to fetch collections';
+      return sendError(reply, message, 500);
+    }
+  },
+
+  async searchSchedules(
+    request: FastifyRequest<{
+      Querystring: { q?: string; filterBy?: string };
+    }>,
+    reply: FastifyReply,
+  ) {
+    try {
+      const shopId = request.shopFilter!.shopId;
+      const query = request.query.q || '';
+      const filterBy = request.query.filterBy || 'all';
+
+      const results = await installmentsService.searchSchedules(shopId, query, filterBy);
+      return sendSuccess(reply, results);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Search failed';
+      return sendError(reply, message, 500);
+    }
+  },
+
   async getScheduleDetail(
     request: FastifyRequest<{ Params: { scheduleId: string } }>,
     reply: FastifyReply,

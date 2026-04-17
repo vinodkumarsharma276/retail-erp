@@ -198,6 +198,7 @@ export function useCreateCategoryMutation() {
       name: string;
       parentId?: string;
       icon?: string;
+      hsnCode?: string;
       displayOrder?: number;
     }) => {
       const { data } = await apiClient.post<ApiResponse<ProductCategory>>(
@@ -221,7 +222,7 @@ export function useUpdateCategoryMutation() {
       payload,
     }: {
       id: string;
-      payload: { name?: string; icon?: string; displayOrder?: number; isActive?: boolean };
+      payload: { name?: string; icon?: string; hsnCode?: string; displayOrder?: number; isActive?: boolean };
     }) => {
       const { data } = await apiClient.put<ApiResponse<ProductCategory>>(
         `/categories/${id}`,

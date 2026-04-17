@@ -139,6 +139,26 @@ export function useRecordFinancePaymentMutation() {
 }
 
 // ---------------------------------------------------------------------------
+// Record pending payment (partial_with_promise or any sale with pendingAmount > 0)
+// ---------------------------------------------------------------------------
+export function useRecordPendingPaymentMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ saleId, data }: { saleId: string; data: { amount: number; paymentMode: string; paymentBreakdown?: Array<{mode: string; amount: number}> | null; notes?: string } }) => {
+      const res = await apiClient.put(`/sales/${saleId}/record-payment`, data);
+      return res.data.data;
+    },
+    onSuccess: (_data: unknown, variables: { saleId: string }) => {
+      queryClient.invalidateQueries({ queryKey: ['sales'] });
+      queryClient.invalidateQueries({
+        queryKey: keys.saleDetail(variables.saleId),
+      });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Extended types (API response shapes)
 // ---------------------------------------------------------------------------
 export interface SaleListItem {

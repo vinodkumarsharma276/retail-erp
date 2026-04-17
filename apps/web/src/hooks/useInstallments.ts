@@ -200,6 +200,22 @@ export function useCollectionsQuery(date: string) {
 }
 
 // ---------------------------------------------------------------------------
+// Collections for a date range
+// ---------------------------------------------------------------------------
+export function useCollectionsRangeQuery(dateFrom: string, dateTo: string) {
+  return useQuery({
+    queryKey: ['installments', 'collections-range', dateFrom, dateTo],
+    queryFn: async () => {
+      const { data } = await apiClient.get<ApiResponse<{ collections: CollectionItem[]; rescheduledNotes: any[] }>>(
+        `/installments/collections/range?dateFrom=${dateFrom}&dateTo=${dateTo}`,
+      );
+      return data.data ?? { collections: [], rescheduledNotes: [] };
+    },
+    enabled: !!dateFrom && !!dateTo,
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Schedule detail with all installments + payments
 // ---------------------------------------------------------------------------
 export function useScheduleDetailQuery(scheduleId: string | undefined) {
@@ -228,6 +244,22 @@ export function useScheduleTimelineQuery(scheduleId: string | undefined) {
       return data.data ?? [];
     },
     enabled: !!scheduleId,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Search installment schedules
+// ---------------------------------------------------------------------------
+export function useInstallmentSearchQuery(query: string, filterBy: string) {
+  return useQuery({
+    queryKey: ['installments', 'search', query, filterBy],
+    queryFn: async () => {
+      const { data } = await apiClient.get<ApiResponse<any[]>>(
+        `/installments/search?q=${encodeURIComponent(query)}&filterBy=${filterBy}`,
+      );
+      return data.data ?? [];
+    },
+    enabled: query.trim().length >= 2,
   });
 }
 

@@ -67,6 +67,9 @@ export function ProductDetailPage() {
   const categoryName = categoryTree
     ? findCategoryName(categoryTree, product.categoryId)
     : null;
+  const categoryHsnCode = categoryTree
+    ? findCategoryHsnCode(categoryTree, product.categoryId)
+    : null;
 
   // Determine dynamic attribute entries
   const dynamicEntries = product.dynamicAttributes
@@ -155,6 +158,7 @@ export function ProductDetailPage() {
               <InfoRow label="Model Number" value={product.modelNumber} />
               <InfoRow label="Serial Number" value={product.serialNumber ?? '-'} />
               <InfoRow label="Category" value={categoryName ?? '-'} />
+              <InfoRow label="HSN Code" value={categoryHsnCode ?? '-'} />
               <InfoRow label="MRP" value={formatINR(product.mrp)} />
               <InfoRow
                 label="DP (Dealer Price)"
@@ -367,6 +371,20 @@ function findCategoryName(
     if (node.id === targetId) return node.name;
     if (node.children?.length) {
       const found = findCategoryName(node.children, targetId);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+function findCategoryHsnCode(
+  nodes: ProductCategory[],
+  targetId: string,
+): string | null {
+  for (const node of nodes) {
+    if (node.id === targetId) return node.hsnCode ?? null;
+    if (node.children?.length) {
+      const found = findCategoryHsnCode(node.children, targetId);
       if (found) return found;
     }
   }
