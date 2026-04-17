@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useForm, useFieldArray, FormProvider } from 'react-hook-form';
 import {
   ArrowLeft,
@@ -248,12 +248,12 @@ export function PurchaseCreatePage() {
     <div className="max-w-5xl">
       {/* Page header */}
       <div className="flex items-center gap-4 mb-6">
-        <Link
-          to="/purchases"
+        <button
+          onClick={() => navigate(-1)}
           className="rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
         >
           <ArrowLeft className="h-5 w-5" />
-        </Link>
+        </button>
         <h1 className="text-2xl font-semibold">New Purchase</h1>
       </div>
 
@@ -1001,12 +1001,13 @@ export function PurchaseCreatePage() {
             </div>
 
             <div className="flex items-center gap-4">
-              <Link
-                to="/purchases"
+              <button
+                type="button"
+                onClick={() => navigate(-1)}
                 className="rounded-md border px-4 py-2.5 text-sm font-medium text-muted-foreground hover:bg-muted transition-colors"
               >
                 Cancel
-              </Link>
+              </button>
 
               {currentStep < STEPS.length - 1 ? (
                 <button

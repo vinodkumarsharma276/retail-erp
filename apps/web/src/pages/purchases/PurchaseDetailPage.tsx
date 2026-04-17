@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import {
   ArrowLeft,
@@ -33,6 +33,7 @@ interface PaymentFormValues {
 // ---------------------------------------------------------------------------
 export function PurchaseDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
 
   const { data: purchase, isLoading, isError } = usePurchaseDetailQuery(id);
@@ -55,13 +56,13 @@ export function PurchaseDetailPage() {
         <p className="text-sm text-muted-foreground mb-4">
           The purchase you are looking for does not exist or has been removed.
         </p>
-        <Link
-          to="/purchases"
+        <button
+          onClick={() => navigate(-1)}
           className="flex items-center gap-2 text-sm text-primary hover:underline"
         >
           <ArrowLeft className="h-4 w-4" />
           Back to Purchases
-        </Link>
+        </button>
       </div>
     );
   }
@@ -71,12 +72,12 @@ export function PurchaseDetailPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-4">
-          <Link
-            to="/purchases"
+          <button
+            onClick={() => navigate(-1)}
             className="rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
           >
             <ArrowLeft className="h-5 w-5" />
-          </Link>
+          </button>
           <div>
             <h1 className="text-2xl font-semibold">
               Purchase #{purchase.invoiceNumber}

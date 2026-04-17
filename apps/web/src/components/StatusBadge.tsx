@@ -17,8 +17,8 @@ const statusStyles: Record<string, { bg: string; text: string; label: string }> 
   pending: { bg: 'bg-orange-100', text: 'text-orange-700', label: 'Pending' },
   partial: { bg: 'bg-yellow-100', text: 'text-yellow-700', label: 'Partial' },
   received: { bg: 'bg-green-100', text: 'text-green-700', label: 'Received' },
-  // Schedule-level statuses
-  active: { bg: 'bg-green-100', text: 'text-green-700', label: 'Active' },
+  // Schedule-level statuses (also used as payment status for self-finance sales)
+  active: { bg: 'bg-amber-100', text: 'text-amber-700', label: 'EMI Active' },
   completed: { bg: 'bg-green-100', text: 'text-green-700', label: 'Completed' },
   defaulted: { bg: 'bg-red-100', text: 'text-red-700', label: 'Defaulted' },
   // Sale type statuses

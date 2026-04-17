@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
   Loader2,
@@ -91,12 +91,12 @@ export function TransferCreatePage() {
     <div className="max-w-3xl">
       {/* Page header */}
       <div className="flex items-center gap-4 mb-6">
-        <Link
-          to="/transfers"
+        <button
+          onClick={() => navigate(-1)}
           className="rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
         >
           <ArrowLeft className="h-5 w-5" />
-        </Link>
+        </button>
         <h1 className="text-2xl font-semibold">New Transfer</h1>
       </div>
 
@@ -397,12 +397,13 @@ export function TransferCreatePage() {
         {/* FOOTER */}
         {/* =============================================================== */}
         <div className="flex items-center justify-between pt-4 border-t">
-          <Link
-            to="/transfers"
+          <button
+            type="button"
+            onClick={() => navigate(-1)}
             className="rounded-md border px-4 py-2.5 text-sm font-medium text-muted-foreground hover:bg-muted transition-colors"
           >
             Cancel
-          </Link>
+          </button>
 
           <button
             type="submit"

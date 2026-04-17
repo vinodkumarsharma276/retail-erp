@@ -77,9 +77,20 @@ export function SaleListPage() {
 
   // ------ Resolve payment status ------
   const getPaymentStatus = (sale: SaleListItem): string => {
-    if (sale.financePaymentStatus) return sale.financePaymentStatus;
-    if (sale.pendingAmount > 0) return 'pending';
-    return 'paid';
+    switch (sale.saleType) {
+      case 'full_payment':
+        return 'paid';
+      case 'partial_with_promise':
+        return sale.pendingAmount > 0 ? 'pending' : 'paid';
+      case 'self_finance': {
+        const schedule = (sale as any).installmentSchedule;
+        return schedule?.status || 'active';
+      }
+      case 'company_finance':
+        return sale.financePaymentStatus || 'pending';
+      default:
+        return 'paid';
+    }
   };
 
   // ------ Table columns ------

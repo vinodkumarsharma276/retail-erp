@@ -53,13 +53,13 @@ export function ProductDetailPage() {
         <p className="text-sm text-muted-foreground mb-4">
           The product you are looking for does not exist or has been removed.
         </p>
-        <Link
-          to="/products"
+        <button
+          onClick={() => navigate(-1)}
           className="flex items-center gap-2 text-sm text-primary hover:underline"
         >
           <ArrowLeft className="h-4 w-4" />
           Back to Products
-        </Link>
+        </button>
       </div>
     );
   }
@@ -78,12 +78,12 @@ export function ProductDetailPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-4">
-          <Link
-            to="/products"
+          <button
+            onClick={() => navigate(-1)}
             className="rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
           >
             <ArrowLeft className="h-5 w-5" />
-          </Link>
+          </button>
           <div>
             <h1 className="text-2xl font-semibold">
               {product.brand} {product.modelNumber}

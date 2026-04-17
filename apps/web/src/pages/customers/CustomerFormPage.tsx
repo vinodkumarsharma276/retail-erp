@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, useParams, Link } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { Loader2, Save, ArrowLeft, AlertCircle, Search, X } from 'lucide-react';
 import { cn } from '../../lib/utils';
@@ -186,12 +186,12 @@ export function CustomerFormPage() {
     <div className="max-w-4xl">
       {/* Page header */}
       <div className="flex items-center gap-4 mb-6">
-        <Link
-          to="/customers"
+        <button
+          onClick={() => navigate(-1)}
           className="rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
         >
           <ArrowLeft className="h-5 w-5" />
-        </Link>
+        </button>
         <h1 className="text-2xl font-semibold">
           {isEditMode ? 'Edit Customer' : 'Add Customer'}
         </h1>
@@ -564,12 +564,13 @@ export function CustomerFormPage() {
               </>
             )}
           </button>
-          <Link
-            to="/customers"
+          <button
+            type="button"
+            onClick={() => navigate(-1)}
             className="rounded-md border px-6 py-2.5 text-sm font-medium text-muted-foreground hover:bg-muted transition-colors"
           >
             Cancel
-          </Link>
+          </button>
         </div>
       </form>
     </div>

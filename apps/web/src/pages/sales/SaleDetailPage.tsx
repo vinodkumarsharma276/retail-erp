@@ -79,13 +79,13 @@ export function SaleDetailPage() {
         <p className="text-sm text-muted-foreground mb-4">
           The sale record you are looking for does not exist.
         </p>
-        <Link
-          to="/sales"
+        <button
+          onClick={() => navigate(-1)}
           className="flex items-center gap-2 text-sm text-primary hover:underline"
         >
           <ArrowLeft className="h-4 w-4" />
           Back to Sales
-        </Link>
+        </button>
       </div>
     );
   }
@@ -94,12 +94,12 @@ export function SaleDetailPage() {
     <div>
       {/* Header */}
       <div className="flex items-center gap-4 mb-6">
-        <Link
-          to="/sales"
+        <button
+          onClick={() => navigate(-1)}
           className="rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
         >
           <ArrowLeft className="h-5 w-5" />
-        </Link>
+        </button>
         <div>
           <h1 className="text-2xl font-semibold">
             Sale {sale.saleNumber}
