@@ -127,6 +127,27 @@ export function PurchaseCreatePage() {
   const watchedDiscount = watch('discountAmount');
   const watchedAmountPaid = watch('amountPaid');
 
+  // Detect duplicate serial numbers within items
+  const serialDuplicateMap = useMemo(() => {
+    const map = new Map<number, string>();
+    const seen = new Map<string, number>();
+    for (let i = 0; i < watchedItems.length; i++) {
+      const sn = watchedItems[i].serialNumber?.trim();
+      if (!sn) continue;
+      const prevIndex = seen.get(sn);
+      if (prevIndex !== undefined) {
+        map.set(i, `This serial number is already used in item #${prevIndex + 1}`);
+        // Also mark the first occurrence if not already marked
+        if (!map.has(prevIndex)) {
+          map.set(prevIndex, `This serial number is also used in item #${i + 1}`);
+        }
+      } else {
+        seen.set(sn, i);
+      }
+    }
+    return map;
+  }, [watchedItems]);
+
   // Computed totals
   const totalPurchasePrice = useMemo(
     () =>
@@ -155,7 +176,7 @@ export function PurchaseCreatePage() {
       case 1:
         return true; // Will be validated by trigger
       case 2:
-        return watchedItems.length > 0 && watchedItems.every((item) => (item.dynamicAttributes?.brand || item.brand) && item.modelNumber && item.purchasePrice);
+        return watchedItems.length > 0 && watchedItems.every((item) => (item.dynamicAttributes?.brand || item.brand) && item.modelNumber && item.purchasePrice) && serialDuplicateMap.size === 0;
       case 3:
         return true;
       default:
@@ -524,8 +545,14 @@ export function PurchaseCreatePage() {
                           'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
                           'placeholder:text-muted-foreground',
                           'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                          serialDuplicateMap.has(index) && 'border-destructive',
                         )}
                       />
+                      {serialDuplicateMap.has(index) && (
+                        <p className="mt-1 text-xs text-destructive">
+                          {serialDuplicateMap.get(index)}
+                        </p>
+                      )}
                     </div>
 
                     {/* MRP */}

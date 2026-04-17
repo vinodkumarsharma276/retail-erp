@@ -151,6 +151,9 @@ export const productsController = {
       if (message === 'Category not found' || message === 'Distributor not found') {
         return sendError(reply, message, 404);
       }
+      if (message.includes('already exists')) {
+        return sendError(reply, message, 409);
+      }
       return sendError(reply, message, 500);
     }
   },

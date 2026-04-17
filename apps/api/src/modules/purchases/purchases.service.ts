@@ -137,6 +137,33 @@ export const purchasesService = {
       throw new Error('Distributor not found');
     }
 
+    // Check for duplicate invoice number for the same distributor
+    const existingInvoice = await prisma.purchase.findFirst({
+      where: { invoiceNumber: data.invoiceNumber, distributorId: data.distributorId },
+    });
+    if (existingInvoice) {
+      throw new Error(`Invoice number "${data.invoiceNumber}" already exists for this distributor`);
+    }
+
+    // Check for duplicate serial numbers within the items array itself
+    const serialNumbers = data.items.filter(i => i.serialNumber).map(i => i.serialNumber!);
+    const duplicateSerials = serialNumbers.filter((sn, i) => serialNumbers.indexOf(sn) !== i);
+    if (duplicateSerials.length > 0) {
+      throw new Error(`Duplicate serial numbers in items: ${[...new Set(duplicateSerials)].join(', ')}`);
+    }
+
+    // Check serial numbers against existing products in DB (scoped to same category)
+    for (const item of data.items) {
+      if (item.serialNumber) {
+        const existingProduct = await prisma.product.findFirst({
+          where: { serialNumber: item.serialNumber, categoryId: item.categoryId },
+        });
+        if (existingProduct) {
+          throw new Error(`Serial number "${item.serialNumber}" already exists for this product category`);
+        }
+      }
+    }
+
     // Validate all categories exist and get their attributes
     const categoryIds = [...new Set(data.items.map((item) => item.categoryId))];
     const categories = await prisma.productCategory.findMany({
@@ -283,6 +310,20 @@ export const purchasesService = {
     const existing = await prisma.purchase.findUnique({ where: { id } });
     if (!existing) {
       return null;
+    }
+
+    // Check for duplicate invoice number if it's being changed
+    if (data.invoiceNumber && data.invoiceNumber !== existing.invoiceNumber) {
+      const duplicateInvoice = await prisma.purchase.findFirst({
+        where: {
+          invoiceNumber: data.invoiceNumber,
+          distributorId: existing.distributorId,
+          id: { not: id },
+        },
+      });
+      if (duplicateInvoice) {
+        throw new Error(`Invoice number "${data.invoiceNumber}" already exists for this distributor`);
+      }
     }
 
     const updateData: Record<string, unknown> = {};

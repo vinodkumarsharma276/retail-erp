@@ -260,6 +260,21 @@ export const productsService = {
       }
     }
 
+    // Check for duplicate serial number within the same category
+    if (data.serialNumber) {
+      const categoryId = data.categoryId || existing.categoryId;
+      const duplicate = await prisma.product.findFirst({
+        where: {
+          serialNumber: data.serialNumber,
+          categoryId,
+          id: { not: id },
+        },
+      });
+      if (duplicate) {
+        throw new Error(`Serial number "${data.serialNumber}" already exists for this product category`);
+      }
+    }
+
     // Recalculate warranty expiry if warrantyMonths changed
     const updateData: Record<string, unknown> = { ...data };
     if (data.warrantyMonths !== undefined) {

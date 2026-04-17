@@ -108,6 +108,9 @@ export const purchasesController = {
       if (message.startsWith('Required attribute')) {
         return sendError(reply, message, 400);
       }
+      if (message.includes('already exists')) {
+        return sendError(reply, message, 409);
+      }
       return sendError(reply, message, 500);
     }
   },
@@ -134,6 +137,9 @@ export const purchasesController = {
       return sendSuccess(reply, updated);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to update purchase';
+      if (message.includes('already exists')) {
+        return sendError(reply, message, 409);
+      }
       return sendError(reply, message, 500);
     }
   },
