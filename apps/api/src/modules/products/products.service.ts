@@ -17,7 +17,20 @@ export const productsService = {
     };
 
     if (filters.categoryId) {
-      where.categoryId = filters.categoryId;
+      // Check if this is a root category (has children) — if so, filter by all child IDs
+      const category = await prisma.productCategory.findUnique({
+        where: { id: filters.categoryId },
+        select: { isLeaf: true },
+      });
+      if (category && !category.isLeaf) {
+        const children = await prisma.productCategory.findMany({
+          where: { parentId: filters.categoryId },
+          select: { id: true },
+        });
+        where.categoryId = { in: children.map((c) => c.id) };
+      } else {
+        where.categoryId = filters.categoryId;
+      }
     }
 
     if (filters.status) {
