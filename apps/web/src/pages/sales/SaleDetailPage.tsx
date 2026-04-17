@@ -7,7 +7,9 @@ import {
   Shield,
   CreditCard,
   CheckCircle,
+  Download,
 } from 'lucide-react';
+import { handleInvoiceDownload } from '../../lib/invoice-utils';
 import { cn } from '../../lib/utils';
 import {
   useSaleDetailQuery,
@@ -35,6 +37,21 @@ export function SaleDetailPage() {
     isAdminOrAccountant && sale?.saleType === SaleType.SELF_FINANCE;
   const { data: installmentData, isLoading: isInstallmentsLoading } =
     useSaleInstallmentsQuery(id, shouldFetchInstallments);
+
+  // Invoice download state
+  const [isDownloading, setIsDownloading] = useState(false);
+
+  const onDownloadInvoice = async () => {
+    if (!id) return;
+    setIsDownloading(true);
+    try {
+      await handleInvoiceDownload(id);
+    } catch (err) {
+      console.error('Invoice download failed:', err);
+    } finally {
+      setIsDownloading(false);
+    }
+  };
 
   // Finance payment dialog state
   const [showFinanceDialog, setShowFinanceDialog] = useState(false);
@@ -100,7 +117,7 @@ export function SaleDetailPage() {
         >
           <ArrowLeft className="h-5 w-5" />
         </button>
-        <div>
+        <div className="flex-1">
           <h1 className="text-2xl font-semibold">
             Sale {sale.saleNumber}
           </h1>
@@ -111,6 +128,22 @@ export function SaleDetailPage() {
             )}
           </div>
         </div>
+        <button
+          onClick={onDownloadInvoice}
+          disabled={isDownloading}
+          className={cn(
+            'flex items-center gap-2 rounded-md border px-4 py-2 text-sm font-medium',
+            'hover:bg-muted transition-colors',
+            'disabled:opacity-50 disabled:cursor-not-allowed',
+          )}
+        >
+          {isDownloading ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Download className="h-4 w-4" />
+          )}
+          Download Invoice
+        </button>
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">

@@ -13,7 +13,7 @@ export function calculateEMI(input: EMICalculationInput): EMICalculationResult {
   const principal = sellingPrice - downPayment;
   const totalInterest = principal * (interestRate / 100) * numInstallments;
   const totalPayable = principal + totalInterest + fileCharge;
-  const emiAmount = Math.ceil(totalPayable / numInstallments);
+  const emiAmount = Math.round(totalPayable / numInstallments);
 
   const schedule: EMICalculationResult['schedule'] = [];
   const today = new Date();
@@ -24,7 +24,7 @@ export function calculateEMI(input: EMICalculationInput): EMICalculationResult {
     schedule.push({
       installmentNumber: i,
       dueDate: dueDate.toISOString().split('T')[0],
-      amount: i === numInstallments ? totalPayable - emiAmount * (numInstallments - 1) : emiAmount,
+      amount: emiAmount,
     });
   }
 

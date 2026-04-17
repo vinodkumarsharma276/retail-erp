@@ -1,5 +1,6 @@
-import { useNavigate, Link, useSearchParams } from 'react-router-dom';
-import { Plus, Search, X, ChevronDown } from 'lucide-react';
+import { useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Search, X, ChevronDown, Download, Loader2 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useDebounce } from '../../hooks/useDebounce';
 import { useSalesQuery } from '../../hooks/useSales';
@@ -9,6 +10,7 @@ import type { Column, PaginationState } from '../../components/DataTable';
 import { StatusBadge } from '../../components/StatusBadge';
 import { formatINR, formatDateIN } from '@retailerp/shared-utils';
 import { SaleType } from '@retailerp/shared-types';
+import { handleInvoiceDownload } from '../../lib/invoice-utils';
 
 const PAGE_SIZE = 20;
 
@@ -33,6 +35,7 @@ const SALE_TYPE_OPTIONS = [
 export function SaleListPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
   // ------ Filters state (URL search params) ------
   const page = Number(searchParams.get('page')) || 1;
@@ -90,6 +93,18 @@ export function SaleListPage() {
         return sale.financePaymentStatus || 'pending';
       default:
         return 'paid';
+    }
+  };
+
+  // ------ Download invoice handler ------
+  const onDownloadInvoice = async (saleId: string) => {
+    setDownloadingId(saleId);
+    try {
+      await handleInvoiceDownload(saleId);
+    } catch (err) {
+      console.error('Invoice download failed:', err);
+    } finally {
+      setDownloadingId(null);
     }
   };
 
@@ -182,6 +197,31 @@ export function SaleListPage() {
           <span className="text-xs text-muted-foreground">{creator?.fullName || creator?.username || '-'}</span>
         );
       },
+    },
+    {
+      key: 'actions',
+      header: '',
+      className: 'w-10',
+      render: (row) => (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onDownloadInvoice(row.id);
+          }}
+          disabled={downloadingId === row.id}
+          title="Download Invoice"
+          className={cn(
+            'rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors',
+            'disabled:opacity-50 disabled:cursor-not-allowed',
+          )}
+        >
+          {downloadingId === row.id ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Download className="h-4 w-4" />
+          )}
+        </button>
+      ),
     },
   ];
 

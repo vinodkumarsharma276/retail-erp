@@ -107,6 +107,9 @@ export const productsService = {
         distributor: {
           select: { id: true, companyName: true, contactPerson: true },
         },
+        purchase: {
+          select: { id: true, gstAmount: true, totalAmount: true, discountAmount: true },
+        },
         creator: {
           select: { id: true, username: true, fullName: true },
         },

@@ -270,6 +270,28 @@ export function SaleCreatePage() {
     }
   }, [selectedProduct, setValue, watch]);
 
+  // Auto-select GST rate from purchase invoice
+  useEffect(() => {
+    if (selectedProduct) {
+      const purchase = (selectedProduct as any).purchase;
+      if (purchase && purchase.totalAmount > 0) {
+        const totalAmt = Number(purchase.totalAmount);
+        const discAmt = Number(purchase.discountAmount || 0);
+        const gstAmt = Number(purchase.gstAmount || 0);
+        const base = totalAmt - discAmt;
+        if (base > 0 && gstAmt > 0) {
+          const rawRate = (gstAmt / base) * 100;
+          // Snap to nearest standard slab
+          const slabs = [0, 5, 12, 18, 28];
+          const nearest = slabs.reduce((prev, curr) =>
+            Math.abs(curr - rawRate) < Math.abs(prev - rawRate) ? curr : prev
+          );
+          setValue('gstRate', nearest);
+        }
+      }
+    }
+  }, [selectedProduct, setValue]);
+
   // Auto-update down payment to 50% of selling price when SP changes (only if user hasn't manually edited)
   useEffect(() => {
     if (!downPaymentManuallySet && sellingPrice > 0) {
@@ -2242,6 +2264,7 @@ function SellingPriceCalculations({
   const inputGst = gstRate > 0 ? Math.round(dp * gstRate / (100 + gstRate)) : 0;
   const gstPayable = outputGst - inputGst;
   const netProfit = (sellingPrice - outputGst) - (dp - inputGst);
+  const netProfitPct = (dp - inputGst) > 0 ? ((netProfit / (dp - inputGst)) * 100).toFixed(1) : '0.0';
 
   return (
     <div className="sm:col-span-2 lg:col-span-3">
@@ -2281,7 +2304,7 @@ function SellingPriceCalculations({
         </div>
       </div>
       {gstRate > 0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 rounded-md bg-muted/50 px-3 py-2.5 mt-2">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 rounded-md bg-muted/50 px-3 py-2.5 mt-2">
           <div>
             <span className="text-xs text-muted-foreground">Output GST (on sale)</span>
             <p className="text-sm font-semibold">{formatINR(outputGst)}</p>
@@ -2298,6 +2321,12 @@ function SellingPriceCalculations({
             <span className="text-xs text-muted-foreground">Net Profit (after GST)</span>
             <p className={cn('text-sm font-semibold', netProfit >= 0 ? 'text-green-600' : 'text-red-600')}>
               {formatINR(netProfit)}
+            </p>
+          </div>
+          <div>
+            <span className="text-xs text-muted-foreground">Net Profit %</span>
+            <p className={cn('text-sm font-semibold', netProfit >= 0 ? 'text-green-600' : 'text-red-600')}>
+              {netProfitPct}%
             </p>
           </div>
         </div>
