@@ -43,6 +43,9 @@ export const productsService = {
           category: {
             select: { id: true, name: true, slug: true, path: true },
           },
+          distributor: {
+            select: { id: true, companyName: true },
+          },
         },
         orderBy: { createdAt: 'desc' },
         skip: filters.skip,

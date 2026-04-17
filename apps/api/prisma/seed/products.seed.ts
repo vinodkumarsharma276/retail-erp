@@ -1,4 +1,4 @@
-import type { PrismaClient, Product, Shop, ProductCategory, Distributor } from '@prisma/client';
+import type { PrismaClient, Product, Shop, ProductCategory, Distributor, Purchase } from '@prisma/client';
 
 export async function seedProducts(
   prisma: PrismaClient,
@@ -13,6 +13,10 @@ export async function seedProducts(
 
   // Helper to find leaf category by slug
   const catBySlug = (slug: string) => categories.find((c) => c.slug === slug)!;
+
+  // Helper to find distributor by partial company name
+  const distByName = (partial: string) =>
+    distributors.find((d) => d.companyName.toLowerCase().includes(partial.toLowerCase()));
 
   // Helper to get first admin user for a shop
   async function getFirstAdmin(shopId: string) {
@@ -32,6 +36,14 @@ export async function seedProducts(
   const neAdmin = await getFirstAdmin(ne.id);
   const vhaAdmin = await getFirstAdmin(vha.id);
   const nheAdmin = await getFirstAdmin(nhe.id);
+
+  // Primary distributor for each shop (used to create purchase records)
+  const shopDistributorMap: Record<string, { distributor: Distributor; invoiceNumber: string; adminId: string | null }> = {
+    [ve.id]: { distributor: distByName('Samsung')!, invoiceNumber: 'SAM/VE/2026/001', adminId: veAdmin?.id ?? null },
+    [ne.id]: { distributor: distByName('Samsung')!, invoiceNumber: 'SAM/NE/2026/001', adminId: neAdmin?.id ?? null },
+    [vha.id]: { distributor: distByName('Godrej')!, invoiceNumber: 'GOD/VHA/2026/001', adminId: vhaAdmin?.id ?? null },
+    [nhe.id]: { distributor: distByName('Samsung')!, invoiceNumber: 'SAM/NHE/2026/001', adminId: nheAdmin?.id ?? null },
+  };
 
   const productDefs = [
     // === VE: 2 TVs, 1 Mobile, 1 AC, 1 Washing Machine ===
@@ -363,55 +375,114 @@ export async function seedProducts(
     },
   ];
 
+  // Group product definitions by shopId
+  const productsByShop = new Map<string, typeof productDefs>();
   for (const def of productDefs) {
-    const category = catBySlug(def.categorySlug);
-    if (!category) {
-      console.warn(`  Category "${def.categorySlug}" not found, skipping product ${def.modelNumber}`);
+    const existing = productsByShop.get(def.shopId) ?? [];
+    existing.push(def);
+    productsByShop.set(def.shopId, existing);
+  }
+
+  // For each shop: create Purchase record, then create/link products
+  for (const [shopId, shopProductDefs] of productsByShop) {
+    const shopInfo = shopDistributorMap[shopId];
+    if (!shopInfo) {
+      console.warn(`  No distributor mapping for shop ${shopId}, skipping purchase creation`);
       continue;
     }
 
-    // Check if product already exists by serialNumber
-    let product: Product | null = null;
-    if (def.serialNumber) {
-      product = await prisma.product.findFirst({
-        where: { serialNumber: def.serialNumber, shopId: def.shopId },
-      });
-    }
+    const { distributor, invoiceNumber, adminId } = shopInfo;
 
-    if (!product) {
-      product = await prisma.product.create({
-        data: {
-          shopId: def.shopId,
-          categoryId: category.id,
-          brand: def.brand,
-          modelNumber: def.modelNumber,
-          serialNumber: def.serialNumber ?? null,
-          mrp: def.mrp,
-          sellingPrice: def.sellingPrice,
-          purchasePrice: def.purchasePrice,
-          color: def.color ?? null,
-          weightKg: def.weightKg ?? null,
-          status: 'in_stock',
-          dynamicAttributes: def.dynamicAttributes ?? {},
-          warrantyMonths: def.warrantyMonths ?? null,
-          barcode: def.barcode ?? null,
-          createdBy: def.createdBy ?? null,
-        },
-      });
+    // Calculate total purchase price for this shop's products
+    const totalPurchasePrice = shopProductDefs.reduce((sum, p) => sum + p.purchasePrice, 0);
 
-      // Create initial audit trail entry
-      await prisma.productAuditTrail.create({
+    // Check if purchase already exists by invoiceNumber + shopId
+    let purchase: Purchase | null = await prisma.purchase.findFirst({
+      where: { invoiceNumber, shopId },
+    });
+
+    if (!purchase) {
+      purchase = await prisma.purchase.create({
         data: {
-          productId: product.id,
-          eventType: 'purchased',
-          toShopId: def.shopId,
-          performedBy: def.createdBy ?? null,
-          notes: 'Product added to inventory (seed data)',
+          shopId,
+          distributorId: distributor.id,
+          invoiceNumber,
+          invoiceDate: new Date('2026-04-01'),
+          totalAmount: totalPurchasePrice,
+          gstAmount: Math.round(totalPurchasePrice * 0.18),
+          discountAmount: 0,
+          netAmount: totalPurchasePrice,
+          amountPaid: totalPurchasePrice,
+          paymentStatus: 'paid',
+          notes: 'Initial stock purchase (seed data)',
+          createdBy: adminId,
         },
       });
     }
 
-    products.push(product);
+    // Create products and link to purchase + distributor
+    for (const def of shopProductDefs) {
+      const category = catBySlug(def.categorySlug);
+      if (!category) {
+        console.warn(`  Category "${def.categorySlug}" not found, skipping product ${def.modelNumber}`);
+        continue;
+      }
+
+      // Check if product already exists by serialNumber
+      let product: Product | null = null;
+      if (def.serialNumber) {
+        product = await prisma.product.findFirst({
+          where: { serialNumber: def.serialNumber, shopId: def.shopId },
+        });
+      }
+
+      if (!product) {
+        product = await prisma.product.create({
+          data: {
+            shopId: def.shopId,
+            categoryId: category.id,
+            brand: def.brand,
+            modelNumber: def.modelNumber,
+            serialNumber: def.serialNumber ?? null,
+            mrp: def.mrp,
+            sellingPrice: def.sellingPrice,
+            purchasePrice: def.purchasePrice,
+            color: def.color ?? null,
+            weightKg: def.weightKg ?? null,
+            distributorId: distributor.id,
+            purchaseId: purchase.id,
+            status: 'in_stock',
+            dynamicAttributes: def.dynamicAttributes ?? {},
+            warrantyMonths: def.warrantyMonths ?? null,
+            barcode: def.barcode ?? null,
+            createdBy: def.createdBy ?? null,
+          },
+        });
+
+        // Create initial audit trail entry
+        await prisma.productAuditTrail.create({
+          data: {
+            productId: product.id,
+            eventType: 'purchased',
+            toShopId: def.shopId,
+            performedBy: def.createdBy ?? null,
+            notes: `Purchased from ${distributor.companyName} (Invoice: ${invoiceNumber})`,
+          },
+        });
+      } else if (!product.distributorId || !product.purchaseId) {
+        // Product exists but missing distributor/purchase link — update it
+        // Only update if not already sold (preserve existing sale relationships)
+        product = await prisma.product.update({
+          where: { id: product.id },
+          data: {
+            distributorId: product.distributorId ?? distributor.id,
+            purchaseId: product.purchaseId ?? purchase.id,
+          },
+        });
+      }
+
+      products.push(product);
+    }
   }
 
   return products;

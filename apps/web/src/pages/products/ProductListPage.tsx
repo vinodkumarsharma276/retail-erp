@@ -112,6 +112,14 @@ export function ProductListPage() {
       },
     },
     {
+      key: 'distributor',
+      header: 'Distributor',
+      render: (row) => {
+        const distributor = (row as any).distributor as { id: string; companyName: string } | null;
+        return distributor?.companyName ?? '-';
+      },
+    },
+    {
       key: 'serial',
       header: 'Serial Number',
       render: (row) => (
