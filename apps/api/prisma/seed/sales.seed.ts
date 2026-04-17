@@ -1,6 +1,5 @@
 import type { PrismaClient, SaleRecord, Shop, Product, Customer, User, FinanceCompany } from '@prisma/client';
 import { generateSaleNumber } from '../../src/utils/id-generator';
-import { calculateEMI } from '@retailerp/shared-utils';
 
 export async function seedSales(
   prisma: PrismaClient,
@@ -30,6 +29,9 @@ export async function seedSales(
   }
 
   // Find products by brand + model containing a substring + shop
+  // Uses a consumed set to avoid picking the same product twice
+  const consumedProductIds = new Set<string>();
+
   const findProduct = (shopCode: string, brand: string, modelSubstr: string) => {
     const shop = shopByCode(shopCode);
     return products.find(
@@ -37,7 +39,16 @@ export async function seedSales(
         p.shopId === shop.id &&
         p.brand === brand &&
         p.modelNumber.includes(modelSubstr) &&
-        p.status === 'in_stock',
+        p.status === 'in_stock' &&
+        !consumedProductIds.has(p.id),
+    );
+  };
+
+  // Find any in_stock product for a shop (fallback)
+  const findAnyProduct = (shopCode: string) => {
+    const shop = shopByCode(shopCode);
+    return products.find(
+      (p) => p.shopId === shop.id && p.status === 'in_stock' && !consumedProductIds.has(p.id),
     );
   };
 
@@ -54,6 +65,9 @@ export async function seedSales(
   // Track last sale numbers per shop prefix for sequential generation
   const saleDate = new Date('2026-04-10');
 
+  // =========================================================================
+  // ORIGINAL 5 SALES (keep as-is)
+  // =========================================================================
   const saleDefs = [
     // 1. Full Payment (VE): Rajesh buys Samsung 55" QLED TV, full cash
     {
@@ -68,6 +82,7 @@ export async function seedSales(
       gstRate: 18,
       downPayment: 0, // Full payment, no down payment concept
       paymentMode: 'cash' as const,
+      saleDate,
       createdBy: veAdmin?.id,
     },
     // 2. Partial with Promise (NE): Priya buys Samsung Galaxy S24, 50% down, promise 15 days
@@ -84,6 +99,7 @@ export async function seedSales(
       downPayment: 44249, // ~50% of totalAmount
       paymentMode: 'cash' as const,
       promiseDate: '2026-04-25',
+      saleDate,
       createdBy: neAdmin?.id,
     },
     // 3. Self Finance (VHA): Amit buys Godrej Queen Bed, 20% down UPI, 2% interest, 12 months, file charge 500
@@ -103,6 +119,7 @@ export async function seedSales(
       fileCharge: 500,
       numInstallments: 12,
       guarantorName: 'Suresh Guarantor2',
+      saleDate,
       createdBy: vhaAdmin?.id,
     },
     // 4. Company Finance (NHE): Sunita buys Blue Star Window AC via Bajaj Finance, 10% down cash
@@ -119,6 +136,7 @@ export async function seedSales(
       downPayment: 3185, // ~10% of totalAmount (26990 + 18% GST = 31848, 10% = ~3185)
       paymentMode: 'cash' as const,
       financeCompanyCode: 'BAJAJ',
+      saleDate,
       createdBy: nheAdmin?.id,
     },
     // 5. Self Finance (VE): Mohit buys LG 43" LED TV, 30% down cash, 1.5% interest, 6 months
@@ -138,11 +156,133 @@ export async function seedSales(
       fileCharge: 0,
       numInstallments: 6,
       guarantorName: 'Ravi Guarantor1',
+      saleDate,
       createdBy: veAdmin?.id,
     },
   ];
 
+  // Mark consumed products from original defs
   for (const def of saleDefs) {
+    if (def.product) consumedProductIds.add(def.product.id);
+  }
+
+  // =========================================================================
+  // HISTORICAL SALES (5 new sales with realistic dates)
+  // =========================================================================
+  const historicalSaleDefs = [
+    // H1: Dec 2025 — Self Finance, 9 months, nearly complete (VE)
+    {
+      shopCode: 'VE',
+      shopId: ve.id,
+      product: findProduct('VE', 'Sony', 'KD-50X74K') ?? findAnyProduct('VE'),
+      customer: customerByName('Rajesh Kumar'),
+      ledgerNumber: 'VE010',
+      saleType: 'self_finance' as const,
+      sellingPrice: 45000,
+      discountAmount: 0,
+      gstRate: 18,
+      downPayment: 10000,
+      paymentMode: 'cash' as const,
+      interestRate: 2,
+      fileCharge: 500,
+      numInstallments: 9,
+      guarantorName: 'Ravi Guarantor1',
+      saleDate: new Date('2025-12-15'),
+      createdBy: veAdmin?.id,
+    },
+    // H2: Jan 2026 — Self Finance, 12 months, early stage (NE)
+    {
+      shopCode: 'NE',
+      shopId: ne.id,
+      product: findProduct('NE', 'LG', 'RS-Q19') ?? findProduct('NE', 'Sony', 'KD-50X74K') ?? findAnyProduct('NE'),
+      customer: customerByName('Priya Sharma'),
+      ledgerNumber: 'NE010',
+      saleType: 'self_finance' as const,
+      sellingPrice: 70000,
+      discountAmount: 0,
+      gstRate: 18,
+      downPayment: 15000,
+      paymentMode: 'cash' as const,
+      interestRate: 1.5,
+      fileCharge: 0,
+      numInstallments: 12,
+      guarantorName: 'Suresh Guarantor2',
+      saleDate: new Date('2026-01-10'),
+      createdBy: neAdmin?.id,
+    },
+    // H3: Feb 2026 — Self Finance, 6 months (NHE)
+    {
+      shopCode: 'NHE',
+      shopId: nhe.id,
+      product: findProduct('NHE', 'Samsung', 'WW70T') ?? findProduct('NHE', 'LG', 'T80SPSF') ?? findAnyProduct('NHE'),
+      customer: customerByName('Sunita Devi'),
+      ledgerNumber: 'NH010',
+      saleType: 'self_finance' as const,
+      sellingPrice: 30000,
+      discountAmount: 0,
+      gstRate: 18,
+      downPayment: 5000,
+      paymentMode: 'cash' as const,
+      interestRate: 2.5,
+      fileCharge: 300,
+      numInstallments: 6,
+      guarantorName: 'Ravi Guarantor1',
+      saleDate: new Date('2026-02-20'),
+      createdBy: nheAdmin?.id,
+    },
+    // H4: Mar 2026 — Company Finance, Bajaj Finance (VHA)
+    {
+      shopCode: 'VHA',
+      shopId: vha.id,
+      product: findProduct('VHA', 'LG', 'RS-Q19') ?? findProduct('VHA', 'Samsung', 'AR18CY') ?? findAnyProduct('VHA'),
+      customer: customerByName('Amit Verma'),
+      ledgerNumber: 'VA010',
+      saleType: 'company_finance' as const,
+      sellingPrice: 42000,
+      discountAmount: 0,
+      gstRate: 18,
+      downPayment: 8000,
+      paymentMode: 'cash' as const,
+      financeCompanyCode: 'BAJAJ',
+      saleDate: new Date('2026-03-05'),
+      createdBy: vhaAdmin?.id,
+    },
+    // H5: Nov 2025 — Full Payment, old sale (VE)
+    {
+      shopCode: 'VE',
+      shopId: ve.id,
+      product: findProduct('VE', 'Samsung', 'UA32T') ?? findProduct('VE', 'TCL', '43S5400') ?? findAnyProduct('VE'),
+      customer: customerByName('Mohit Singh'),
+      ledgerNumber: 'VE011',
+      saleType: 'full_payment' as const,
+      sellingPrice: 17000,
+      discountAmount: 0,
+      gstRate: 18,
+      downPayment: 0,
+      paymentMode: 'cash' as const,
+      saleDate: new Date('2025-11-20'),
+      createdBy: veAdmin?.id,
+    },
+  ];
+
+  // Mark consumed products from historical defs
+  for (const def of historicalSaleDefs) {
+    if (def.product) consumedProductIds.add(def.product.id);
+  }
+
+  // Combine all sale definitions
+  const allSaleDefs = [...saleDefs, ...historicalSaleDefs];
+
+  for (const def of allSaleDefs) {
+    // Check if sale already exists by ledgerNumber + shopId (idempotent)
+    const existing = await prisma.saleRecord.findFirst({
+      where: { ledgerNumber: def.ledgerNumber, shopId: def.shopId },
+    });
+    if (existing) {
+      sales.push(existing);
+      continue;
+    }
+
     if (!def.product) {
       console.warn(`  Product not found for sale ${def.ledgerNumber}, skipping`);
       continue;
@@ -153,39 +293,7 @@ export async function seedSales(
       continue;
     }
 
-    // Check if sale already exists by ledgerNumber + shopId
-    const existing = await prisma.saleRecord.findFirst({
-      where: { ledgerNumber: def.ledgerNumber, shopId: def.shopId },
-    });
-    if (existing) {
-      sales.push(existing);
-      continue;
-    }
-
-    // Also check by saleNumber prefix + shopId to handle ledger number format migration.
-    // If an old seed created a sale with the old ledger format (e.g. VE-2026-001),
-    // find it by saleNumber and update its ledgerNumber to the new short format.
-    const existingBySaleNumber = await prisma.saleRecord.findFirst({
-      where: { shopId: def.shopId, saleNumber: { startsWith: `SALE-${def.shopCode}-` } },
-      orderBy: { saleNumber: 'asc' },
-    });
-    if (existingBySaleNumber && existingBySaleNumber.ledgerNumber !== def.ledgerNumber) {
-      // Update ledger number to new short format
-      await prisma.saleRecord.update({
-        where: { id: existingBySaleNumber.id },
-        data: { ledgerNumber: def.ledgerNumber },
-      });
-      // Also update the sanitized record
-      await prisma.saleRecordSanitized.updateMany({
-        where: { id: existingBySaleNumber.id },
-        data: { ledgerNumber: def.ledgerNumber },
-      });
-      sales.push({ ...existingBySaleNumber, ledgerNumber: def.ledgerNumber });
-      continue;
-    } else if (existingBySaleNumber) {
-      sales.push(existingBySaleNumber);
-      continue;
-    }
+    const saleDateForThisSale = def.saleDate;
 
     // Generate sale number
     const lastSale = await prisma.saleRecord.findFirst({
@@ -193,7 +301,7 @@ export async function seedSales(
       orderBy: { saleNumber: 'desc' },
       select: { saleNumber: true },
     });
-    const saleNumber = generateSaleNumber(def.shopCode, saleDate, lastSale?.saleNumber ?? undefined);
+    const saleNumber = generateSaleNumber(def.shopCode, saleDateForThisSale, lastSale?.saleNumber ?? undefined);
 
     // Calculate financials
     const sellingPrice = def.sellingPrice;
@@ -207,21 +315,15 @@ export async function seedSales(
     const interestRate = 'interestRate' in def ? (def.interestRate ?? 0) : 0;
     const numInstallments = 'numInstallments' in def ? (def.numInstallments ?? 0) : 0;
 
-    // Calculate EMI for self_finance
-    let emiResult: ReturnType<typeof calculateEMI> | null = null;
-    let totalFinancedAmount: number | null = null;
-    let emiAmount: number | null = null;
+    // Calculate EMI for self_finance (just for amounts; we control due dates ourselves)
+    let emiAmounts: { principal: number; totalInterest: number; fileCharge: number; totalPayable: number; emiAmount: number } | null = null;
 
     if (def.saleType === 'self_finance') {
-      emiResult = calculateEMI({
-        sellingPrice: totalAmount,
-        downPayment,
-        interestRate,
-        fileCharge,
-        numInstallments,
-      });
-      totalFinancedAmount = emiResult.totalPayable;
-      emiAmount = emiResult.emiAmount;
+      const principal = totalAmount - downPayment;
+      const totalInterest = principal * (interestRate / 100) * numInstallments;
+      const totalPayable = principal + totalInterest + fileCharge;
+      const emiAmount = Math.ceil(totalPayable / numInstallments);
+      emiAmounts = { principal, totalInterest, fileCharge, totalPayable, emiAmount };
     }
 
     // Pending amount for partial_with_promise
@@ -236,7 +338,19 @@ export async function seedSales(
       : null;
     const financedAmount = def.saleType === 'company_finance' ? totalAmount - downPayment : null;
     const expectedPaymentDate = def.saleType === 'company_finance'
-      ? new Date(saleDate.getTime() + 86400000) // next day
+      ? new Date(saleDateForThisSale.getTime() + 86400000) // next day
+      : null;
+
+    // For company finance historical sale H4 — mark as 'received'
+    const isH4CompanyFinance = def.ledgerNumber === 'VA010' && def.saleType === 'company_finance';
+    const financePaymentStatus = def.saleType === 'company_finance'
+      ? (isH4CompanyFinance ? 'received' as any : 'pending' as any)
+      : null;
+    const financePaymentReceivedDate = isH4CompanyFinance
+      ? new Date('2026-03-12') // received a week after sale
+      : null;
+    const financeReferenceNumber = isH4CompanyFinance
+      ? 'BAJAJ-VHA-202603-001'
       : null;
 
     // Guarantor
@@ -257,7 +371,7 @@ export async function seedSales(
           shopId: def.shopId,
           productId: def.product!.id,
           customerId: def.customer!.id,
-          saleDate,
+          saleDate: saleDateForThisSale,
           saleType: def.saleType as any,
           mrp: Number(def.product!.mrp),
           sellingPrice,
@@ -276,15 +390,17 @@ export async function seedSales(
           // Self finance
           interestRate: def.saleType === 'self_finance' ? interestRate : null,
           fileCharge: def.saleType === 'self_finance' ? fileCharge : 0,
-          totalFinancedAmount,
+          totalFinancedAmount: emiAmounts?.totalPayable ?? null,
           numInstallments: def.saleType === 'self_finance' ? numInstallments : null,
-          emiAmount,
+          emiAmount: emiAmounts?.emiAmount ?? null,
           guarantorId: guarantor?.id ?? null,
           // Company finance
           financeCompanyId: financeCompany?.id ?? null,
           financedAmount,
           expectedPaymentDate,
-          financePaymentStatus: def.saleType === 'company_finance' ? 'pending' as any : null,
+          financePaymentStatus,
+          financePaymentReceivedDate,
+          financeReferenceNumber,
           // Metadata
           createdBy: def.createdBy!,
         },
@@ -299,7 +415,7 @@ export async function seedSales(
           shopId: def.shopId,
           productId: def.product!.id,
           customerId: def.customer!.id,
-          saleDate,
+          saleDate: saleDateForThisSale,
           saleType: 'full_payment',
           sellingPrice,
           totalAmount,
@@ -328,30 +444,41 @@ export async function seedSales(
       });
 
       // If self_finance: Create InstallmentSchedule + Installment records
-      if (def.saleType === 'self_finance' && emiResult) {
+      // Use sale date as the base for due date calculation (not today)
+      if (def.saleType === 'self_finance' && emiAmounts) {
+        const startDate = new Date(saleDateForThisSale);
+        startDate.setMonth(startDate.getMonth() + 1);
+
         const schedule = await tx.installmentSchedule.create({
           data: {
             saleId: sale.id,
-            totalPrincipal: emiResult.principal,
-            totalInterest: emiResult.totalInterest,
-            fileCharge: emiResult.fileCharge,
-            totalPayable: emiResult.totalPayable,
-            numInstallments: emiResult.schedule.length,
-            emiAmount: emiResult.emiAmount,
-            startDate: new Date(emiResult.schedule[0].dueDate),
+            totalPrincipal: emiAmounts.principal,
+            totalInterest: emiAmounts.totalInterest,
+            fileCharge: emiAmounts.fileCharge,
+            totalPayable: emiAmounts.totalPayable,
+            numInstallments,
+            emiAmount: emiAmounts.emiAmount,
+            startDate,
             status: 'active',
           },
         });
 
-        for (const inst of emiResult.schedule) {
+        for (let i = 1; i <= numInstallments; i++) {
+          const dueDate = new Date(saleDateForThisSale);
+          dueDate.setMonth(dueDate.getMonth() + i);
+          const isLast = i === numInstallments;
+          const amount = isLast
+            ? emiAmounts.totalPayable - emiAmounts.emiAmount * (numInstallments - 1)
+            : emiAmounts.emiAmount;
+
           await tx.installment.create({
             data: {
               scheduleId: schedule.id,
-              installmentNumber: inst.installmentNumber,
-              dueDate: new Date(inst.dueDate),
-              amountDue: inst.amount,
+              installmentNumber: i,
+              dueDate,
+              amountDue: amount,
               amountPaid: 0,
-              remainingAmount: inst.amount,
+              remainingAmount: amount,
               status: 'upcoming',
               isRescheduled: false,
             },

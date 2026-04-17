@@ -180,8 +180,8 @@ export function Header() {
         </div>
 
         <div className="flex items-center gap-4">
-          {/* Global search */}
-          <GlobalSearch />
+          {/* Global search — hidden for now, enable when needed */}
+          {/* <GlobalSearch /> */}
 
           {/* Notification bell placeholder */}
           <button
