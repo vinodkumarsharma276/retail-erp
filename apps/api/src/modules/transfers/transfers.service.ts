@@ -1,5 +1,6 @@
 import { prisma } from '../../config/database.js';
 import type { Prisma, PrismaClient } from '@prisma/client';
+import { generateSaleNumber } from '../../utils/id-generator.js';
 
 type Tx = Omit<PrismaClient, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'>;
 
@@ -56,6 +57,57 @@ async function getOrCreateShopDistributor(
       bankBranch: shop.bankBranch ?? null,
       dynamicAttributes: { sourceType: 'shop', shopId: shop.id, shopCode: shop.code },
       isActive: true,
+      createdBy: createdBy ?? null,
+    },
+  });
+}
+
+/**
+ * Find (or create) a Customer row in `ownerShopId` that represents the other
+ * shop. Used so a transfer can be recorded as a sale in the source shop's
+ * books, with the destination shop acting as the "customer".
+ *
+ * customerCode is unique globally, so we key it as SHOP-{owner}-{other}.
+ */
+async function getOrCreateShopCustomer(
+  tx: Tx,
+  ownerShopId: string,
+  ownerShopCode: string,
+  otherShop: {
+    id: string;
+    name: string;
+    code: string;
+    phone: string;
+    addressLine1: string;
+    addressLine2?: string | null;
+    city: string;
+    state: string;
+    pincode: string;
+  },
+  createdBy?: string,
+) {
+  const customerCode = `SHOP-${ownerShopCode}-${otherShop.code}`;
+  const existing = await tx.customer.findUnique({
+    where: { customerCode },
+  });
+  if (existing) return existing;
+
+  return tx.customer.create({
+    data: {
+      customerCode,
+      name: otherShop.name,
+      phone: otherShop.phone,
+      addressLine1: otherShop.addressLine1,
+      addressLine2: otherShop.addressLine2 ?? null,
+      city: otherShop.city,
+      state: otherShop.state,
+      pincode: otherShop.pincode,
+      shopId: ownerShopId,
+      dynamicAttributes: {
+        sourceType: 'shop',
+        shopId: otherShop.id,
+        shopCode: otherShop.code,
+      },
       createdBy: createdBy ?? null,
     },
   });
@@ -299,7 +351,7 @@ export const transfersService = {
       where: { id: transferId },
       include: {
         fromShop: true,
-        toShop: { select: { id: true, name: true, code: true } },
+        toShop: true,
         product: true,
       },
     });
@@ -315,12 +367,23 @@ export const transfersService = {
       throw new Error('Source product not found for this transfer');
     }
 
-    // The DP at the destination shop is the transfer price (falls back to the
-    // source purchase price if no transfer price was recorded).
-    const destinationDp =
+    // Transfer price & GST snapshot used both for the source-shop sale and
+    // as DP for the destination clone.
+    const transferPrice =
       transfer.transferPrice != null
         ? Number(transfer.transferPrice)
         : Number(sourceProduct.purchasePrice);
+    const transferGstAmount =
+      transfer.gstAmount != null ? Number(transfer.gstAmount) : 0;
+    const netAmount = Math.max(0, transferPrice - transferGstAmount);
+    // Snap inferred GST rate to nearest slab for a clean value in the sale record.
+    const rawGstRate = netAmount > 0 ? (transferGstAmount / netAmount) * 100 : 0;
+    const gstRate = [0, 5, 12, 18, 28].reduce((prev, curr) =>
+      Math.abs(curr - rawGstRate) < Math.abs(prev - rawGstRate) ? curr : prev,
+    );
+    const sourceDp = Number(sourceProduct.purchasePrice);
+    const purchaseGstAmount =
+      gstRate > 0 ? Math.round((sourceDp * gstRate) / (100 + gstRate)) : 0;
 
     await prisma.$transaction(async (tx) => {
       // 2. Mark transfer as received
@@ -341,9 +404,6 @@ export const transfersService = {
       });
 
       // 3b. Ensure a Distributor record exists that represents the source shop.
-      //     This is what the destination shop will see as the "distributor" of
-      //     the cloned item (since it came from another GST entity, not a
-      //     third-party supplier).
       const sourceShopDistributor = await getOrCreateShopDistributor(
         tx,
         transfer.fromShop,
@@ -351,9 +411,6 @@ export const transfersService = {
       );
 
       // 4. Clone into destination shop as a fresh in-stock product.
-      //    purchaseId is cleared — the item's origin for the destination shop
-      //    is this transfer, not a distributor purchase invoice. distributorId
-      //    points at the source shop's distributor representation.
       const destProduct = await tx.product.create({
         data: {
           shopId: transfer.toShopId,
@@ -363,7 +420,7 @@ export const transfersService = {
           serialNumber: sourceProduct.serialNumber,
           mrp: sourceProduct.mrp,
           sellingPrice: sourceProduct.sellingPrice,
-          purchasePrice: destinationDp,
+          purchasePrice: transferPrice,
           color: sourceProduct.color,
           weightKg: sourceProduct.weightKg,
           distributorId: sourceShopDistributor.id,
@@ -407,6 +464,88 @@ export const transfersService = {
           notes:
             `Sold via inter-shop transfer to ${transfer.toShop.name} ` +
             `(${transfer.toShop.code}). New product: ${destProduct.id}.`,
+        },
+      });
+
+      // 7. Record the transfer as a Sale in the SOURCE shop's books.
+      //    Inter-shop transfers are cross-GST-entity sales — payment usually
+      //    settles later, so the sale is booked as 'partial_with_promise' with
+      //    the full transfer price pending.
+      const shopCustomer = await getOrCreateShopCustomer(
+        tx,
+        transfer.fromShopId,
+        transfer.fromShop.code,
+        transfer.toShop,
+        userId,
+      );
+
+      const lastSale = await tx.saleRecord.findFirst({
+        where: {
+          saleNumber: { startsWith: `SALE-${transfer.fromShop.code.toUpperCase()}-` },
+        },
+        orderBy: { saleNumber: 'desc' },
+        select: { saleNumber: true },
+      });
+      const saleDate = transfer.receivedAt ?? new Date();
+      const saleNumber = generateSaleNumber(
+        transfer.fromShop.code.toUpperCase(),
+        saleDate,
+        lastSale?.saleNumber ?? undefined,
+      );
+      // 30-day promise by default — customisable later.
+      const promiseDate = new Date(saleDate);
+      promiseDate.setDate(promiseDate.getDate() + 30);
+
+      const ledgerNumber =
+        transfer.invoiceNumber ?? `TRF-${transfer.id.slice(0, 8)}`;
+
+      const saleRecord = await tx.saleRecord.create({
+        data: {
+          saleNumber,
+          ledgerNumber,
+          shopId: transfer.fromShopId,
+          productId: sourceProduct.id,
+          customerId: shopCustomer.id,
+          saleDate,
+          saleType: 'partial_with_promise',
+          mrp: sourceProduct.mrp,
+          sellingPrice: transferPrice,
+          discountAmount: 0,
+          netAmount,
+          gstRate,
+          gstAmount: transferGstAmount,
+          purchasePrice: sourceDp,
+          purchaseGstAmount,
+          totalAmount: transferPrice,
+          downPayment: 0,
+          paymentMode: 'bank_transfer',
+          paymentBreakdown: null,
+          promiseDate,
+          pendingAmount: transferPrice,
+          fileCharge: 0,
+          notes:
+            `Inter-shop transfer to ${transfer.toShop.name} ` +
+            `(${transfer.toShop.code}). Invoice: ${ledgerNumber}. ` +
+            `Payment pending from destination shop.`,
+          createdBy: userId,
+        },
+      });
+
+      // 7b. Mirror into SaleRecordSanitized for the "Others" role view.
+      await tx.saleRecordSanitized.create({
+        data: {
+          id: saleRecord.id,
+          saleNumber,
+          ledgerNumber,
+          shopId: transfer.fromShopId,
+          productId: sourceProduct.id,
+          customerId: shopCustomer.id,
+          saleDate,
+          saleType: 'full_payment',
+          sellingPrice: transferPrice,
+          totalAmount: transferPrice,
+          paymentMode: 'cash',
+          createdBy: userId,
         },
       });
     });
