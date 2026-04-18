@@ -1,6 +1,7 @@
 ﻿import { PrismaClient } from '@prisma/client';
 import { seedShops } from './shops.seed';
-import { seedUsers } from './users.seed';
+import { seedRolesAndPermissions } from './roles-permissions.seed';
+import { seedUsers, SEED_DEFAULT_PASSWORD, SEED_OWNER_USERNAMES } from './users.seed';
 import { seedCategories } from './categories.seed';
 import { seedFinanceCompanies } from './finance-companies.seed';
 import { seedDistributors } from './distributors.seed';
@@ -8,6 +9,7 @@ import { seedPurchases } from './purchases.seed';
 import { seedCustomers } from './customers.seed';
 import { seedSales } from './sales.seed';
 import { seedInstallments } from './installments.seed';
+import { seedRollingOverdueScenarios } from './rolling-overdue-scenarios.seed';
 import { seedFormDefinitions } from './form-definitions.seed';
 
 const prisma = new PrismaClient();
@@ -17,6 +19,9 @@ async function main() {
 
   const shops = await seedShops(prisma);
   console.log(`  Shops: ${shops.length}`);
+
+  const rbac = await seedRolesAndPermissions(prisma);
+  console.log(`  Permissions: ${rbac.permissions}, Roles: ${rbac.roles}`);
 
   const users = await seedUsers(prisma, shops);
   console.log(`  Users: ${users.length}`);
@@ -43,10 +48,17 @@ async function main() {
   const installmentSchedules = await seedInstallments(prisma, sales);
   console.log(`  Installment schedules processed: ${installmentSchedules.length}`);
 
+  const scenarios = await seedRollingOverdueScenarios(prisma);
+  console.log(`  Rolling-overdue scenario schedules: ${scenarios.scheduleIds.length}`);
+
   const forms = await seedFormDefinitions(prisma);
   console.log(`  Form definitions: ${forms.length}`);
 
   console.log('\nSeeding complete!');
+  console.log('\nOWNER CREDENTIALS (full access):');
+  for (const username of SEED_OWNER_USERNAMES) {
+    console.log(`  ${username}  /  ${SEED_DEFAULT_PASSWORD}`);
+  }
 }
 
 main()

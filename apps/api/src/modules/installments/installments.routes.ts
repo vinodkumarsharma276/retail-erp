@@ -67,4 +67,15 @@ export async function installmentRoutes(app: FastifyInstance) {
   app.post('/:installmentId/reschedule', {
     preHandler: [...adminAccountantShopScoped, validate(rescheduleSchema)],
   }, installmentsController.reschedule as any);
+
+  // Roll log (audit trail for a schedule — admin, accountant, employee)
+  app.get('/:scheduleId/roll-log', { preHandler: adminAccountantEmployee }, installmentsController.getRollLog as any);
+
+  // Admin: manually trigger the rollover engine across all active schedules (owner, admin)
+  app.post('/admin/run-rollover', {
+    preHandler: [
+      authenticate,
+      authorize([UserRole.OWNER, UserRole.ADMIN]),
+    ],
+  }, installmentsController.runRollover as any);
 }

@@ -24,7 +24,7 @@ export function TransferDetailPage() {
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
   const currentShopId = useShopStore((s) => s.currentShopId);
-  const isAdmin = user?.role === UserRole.ADMIN;
+  const isAdmin = user?.role === UserRole.OWNER || user?.role === UserRole.ADMIN;
 
   const {
     data: transfer,

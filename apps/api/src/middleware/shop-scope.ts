@@ -11,8 +11,13 @@ export async function shopScope(request: FastifyRequest, reply: FastifyReply) {
 
   const headerShopId = request.headers['x-shop-id'] as string | undefined;
 
-  // Admin and Accountant can switch shops via header
-  if (headerShopId && (request.currentUser.role === 'admin' || request.currentUser.role === 'accountant')) {
+  // Owner, Admin and Accountant can switch shops via header
+  if (
+    headerShopId &&
+    (request.currentUser.role === 'owner' ||
+      request.currentUser.role === 'admin' ||
+      request.currentUser.role === 'accountant')
+  ) {
     request.shopFilter = { shopId: headerShopId };
   } else {
     request.shopFilter = { shopId: request.currentUser.shopId };

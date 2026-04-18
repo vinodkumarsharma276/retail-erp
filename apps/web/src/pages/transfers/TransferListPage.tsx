@@ -43,7 +43,7 @@ export function TransferListPage() {
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
   const currentShopId = useShopStore((s) => s.currentShopId);
-  const isAdmin = user?.role === UserRole.ADMIN;
+  const isAdmin = user?.role === UserRole.OWNER || user?.role === UserRole.ADMIN;
 
   // ------ Filters state (URL search params) ------
   const [searchParams, setSearchParams] = useSearchParams();

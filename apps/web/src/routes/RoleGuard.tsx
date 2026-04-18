@@ -17,6 +17,11 @@ export function RoleGuard({ allowedRoles, showDenied = false }: RoleGuardProps) 
     return <Navigate to="/login" replace />;
   }
 
+  // Owner has implicit access to every page.
+  if (user.role === UserRole.OWNER) {
+    return <Outlet />;
+  }
+
   if (!allowedRoles.includes(user.role)) {
     if (showDenied) {
       return <AccessDenied />;

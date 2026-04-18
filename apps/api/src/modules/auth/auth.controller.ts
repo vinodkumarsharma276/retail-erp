@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import { authService } from './auth.service.js';
 import { sendSuccess, sendError } from '../../utils/response.js';
 import { config } from '../../config/index.js';
+import { loadPermissionsForRole } from '../../middleware/permissions.js';
 
 export const authController = {
   async listShops(_request: FastifyRequest, reply: FastifyReply) {
@@ -53,8 +54,12 @@ export const authController = {
         username: user.username,
         fullName: user.fullName,
         role: user.role,
+        roleId: (user as any).roleId ?? null,
         isMobileOnly: user.isMobileOnly,
       },
+      permissions: (user as any).roleId
+        ? Array.from(await loadPermissionsForRole((user as any).roleId))
+        : [],
       shop: user.userShops.find((us) => us.shopId === shopId)?.shop,
     });
   },
@@ -110,8 +115,12 @@ export const authController = {
         username: user.username,
         fullName: user.fullName,
         role: user.role,
+        roleId: (user as any).roleId ?? null,
         isMobileOnly: user.isMobileOnly,
       },
+      permissions: (user as any).roleId
+        ? Array.from(await loadPermissionsForRole((user as any).roleId))
+        : [],
       shops: user.userShops.map((us: any) => ({
         id: us.shop.id,
         name: us.shop.name,
@@ -162,8 +171,12 @@ export const authController = {
       return sendError(reply, 'Authentication required', 401);
     }
 
-    if (request.currentUser.role !== 'admin' && request.currentUser.role !== 'accountant') {
-      return sendError(reply, 'Only admins and accountants can switch shops', 403);
+    if (
+      request.currentUser.role !== 'owner' &&
+      request.currentUser.role !== 'admin' &&
+      request.currentUser.role !== 'accountant'
+    ) {
+      return sendError(reply, 'You cannot switch shops', 403);
     }
 
     const hasAccess = await authService.verifyUserShopAccess(

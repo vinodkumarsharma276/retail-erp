@@ -8,6 +8,8 @@ declare module 'fastify' {
       role: UserRole;
       shopId: string;
       isMobileOnly: boolean;
+      permissions?: Set<string>;
+      roleId?: string | null;
     };
     shopFilter?: {
       shopId: string;

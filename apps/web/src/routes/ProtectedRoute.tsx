@@ -29,10 +29,12 @@ export function ProtectedRoute() {
           username: data.user.username,
           fullName: data.user.fullName,
           role: data.user.role,
+          roleId: (data.user as any).roleId ?? null,
           isMobileOnly: data.user.isMobileOnly,
         },
         accessToken,
         refreshToken,
+        (data as any).permissions ?? [],
       );
 
       const shopId = localStorage.getItem('currentShopId');
@@ -94,6 +96,7 @@ export function ProtectedRoute() {
  */
 export function getDefaultRoute(role: UserRole): string {
   switch (role) {
+    case UserRole.OWNER:
     case UserRole.ADMIN:
       return '/dashboard';
     case UserRole.ACCOUNTANT:

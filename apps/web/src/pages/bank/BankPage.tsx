@@ -45,7 +45,7 @@ function maskAccountNumber(accountNumber: string): string {
 // ---------------------------------------------------------------------------
 export function BankPage() {
   const user = useAuthStore((s) => s.user);
-  const isAdmin = user?.role === UserRole.ADMIN;
+  const isAdmin = user?.role === UserRole.OWNER || user?.role === UserRole.ADMIN;
 
   const accountsQuery = useBankAccountsQuery();
   const accounts = accountsQuery.data ?? [];

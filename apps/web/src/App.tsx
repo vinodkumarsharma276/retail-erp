@@ -31,6 +31,7 @@ import { EmployeeFormPage } from './pages/employees/EmployeeFormPage';
 import { SettingsPage } from './pages/settings/SettingsPage';
 import { FormBuilderPage } from './pages/settings/FormBuilderPage';
 import { CategoryManagerPage } from './pages/settings/CategoryManagerPage';
+import RolesUsersPage from './pages/settings/RolesUsersPage';
 import { ProtectedRoute, getDefaultRoute } from './routes/ProtectedRoute';
 import { RoleGuard } from './routes/RoleGuard';
 import { useAuthStore } from './stores/auth-store';
@@ -52,7 +53,7 @@ function App() {
       <Route element={<ProtectedRoute />}>
         <Route element={<DashboardLayout />}>
           {/* Admin-only routes */}
-          <Route element={<RoleGuard allowedRoles={[UserRole.ADMIN]} />}>
+          <Route element={<RoleGuard allowedRoles={[UserRole.OWNER, UserRole.ADMIN]} />}>
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/employees" element={<EmployeeListPage />} />
             <Route path="/employees/new" element={<EmployeeFormPage />} />
@@ -60,6 +61,7 @@ function App() {
             <Route path="/settings" element={<SettingsPage />}>
               <Route path="forms" element={<FormBuilderPage />} />
               <Route path="categories" element={<CategoryManagerPage />} />
+              <Route path="roles" element={<RolesUsersPage />} />
             </Route>
           </Route>
 
@@ -67,7 +69,7 @@ function App() {
           <Route
             element={
               <RoleGuard
-                allowedRoles={[UserRole.ADMIN, UserRole.ACCOUNTANT]}
+                allowedRoles={[UserRole.OWNER, UserRole.ADMIN, UserRole.ACCOUNTANT]}
               />
             }
           >

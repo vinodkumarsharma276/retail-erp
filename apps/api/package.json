@@ -12,6 +12,7 @@
     "db:migrate": "prisma migrate dev",
     "db:migrate:deploy": "prisma migrate deploy",
     "db:seed": "tsx prisma/seed/index.ts",
+    "db:seed:rbac": "tsx prisma/seed/rbac-and-owners.seed.ts",
     "db:clear": "tsx prisma/seed/clear.ts",
     "db:clear:all": "tsx prisma/seed/clear-all.ts",
     "db:reset": "prisma migrate reset --force",

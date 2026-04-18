@@ -12,6 +12,7 @@ datasource db {
 // ============================================================================
 
 enum UserRole {
+  owner
   admin
   accountant
   others
@@ -161,6 +162,7 @@ model User {
   email        String?   @db.VarChar(255)
   phone        String    @db.VarChar(15)
   role         UserRole
+  roleId       String?   @map("role_id")
   isMobileOnly Boolean   @default(false) @map("is_mobile_only")
   isActive     Boolean   @default(true) @map("is_active")
   lastLoginAt  DateTime? @map("last_login_at") @db.Timestamptz()
@@ -168,6 +170,7 @@ model User {
   updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
+  customRole            Role?                  @relation(fields: [roleId], references: [id])
   userShops             UserShop[]
   refreshTokens         RefreshToken[]
   createdProducts       Product[]              @relation("ProductCreator")
@@ -179,6 +182,7 @@ model User {
   createdExpenses       Expense[]              @relation("ExpenseCreator")
   purchasePaymentsBy    PurchasePayment[]      @relation("PurchasePaymentCreator")
   installmentPayments   InstallmentPayment[]   @relation("InstallmentCollector")
+  installmentRollEvents InstallmentRollLog[]   @relation("RollLogActor")
   auditTrailPerformed   ProductAuditTrail[]    @relation("AuditPerformer")
   transfersInitiated    InterShopTransfer[]    @relation("TransferInitiator")
   transfersReceived     InterShopTransfer[]    @relation("TransferReceiver")
@@ -190,7 +194,56 @@ model User {
   bankReconciled        BankTransaction[]      @relation("Reconciler")
 
   @@index([role])
+  @@index([roleId])
   @@map("users")
+}
+
+// ============================================================================
+// ROLES & PERMISSIONS (DB-driven RBAC)
+// ============================================================================
+
+model Role {
+  id          String    @id @default(uuid())
+  code        String    @unique @db.VarChar(50)
+  name        String    @db.VarChar(100)
+  description String?   @db.Text
+  isSystem    Boolean   @default(false) @map("is_system")
+  isActive    Boolean   @default(true) @map("is_active")
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  users           User[]
+  rolePermissions RolePermission[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id          String   @id @default(uuid())
+  key         String   @unique @db.VarChar(100)
+  module      String   @db.VarChar(50)
+  description String?  @db.Text
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  rolePermissions RolePermission[]
+
+  @@index([module])
+  @@map("permissions")
+}
+
+model RolePermission {
+  id           String   @id @default(uuid())
+  roleId       String   @map("role_id")
+  permissionId String   @map("permission_id")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId])
+  @@index([roleId])
+  @@index([permissionId])
+  @@map("role_permissions")
 }
 
 model UserShop {
@@ -632,35 +685,45 @@ model InstallmentSchedule {
   sale         SaleRecord   @relation(fields: [saleId], references: [id])
   installments Installment[]
   collectionAssigns EmployeeCollectionAssignment[]
+  rollLogEvents     InstallmentRollLog[] @relation("RollLogSchedule")
 
   @@index([saleId])
   @@map("installment_schedules")
 }
 
 model Installment {
-  id                 String            @id @default(uuid())
-  scheduleId         String            @map("schedule_id")
-  installmentNumber  Int               @map("installment_number")
-  dueDate            DateTime          @map("due_date") @db.Date
-  amountDue          Decimal           @map("amount_due") @db.Decimal(12, 2)
-  amountPaid         Decimal           @default(0) @map("amount_paid") @db.Decimal(12, 2)
-  remainingAmount    Decimal           @map("remaining_amount") @db.Decimal(12, 2)
-  status             InstallmentStatus @default(upcoming)
-  isRescheduled      Boolean           @default(false) @map("is_rescheduled")
-  rescheduledFromId  String?           @map("rescheduled_from_id")
-  notes              String?           @db.Text
-  createdAt          DateTime          @default(now()) @map("created_at") @db.Timestamptz()
-  updatedAt          DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+  id                      String            @id @default(uuid())
+  scheduleId              String            @map("schedule_id")
+  installmentNumber       Int               @map("installment_number")
+  /// For sub-rows (e.g. "2.1") this is the parent's installment_number ("2"). Null for primary rows.
+  parentInstallmentNumber Int?              @map("parent_installment_number")
+  /// For sub-rows: 1 for "2.1", 2 for "2.2", etc. Null for primary rows.
+  subSequence             Int?              @map("sub_sequence")
+  dueDate                 DateTime          @map("due_date") @db.Date
+  amountDue               Decimal           @map("amount_due") @db.Decimal(12, 2)
+  amountPaid              Decimal           @default(0) @map("amount_paid") @db.Decimal(12, 2)
+  remainingAmount         Decimal           @map("remaining_amount") @db.Decimal(12, 2)
+  status                  InstallmentStatus @default(upcoming)
+  isRescheduled           Boolean           @default(false) @map("is_rescheduled")
+  rescheduledFromId       String?           @map("rescheduled_from_id")
+  /// True when this row's chain has been absorbed into the next primary installment
+  /// (Rule C). Closed rows are no longer collectible and excluded from active lists.
+  isClosed                Boolean           @default(false) @map("is_closed")
+  notes                   String?           @db.Text
+  createdAt               DateTime          @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt               DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   schedule        InstallmentSchedule @relation(fields: [scheduleId], references: [id])
   rescheduledFrom Installment?        @relation("RescheduledFrom", fields: [rescheduledFromId], references: [id])
   rescheduledTo   Installment[]       @relation("RescheduledFrom")
   payments        InstallmentPayment[]
+  rollLogEvents   InstallmentRollLog[] @relation("RollLogInstallment")
 
   @@index([scheduleId])
   @@index([dueDate])
   @@index([status])
   @@index([rescheduledFromId])
+  @@index([isClosed])
   @@map("installments")
 }
 
@@ -682,6 +745,35 @@ model InstallmentPayment {
   @@index([paymentDate])
   @@index([collectedBy])
   @@map("installment_payments")
+}
+
+/// Immutable audit log of every state change in an installment schedule.
+/// Drives the schedule timeline UI and the customer reliability summary.
+model InstallmentRollLog {
+  id             String   @id @default(uuid())
+  scheduleId     String   @map("schedule_id")
+  installmentId  String?  @map("installment_id")
+  /// One of: installment_due | sub_created | payment_recorded | partial_payment |
+  /// chain_absorbed | chain_closed_manual | schedule_completed | note_added
+  eventType      String   @map("event_type") @db.VarChar(40)
+  /// The business date the event semantically happened on (e.g. due date, payment date).
+  eventDate      DateTime @map("event_date") @db.Date
+  /// Pre-rendered human-readable summary for fast list rendering.
+  displayMessage String   @map("display_message") @db.Text
+  /// Optional structured payload (amount carried, parent id, etc).
+  metadata       Json?    @db.JsonB
+  /// User who triggered the event. Null for engine-driven events.
+  actorUserId    String?  @map("actor_user_id")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  schedule    InstallmentSchedule @relation("RollLogSchedule", fields: [scheduleId], references: [id])
+  installment Installment?        @relation("RollLogInstallment", fields: [installmentId], references: [id])
+  actor       User?               @relation("RollLogActor", fields: [actorUserId], references: [id])
+
+  @@index([scheduleId, eventDate])
+  @@index([installmentId])
+  @@index([eventType])
+  @@map("installment_roll_log")
 }
 
 model EmployeeCollectionAssignment {

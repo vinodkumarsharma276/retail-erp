@@ -33,7 +33,7 @@ export function ProductDetailPage() {
   const { data: categoryTree } = useCategoryTreeQuery();
 
   const canEdit =
-    user?.role === UserRole.ADMIN || user?.role === UserRole.ACCOUNTANT;
+    user?.role === UserRole.OWNER || user?.role === UserRole.ADMIN || user?.role === UserRole.ACCOUNTANT;
 
   // Loading
   if (isLoading) {

@@ -15,36 +15,32 @@ import {
   Settings,
   X,
 } from 'lucide-react';
-import { useAuthStore } from '../../stores/auth-store';
 import { useSidebarStore } from '../../stores/sidebar-store';
 import { cn } from '../../lib/utils';
-import { UserRole } from '@retailerp/shared-types';
+import { useCanCheck } from '../../hooks/usePermission';
 
 const navItems = [
-  { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: [UserRole.ADMIN] },
-  { to: '/products', label: 'Products', icon: Package, roles: [UserRole.ADMIN, UserRole.ACCOUNTANT, UserRole.OTHERS] },
-  { to: '/distributors', label: 'Distributors', icon: Truck, roles: [UserRole.ADMIN, UserRole.ACCOUNTANT] },
-  { to: '/purchases', label: 'Purchases', icon: Receipt, roles: [UserRole.ADMIN, UserRole.ACCOUNTANT] },
-  { to: '/customers', label: 'Customers', icon: Users, roles: [UserRole.ADMIN, UserRole.ACCOUNTANT, UserRole.OTHERS] },
-  { to: '/sales', label: 'Sales', icon: ShoppingCart, roles: [UserRole.ADMIN, UserRole.ACCOUNTANT, UserRole.OTHERS] },
-  { to: '/installments', label: 'Installments', icon: CalendarClock, roles: [UserRole.ADMIN, UserRole.ACCOUNTANT] },
-  { to: '/transfers', label: 'Transfers', icon: ArrowRightLeft, roles: [UserRole.ADMIN, UserRole.ACCOUNTANT, UserRole.OTHERS] },
-  { to: '/expenses', label: 'Expenses', icon: Wallet, roles: [UserRole.ADMIN, UserRole.ACCOUNTANT] },
-  { to: '/bank', label: 'Bank Statements', icon: Building2, roles: [UserRole.ADMIN, UserRole.ACCOUNTANT] },
-  { to: '/employees', label: 'Employees', icon: UserCheck, roles: [UserRole.ADMIN] },
-  { to: '/settings', label: 'Settings', icon: Settings, roles: [UserRole.ADMIN] },
+  { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, perm: 'nav.dashboard' },
+  { to: '/products', label: 'Products', icon: Package, perm: 'nav.products' },
+  { to: '/distributors', label: 'Distributors', icon: Truck, perm: 'nav.distributors' },
+  { to: '/purchases', label: 'Purchases', icon: Receipt, perm: 'nav.purchases' },
+  { to: '/customers', label: 'Customers', icon: Users, perm: 'nav.customers' },
+  { to: '/sales', label: 'Sales', icon: ShoppingCart, perm: 'nav.sales' },
+  { to: '/installments', label: 'Installments', icon: CalendarClock, perm: 'nav.installments' },
+  { to: '/transfers', label: 'Transfers', icon: ArrowRightLeft, perm: 'nav.transfers' },
+  { to: '/expenses', label: 'Expenses', icon: Wallet, perm: 'nav.expenses' },
+  { to: '/bank', label: 'Bank Statements', icon: Building2, perm: 'nav.bank' },
+  { to: '/employees', label: 'Employees', icon: UserCheck, perm: 'nav.employees' },
+  { to: '/settings', label: 'Settings', icon: Settings, perm: 'nav.settings' },
 ];
 
 export function Sidebar() {
-  const user = useAuthStore((s) => s.user);
-  const userRole = user?.role;
+  const can = useCanCheck();
   const isOpen = useSidebarStore((s) => s.isOpen);
   const close = useSidebarStore((s) => s.close);
   const location = useLocation();
 
-  const visibleItems = navItems.filter(
-    (item) => userRole && item.roles.includes(userRole),
-  );
+  const visibleItems = navItems.filter((item) => can(item.perm));
 
   // Close sidebar on route change (mobile)
   useEffect(() => {

@@ -82,10 +82,12 @@ export function LoginPage() {
               username: data.user.username,
               fullName: data.user.fullName,
               role: data.user.role,
+              roleId: (data.user as any).roleId ?? null,
               isMobileOnly: data.user.isMobileOnly,
             },
             data.accessToken,
             data.refreshToken,
+            (data as any).permissions ?? [],
           );
 
           // Store shop

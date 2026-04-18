@@ -1,5 +1,6 @@
 import { prisma } from '../../config/database.js';
 import type { Prisma } from '@prisma/client';
+import { ensureRolledForToday, applyPartialWithPromise } from './installments.rules.js';
 
 export const installmentsService = {
   /**
@@ -105,11 +106,18 @@ export const installmentsService = {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
+    // Lazy rollover — apply Rule C (absorb stale chains) and mark due_today
+    // so the list reflects today's real state before we query it.
+    await prisma.$transaction(async (tx) => {
+      await ensureRolledForToday(tx, today, { shopId });
+    });
+
     const overdueInstallments = await prisma.installment.findMany({
       where: {
         dueDate: { lt: today },
         status: { notIn: ['paid', 'rescheduled'] },
         isRescheduled: false,
+        isClosed: false,
         schedule: {
           sale: { shopId },
           status: 'active',
@@ -192,11 +200,22 @@ export const installmentsService = {
     const targetDate = new Date(date);
     targetDate.setHours(0, 0, 0, 0);
 
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // Lazy rollover only when querying today (historical dates are immutable history).
+    if (targetDate.getTime() === today.getTime()) {
+      await prisma.$transaction(async (tx) => {
+        await ensureRolledForToday(tx, today, { shopId });
+      });
+    }
+
     // Build the base where clause
     const where: Prisma.InstallmentWhereInput = {
       dueDate: targetDate,
       status: { notIn: ['paid', 'rescheduled'] },
       isRescheduled: false,
+      isClosed: false,
       schedule: {
         sale: { shopId },
         status: 'active',
@@ -355,10 +374,21 @@ export const installmentsService = {
     const toDate = new Date(dateTo);
     toDate.setHours(23, 59, 59, 999);
 
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // Lazy rollover if the range includes today.
+    if (toDate.getTime() >= today.getTime()) {
+      await prisma.$transaction(async (tx) => {
+        await ensureRolledForToday(tx, today, { shopId });
+      });
+    }
+
     const where: Prisma.InstallmentWhereInput = {
       dueDate: { gte: fromDate, lte: toDate },
       status: { notIn: ['paid', 'rescheduled'] },
       isRescheduled: false,
+      isClosed: false,
       schedule: {
         sale: { shopId },
         status: 'active',
@@ -500,6 +530,13 @@ export const installmentsService = {
    * Full schedule detail with all installments, payments, and rescheduling chain.
    */
   async getScheduleDetail(scheduleId: string) {
+    // Lazy rollover scoped to just this schedule.
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    await prisma.$transaction(async (tx) => {
+      await ensureRolledForToday(tx, today, { scheduleId });
+    });
+
     const schedule = await prisma.installmentSchedule.findUnique({
       where: { id: scheduleId },
       include: {
@@ -592,7 +629,22 @@ export const installmentsService = {
       },
     });
 
-    return schedule;
+    if (!schedule) return null;
+
+    // Reshape to the response contract expected by the web client:
+    // { schedule, installments, sale, customer, product, guarantor, shop, collectionAssigns }
+    const { sale, installments, collectionAssigns, ...scheduleCore } = schedule;
+    const { customer, product, guarantor, shop, ...saleCore } = sale;
+    return {
+      schedule: scheduleCore,
+      installments,
+      sale: saleCore,
+      customer,
+      product,
+      guarantor,
+      shop,
+      collectionAssigns,
+    };
   },
 
   /**
@@ -606,147 +658,67 @@ export const installmentsService = {
     const schedule = await prisma.installmentSchedule.findUnique({
       where: { id: scheduleId },
       include: {
-        sale: {
-          select: {
-            saleNumber: true,
-            saleDate: true,
-            customer: { select: { name: true } },
-          },
-        },
         installments: {
           orderBy: [{ dueDate: 'asc' }, { installmentNumber: 'asc' }, { createdAt: 'asc' }],
           include: {
             payments: {
               include: {
-                collector: {
-                  select: { id: true, fullName: true },
-                },
+                collector: { select: { id: true, fullName: true } },
               },
               orderBy: { paymentDate: 'asc' },
             },
-            rescheduledFrom: {
-              select: {
-                id: true,
-                installmentNumber: true,
-                dueDate: true,
-              },
-            },
+            rescheduledFrom: { select: { id: true, installmentNumber: true } },
+            rescheduledTo: { select: { id: true, installmentNumber: true } },
           },
         },
       },
     });
 
-    if (!schedule) {
-      return null;
-    }
+    if (!schedule) return null;
 
-    type TimelineEvent = {
-      type: 'schedule_created' | 'installment_due' | 'payment' | 'rescheduled' | 'partial_payment' | 'completed';
-      date: Date | string;
-      installmentNumber?: number;
-      installmentId?: string;
-      amount?: number;
-      amountDue?: number;
-      remainingAmount?: number;
-      paymentMode?: string;
-      collectedBy?: string;
-      rescheduledFromNumber?: number;
-      rescheduledFromDate?: Date | string;
-      newDate?: Date | string;
-      status?: string;
-      notes?: string;
-    };
+    // Web client expects a flat list of TimelineEvent — one per installment —
+    // each containing its payments[] inline. Determine the event "type" from
+    // status: rescheduled installments are reschedule events; if any payments
+    // exist treat it as a payment event; otherwise it's the installment due event.
+    return schedule.installments.map((inst) => {
+      const lastPayment = inst.payments[inst.payments.length - 1];
+      const hasPayments = inst.payments.length > 0;
+      const type: 'installment' | 'payment' | 'reschedule' = inst.isRescheduled
+        ? 'reschedule'
+        : hasPayments
+          ? 'payment'
+          : 'installment';
 
-    const timeline: TimelineEvent[] = [];
-
-    // 1. Schedule created
-    timeline.push({
-      type: 'schedule_created',
-      date: schedule.createdAt,
-      notes: `Installment schedule created for sale ${schedule.sale.saleNumber}. ${schedule.numInstallments} installments of ${Number(schedule.emiAmount)} each. Customer: ${schedule.sale.customer.name}.`,
+      return {
+        id: inst.id,
+        installmentNumber: inst.installmentNumber,
+        type,
+        date: lastPayment?.paymentDate ?? inst.dueDate,
+        dueDate: inst.dueDate,
+        amountDue: Number(inst.amountDue),
+        amountPaid: Number(inst.amountPaid),
+        remainingAmount: Number(inst.remainingAmount),
+        status: inst.status,
+        paymentMode: lastPayment?.paymentMode,
+        collectedBy: lastPayment?.collector?.fullName ?? undefined,
+        isRescheduled: inst.isRescheduled,
+        rescheduledFromId: inst.rescheduledFromId ?? undefined,
+        rescheduledToId: inst.rescheduledTo?.[0]?.id ?? undefined,
+        notes: inst.notes ?? undefined,
+        payments: inst.payments.map((p) => ({
+          id: p.id,
+          installmentId: p.installmentId,
+          amount: Number(p.amount),
+          paymentMode: p.paymentMode,
+          paymentDate: p.paymentDate,
+          collectedBy: p.collectedBy,
+          referenceNumber: p.referenceNumber,
+          notes: p.notes,
+          createdAt: p.createdAt,
+          collectorName: p.collector?.fullName ?? undefined,
+        })),
+      };
     });
-
-    // 2. Walk through each installment
-    for (const inst of schedule.installments) {
-      // If this installment was rescheduled FROM another, mark it as a reschedule event
-      if (inst.rescheduledFrom) {
-        timeline.push({
-          type: 'rescheduled',
-          date: inst.createdAt,
-          installmentNumber: inst.installmentNumber,
-          installmentId: inst.id,
-          amountDue: Number(inst.amountDue),
-          rescheduledFromNumber: inst.rescheduledFrom.installmentNumber,
-          rescheduledFromDate: inst.rescheduledFrom.dueDate,
-          newDate: inst.dueDate,
-          notes: inst.notes ?? `Installment #${inst.rescheduledFrom.installmentNumber} rescheduled from ${new Date(inst.rescheduledFrom.dueDate).toISOString().split('T')[0]} to ${new Date(inst.dueDate).toISOString().split('T')[0]}`,
-        });
-      }
-
-      // Installment due event (only for non-rescheduled originals or active rescheduled ones)
-      if (!inst.isRescheduled) {
-        timeline.push({
-          type: 'installment_due',
-          date: inst.dueDate,
-          installmentNumber: inst.installmentNumber,
-          installmentId: inst.id,
-          amountDue: Number(inst.amountDue),
-          remainingAmount: Number(inst.remainingAmount),
-          status: inst.status,
-        });
-      }
-
-      // Payment events
-      for (const payment of inst.payments) {
-        const isPartial = inst.status === 'partially_paid' || Number(payment.amount) < Number(inst.amountDue);
-        timeline.push({
-          type: isPartial ? 'partial_payment' : 'payment',
-          date: payment.paymentDate,
-          installmentNumber: inst.installmentNumber,
-          installmentId: inst.id,
-          amount: Number(payment.amount),
-          paymentMode: payment.paymentMode,
-          collectedBy: payment.collector?.fullName ?? undefined,
-          notes: payment.notes ?? undefined,
-        });
-      }
-
-      // If original was rescheduled, show the rescheduled event
-      if (inst.isRescheduled && inst.status === 'rescheduled') {
-        timeline.push({
-          type: 'rescheduled',
-          date: inst.updatedAt,
-          installmentNumber: inst.installmentNumber,
-          installmentId: inst.id,
-          amountDue: Number(inst.amountDue),
-          status: 'rescheduled',
-          notes: inst.notes ?? `Installment #${inst.installmentNumber} was rescheduled`,
-        });
-      }
-    }
-
-    // 3. If schedule is completed
-    if (schedule.status === 'completed') {
-      timeline.push({
-        type: 'completed',
-        date: schedule.updatedAt,
-        notes: 'All installments have been paid. Schedule completed.',
-      });
-    }
-
-    // Sort by date
-    timeline.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-
-    return {
-      scheduleId: schedule.id,
-      saleNumber: schedule.sale.saleNumber,
-      customerName: schedule.sale.customer.name,
-      totalPayable: Number(schedule.totalPayable),
-      numInstallments: schedule.numInstallments,
-      emiAmount: Number(schedule.emiAmount),
-      status: schedule.status,
-      timeline,
-    };
   },
 
   /**
@@ -843,6 +815,29 @@ export const installmentsService = {
             notes: data.notes ?? null,
           },
         });
+
+        // Audit log
+        await tx.installmentRollLog.create({
+          data: {
+            scheduleId: schedule.id,
+            installmentId,
+            eventType: 'payment_recorded',
+            eventDate: paidOnDate,
+            actorUserId: userId,
+            displayMessage:
+              `Payment of ₹${amount.toLocaleString('en-IN')} received for Installment ` +
+              `#${installment.installmentNumber} via ${data.paymentMode?.replace(/_/g, ' ') ?? 'cash'}.` +
+              (data.referenceNumber ? ` Ref: ${data.referenceNumber}.` : '') +
+              (data.notes ? ` Note: ${data.notes}` : ''),
+            metadata: {
+              installmentId,
+              installmentNumber: installment.installmentNumber,
+              amount,
+              paymentMode: data.paymentMode,
+              referenceNumber: data.referenceNumber ?? null,
+            } as Prisma.InputJsonValue,
+          },
+        });
       } else if (data.scenario === 'reschedule') {
         const newDate = new Date(data.newDate!);
 
@@ -883,18 +878,17 @@ export const installmentsService = {
 
         const newRemainingAmount = remainingAmount - amount;
 
-        // Update original installment with partial payment
+        // 1. Record the partial payment on the source installment
         await tx.installment.update({
           where: { id: installmentId },
           data: {
             amountPaid: { increment: amount },
             remainingAmount: newRemainingAmount,
             status: 'partially_paid',
-            notes: data.notes ?? `Partial payment of ${amount}. Remaining ${newRemainingAmount} rescheduled to ${data.newDate}.`,
+            notes: data.notes ?? null,
           },
         });
 
-        // Create payment record for the partial amount
         paymentRecord = await tx.installmentPayment.create({
           data: {
             installmentId,
@@ -903,32 +897,36 @@ export const installmentsService = {
             paymentDate: new Date(),
             collectedBy: userId,
             referenceNumber: data.referenceNumber ?? null,
-            notes: data.notes ?? `Partial payment. Remaining ${newRemainingAmount} rescheduled.`,
+            notes: data.notes ?? `Partial payment of ${amount}. Promise date: ${data.newDate}.`,
           },
         });
 
-        // Create new installment for the remaining amount on the new date
-        newInstallment = await tx.installment.create({
-          data: {
-            scheduleId: schedule.id,
-            installmentNumber: installment.installmentNumber,
-            dueDate: newDate,
-            amountDue: newRemainingAmount,
-            amountPaid: 0,
-            remainingAmount: newRemainingAmount,
-            status: 'upcoming',
-            isRescheduled: false,
-            rescheduledFromId: installmentId,
-            notes: `Remainder from partial payment on installment #${installment.installmentNumber}. Original due: ${new Date(installment.dueDate).toISOString().split('T')[0]}.`,
-          },
+        // 2. Delegate chain handling (create sub / absorb into next) to the rule engine
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const result = await applyPartialWithPromise(tx, {
+          sourceInstallmentId: installmentId,
+          newPromiseDate: newDate,
+          remainderAfterPayment: newRemainingAmount,
+          actorUserId: userId,
+          employeeNote: data.notes,
+          today,
         });
+
+        // If a sub row was created, expose it in the response as newInstallment
+        if (result.branch === 'sub_created' && result.newSubId) {
+          newInstallment = await tx.installment.findUnique({
+            where: { id: result.newSubId },
+          });
+        }
       }
 
-      // Check if ALL non-rescheduled installments in this schedule are now paid
+      // Check if ALL non-rescheduled, non-closed installments in this schedule are now paid
       const unpaidCount = await tx.installment.count({
         where: {
           scheduleId: schedule.id,
           isRescheduled: false,
+          isClosed: false,
           status: { notIn: ['paid', 'rescheduled'] },
         },
       });
@@ -937,6 +935,18 @@ export const installmentsService = {
         await tx.installmentSchedule.update({
           where: { id: schedule.id },
           data: { status: 'completed' },
+        });
+
+        await tx.installmentRollLog.create({
+          data: {
+            scheduleId: schedule.id,
+            eventType: 'schedule_completed',
+            eventDate: new Date(),
+            actorUserId: userId,
+            displayMessage:
+              `Schedule completed. All installments have been paid for sale ${schedule.sale.saleNumber}.`,
+            metadata: { scheduleId: schedule.id } as Prisma.InputJsonValue,
+          },
         });
       }
 
@@ -1151,6 +1161,41 @@ export const installmentsService = {
     });
 
     return newInstallment;
+  },
+
+  /**
+   * Return the audit trail (roll log) for a schedule, newest first.
+   * Includes the actor user (if any) for user-driven events.
+   */
+  async getRollLog(scheduleId: string) {
+    const events = await prisma.installmentRollLog.findMany({
+      where: { scheduleId },
+      orderBy: [{ eventDate: 'desc' }, { createdAt: 'desc' }],
+      include: {
+        actor: { select: { id: true, fullName: true, username: true } },
+      },
+    });
+    return events;
+  },
+
+  /**
+   * Manually trigger the rule engine. Used by the admin endpoint for
+   * ops/recovery. Defaults to "today" and all active schedules, but can be
+   * scoped to a specific date or schedule.
+   */
+  async runRollover(args: { date?: string; scheduleId?: string }) {
+    const today = args.date ? new Date(args.date) : new Date();
+    today.setHours(0, 0, 0, 0);
+    const result = await prisma.$transaction(async (tx) => {
+      return ensureRolledForToday(tx, today, {
+        scheduleId: args.scheduleId,
+      });
+    });
+    return {
+      date: today.toISOString().split('T')[0],
+      scope: args.scheduleId ? `schedule:${args.scheduleId}` : 'all-active-schedules',
+      ...result,
+    };
   },
 };
 

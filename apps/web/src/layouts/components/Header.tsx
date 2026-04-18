@@ -53,9 +53,11 @@ export function Header() {
     }
   }, [isDark]);
 
-  // Fetch available shops for the current user (admin/accountant can switch)
+  // Fetch available shops for the current user (owner/admin/accountant can switch)
   const canSwitchShop =
-    user?.role === UserRole.ADMIN || user?.role === UserRole.ACCOUNTANT;
+    user?.role === UserRole.OWNER ||
+    user?.role === UserRole.ADMIN ||
+    user?.role === UserRole.ACCOUNTANT;
   const meQuery = useMeQuery(canSwitchShop);
   const availableShops = meQuery.data?.shops ?? [];
 

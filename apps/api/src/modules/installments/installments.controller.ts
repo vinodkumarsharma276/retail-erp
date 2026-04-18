@@ -267,4 +267,34 @@ export const installmentsController = {
       return sendError(reply, message, 500);
     }
   },
+
+  async getRollLog(
+    request: FastifyRequest<{ Params: { scheduleId: string } }>,
+    reply: FastifyReply,
+  ) {
+    try {
+      const log = await installmentsService.getRollLog(request.params.scheduleId);
+      return sendSuccess(reply, log);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to fetch roll log';
+      return sendError(reply, message, 500);
+    }
+  },
+
+  async runRollover(
+    request: FastifyRequest<{ Querystring: { date?: string; scheduleId?: string } }>,
+    reply: FastifyReply,
+  ) {
+    try {
+      const dateStr = request.query.date ?? new Date().toISOString().split('T')[0];
+      const result = await installmentsService.runRollover({
+        date: dateStr,
+        scheduleId: request.query.scheduleId,
+      });
+      return sendSuccess(reply, result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to run rollover';
+      return sendError(reply, message, 500);
+    }
+  },
 };

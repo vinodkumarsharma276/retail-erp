@@ -53,7 +53,7 @@ const CATEGORY_LABELS: Record<string, string> = {
 
 export function ExpenseListPage() {
   const user = useAuthStore((s) => s.user);
-  const isAdmin = user?.role === UserRole.ADMIN;
+  const isAdmin = user?.role === UserRole.OWNER || user?.role === UserRole.ADMIN;
 
   // ------ Filters state (URL search params) ------
   const [searchParams, setSearchParams] = useSearchParams();

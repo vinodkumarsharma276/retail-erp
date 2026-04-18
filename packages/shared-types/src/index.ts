@@ -1,4 +1,5 @@
 export * from './enums';
+export * from './permissions';
 export * from './shop.types';
 export * from './user.types';
 export * from './product.types';

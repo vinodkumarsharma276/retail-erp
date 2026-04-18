@@ -375,13 +375,7 @@ function OverdueTab() {
         render: (row) => (
           <div>
             <p className="font-medium">{row.customerName}</p>
-            <a
-              href={`tel:${row.customerPhone}`}
-              className="text-xs text-primary hover:underline"
-              onClick={(e) => e.stopPropagation()}
-            >
-              {row.customerPhone}
-            </a>
+            <p className="text-xs text-muted-foreground">{row.customerPhone}</p>
           </div>
         ),
       },
@@ -576,13 +570,7 @@ function CollectionsTab() {
         render: (row) => (
           <div>
             <p className="font-medium">{row.customerName}</p>
-            <a
-              href={`tel:${row.customerPhone}`}
-              className="text-xs text-primary hover:underline"
-              onClick={(e) => e.stopPropagation()}
-            >
-              {row.customerPhone}
-            </a>
+            <p className="text-xs text-muted-foreground">{row.customerPhone}</p>
           </div>
         ),
       },

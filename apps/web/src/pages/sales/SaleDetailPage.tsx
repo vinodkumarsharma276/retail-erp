@@ -29,7 +29,7 @@ export function SaleDetailPage() {
   const userRole = user?.role;
 
   const isAdminOrAccountant =
-    userRole === UserRole.ADMIN || userRole === UserRole.ACCOUNTANT;
+    userRole === UserRole.OWNER || userRole === UserRole.ADMIN || userRole === UserRole.ACCOUNTANT;
 
   const { data: sale, isLoading, isError } = useSaleDetailQuery(id);
 
@@ -315,6 +315,9 @@ export function SaleDetailPage() {
                   const totalInterest = principal * (rate / 100) * months;
                   const fc = Number(sale.fileCharge ?? 0);
                   const totalEarnings = netProductProfit + totalInterest + fc;
+                  // Margin % is earnings over cost basis (DP ex-ITC).
+                  const costBasis = dp - inGst;
+                  const earningsPct = costBasis > 0 ? (totalEarnings / costBasis) * 100 : 0;
 
                   return (
                     <div className="mt-4 pt-4 border-t">
@@ -342,9 +345,25 @@ export function SaleDetailPage() {
                         )}
                         <div>
                           <p className="text-xs text-muted-foreground">Total Earnings</p>
-                          <p className={cn('text-lg font-bold', totalEarnings >= 0 ? 'text-green-600' : 'text-red-600')}>
-                            {formatINR(totalEarnings)}
-                          </p>
+                          <div className="flex items-baseline gap-2">
+                            <p className={cn('text-lg font-bold', totalEarnings >= 0 ? 'text-green-600' : 'text-red-600')}>
+                              {formatINR(totalEarnings)}
+                            </p>
+                            {costBasis > 0 && (
+                              <span
+                                className={cn(
+                                  'text-xs font-semibold px-1.5 py-0.5 rounded-md',
+                                  earningsPct >= 0
+                                    ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                                    : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+                                )}
+                                title="Total earnings as a % of cost basis (DP excluding input GST)"
+                              >
+                                {earningsPct >= 0 ? '+' : ''}
+                                {earningsPct.toFixed(1)}%
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </div>
