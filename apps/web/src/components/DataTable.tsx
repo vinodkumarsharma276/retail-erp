@@ -39,6 +39,8 @@ interface DataTableProps<T> {
   emptyMessage?: string;
   /** Unique key extractor, defaults to index */
   rowKey?: (row: T, index: number) => string;
+  /** Optional row click handler. When set, rows show a pointer cursor. */
+  onRowClick?: (row: T, index: number) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -52,6 +54,7 @@ export function DataTable<T>({
   isLoading = false,
   emptyMessage = 'No data found.',
   rowKey,
+  onRowClick,
 }: DataTableProps<T>) {
   // Skeleton rows when loading
   if (isLoading) {
@@ -159,7 +162,11 @@ export function DataTable<T>({
             {data.map((row, idx) => (
               <tr
                 key={rowKey ? rowKey(row, idx) : idx}
-                className="border-b last:border-0 hover:bg-muted/30 transition-colors"
+                onClick={onRowClick ? () => onRowClick(row, idx) : undefined}
+                className={cn(
+                  'border-b last:border-0 hover:bg-muted/30 transition-colors',
+                  onRowClick && 'cursor-pointer',
+                )}
               >
                 {columns.map((col) => (
                   <td

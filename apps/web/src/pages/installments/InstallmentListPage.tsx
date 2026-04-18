@@ -10,6 +10,7 @@ import {
   Search,
   X,
   ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { DataTable, type Column } from '../../components/DataTable';
@@ -39,11 +40,12 @@ const SEARCH_FILTERS = [
 // ---------------------------------------------------------------------------
 // Tabs
 // ---------------------------------------------------------------------------
-type TabKey = 'collections' | 'overdue';
+type TabKey = 'collections' | 'overdue' | 'search';
 
 const tabs: { key: TabKey; label: string }[] = [
   { key: 'collections', label: "Today's Scheduled" },
   { key: 'overdue', label: 'All Overdue' },
+  { key: 'search', label: 'Search Installment' },
 ];
 
 // ---------------------------------------------------------------------------
@@ -69,6 +71,17 @@ export function InstallmentListPage() {
     number: number;
     dueDate?: string;
   } | null>(null);
+
+  // Expanded search result cards (collapsed by default)
+  const [expandedScheduleIds, setExpandedScheduleIds] = useState<Set<string>>(new Set());
+  const toggleScheduleExpanded = (id: string) => {
+    setExpandedScheduleIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   const updateFilters = (updates: Record<string, string>) => {
     setSearchParams((prev) => {
@@ -98,144 +111,8 @@ export function InstallmentListPage() {
         </p>
       </div>
 
-      {/* Search Section */}
-      <div className="rounded-lg border bg-card p-4 mb-6">
-        <div className="flex flex-wrap items-center gap-3">
-          {/* Filter dropdown */}
-          <div className="relative">
-            <select
-              value={searchFilter}
-              onChange={(e) => setSearchFilter(e.target.value)}
-              className={cn(
-                'appearance-none rounded-md border bg-background pl-3 pr-8 py-2 text-sm',
-                'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-              )}
-            >
-              {SEARCH_FILTERS.map((f) => (
-                <option key={f.value} value={f.value}>
-                  {f.label}
-                </option>
-              ))}
-            </select>
-            <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          </div>
-
-          {/* Search input */}
-          <div className="relative flex-1 min-w-[200px] max-w-md">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search installments..."
-              className={cn(
-                'w-full rounded-md border bg-background pl-9 pr-9 py-2 text-sm',
-                'placeholder:text-muted-foreground',
-                'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-              )}
-            />
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery('')}
-                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-sm p-0.5 text-muted-foreground hover:text-foreground"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            )}
-          </div>
-
-          {/* Loading indicator */}
-          {isSearching && (
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-          )}
-        </div>
-
-        {/* Search results */}
-        {searchResults && searchResults.length > 0 && (
-          <div className="mt-4 space-y-3">
-            {searchResults.map((schedule: any) => (
-              <div key={schedule.id} className="rounded-md border p-4">
-                {/* Header: Customer + Product + Sale info */}
-                <div className="flex items-center justify-between mb-3">
-                  <div>
-                    <p className="font-medium">{schedule.sale.customer.name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {schedule.sale.customer.phone} | {schedule.sale.product.brand} {schedule.sale.product.modelNumber}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      Ledger: {schedule.sale.ledgerNumber} | Sale: {schedule.sale.saleNumber}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-sm font-medium">EMI: {formatINR(schedule.emiAmount)}/month</p>
-                    <p className="text-xs text-muted-foreground">{schedule.numInstallments} installments</p>
-                  </div>
-                </div>
-
-                {/* Installments table */}
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b text-left">
-                        <th className="pb-2 text-xs font-medium text-muted-foreground">EMI #</th>
-                        <th className="pb-2 text-xs font-medium text-muted-foreground">Due Date</th>
-                        <th className="pb-2 text-xs font-medium text-muted-foreground text-right">Amount</th>
-                        <th className="pb-2 text-xs font-medium text-muted-foreground text-right">Paid</th>
-                        <th className="pb-2 text-xs font-medium text-muted-foreground text-right">Remaining</th>
-                        <th className="pb-2 text-xs font-medium text-muted-foreground">Status</th>
-                        <th className="pb-2 text-xs font-medium text-muted-foreground">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y">
-                      {schedule.installments.map((inst: any) => (
-                        <tr key={inst.id}>
-                          <td className="py-2">#{inst.installmentNumber}</td>
-                          <td className="py-2">{formatDateIN(inst.dueDate)}</td>
-                          <td className="py-2 text-right">{formatINR(inst.amountDue)}</td>
-                          <td className="py-2 text-right text-green-600">{formatINR(inst.amountPaid)}</td>
-                          <td className="py-2 text-right text-red-600">{formatINR(inst.remainingAmount)}</td>
-                          <td className="py-2"><StatusBadge status={inst.status} /></td>
-                          <td className="py-2">
-                            {Number(inst.remainingAmount) > 0 && inst.status !== 'rescheduled' && inst.status !== 'partially_paid' && (
-                              <button
-                                onClick={() =>
-                                  setSearchPaymentTarget({
-                                    id: inst.id,
-                                    amount: Number(inst.remainingAmount),
-                                    number: inst.installmentNumber,
-                                    dueDate: typeof inst.dueDate === 'string' ? inst.dueDate.split('T')[0] : new Date(inst.dueDate).toISOString().split('T')[0],
-                                  })
-                                }
-                                className={cn(
-                                  'flex items-center gap-1 rounded-md bg-green-600 px-2.5 py-1.5 text-xs font-medium text-white',
-                                  'hover:bg-green-700 transition-colors',
-                                )}
-                              >
-                                <Banknote className="h-3.5 w-3.5" />
-                                Pay
-                              </button>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* No results message */}
-        {debouncedSearch.trim().length >= 2 && !isSearching && searchResults && searchResults.length === 0 && (
-          <div className="mt-4 flex items-center justify-center py-6 text-muted-foreground">
-            <p className="text-sm">No results found for &ldquo;{debouncedSearch}&rdquo;</p>
-          </div>
-        )}
-      </div>
-
       {/* Tab navigation */}
-      <div className="flex gap-1 rounded-lg bg-muted p-1 mb-6 overflow-x-auto">
+      <div className="mb-6 flex gap-1 rounded-lg bg-muted p-1 overflow-x-auto">
         {tabs.map((tab) => (
           <button
             key={tab.key}
@@ -251,6 +128,211 @@ export function InstallmentListPage() {
           </button>
         ))}
       </div>
+
+      {/* Search tab content */}
+      {activeTab === 'search' && (
+        <>
+          <div className="rounded-lg border bg-card p-4 mb-6">
+            <div className="flex flex-wrap items-center gap-3">
+              {/* Filter dropdown */}
+              <div className="relative">
+                <select
+                  value={searchFilter}
+                  onChange={(e) => setSearchFilter(e.target.value)}
+                  className={cn(
+                    'appearance-none rounded-md border bg-background pl-3 pr-8 py-2 text-sm',
+                    'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                  )}
+                >
+                  {SEARCH_FILTERS.map((f) => (
+                    <option key={f.value} value={f.value}>
+                      {f.label}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              </div>
+
+              {/* Search input */}
+              <div className="relative flex-1 min-w-[200px] max-w-md">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search installments..."
+                  className={cn(
+                    'w-full rounded-md border bg-background pl-9 pr-9 py-2 text-sm',
+                    'placeholder:text-muted-foreground',
+                    'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                  )}
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery('')}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded-sm p-0.5 text-muted-foreground hover:text-foreground"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+
+              {/* Loading indicator */}
+              {isSearching && (
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              )}
+            </div>
+          </div>
+
+          {/* Search results */}
+          {searchResults && searchResults.length > 0 && (
+            <>
+              <div className="mb-3 flex items-center justify-between text-sm text-muted-foreground">
+                <p>
+                  {searchResults.length} result{searchResults.length === 1 ? '' : 's'} found
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setExpandedScheduleIds(new Set(searchResults.map((s: any) => s.id)))
+                    }
+                    className="text-xs text-primary hover:underline"
+                  >
+                    Expand all
+                  </button>
+                  <span>|</span>
+                  <button
+                    type="button"
+                    onClick={() => setExpandedScheduleIds(new Set())}
+                    className="text-xs text-primary hover:underline"
+                  >
+                    Collapse all
+                  </button>
+                </div>
+              </div>
+
+              <div className="mb-6 space-y-2">
+                {searchResults.map((schedule: any) => {
+                  const isExpanded = expandedScheduleIds.has(schedule.id);
+                  const pendingCount = schedule.installments.filter(
+                    (i: any) => Number(i.remainingAmount) > 0,
+                  ).length;
+                  return (
+                    <div key={schedule.id} className="rounded-lg border bg-card">
+                      {/* Collapsible header */}
+                      <button
+                        type="button"
+                        onClick={() => toggleScheduleExpanded(schedule.id)}
+                        className={cn(
+                          'flex w-full items-center gap-3 p-3 text-left transition-colors',
+                          'hover:bg-muted/50',
+                          isExpanded && 'border-b',
+                        )}
+                      >
+                        <ChevronRight
+                          className={cn(
+                            'h-4 w-4 flex-shrink-0 text-muted-foreground transition-transform',
+                            isExpanded && 'rotate-90',
+                          )}
+                        />
+                        <div className="min-w-0 flex-1 flex flex-wrap items-center gap-x-4 gap-y-1">
+                          <div className="min-w-0">
+                            <p className="font-medium truncate">{schedule.sale.customer.name}</p>
+                            <p className="text-xs text-muted-foreground truncate">
+                              {schedule.sale.customer.phone} | {schedule.sale.product.brand} {schedule.sale.product.modelNumber}
+                            </p>
+                          </div>
+                          <div className="text-xs text-muted-foreground whitespace-nowrap">
+                            Ledger: <span className="font-medium text-foreground">{schedule.sale.ledgerNumber}</span>
+                            {' '}| Sale: <span className="font-medium text-foreground">{schedule.sale.saleNumber}</span>
+                          </div>
+                        </div>
+                        <div className="text-right flex-shrink-0">
+                          <p className="text-sm font-medium whitespace-nowrap">
+                            {formatINR(schedule.emiAmount)}/mo
+                          </p>
+                          <p className="text-xs text-muted-foreground whitespace-nowrap">
+                            {pendingCount} pending / {schedule.numInstallments}
+                          </p>
+                        </div>
+                      </button>
+
+                      {/* Collapsible body */}
+                      {isExpanded && (
+                        <div className="p-4">
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-sm">
+                              <thead>
+                                <tr className="border-b text-left">
+                                  <th className="pb-2 text-xs font-medium text-muted-foreground">EMI #</th>
+                                  <th className="pb-2 text-xs font-medium text-muted-foreground">Due Date</th>
+                                  <th className="pb-2 text-xs font-medium text-muted-foreground text-right">Amount</th>
+                                  <th className="pb-2 text-xs font-medium text-muted-foreground text-right">Paid</th>
+                                  <th className="pb-2 text-xs font-medium text-muted-foreground text-right">Remaining</th>
+                                  <th className="pb-2 text-xs font-medium text-muted-foreground">Status</th>
+                                  <th className="pb-2 text-xs font-medium text-muted-foreground">Action</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y">
+                                {schedule.installments.map((inst: any) => (
+                                  <tr key={inst.id}>
+                                    <td className="py-2">#{inst.installmentNumber}</td>
+                                    <td className="py-2">{formatDateIN(inst.dueDate)}</td>
+                                    <td className="py-2 text-right">{formatINR(inst.amountDue)}</td>
+                                    <td className="py-2 text-right text-green-600">{formatINR(inst.amountPaid)}</td>
+                                    <td className="py-2 text-right text-red-600">{formatINR(inst.remainingAmount)}</td>
+                                    <td className="py-2"><StatusBadge status={inst.status} /></td>
+                                    <td className="py-2">
+                                      {Number(inst.remainingAmount) > 0 && inst.status !== 'rescheduled' && inst.status !== 'partially_paid' && (
+                                        <button
+                                          onClick={() =>
+                                            setSearchPaymentTarget({
+                                              id: inst.id,
+                                              amount: Number(inst.remainingAmount),
+                                              number: inst.installmentNumber,
+                                              dueDate: typeof inst.dueDate === 'string' ? inst.dueDate.split('T')[0] : new Date(inst.dueDate).toISOString().split('T')[0],
+                                            })
+                                          }
+                                          className={cn(
+                                            'flex items-center gap-1 rounded-md bg-green-600 px-2.5 py-1.5 text-xs font-medium text-white',
+                                            'hover:bg-green-700 transition-colors',
+                                          )}
+                                        >
+                                          <Banknote className="h-3.5 w-3.5" />
+                                          Pay
+                                        </button>
+                                      )}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+
+          {/* No results message */}
+          {debouncedSearch.trim().length >= 2 && !isSearching && searchResults && searchResults.length === 0 && (
+            <div className="mb-6 rounded-lg border bg-card py-6 flex items-center justify-center text-muted-foreground">
+              <p className="text-sm">No results found for &ldquo;{debouncedSearch}&rdquo;</p>
+            </div>
+          )}
+
+          {/* Hint when input is empty */}
+          {debouncedSearch.trim().length < 2 && (
+            <div className="mb-6 rounded-lg border border-dashed bg-card/50 py-10 flex items-center justify-center text-muted-foreground">
+              <p className="text-sm">Type at least 2 characters to search installments.</p>
+            </div>
+          )}
+        </>
+      )}
 
       {/* Tab content */}
       {activeTab === 'collections' && <CollectionsTab />}

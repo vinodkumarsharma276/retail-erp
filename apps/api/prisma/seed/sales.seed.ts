@@ -1,496 +1,351 @@
-import type { PrismaClient, SaleRecord, Shop, Product, Customer, User, FinanceCompany } from '@prisma/client';
-import { generateSaleNumber } from '../../src/utils/id-generator';
+import type { PrismaClient, SaleRecord, Shop, Product, Customer, FinanceCompany } from '@prisma/client';
+import { randomUUID } from 'crypto';
+
+// ---------------------------------------------------------------------------
+// Bulk sales seed — 100 sales per shop (400 total).
+//
+// Sale type distribution (random per sale):
+//   40% full_payment
+//   15% partial_with_promise
+//   30% self_finance         (requires guarantor + EMI schedule)
+//   15% company_finance      (requires finance company)
+//
+// Integrity rules enforced:
+//   - shopId matches product.shopId and customer.shopId
+//   - Only picks products with status = 'in_stock'; flips to 'sold' after
+//   - Customer is picked from the SAME shop as the product
+//   - Repeat customers: sample with replacement (same customer may appear
+//     across multiple sales — 20% chance to pick a "recent" customer again)
+//   - self_finance: guarantor picked from customers with isGuarantor=true
+//     in the same shop; if none, guarantor = any other non-self customer
+//   - Creates SaleRecord + SaleRecordSanitized in same transaction
+//   - For self_finance: creates InstallmentSchedule + Installment rows
+// ---------------------------------------------------------------------------
+
+const SALES_PER_SHOP = 100;
+
+const INTEREST_RATES = [1, 1.5, 2, 2.5, 3];
+const INSTALLMENT_MONTHS = [6, 9, 12, 18, 24];
+const GST_SLABS = [5, 12, 18, 28];
+
+function rand(seed: number): number {
+  const x = Math.sin(seed * 9301 + 49297) * 233280;
+  return x - Math.floor(x);
+}
+
+function pick<T>(arr: T[], seed: number): T {
+  return arr[Math.floor(rand(seed) * arr.length) % arr.length];
+}
+
+function pad(n: number, width: number): string {
+  return String(n).padStart(width, '0');
+}
+
+function addMonths(d: Date, months: number): Date {
+  const r = new Date(d);
+  r.setMonth(r.getMonth() + months);
+  return r;
+}
+
+function daysAgo(n: number): Date {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - n);
+  return d;
+}
 
 export async function seedSales(
   prisma: PrismaClient,
   shops: Shop[],
   products: Product[],
   customers: Customer[],
-  users: User[],
+  _users: unknown,
   financeCompanies: FinanceCompany[],
 ): Promise<SaleRecord[]> {
-  if (customers.length === 0 || products.length === 0) {
-    return [];
-  }
+  if (products.length === 0 || customers.length === 0) return [];
 
-  const sales: SaleRecord[] = [];
+  const existingSales = await prisma.saleRecord.count();
+  if (existingSales >= 400) return prisma.saleRecord.findMany();
 
-  const shopByCode = (code: string) => shops.find((s) => s.code === code)!;
-  const customerByName = (name: string) => customers.find((c) => c.name === name)!;
-  const financeByCode = (code: string) => financeCompanies.find((fc) => fc.code === code)!;
-
-  // Helper to get first admin user for a shop
-  async function getFirstAdmin(shopId: string) {
-    const userShop = await prisma.userShop.findFirst({
-      where: { shopId, isPrimary: true, user: { role: 'admin' } },
+  // Map shopId → admin user (createdBy)
+  const shopAdminMap: Record<string, string> = {};
+  for (const shop of shops) {
+    const us = await prisma.userShop.findFirst({
+      where: { shopId: shop.id, isPrimary: true, user: { role: 'admin' } },
       include: { user: true },
     });
-    return userShop?.user;
+    if (us) shopAdminMap[shop.id] = us.user.id;
   }
 
-  // Find products by brand + model containing a substring + shop
-  // Uses a consumed set to avoid picking the same product twice
-  const consumedProductIds = new Set<string>();
-
-  const findProduct = (shopCode: string, brand: string, modelSubstr: string) => {
-    const shop = shopByCode(shopCode);
-    return products.find(
-      (p) =>
-        p.shopId === shop.id &&
-        p.brand === brand &&
-        p.modelNumber.includes(modelSubstr) &&
-        p.status === 'in_stock' &&
-        !consumedProductIds.has(p.id),
-    );
-  };
-
-  // Find any in_stock product for a shop (fallback)
-  const findAnyProduct = (shopCode: string) => {
-    const shop = shopByCode(shopCode);
-    return products.find(
-      (p) => p.shopId === shop.id && p.status === 'in_stock' && !consumedProductIds.has(p.id),
-    );
-  };
-
-  const ve = shopByCode('VE');
-  const ne = shopByCode('NE');
-  const vha = shopByCode('VHA');
-  const nhe = shopByCode('NHE');
-
-  const veAdmin = await getFirstAdmin(ve.id);
-  const neAdmin = await getFirstAdmin(ne.id);
-  const vhaAdmin = await getFirstAdmin(vha.id);
-  const nheAdmin = await getFirstAdmin(nhe.id);
-
-  // Track last sale numbers per shop prefix for sequential generation
-  const saleDate = new Date('2026-04-10');
-
-  // =========================================================================
-  // ORIGINAL 5 SALES (keep as-is)
-  // =========================================================================
-  const saleDefs = [
-    // 1. Full Payment (VE): Rajesh buys Samsung 55" QLED TV, full cash
-    {
-      shopCode: 'VE',
-      shopId: ve.id,
-      product: findProduct('VE', 'Samsung', 'QA55Q60B'),
-      customer: customerByName('Rajesh Kumar'),
-      ledgerNumber: 'VE001',
-      saleType: 'full_payment' as const,
-      sellingPrice: 79990,
-      discountAmount: 0,
-      gstRate: 18,
-      downPayment: 0, // Full payment, no down payment concept
-      paymentMode: 'cash' as const,
-      saleDate,
-      createdBy: veAdmin?.id,
-    },
-    // 2. Partial with Promise (NE): Priya buys Samsung Galaxy S24, 50% down, promise 15 days
-    {
-      shopCode: 'NE',
-      shopId: ne.id,
-      product: findProduct('NE', 'Samsung', 'Galaxy S24'),
-      customer: customerByName('Priya Sharma'),
-      ledgerNumber: 'NE001',
-      saleType: 'partial_with_promise' as const,
-      sellingPrice: 74999,
-      discountAmount: 0,
-      gstRate: 18,
-      downPayment: 44249, // ~50% of totalAmount
-      paymentMode: 'cash' as const,
-      promiseDate: '2026-04-25',
-      saleDate,
-      createdBy: neAdmin?.id,
-    },
-    // 3. Self Finance (VHA): Amit buys Godrej Queen Bed, 20% down UPI, 2% interest, 12 months, file charge 500
-    {
-      shopCode: 'VHA',
-      shopId: vha.id,
-      product: findProduct('VHA', 'Godrej', 'Viva Queen'),
-      customer: customerByName('Amit Verma'),
-      ledgerNumber: 'VA001',
-      saleType: 'self_finance' as const,
-      sellingPrice: 32990,
-      discountAmount: 0,
-      gstRate: 18,
-      downPayment: 7786, // ~20% of totalAmount (32990 + 18% GST = 38928, 20% = ~7786)
-      paymentMode: 'upi' as const,
-      interestRate: 2,
-      fileCharge: 500,
-      numInstallments: 12,
-      guarantorName: 'Suresh Guarantor2',
-      saleDate,
-      createdBy: vhaAdmin?.id,
-    },
-    // 4. Company Finance (NHE): Sunita buys Blue Star Window AC via Bajaj Finance, 10% down cash
-    {
-      shopCode: 'NHE',
-      shopId: nhe.id,
-      product: findProduct('NHE', 'Blue Star', 'WFA312LN'),
-      customer: customerByName('Sunita Devi'),
-      ledgerNumber: 'NH001',
-      saleType: 'company_finance' as const,
-      sellingPrice: 26990,
-      discountAmount: 0,
-      gstRate: 18,
-      downPayment: 3185, // ~10% of totalAmount (26990 + 18% GST = 31848, 10% = ~3185)
-      paymentMode: 'cash' as const,
-      financeCompanyCode: 'BAJAJ',
-      saleDate,
-      createdBy: nheAdmin?.id,
-    },
-    // 5. Self Finance (VE): Mohit buys LG 43" LED TV, 30% down cash, 1.5% interest, 6 months
-    {
-      shopCode: 'VE',
-      shopId: ve.id,
-      product: findProduct('VE', 'LG', '43LM5760'),
-      customer: customerByName('Mohit Singh'),
-      ledgerNumber: 'VE002',
-      saleType: 'self_finance' as const,
-      sellingPrice: 32990,
-      discountAmount: 0,
-      gstRate: 18,
-      downPayment: 11678, // ~30% of totalAmount (32990 + 18% GST = 38928, 30% = ~11678)
-      paymentMode: 'cash' as const,
-      interestRate: 1.5,
-      fileCharge: 0,
-      numInstallments: 6,
-      guarantorName: 'Ravi Guarantor1',
-      saleDate,
-      createdBy: veAdmin?.id,
-    },
-  ];
-
-  // Mark consumed products from original defs
-  for (const def of saleDefs) {
-    if (def.product) consumedProductIds.add(def.product.id);
+  // Index products by shop (in_stock only)
+  const stockByShop = new Map<string, Product[]>();
+  for (const p of products) {
+    if (p.status !== 'in_stock') continue;
+    if (!stockByShop.has(p.shopId)) stockByShop.set(p.shopId, []);
+    stockByShop.get(p.shopId)!.push(p);
   }
 
-  // =========================================================================
-  // HISTORICAL SALES (5 new sales with realistic dates)
-  // =========================================================================
-  const historicalSaleDefs = [
-    // H1: Dec 2025 — Self Finance, 9 months, nearly complete (VE)
-    {
-      shopCode: 'VE',
-      shopId: ve.id,
-      product: findProduct('VE', 'Sony', 'KD-50X74K') ?? findAnyProduct('VE'),
-      customer: customerByName('Rajesh Kumar'),
-      ledgerNumber: 'VE010',
-      saleType: 'self_finance' as const,
-      sellingPrice: 45000,
-      discountAmount: 0,
-      gstRate: 18,
-      downPayment: 10000,
-      paymentMode: 'cash' as const,
-      interestRate: 2,
-      fileCharge: 500,
-      numInstallments: 9,
-      guarantorName: 'Ravi Guarantor1',
-      saleDate: new Date('2025-12-15'),
-      createdBy: veAdmin?.id,
-    },
-    // H2: Jan 2026 — Self Finance, 12 months, early stage (NE)
-    {
-      shopCode: 'NE',
-      shopId: ne.id,
-      product: findProduct('NE', 'LG', 'RS-Q19') ?? findProduct('NE', 'Sony', 'KD-50X74K') ?? findAnyProduct('NE'),
-      customer: customerByName('Priya Sharma'),
-      ledgerNumber: 'NE010',
-      saleType: 'self_finance' as const,
-      sellingPrice: 70000,
-      discountAmount: 0,
-      gstRate: 18,
-      downPayment: 15000,
-      paymentMode: 'cash' as const,
-      interestRate: 1.5,
-      fileCharge: 0,
-      numInstallments: 12,
-      guarantorName: 'Suresh Guarantor2',
-      saleDate: new Date('2026-01-10'),
-      createdBy: neAdmin?.id,
-    },
-    // H3: Feb 2026 — Self Finance, 6 months (NHE)
-    {
-      shopCode: 'NHE',
-      shopId: nhe.id,
-      product: findProduct('NHE', 'Samsung', 'WW70T') ?? findProduct('NHE', 'LG', 'T80SPSF') ?? findAnyProduct('NHE'),
-      customer: customerByName('Sunita Devi'),
-      ledgerNumber: 'NH010',
-      saleType: 'self_finance' as const,
-      sellingPrice: 30000,
-      discountAmount: 0,
-      gstRate: 18,
-      downPayment: 5000,
-      paymentMode: 'cash' as const,
-      interestRate: 2.5,
-      fileCharge: 300,
-      numInstallments: 6,
-      guarantorName: 'Ravi Guarantor1',
-      saleDate: new Date('2026-02-20'),
-      createdBy: nheAdmin?.id,
-    },
-    // H4: Mar 2026 — Company Finance, Bajaj Finance (VHA)
-    {
-      shopCode: 'VHA',
-      shopId: vha.id,
-      product: findProduct('VHA', 'LG', 'RS-Q19') ?? findProduct('VHA', 'Samsung', 'AR18CY') ?? findAnyProduct('VHA'),
-      customer: customerByName('Amit Verma'),
-      ledgerNumber: 'VA010',
-      saleType: 'company_finance' as const,
-      sellingPrice: 42000,
-      discountAmount: 0,
-      gstRate: 18,
-      downPayment: 8000,
-      paymentMode: 'cash' as const,
-      financeCompanyCode: 'BAJAJ',
-      saleDate: new Date('2026-03-05'),
-      createdBy: vhaAdmin?.id,
-    },
-    // H5: Nov 2025 — Full Payment, old sale (VE)
-    {
-      shopCode: 'VE',
-      shopId: ve.id,
-      product: findProduct('VE', 'Samsung', 'UA32T') ?? findProduct('VE', 'TCL', '43S5400') ?? findAnyProduct('VE'),
-      customer: customerByName('Mohit Singh'),
-      ledgerNumber: 'VE011',
-      saleType: 'full_payment' as const,
-      sellingPrice: 17000,
-      discountAmount: 0,
-      gstRate: 18,
-      downPayment: 0,
-      paymentMode: 'cash' as const,
-      saleDate: new Date('2025-11-20'),
-      createdBy: veAdmin?.id,
-    },
-  ];
-
-  // Mark consumed products from historical defs
-  for (const def of historicalSaleDefs) {
-    if (def.product) consumedProductIds.add(def.product.id);
+  // Index customers by shop
+  const custByShop = new Map<string, Customer[]>();
+  const guarantorByShop = new Map<string, Customer[]>();
+  for (const c of customers) {
+    if (!custByShop.has(c.shopId)) custByShop.set(c.shopId, []);
+    custByShop.get(c.shopId)!.push(c);
+    if (c.isGuarantor) {
+      if (!guarantorByShop.has(c.shopId)) guarantorByShop.set(c.shopId, []);
+      guarantorByShop.get(c.shopId)!.push(c);
+    }
   }
 
-  // Combine all sale definitions
-  const allSaleDefs = [...saleDefs, ...historicalSaleDefs];
+  // Per-shop, per-date sale sequence counter (for saleNumber)
+  const saleSeqMap = new Map<string, number>();
+  // Per-shop ledger counter
+  const ledgerSeqMap = new Map<string, number>();
 
-  for (const def of allSaleDefs) {
-    // Check if sale already exists by ledgerNumber + shopId (idempotent)
-    const existing = await prisma.saleRecord.findFirst({
-      where: { ledgerNumber: def.ledgerNumber, shopId: def.shopId },
-    });
-    if (existing) {
-      sales.push(existing);
-      continue;
-    }
+  const soldProductIds = new Set<string>();
+  const createdSales: SaleRecord[] = [];
 
-    if (!def.product) {
-      console.warn(`  Product not found for sale ${def.ledgerNumber}, skipping`);
-      continue;
-    }
+  // Remember "recent customers" per shop for repeat-purchase behavior
+  const recentCustomers = new Map<string, Customer[]>();
 
-    if (!def.customer) {
-      console.warn(`  Customer not found for sale ${def.ledgerNumber}, skipping`);
-      continue;
-    }
+  let seedBase = 7000;
 
-    const saleDateForThisSale = def.saleDate;
+  for (const shop of shops) {
+    const createdBy = shopAdminMap[shop.id];
+    if (!createdBy) continue;
 
-    // Generate sale number
-    const lastSale = await prisma.saleRecord.findFirst({
-      where: { saleNumber: { startsWith: `SALE-${def.shopCode}-` } },
-      orderBy: { saleNumber: 'desc' },
-      select: { saleNumber: true },
-    });
-    const saleNumber = generateSaleNumber(def.shopCode, saleDateForThisSale, lastSale?.saleNumber ?? undefined);
+    const shopStock = (stockByShop.get(shop.id) ?? []).slice();
+    const shopCust = custByShop.get(shop.id) ?? [];
+    const shopGuar = guarantorByShop.get(shop.id) ?? [];
+    if (shopStock.length === 0 || shopCust.length === 0) continue;
 
-    // Calculate financials
-    const sellingPrice = def.sellingPrice;
-    const discountAmount = def.discountAmount ?? 0;
-    const gstRate = def.gstRate ?? 0;
-    const netAmount = sellingPrice - discountAmount;
-    const gstAmount = Math.round(netAmount * gstRate / 100);
-    const totalAmount = netAmount + gstAmount;
-    const downPayment = def.downPayment ?? 0;
-    const fileCharge = 'fileCharge' in def ? (def.fileCharge ?? 0) : 0;
-    const interestRate = 'interestRate' in def ? (def.interestRate ?? 0) : 0;
-    const numInstallments = 'numInstallments' in def ? (def.numInstallments ?? 0) : 0;
+    // Shuffle shopStock deterministically so sales pick across many products
+    shopStock.sort((a, b) => a.id.localeCompare(b.id));
 
-    // Calculate EMI for self_finance (just for amounts; we control due dates ourselves)
-    let emiAmounts: { principal: number; totalInterest: number; fileCharge: number; totalPayable: number; emiAmount: number } | null = null;
+    const recents: Customer[] = [];
+    recentCustomers.set(shop.id, recents);
 
-    if (def.saleType === 'self_finance') {
-      const principal = totalAmount - downPayment;
-      const totalInterest = principal * (interestRate / 100) * numInstallments;
-      const totalPayable = principal + totalInterest + fileCharge;
-      const emiAmount = Math.ceil(totalPayable / numInstallments);
-      emiAmounts = { principal, totalInterest, fileCharge, totalPayable, emiAmount };
-    }
+    for (let i = 0; i < SALES_PER_SHOP; i++) {
+      const seed = seedBase++;
 
-    // Pending amount for partial_with_promise
-    let pendingAmount = 0;
-    if (def.saleType === 'partial_with_promise') {
-      pendingAmount = totalAmount - downPayment;
-    }
+      const product = shopStock[i % shopStock.length];
+      if (soldProductIds.has(product.id)) continue;
 
-    // Company finance specifics
-    const financeCompany = 'financeCompanyCode' in def
-      ? financeByCode(def.financeCompanyCode as string)
-      : null;
-    const financedAmount = def.saleType === 'company_finance' ? totalAmount - downPayment : null;
-    const expectedPaymentDate = def.saleType === 'company_finance'
-      ? new Date(saleDateForThisSale.getTime() + 86400000) // next day
-      : null;
-
-    // For company finance historical sale H4 — mark as 'received'
-    const isH4CompanyFinance = def.ledgerNumber === 'VA010' && def.saleType === 'company_finance';
-    const financePaymentStatus = def.saleType === 'company_finance'
-      ? (isH4CompanyFinance ? 'received' as any : 'pending' as any)
-      : null;
-    const financePaymentReceivedDate = isH4CompanyFinance
-      ? new Date('2026-03-12') // received a week after sale
-      : null;
-    const financeReferenceNumber = isH4CompanyFinance
-      ? 'BAJAJ-VHA-202603-001'
-      : null;
-
-    // Guarantor
-    const guarantor = 'guarantorName' in def
-      ? customerByName(def.guarantorName as string)
-      : null;
-
-    // For full_payment, downPayment should match totalAmount conceptually (they pay it all)
-    const effectiveDownPayment = def.saleType === 'full_payment' ? totalAmount : downPayment;
-
-    // Create everything in a transaction
-    const saleRecord = await prisma.$transaction(async (tx) => {
-      // Create SaleRecord
-      const sale = await tx.saleRecord.create({
-        data: {
-          saleNumber,
-          ledgerNumber: def.ledgerNumber,
-          shopId: def.shopId,
-          productId: def.product!.id,
-          customerId: def.customer!.id,
-          saleDate: saleDateForThisSale,
-          saleType: def.saleType as any,
-          mrp: Number(def.product!.mrp),
-          sellingPrice,
-          discountAmount,
-          netAmount,
-          gstRate,
-          gstAmount,
-          totalAmount,
-          downPayment: effectiveDownPayment,
-          paymentMode: def.paymentMode as any,
-          // Partial with promise
-          promiseDate: def.saleType === 'partial_with_promise' && 'promiseDate' in def
-            ? new Date(def.promiseDate as string)
-            : null,
-          pendingAmount,
-          // Self finance
-          interestRate: def.saleType === 'self_finance' ? interestRate : null,
-          fileCharge: def.saleType === 'self_finance' ? fileCharge : 0,
-          totalFinancedAmount: emiAmounts?.totalPayable ?? null,
-          numInstallments: def.saleType === 'self_finance' ? numInstallments : null,
-          emiAmount: emiAmounts?.emiAmount ?? null,
-          guarantorId: guarantor?.id ?? null,
-          // Company finance
-          financeCompanyId: financeCompany?.id ?? null,
-          financedAmount,
-          expectedPaymentDate,
-          financePaymentStatus,
-          financePaymentReceivedDate,
-          financeReferenceNumber,
-          // Metadata
-          createdBy: def.createdBy!,
-        },
-      });
-
-      // Create SaleRecordSanitized — ALWAYS
-      await tx.saleRecordSanitized.create({
-        data: {
-          id: sale.id,
-          saleNumber,
-          ledgerNumber: def.ledgerNumber,
-          shopId: def.shopId,
-          productId: def.product!.id,
-          customerId: def.customer!.id,
-          saleDate: saleDateForThisSale,
-          saleType: 'full_payment',
-          sellingPrice,
-          totalAmount,
-          paymentMode: 'cash',
-          createdBy: def.createdBy!,
-        },
-      });
-
-      // Update Product status to 'sold'
-      await tx.product.update({
-        where: { id: def.product!.id },
-        data: { status: 'sold' },
-      });
-
-      // Create ProductAuditTrail entry
-      await tx.productAuditTrail.create({
-        data: {
-          productId: def.product!.id,
-          eventType: 'sold',
-          toShopId: def.shopId,
-          referenceId: sale.id,
-          referenceType: 'sale',
-          performedBy: def.createdBy ?? null,
-          notes: `Sold to ${def.customer!.name}, Sale: ${saleNumber} (seed data)`,
-        },
-      });
-
-      // If self_finance: Create InstallmentSchedule + Installment records
-      // Use sale date as the base for due date calculation (not today)
-      if (def.saleType === 'self_finance' && emiAmounts) {
-        const startDate = new Date(saleDateForThisSale);
-        startDate.setMonth(startDate.getMonth() + 1);
-
-        const schedule = await tx.installmentSchedule.create({
-          data: {
-            saleId: sale.id,
-            totalPrincipal: emiAmounts.principal,
-            totalInterest: emiAmounts.totalInterest,
-            fileCharge: emiAmounts.fileCharge,
-            totalPayable: emiAmounts.totalPayable,
-            numInstallments,
-            emiAmount: emiAmounts.emiAmount,
-            startDate,
-            status: 'active',
-          },
-        });
-
-        for (let i = 1; i <= numInstallments; i++) {
-          const dueDate = new Date(saleDateForThisSale);
-          dueDate.setMonth(dueDate.getMonth() + i);
-          const isLast = i === numInstallments;
-          const amount = isLast
-            ? emiAmounts.totalPayable - emiAmounts.emiAmount * (numInstallments - 1)
-            : emiAmounts.emiAmount;
-
-          await tx.installment.create({
-            data: {
-              scheduleId: schedule.id,
-              installmentNumber: i,
-              dueDate,
-              amountDue: amount,
-              amountPaid: 0,
-              remainingAmount: amount,
-              status: 'upcoming',
-              isRescheduled: false,
-            },
-          });
+      // Customer — 20% repeat, 80% fresh
+      let customer: Customer;
+      if (rand(seed) < 0.2 && recents.length > 0) {
+        customer = recents[Math.floor(rand(seed + 1) * recents.length)];
+      } else {
+        customer = shopCust[Math.floor(rand(seed + 2) * shopCust.length)];
+      }
+      // Don't use a customer who IS only a guarantor as the buyer (allow it, but prefer non-guarantor)
+      if (customer.isGuarantor && rand(seed + 3) < 0.7) {
+        const nonGuar = shopCust.filter((c) => !c.isGuarantor);
+        if (nonGuar.length > 0) {
+          customer = nonGuar[Math.floor(rand(seed + 4) * nonGuar.length)];
         }
       }
 
-      return sale;
-    });
+      // Sale type distribution
+      const typeRoll = rand(seed + 5);
+      let saleType: 'full_payment' | 'partial_with_promise' | 'self_finance' | 'company_finance';
+      if (typeRoll < 0.40) saleType = 'full_payment';
+      else if (typeRoll < 0.55) saleType = 'partial_with_promise';
+      else if (typeRoll < 0.85) saleType = 'self_finance';
+      else saleType = 'company_finance';
 
-    sales.push(saleRecord);
+      // Sale date — spread across last 365 days
+      const daysBack = Math.floor(rand(seed + 6) * 365);
+      const saleDate = daysAgo(daysBack);
+
+      // Price fields (GST-inclusive selling price)
+      const mrp = Number(product.mrp);
+      const sellingPrice = Number(product.sellingPrice);
+      const discountAmount = Math.round(rand(seed + 7) * sellingPrice * 0.05); // 0-5% discount
+      const netAmount = sellingPrice - discountAmount;
+      const gstRate = GST_SLABS[Math.floor(rand(seed + 8) * GST_SLABS.length)];
+      const gstAmount = Math.round(netAmount * gstRate / (100 + gstRate));
+
+      // Purchase price snapshots (for ITC profit calc)
+      const purchasePrice = Number(product.purchasePrice);
+      const purchaseGstAmount = Math.round(purchasePrice * gstRate / (100 + gstRate));
+
+      // Sale number (per-shop, per-date)
+      const dateKey = saleDate.toISOString().split('T')[0];
+      const seqKey = `${shop.code}-${dateKey}`;
+      const seq = (saleSeqMap.get(seqKey) ?? 0) + 1;
+      saleSeqMap.set(seqKey, seq);
+      const saleNumber = `SALE-${shop.code}-${dateKey.replace(/-/g, '')}-${pad(seq, 3)}`;
+
+      // Ledger number
+      const ledgerSeq = (ledgerSeqMap.get(shop.code) ?? 0) + 1;
+      ledgerSeqMap.set(shop.code, ledgerSeq);
+      const ledgerNumber = `${shop.code}${pad(ledgerSeq, 4)}`;
+
+      // Payment mode
+      const payModes = ['cash', 'upi', 'credit_card', 'debit_card', 'bank_transfer'] as const;
+      const paymentMode = pick(payModes, seed + 9);
+
+      // Build per-type fields
+      const saleData: any = {
+        id: randomUUID(),
+        saleNumber,
+        ledgerNumber,
+        shopId: shop.id,
+        productId: product.id,
+        customerId: customer.id,
+        saleDate,
+        saleType,
+        mrp,
+        sellingPrice,
+        discountAmount,
+        netAmount,
+        gstRate,
+        gstAmount,
+        purchasePrice,
+        purchaseGstAmount,
+        totalAmount: netAmount,
+        paymentMode,
+        createdBy,
+      };
+
+      let installmentSchedule: any = null;
+
+      if (saleType === 'full_payment') {
+        saleData.downPayment = netAmount;
+      } else if (saleType === 'partial_with_promise') {
+        const paid = Math.round(netAmount * (0.3 + rand(seed + 10) * 0.4));
+        saleData.downPayment = paid;
+        saleData.pendingAmount = netAmount - paid;
+        saleData.promiseDate = addMonths(saleDate, 1);
+      } else if (saleType === 'self_finance') {
+        // Need a guarantor
+        let guarantor = shopGuar[Math.floor(rand(seed + 11) * Math.max(shopGuar.length, 1))];
+        if (!guarantor || guarantor.id === customer.id) {
+          const candidates = shopCust.filter((c) => c.id !== customer.id);
+          guarantor = candidates[Math.floor(rand(seed + 12) * candidates.length)];
+        }
+        if (!guarantor) {
+          // fallback: skip to full_payment
+          saleData.saleType = 'full_payment';
+          saleData.downPayment = netAmount;
+        } else {
+          const downPaymentPct = 0.2 + rand(seed + 13) * 0.3; // 20-50%
+          const downPayment = Math.round(netAmount * downPaymentPct);
+          const principal = netAmount - downPayment;
+          const interestRate = INTEREST_RATES[Math.floor(rand(seed + 14) * INTEREST_RATES.length)];
+          const numInstallments = INSTALLMENT_MONTHS[Math.floor(rand(seed + 15) * INSTALLMENT_MONTHS.length)];
+          const fileCharge = Math.round(500 + rand(seed + 16) * 1500);
+          const totalInterest = Math.round(principal * (interestRate / 100) * numInstallments);
+          const totalPayable = principal + totalInterest + fileCharge;
+          const emiAmount = Math.round(totalPayable / numInstallments);
+
+          saleData.downPayment = downPayment;
+          saleData.interestRate = interestRate;
+          saleData.fileCharge = fileCharge;
+          saleData.totalFinancedAmount = totalPayable;
+          saleData.numInstallments = numInstallments;
+          saleData.emiAmount = emiAmount;
+          saleData.guarantorId = guarantor.id;
+
+          installmentSchedule = {
+            principal,
+            totalInterest,
+            fileCharge,
+            totalPayable,
+            numInstallments,
+            emiAmount,
+            startDate: addMonths(saleDate, 1),
+          };
+        }
+      } else if (saleType === 'company_finance') {
+        const fc = financeCompanies[Math.floor(rand(seed + 17) * Math.max(financeCompanies.length, 1))];
+        if (!fc) {
+          saleData.saleType = 'full_payment';
+          saleData.downPayment = netAmount;
+        } else {
+          const downPayment = Math.round(netAmount * (0.1 + rand(seed + 18) * 0.2)); // 10-30%
+          const financedAmount = netAmount - downPayment;
+          saleData.downPayment = downPayment;
+          saleData.financeCompanyId = fc.id;
+          saleData.financedAmount = financedAmount;
+          saleData.expectedPaymentDate = addMonths(saleDate, 1);
+          // 70% of company-finance are already received
+          const received = rand(seed + 19) < 0.7;
+          saleData.financePaymentStatus = received ? 'received' : 'pending';
+          if (received) {
+            saleData.financePaymentReceivedDate = addMonths(saleDate, 1);
+            saleData.financeReferenceNumber = `FIN-${pad(seed, 6)}`;
+          }
+        }
+      }
+
+      // Create sale + sanitized + schedule atomically
+      await prisma.$transaction(async (tx) => {
+        await tx.saleRecord.create({ data: saleData });
+        await tx.saleRecordSanitized.create({
+          data: {
+            id: saleData.id,
+            saleNumber,
+            ledgerNumber,
+            shopId: shop.id,
+            productId: product.id,
+            customerId: customer.id,
+            saleDate,
+            sellingPrice,
+            totalAmount: netAmount,
+            createdBy,
+          },
+        });
+        if (installmentSchedule) {
+          const schedule = await tx.installmentSchedule.create({
+            data: {
+              saleId: saleData.id,
+              totalPrincipal: installmentSchedule.principal,
+              totalInterest: installmentSchedule.totalInterest,
+              fileCharge: installmentSchedule.fileCharge,
+              totalPayable: installmentSchedule.totalPayable,
+              numInstallments: installmentSchedule.numInstallments,
+              emiAmount: installmentSchedule.emiAmount,
+              startDate: installmentSchedule.startDate,
+              status: 'active',
+            },
+          });
+          // Create Installment rows (upcoming by default)
+          const today = daysAgo(0);
+          for (let n = 1; n <= installmentSchedule.numInstallments; n++) {
+            const dueDate = addMonths(installmentSchedule.startDate, n - 1);
+            let status: 'upcoming' | 'overdue' | 'due_today' = 'upcoming';
+            if (dueDate.getTime() < today.getTime()) status = 'overdue';
+            else if (dueDate.getTime() === today.getTime()) status = 'due_today';
+            await tx.installment.create({
+              data: {
+                scheduleId: schedule.id,
+                installmentNumber: n,
+                dueDate,
+                amountDue: installmentSchedule.emiAmount,
+                remainingAmount: installmentSchedule.emiAmount,
+                status,
+              },
+            });
+          }
+        }
+        await tx.product.update({
+          where: { id: product.id },
+          data: { status: 'sold' },
+        });
+      });
+
+      soldProductIds.add(product.id);
+
+      // Remember this customer for repeat behavior
+      if (recents.length < 50) recents.push(customer);
+      else recents[Math.floor(rand(seed + 20) * recents.length)] = customer;
+
+      createdSales.push(saleData as SaleRecord);
+    }
   }
 
-  return sales;
+  console.log(`  Bulk sales created: ${createdSales.length}`);
+  return createdSales;
 }

@@ -4,32 +4,38 @@
 
 @layer base {
   :root {
-    --background: 0 0% 98.5%;        /* warm white #FAFAFA */
-    --foreground: 222 47% 11%;        /* dark slate #1E293B */
-    --card: 0 0% 100%;                /* pure white */
+    /* Light theme — inspired by SAP Fiori / Zoho One / Odoo:
+       soft tinted canvas so white cards visually lift off the background. */
+    --background: 220 20% 96.5%;       /* soft cool gray canvas #F1F3F7 */
+    --foreground: 222 47% 11%;         /* dark slate #0F172A */
+    --card: 0 0% 100%;                 /* pure white card */
     --card-foreground: 222 47% 11%;
-    --primary: 239 84% 67%;           /* indigo-500 #6366F1 */
-    --primary-foreground: 0 0% 100%;  /* white */
-    --secondary: 210 40% 96%;         /* light gray */
-    --secondary-foreground: 215 25% 27%;
-    --muted: 210 40% 96%;
-    --muted-foreground: 215 16% 47%;
-    --accent: 210 40% 96%;
-    --accent-foreground: 222 47% 11%;
-    --destructive: 0 84% 60%;         /* red-500 */
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+    --primary: 221 83% 53%;            /* blue-600 #2563EB — classic ERP blue */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 16% 93%;          /* subtle cool gray */
+    --secondary-foreground: 222 30% 22%;
+    --muted: 220 16% 93%;              /* #E7EAEF */
+    --muted-foreground: 220 12% 42%;   /* slate-500-ish */
+    --accent: 220 16% 93%;
+    --accent-foreground: 222 30% 22%;
+    --destructive: 0 72% 51%;          /* red-600 */
     --destructive-foreground: 0 0% 100%;
-    --border: 214 32% 91%;            /* subtle gray */
-    --input: 214 32% 91%;
-    --ring: 239 84% 67%;              /* matches primary */
+    --success: 142 71% 45%;            /* emerald-600 */
+    --warning: 38 92% 50%;             /* amber-500 */
+    --border: 220 14% 88%;             /* visible but gentle #DADFE6 */
+    --input: 220 14% 88%;
+    --ring: 221 83% 53%;               /* matches primary */
     --radius: 0.5rem;
 
-    /* Sidebar-specific */
+    /* Sidebar — slightly tinted to sit between canvas and content */
     --sidebar: 0 0% 100%;
     --sidebar-foreground: 222 47% 11%;
-    --sidebar-border: 214 32% 91%;
-    --sidebar-active: 239 84% 67%;
+    --sidebar-border: 220 14% 88%;
+    --sidebar-active: 221 83% 53%;
     --sidebar-active-foreground: 0 0% 100%;
-    --sidebar-hover: 210 40% 96%;
+    --sidebar-hover: 220 16% 93%;
   }
 
   .dark {
@@ -37,7 +43,9 @@
     --foreground: 210 40% 90%;        /* light text */
     --card: 222 47% 10%;              /* slightly lighter card */
     --card-foreground: 210 40% 90%;
-    --primary: 239 84% 67%;           /* indigo-400 */
+    --popover: 222 47% 10%;
+    --popover-foreground: 210 40% 90%;
+    --primary: 217 91% 60%;           /* blue-500 for dark */
     --primary-foreground: 0 0% 100%;
     --secondary: 217 33% 17%;
     --secondary-foreground: 210 40% 90%;
@@ -45,17 +53,19 @@
     --muted-foreground: 215 20% 55%;
     --accent: 217 33% 17%;
     --accent-foreground: 210 40% 90%;
-    --destructive: 0 63% 31%;
+    --destructive: 0 63% 45%;
     --destructive-foreground: 210 40% 98%;
+    --success: 142 71% 45%;
+    --warning: 38 92% 50%;
     --border: 217 33% 17%;
     --input: 217 33% 17%;
-    --ring: 224 76% 48%;
+    --ring: 217 91% 60%;
 
     /* Sidebar-specific dark */
     --sidebar: 222 47% 10%;
     --sidebar-foreground: 210 40% 90%;
     --sidebar-border: 217 33% 17%;
-    --sidebar-active: 239 84% 67%;
+    --sidebar-active: 217 91% 60%;
     --sidebar-active-foreground: 0 0% 100%;
     --sidebar-hover: 217 33% 17%;
   }

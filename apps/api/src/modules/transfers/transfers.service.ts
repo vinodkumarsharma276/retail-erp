@@ -1,5 +1,65 @@
 import { prisma } from '../../config/database.js';
-import type { Prisma } from '@prisma/client';
+import type { Prisma, PrismaClient } from '@prisma/client';
+
+type Tx = Omit<PrismaClient, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'>;
+
+/**
+ * Find (or create) the Distributor record that represents a shop. Inter-shop
+ * transfers are sales between GST entities, so the source shop acts as the
+ * "distributor" of record for the destination shop's cloned inventory.
+ *
+ * Matched by GST number (unique per shop). Safe to call inside a transaction.
+ */
+async function getOrCreateShopDistributor(
+  tx: Tx,
+  shop: {
+    id: string;
+    name: string;
+    code: string;
+    gstNumber: string;
+    panNumber: string;
+    phone: string;
+    email?: string | null;
+    addressLine1: string;
+    addressLine2?: string | null;
+    city: string;
+    state: string;
+    pincode: string;
+    bankName?: string | null;
+    bankAccountNumber?: string | null;
+    bankIfsc?: string | null;
+    bankBranch?: string | null;
+  },
+  createdBy?: string,
+) {
+  const existing = await tx.distributor.findFirst({
+    where: { gstNumber: shop.gstNumber },
+  });
+  if (existing) return existing;
+
+  return tx.distributor.create({
+    data: {
+      companyName: shop.name,
+      contactPerson: shop.name,
+      phone: shop.phone,
+      email: shop.email ?? null,
+      gstNumber: shop.gstNumber,
+      panNumber: shop.panNumber,
+      addressLine1: shop.addressLine1,
+      addressLine2: shop.addressLine2 ?? null,
+      city: shop.city,
+      state: shop.state,
+      pincode: shop.pincode,
+      bankName: shop.bankName ?? null,
+      bankAccountNumber: shop.bankAccountNumber ?? null,
+      bankIfsc: shop.bankIfsc ?? null,
+      bankBranch: shop.bankBranch ?? null,
+      dynamicAttributes: { sourceType: 'shop', shopId: shop.id, shopCode: shop.code },
+      isActive: true,
+      createdBy: createdBy ?? null,
+    },
+  });
+}
 
 export const transfersService = {
   /**
@@ -158,7 +218,26 @@ export const transfersService = {
 
     // 4-6. Transaction: create transfer, update product, create audit trail
     const transfer = await prisma.$transaction(async (tx) => {
-      // 4. Create InterShopTransfer record
+      // 4a. Auto-generate invoice number if not supplied: TRF-{FROM}-{TO}-YYYYMMDD-NNNN
+      let invoiceNumber = data.invoiceNumber?.trim() || null;
+      if (!invoiceNumber) {
+        const fromShop = await tx.shop.findUnique({
+          where: { id: data.fromShopId },
+          select: { code: true },
+        });
+        const now = new Date();
+        const ymd =
+          now.getFullYear().toString() +
+          String(now.getMonth() + 1).padStart(2, '0') +
+          String(now.getDate()).padStart(2, '0');
+        const prefix = `TRF-${fromShop?.code ?? 'XX'}-${toShop.code}-${ymd}-`;
+        const existingCount = await tx.interShopTransfer.count({
+          where: { invoiceNumber: { startsWith: prefix } },
+        });
+        invoiceNumber = `${prefix}${String(existingCount + 1).padStart(4, '0')}`;
+      }
+
+      // 4b. Create InterShopTransfer record
       const newTransfer = await tx.interShopTransfer.create({
         data: {
           productId: data.productId,
@@ -168,7 +247,7 @@ export const transfersService = {
           status: 'initiated',
           transferPrice: data.transferPrice ?? null,
           gstAmount: data.gstAmount ?? null,
-          invoiceNumber: data.invoiceNumber ?? null,
+          invoiceNumber,
           notes: data.notes ?? null,
           initiatedBy: userId,
         },
@@ -203,15 +282,25 @@ export const transfersService = {
 
   /**
    * Receive a transfer — accept the product at the destination shop.
-   * Changes product ownership to the destination shop, marks it in_stock again.
+   *
+   * An inter-shop transfer is modelled as a sale from one GST entity (source
+   * shop) to another (destination shop). On receive:
+   *   - The ORIGINAL product stays with the source shop and is marked 'sold'
+   *     (preserves full history and keeps it visible in the source inventory).
+   *   - A NEW product record is created in the destination shop with status
+   *     'in_stock' and purchasePrice = transferPrice (this becomes the DP for
+   *     that shop going forward).
+   *   - Audit trail entries are written for both the source and destination
+   *     products so the full movement history is traceable.
    */
   async receive(transferId: string, userId: string) {
     // 1. Validate transfer exists and is in a receivable status
     const transfer = await prisma.interShopTransfer.findUnique({
       where: { id: transferId },
       include: {
-        fromShop: { select: { id: true, name: true, code: true } },
+        fromShop: true,
         toShop: { select: { id: true, name: true, code: true } },
+        product: true,
       },
     });
     if (!transfer) {
@@ -221,9 +310,20 @@ export const transfersService = {
       throw new Error('Transfer cannot be received in its current status');
     }
 
-    // 2-4. Transaction: update transfer, update product, create audit trail
+    const sourceProduct = transfer.product;
+    if (!sourceProduct) {
+      throw new Error('Source product not found for this transfer');
+    }
+
+    // The DP at the destination shop is the transfer price (falls back to the
+    // source purchase price if no transfer price was recorded).
+    const destinationDp =
+      transfer.transferPrice != null
+        ? Number(transfer.transferPrice)
+        : Number(sourceProduct.purchasePrice);
+
     await prisma.$transaction(async (tx) => {
-      // 2. Update transfer status to 'received'
+      // 2. Mark transfer as received
       await tx.interShopTransfer.update({
         where: { id: transferId },
         data: {
@@ -233,26 +333,80 @@ export const transfersService = {
         },
       });
 
-      // 3. Update product: change shopId to destination, status back to 'in_stock'
+      // 3. Source product: stays at source shop, status becomes 'sold'
+      //    (it was effectively sold to the destination GST entity).
       await tx.product.update({
-        where: { id: transfer.productId },
+        where: { id: sourceProduct.id },
+        data: { status: 'sold' },
+      });
+
+      // 3b. Ensure a Distributor record exists that represents the source shop.
+      //     This is what the destination shop will see as the "distributor" of
+      //     the cloned item (since it came from another GST entity, not a
+      //     third-party supplier).
+      const sourceShopDistributor = await getOrCreateShopDistributor(
+        tx,
+        transfer.fromShop,
+        userId,
+      );
+
+      // 4. Clone into destination shop as a fresh in-stock product.
+      //    purchaseId is cleared — the item's origin for the destination shop
+      //    is this transfer, not a distributor purchase invoice. distributorId
+      //    points at the source shop's distributor representation.
+      const destProduct = await tx.product.create({
         data: {
           shopId: transfer.toShopId,
+          categoryId: sourceProduct.categoryId,
+          brand: sourceProduct.brand,
+          modelNumber: sourceProduct.modelNumber,
+          serialNumber: sourceProduct.serialNumber,
+          mrp: sourceProduct.mrp,
+          sellingPrice: sourceProduct.sellingPrice,
+          purchasePrice: destinationDp,
+          color: sourceProduct.color,
+          weightKg: sourceProduct.weightKg,
+          distributorId: sourceShopDistributor.id,
+          purchaseId: null,
           status: 'in_stock',
+          dynamicAttributes: sourceProduct.dynamicAttributes as any,
+          warrantyMonths: sourceProduct.warrantyMonths,
+          warrantyExpiry: sourceProduct.warrantyExpiry,
+          barcode: sourceProduct.barcode,
+          notes: sourceProduct.notes,
+          createdBy: userId,
         },
       });
 
-      // 4. Create ProductAuditTrail entry for 'transferred_in'
+      // 5. Audit trail: 'transferred_in' on the new destination product
       await tx.productAuditTrail.create({
         data: {
-          productId: transfer.productId,
+          productId: destProduct.id,
           eventType: 'transferred_in',
           fromShopId: transfer.fromShopId,
           toShopId: transfer.toShopId,
           referenceId: transferId,
           referenceType: 'transfer',
           performedBy: userId,
-          notes: `Transfer received from ${transfer.fromShop.name} (${transfer.fromShop.code})`,
+          notes:
+            `Transfer received from ${transfer.fromShop.name} ` +
+            `(${transfer.fromShop.code}). Cloned from source product ${sourceProduct.id}.`,
+        },
+      });
+
+      // 6. Audit trail: mark source product as sold-to-GST-entity
+      await tx.productAuditTrail.create({
+        data: {
+          productId: sourceProduct.id,
+          eventType: 'sold',
+          fromShopId: transfer.fromShopId,
+          toShopId: transfer.toShopId,
+          referenceId: transferId,
+          referenceType: 'transfer',
+          performedBy: userId,
+          notes:
+            `Sold via inter-shop transfer to ${transfer.toShop.name} ` +
+            `(${transfer.toShop.code}). New product: ${destProduct.id}.`,
         },
       });
     });

@@ -84,6 +84,9 @@ export const productsService = {
         category: {
           select: { id: true, name: true, slug: true, path: true },
         },
+        purchase: {
+          select: { id: true, gstAmount: true, totalAmount: true, discountAmount: true },
+        },
       },
       orderBy: { createdAt: 'desc' },
       take: 50, // Limit search results

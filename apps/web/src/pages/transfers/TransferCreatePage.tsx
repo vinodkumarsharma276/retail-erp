@@ -20,6 +20,25 @@ import { StatusBadge } from '../../components/StatusBadge';
 import { formatINR } from '@retailerp/shared-utils';
 import type { Product } from '@retailerp/shared-types';
 
+// Standard Indian GST slabs used to snap an inferred rate
+const GST_SLABS = [0, 5, 12, 18, 28];
+
+/** Infer GST rate (%) from the product's purchase invoice; default 18%. */
+function inferGstRate(product: Product | null): number {
+  if (!product) return 18;
+  const purchase = (product as any).purchase;
+  if (!purchase) return 18;
+  const totalAmt = Number(purchase.totalAmount) || 0;
+  const discAmt = Number(purchase.discountAmount) || 0;
+  const gstAmt = Number(purchase.gstAmount) || 0;
+  const base = totalAmt - discAmt;
+  if (base <= 0 || gstAmt <= 0) return 18;
+  const rawRate = (gstAmt / base) * 100;
+  return GST_SLABS.reduce((prev, curr) =>
+    Math.abs(curr - rawRate) < Math.abs(prev - rawRate) ? curr : prev,
+  );
+}
+
 export function TransferCreatePage() {
   const navigate = useNavigate();
   const currentShopId = useShopStore((s) => s.currentShopId);
@@ -147,6 +166,9 @@ export function TransferCreatePage() {
                   onClick={() => {
                     setSelectedProduct(null);
                     setProductSearchText('');
+                    setTransferPrice('');
+                    setGstAmount('');
+                    setInvoiceNumber('');
                   }}
                   className="text-sm text-primary hover:underline"
                 >
@@ -211,6 +233,22 @@ export function TransferCreatePage() {
                             setSelectedProduct(product);
                             setProductSearchText('');
                             setShowProductDropdown(false);
+
+                            // Auto-populate Transfer Price = DP + 1
+                            const dp = Number(product.purchasePrice) || 0;
+                            const tPrice = dp + 1;
+                            setTransferPrice(tPrice ? tPrice.toFixed(2) : '');
+
+                            // Auto-populate GST Amount (GST-inclusive on transfer price)
+                            const rate = inferGstRate(product);
+                            const gst =
+                              rate > 0
+                                ? Math.round((tPrice * rate) / (100 + rate) * 100) / 100
+                                : 0;
+                            setGstAmount(gst ? gst.toFixed(2) : '');
+
+                            // Invoice number is auto-generated on the server
+                            setInvoiceNumber('');
                           }}
                           className="w-full text-left px-3 py-2.5 hover:bg-muted transition-colors border-b last:border-0"
                         >
@@ -310,7 +348,7 @@ export function TransferCreatePage() {
                 )}
               />
               <p className="mt-1 text-xs text-muted-foreground">
-                Optional. Inter-GST sale price between shops.
+                Auto-filled as Dealer Price + ₹1. Becomes the DP at the destination shop.
               </p>
             </div>
 
@@ -335,6 +373,9 @@ export function TransferCreatePage() {
                   'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                 )}
               />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Auto-computed from the product's purchase GST rate.
+              </p>
             </div>
 
             {/* Invoice Number */}
@@ -350,13 +391,16 @@ export function TransferCreatePage() {
                 type="text"
                 value={invoiceNumber}
                 onChange={(e) => setInvoiceNumber(e.target.value)}
-                placeholder="e.g. INV-2026-001"
+                placeholder="Auto-generated (e.g. TRF-VE-NE-20260418-0001)"
                 className={cn(
                   'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
                   'placeholder:text-muted-foreground',
                   'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                 )}
               />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Leave blank to auto-generate.
+              </p>
             </div>
           </div>
 

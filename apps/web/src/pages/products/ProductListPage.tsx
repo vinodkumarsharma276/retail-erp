@@ -154,7 +154,7 @@ export function ProductListPage() {
       key: 'actions',
       header: 'Actions',
       render: (row) => (
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
           <button
             onClick={() => navigate(`/products/${row.id}/edit`)}
             className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
@@ -334,6 +334,7 @@ export function ProductListPage() {
         onPageChange={(p) => updateFilters({ page: String(p) })}
         emptyMessage="No products found matching your filters."
         rowKey={(row) => row.id}
+        onRowClick={(row) => navigate(`/products/${row.id}`)}
       />
     </div>
   );
