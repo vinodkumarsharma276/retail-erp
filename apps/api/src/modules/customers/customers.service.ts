@@ -266,4 +266,150 @@ export const customersService = {
 
     return sales;
   },
+
+  /**
+   * Aggregate installment reliability metrics across ALL schedules for this
+   * customer (all shops). Drives the credit-worthiness banner shown on Sale
+   * create and the summary card on Customer detail.
+   */
+  async getInstallmentHistory(customerId: string) {
+    const customer = await prisma.customer.findUnique({ where: { id: customerId } });
+    if (!customer) return null;
+
+    const schedules = await prisma.installmentSchedule.findMany({
+      where: { sale: { customerId } },
+      include: {
+        sale: { select: { shopId: true, saleDate: true, totalAmount: true } },
+        installments: {
+          include: { payments: { orderBy: { paymentDate: 'asc' } } },
+          orderBy: [{ installmentNumber: 'asc' }, { subSequence: 'asc' }],
+        },
+      },
+    });
+
+    let totalSchedules = 0;
+    let completedOnTime = 0;
+    let completedLate = 0;
+    let active = 0;
+    let totalInstallments = 0;
+    let paidOnTime = 0;
+    let paidLate = 0;
+    let absorbed = 0;
+    let reschedulesCreated = 0;
+    let totalDelayDays = 0;
+    let paidInstallmentsWithDelay = 0;
+    let longestOverdueDays = 0;
+    let lifetimeFinancedAmount = 0;
+    let lifetimePaid = 0;
+
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+
+    for (const sch of schedules) {
+      totalSchedules += 1;
+      lifetimeFinancedAmount += Number(sch.totalPayable);
+
+      let scheduleHadLate = false;
+      let hasUnpaid = false;
+
+      for (const inst of sch.installments) {
+        totalInstallments += 1;
+        lifetimePaid += Number(inst.amountPaid);
+
+        // Sub-row creation is a reschedule event
+        if (inst.parentInstallmentNumber != null) {
+          reschedulesCreated += 1;
+        }
+
+        if (inst.isClosed) {
+          absorbed += 1;
+          continue;
+        }
+
+        const due = new Date(inst.dueDate);
+        due.setHours(0, 0, 0, 0);
+
+        if (inst.status === 'paid') {
+          const lastPayment = inst.payments[inst.payments.length - 1];
+          if (lastPayment) {
+            const pd = new Date(lastPayment.paymentDate);
+            pd.setHours(0, 0, 0, 0);
+            const delay = Math.max(
+              0,
+              Math.floor((pd.getTime() - due.getTime()) / (1000 * 60 * 60 * 24)),
+            );
+            if (delay > 0) {
+              paidLate += 1;
+              scheduleHadLate = true;
+              totalDelayDays += delay;
+              paidInstallmentsWithDelay += 1;
+            } else {
+              paidOnTime += 1;
+            }
+          } else {
+            paidOnTime += 1;
+          }
+        } else if (inst.status === 'rescheduled') {
+          // primary row that was rescheduled — counted via sub creation above
+        } else {
+          hasUnpaid = true;
+          const days = Math.max(
+            0,
+            Math.floor((now.getTime() - due.getTime()) / (1000 * 60 * 60 * 24)),
+          );
+          if (days > longestOverdueDays) longestOverdueDays = days;
+        }
+      }
+
+      if (sch.status === 'active' || hasUnpaid) {
+        active += 1;
+      } else if (scheduleHadLate) {
+        completedLate += 1;
+      } else {
+        completedOnTime += 1;
+      }
+    }
+
+    const averageDelayDays =
+      paidInstallmentsWithDelay > 0
+        ? Math.round((totalDelayDays / paidInstallmentsWithDelay) * 10) / 10
+        : 0;
+
+    // Simple reliability score: 0-100.
+    //   Start at 100, subtract penalties.
+    //   -3 per late payment, -10 per chain absorbed, -0.5 per avg delay day,
+    //   -20 per active schedule with >30 day longest overdue.
+    let score = 100;
+    score -= paidLate * 3;
+    score -= absorbed * 10;
+    score -= averageDelayDays * 0.5;
+    if (longestOverdueDays > 30 && active > 0) score -= 20;
+    score = Math.max(0, Math.min(100, Math.round(score)));
+
+    const rating: 'excellent' | 'good' | 'fair' | 'poor' =
+      score >= 85 ? 'excellent' : score >= 70 ? 'good' : score >= 50 ? 'fair' : 'poor';
+
+    return {
+      customer: {
+        id: customer.id,
+        name: customer.name,
+        customerCode: customer.customerCode,
+      },
+      totalSchedules,
+      completedOnTime,
+      completedLate,
+      active,
+      totalInstallments,
+      paidOnTime,
+      paidLate,
+      absorbed,
+      reschedulesCreated,
+      averageDelayDays,
+      longestOverdueDays,
+      lifetimeFinancedAmount: Math.round(lifetimeFinancedAmount * 100) / 100,
+      lifetimePaid: Math.round(lifetimePaid * 100) / 100,
+      reliabilityScore: score,
+      rating,
+    };
+  },
 };

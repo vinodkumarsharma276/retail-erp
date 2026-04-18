@@ -11,9 +11,20 @@ import {
   CalendarDays,
   User,
   CreditCard,
+  History,
+  GitMerge,
+  GitBranch,
+  FileText,
+  Flag,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { useScheduleTimelineQuery, type TimelineEvent } from '../hooks/useInstallments';
+import {
+  useScheduleTimelineQuery,
+  useScheduleRollLogQuery,
+  type TimelineEvent,
+  type RollLogEvent,
+} from '../hooks/useInstallments';
+import { formatInstallmentLabel } from '../lib/installment-label';
 import { formatINR, formatDateIN } from '@retailerp/shared-utils';
 import { InstallmentStatus } from '@retailerp/shared-types';
 
@@ -111,6 +122,109 @@ function wasPaidLate(event: TimelineEvent): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Roll-log event icons + colors
+// ---------------------------------------------------------------------------
+const rollLogConfig: Record<
+  RollLogEvent['eventType'],
+  { icon: React.ReactNode; color: string; bg: string }
+> = {
+  installment_due: {
+    icon: <Clock className="h-4 w-4" />,
+    color: 'text-blue-600 dark:text-blue-400',
+    bg: 'bg-blue-100 dark:bg-blue-900/30',
+  },
+  sub_created: {
+    icon: <GitBranch className="h-4 w-4" />,
+    color: 'text-purple-600 dark:text-purple-400',
+    bg: 'bg-purple-100 dark:bg-purple-900/30',
+  },
+  payment_recorded: {
+    icon: <CheckCircle2 className="h-4 w-4" />,
+    color: 'text-green-600 dark:text-green-400',
+    bg: 'bg-green-100 dark:bg-green-900/30',
+  },
+  partial_payment: {
+    icon: <IndianRupee className="h-4 w-4" />,
+    color: 'text-yellow-600 dark:text-yellow-400',
+    bg: 'bg-yellow-100 dark:bg-yellow-900/30',
+  },
+  chain_absorbed: {
+    icon: <GitMerge className="h-4 w-4" />,
+    color: 'text-red-600 dark:text-red-400',
+    bg: 'bg-red-100 dark:bg-red-900/30',
+  },
+  chain_closed_manual: {
+    icon: <Ban className="h-4 w-4" />,
+    color: 'text-gray-600 dark:text-gray-400',
+    bg: 'bg-gray-100 dark:bg-gray-800/50',
+  },
+  schedule_completed: {
+    icon: <Flag className="h-4 w-4" />,
+    color: 'text-green-700 dark:text-green-500',
+    bg: 'bg-green-100 dark:bg-green-900/30',
+  },
+  note_added: {
+    icon: <FileText className="h-4 w-4" />,
+    color: 'text-gray-600 dark:text-gray-400',
+    bg: 'bg-gray-100 dark:bg-gray-800/50',
+  },
+};
+
+function RollLogSection({ scheduleId }: { scheduleId: string }) {
+  const { data: events, isLoading } = useScheduleRollLogQuery(scheduleId);
+
+  if (isLoading || !events || events.length === 0) return null;
+
+  return (
+    <div className="mt-6 border-t pt-4">
+      <div className="flex items-center gap-2 mb-3 text-sm font-semibold text-foreground">
+        <History className="h-4 w-4" />
+        Activity Log ({events.length})
+      </div>
+      <div className="max-h-[320px] overflow-y-auto pr-2 space-y-2">
+        {events.map((e) => {
+          const cfg = rollLogConfig[e.eventType] ?? rollLogConfig.note_added;
+          return (
+            <div
+              key={e.id}
+              className="flex gap-3 items-start text-xs rounded-md px-3 py-2 bg-muted/30"
+            >
+              <div
+                className={cn(
+                  'flex h-6 w-6 shrink-0 items-center justify-center rounded-full',
+                  cfg.bg,
+                  cfg.color,
+                )}
+              >
+                {cfg.icon}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-foreground">{e.displayMessage}</p>
+                <div className="mt-0.5 flex items-center gap-3 text-muted-foreground">
+                  <span className="flex items-center gap-1">
+                    <CalendarDays className="h-3 w-3" />
+                    {formatDateIN(e.eventDate)}
+                  </span>
+                  {e.actor && (
+                    <span className="flex items-center gap-1">
+                      <User className="h-3 w-3" />
+                      {e.actor.fullName}
+                    </span>
+                  )}
+                  <span className="uppercase tracking-wide text-[10px] text-muted-foreground/80">
+                    {e.eventType.replace(/_/g, ' ')}
+                  </span>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 export function PaymentTimeline({ scheduleId }: PaymentTimelineProps) {
@@ -186,7 +300,7 @@ export function PaymentTimeline({ scheduleId }: PaymentTimelineProps) {
                 {/* Header */}
                 <div className="flex items-center gap-2 mb-1">
                   <span className={cn('text-sm font-semibold', nodeColor)}>
-                    EMI #{event.installmentNumber}
+                    EMI {formatInstallmentLabel(event)}
                   </span>
                   <span
                     className={cn(
@@ -197,6 +311,11 @@ export function PaymentTimeline({ scheduleId }: PaymentTimelineProps) {
                   >
                     {paidLate ? 'Paid Late' : config.label}
                   </span>
+                  {event.isClosed && (
+                    <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300">
+                      Chain closed
+                    </span>
+                  )}
                 </div>
 
                 {/* Due date + amount */}
@@ -268,6 +387,7 @@ export function PaymentTimeline({ scheduleId }: PaymentTimelineProps) {
           );
         })}
       </div>
+      <RollLogSection scheduleId={scheduleId} />
     </div>
   );
 }

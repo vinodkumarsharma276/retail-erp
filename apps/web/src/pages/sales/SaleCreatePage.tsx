@@ -28,6 +28,7 @@ import { useCreateSaleMutation } from '../../hooks/useSales';
 import { useFinanceCompaniesQuery } from '../../hooks/useFinanceCompanies';
 import { useAuthStore } from '../../stores/auth-store';
 import { StatusBadge } from '../../components/StatusBadge';
+import { CustomerReliabilityCard } from '../../components/CustomerReliabilityCard';
 import {
   formatINR,
   calculateEMI,
@@ -1333,32 +1334,35 @@ export function SaleCreatePage() {
           </h2>
 
           {selectedCustomer ? (
-            <div className="rounded-md border p-4 bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium text-green-800 dark:text-green-200">
-                    {selectedCustomer.name}
-                  </p>
-                  <p className="text-sm text-green-600 dark:text-green-400 mt-0.5">
-                    {selectedCustomer.phone}
-                    {selectedCustomer.customerCode &&
-                      ` | ${selectedCustomer.customerCode}`}
-                    {selectedCustomer.city &&
-                      ` | ${selectedCustomer.city}`}
-                  </p>
+            <div className="space-y-3">
+              <div className="rounded-md border p-4 bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-medium text-green-800 dark:text-green-200">
+                      {selectedCustomer.name}
+                    </p>
+                    <p className="text-sm text-green-600 dark:text-green-400 mt-0.5">
+                      {selectedCustomer.phone}
+                      {selectedCustomer.customerCode &&
+                        ` | ${selectedCustomer.customerCode}`}
+                      {selectedCustomer.city &&
+                        ` | ${selectedCustomer.city}`}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedCustomer(null);
+                      setCustomerSearchText('');
+                      setShowNewCustomerForm(false);
+                    }}
+                    className="text-sm text-primary hover:underline"
+                  >
+                    Change Customer
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedCustomer(null);
-                    setCustomerSearchText('');
-                    setShowNewCustomerForm(false);
-                  }}
-                  className="text-sm text-primary hover:underline"
-                >
-                  Change Customer
-                </button>
               </div>
+              <CustomerReliabilityCard customerId={selectedCustomer.id} variant="banner" />
             </div>
           ) : showNewCustomerForm ? (
             <div className="space-y-4">

@@ -95,6 +95,41 @@ export function useCustomerSalesQuery(id: string | undefined) {
 }
 
 // ---------------------------------------------------------------------------
+// Customer installment reliability history
+// ---------------------------------------------------------------------------
+export interface CustomerInstallmentHistory {
+  customer: { id: string; name: string; customerCode: string };
+  totalSchedules: number;
+  completedOnTime: number;
+  completedLate: number;
+  active: number;
+  totalInstallments: number;
+  paidOnTime: number;
+  paidLate: number;
+  absorbed: number;
+  reschedulesCreated: number;
+  averageDelayDays: number;
+  longestOverdueDays: number;
+  lifetimeFinancedAmount: number;
+  lifetimePaid: number;
+  reliabilityScore: number;
+  rating: 'excellent' | 'good' | 'fair' | 'poor';
+}
+
+export function useCustomerInstallmentHistoryQuery(id: string | undefined) {
+  return useQuery({
+    queryKey: ['customers', id, 'installment-history'],
+    queryFn: async () => {
+      const { data } = await apiClient.get<ApiResponse<CustomerInstallmentHistory>>(
+        `/customers/${id}/installment-history`,
+      );
+      return data.data!;
+    },
+    enabled: !!id,
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Create customer
 // ---------------------------------------------------------------------------
 export function useCreateCustomerMutation() {

@@ -25,6 +25,7 @@ import {
 } from '../../hooks/useInstallments';
 import { useDebounce } from '../../hooks/useDebounce';
 import { formatINR, formatDateIN } from '@retailerp/shared-utils';
+import { formatInstallmentLabel } from '../../lib/installment-label';
 
 // ---------------------------------------------------------------------------
 // Search filter options
@@ -277,7 +278,7 @@ export function InstallmentListPage() {
                               <tbody className="divide-y">
                                 {schedule.installments.map((inst: any) => (
                                   <tr key={inst.id}>
-                                    <td className="py-2">#{inst.installmentNumber}</td>
+                                    <td className="py-2">{formatInstallmentLabel(inst)}</td>
                                     <td className="py-2">{formatDateIN(inst.dueDate)}</td>
                                     <td className="py-2 text-right">{formatINR(inst.amountDue)}</td>
                                     <td className="py-2 text-right text-green-600">{formatINR(inst.amountPaid)}</td>
@@ -390,7 +391,7 @@ function OverdueTab() {
         key: 'emiNumber',
         header: 'EMI #',
         render: (row) => (
-          <span className="text-sm font-medium">#{row.installmentNumber}</span>
+          <span className="text-sm font-medium">{formatInstallmentLabel(row)}</span>
         ),
       },
       {
@@ -586,7 +587,7 @@ function CollectionsTab() {
         header: 'EMI #',
         render: (row) => (
           <span className="text-sm font-medium">
-            #{row.installmentNumber} of {row.totalInstallments}
+            {formatInstallmentLabel(row)} of {row.totalInstallments}
           </span>
         ),
       },

@@ -3,6 +3,7 @@ import { ArrowLeft, Loader2, Pencil, AlertCircle, Shield, User } from 'lucide-re
 import { cn } from '../../lib/utils';
 import { useCustomerDetailQuery, useCustomerSalesQuery } from '../../hooks/useCustomers';
 import { StatusBadge } from '../../components/StatusBadge';
+import { CustomerReliabilityCard } from '../../components/CustomerReliabilityCard';
 import { formatINR, formatDateIN, formatPhone, formatAadhaar } from '@retailerp/shared-utils';
 
 export function CustomerDetailPage() {
@@ -171,7 +172,8 @@ export function CustomerDetailPage() {
         </div>
 
         {/* Right: Sales History (40%) */}
-        <div className="lg:col-span-2">
+        <div className="lg:col-span-2 space-y-4">
+          <CustomerReliabilityCard customerId={id!} />
           <div className="rounded-lg border bg-card p-6">
             <h2 className="text-lg font-medium mb-4">Sales History</h2>
 

@@ -18,6 +18,7 @@ const keys = {
   collectionsToday: () => ['installments', 'collections', 'today'] as const,
   scheduleDetail: (id: string) => ['installments', 'schedule', id] as const,
   scheduleTimeline: (id: string) => ['installments', 'schedule', id, 'timeline'] as const,
+  scheduleRollLog: (id: string) => ['installments', 'schedule', id, 'roll-log'] as const,
 };
 
 // ---------------------------------------------------------------------------
@@ -48,6 +49,8 @@ export interface OverdueInstallmentItem {
   id: string;
   scheduleId: string;
   installmentNumber: number;
+  parentInstallmentNumber?: number | null;
+  subSequence?: number | null;
   dueDate: string;
   amountDue: number;
   amountPaid: number;
@@ -66,6 +69,8 @@ export interface CollectionItem {
   id: string;
   scheduleId: string;
   installmentNumber: number;
+  parentInstallmentNumber?: number | null;
+  subSequence?: number | null;
   totalInstallments: number;
   dueDate: string;
   amountDue: number;
@@ -116,6 +121,9 @@ export interface ScheduleDetailResponse {
 export interface TimelineEvent {
   id: string;
   installmentNumber: number;
+  parentInstallmentNumber?: number | null;
+  subSequence?: number | null;
+  isClosed?: boolean;
   type: 'installment' | 'payment' | 'reschedule';
   date: string;
   dueDate: string;
@@ -240,6 +248,43 @@ export function useScheduleTimelineQuery(scheduleId: string | undefined) {
     queryFn: async () => {
       const { data } = await apiClient.get<ApiResponse<TimelineEvent[]>>(
         `/installments/${scheduleId}/timeline`,
+      );
+      return data.data ?? [];
+    },
+    enabled: !!scheduleId,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Schedule roll log (audit trail of rolling-overdue engine events)
+// ---------------------------------------------------------------------------
+export interface RollLogEvent {
+  id: string;
+  scheduleId: string;
+  installmentId: string | null;
+  eventType:
+    | 'installment_due'
+    | 'sub_created'
+    | 'payment_recorded'
+    | 'partial_payment'
+    | 'chain_absorbed'
+    | 'chain_closed_manual'
+    | 'schedule_completed'
+    | 'note_added';
+  eventDate: string;
+  displayMessage: string;
+  metadata: Record<string, unknown> | null;
+  actorUserId: string | null;
+  actor?: { id: string; fullName: string; username: string } | null;
+  createdAt: string;
+}
+
+export function useScheduleRollLogQuery(scheduleId: string | undefined) {
+  return useQuery({
+    queryKey: keys.scheduleRollLog(scheduleId ?? ''),
+    queryFn: async () => {
+      const { data } = await apiClient.get<ApiResponse<RollLogEvent[]>>(
+        `/installments/${scheduleId}/roll-log`,
       );
       return data.data ?? [];
     },

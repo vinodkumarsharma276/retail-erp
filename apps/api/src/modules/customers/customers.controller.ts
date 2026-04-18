@@ -155,4 +155,21 @@ export const customersController = {
       return sendError(reply, message, 500);
     }
   },
+
+  async getInstallmentHistory(
+    request: FastifyRequest<{ Params: { id: string } }>,
+    reply: FastifyReply,
+  ) {
+    try {
+      const summary = await customersService.getInstallmentHistory(request.params.id);
+      if (summary === null) {
+        return sendError(reply, 'Customer not found', 404);
+      }
+      return sendSuccess(reply, summary);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Failed to fetch installment history';
+      return sendError(reply, message, 500);
+    }
+  },
 };

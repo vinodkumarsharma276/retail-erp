@@ -16,6 +16,7 @@ import { PaymentTimeline } from '../../components/PaymentTimeline';
 import { RecordPaymentDialog } from '../../components/RecordPaymentDialog';
 import { formatINR, formatDateIN } from '@retailerp/shared-utils';
 import { InstallmentStatus } from '@retailerp/shared-types';
+import { formatInstallmentLabel } from '../../lib/installment-label';
 
 // ---------------------------------------------------------------------------
 // Component
@@ -248,7 +249,7 @@ export function InstallmentDetailPage() {
                     )}
                   >
                     <td className="px-3 py-2.5 font-medium">
-                      {inst.installmentNumber}
+                      {formatInstallmentLabel(inst).replace(/^#/, '')}
                       {inst.rescheduledFromId && (
                         <span className="ml-1 text-xs text-amber-600 font-normal">(Remainder)</span>
                       )}

@@ -46,4 +46,12 @@ export async function customerRoutes(app: FastifyInstance) {
 
   // Get customer's sales (admin, accountant only)
   app.get('/:id/sales', { preHandler: adminAccountant }, customersController.getSales as any);
+
+  // Installment reliability summary — any authenticated user can read to support
+  // the Sale-create banner when selecting an existing customer.
+  app.get(
+    '/:id/installment-history',
+    { preHandler: [authenticate] },
+    customersController.getInstallmentHistory as any,
+  );
 }
