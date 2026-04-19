@@ -3,8 +3,18 @@
   "compilerOptions": {
     "strict": true,
     "paths": {
-      "@retailerp/shared-types": ["../../packages/shared-types/src"],
-      "@retailerp/shared-utils": ["../../packages/shared-utils/src"]
+      "@retailerp/shared-types": [
+        "../../packages/shared-types/src"
+      ],
+      "@retailerp/shared-utils": [
+        "../../packages/shared-utils/src"
+      ]
     }
-  }
+  },
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    ".expo/types/**/*.ts",
+    "expo-env.d.ts"
+  ]
 }
