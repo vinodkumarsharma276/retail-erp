@@ -295,6 +295,8 @@ export interface RollLogEvent {
     | 'chain_absorbed'
     | 'chain_closed_manual'
     | 'schedule_completed'
+    | 'rescheduled'
+    | 'redistributed'
     | 'note_added';
   eventDate: string;
   displayMessage: string;

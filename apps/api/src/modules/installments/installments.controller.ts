@@ -280,6 +280,7 @@ export const installmentsController = {
       const result = await installmentsService.reschedule(
         request.params.installmentId,
         request.body,
+        request.currentUser?.userId ?? null,
       );
       return sendSuccess(reply, result, 201);
     } catch (error) {

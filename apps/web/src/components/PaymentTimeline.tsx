@@ -16,6 +16,8 @@ import {
   GitBranch,
   FileText,
   Flag,
+  CalendarClock,
+  Shuffle,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import {
@@ -162,6 +164,16 @@ const rollLogConfig: Record<
     icon: <Flag className="h-4 w-4" />,
     color: 'text-green-700 dark:text-green-500',
     bg: 'bg-green-100 dark:bg-green-900/30',
+  },
+  rescheduled: {
+    icon: <CalendarClock className="h-4 w-4" />,
+    color: 'text-amber-600 dark:text-amber-400',
+    bg: 'bg-amber-100 dark:bg-amber-900/30',
+  },
+  redistributed: {
+    icon: <Shuffle className="h-4 w-4" />,
+    color: 'text-indigo-600 dark:text-indigo-400',
+    bg: 'bg-indigo-100 dark:bg-indigo-900/30',
   },
   note_added: {
     icon: <FileText className="h-4 w-4" />,

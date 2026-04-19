@@ -8,6 +8,8 @@ import {
   CalendarClock,
   Phone,
   ExternalLink,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useScheduleDetailQuery } from '../../hooks/useInstallments';
@@ -34,6 +36,9 @@ export function InstallmentDetailPage() {
     number: number;
     initialScenario?: 'full_payment' | 'reschedule' | 'partial_reschedule';
   } | null>(null);
+
+  // Toggle to show/hide rescheduled (superseded) rows
+  const [showRescheduled, setShowRescheduled] = useState(false);
 
   // Loading
   if (isLoading) {
@@ -65,6 +70,16 @@ export function InstallmentDetailPage() {
   }
 
   const { schedule, installments, sale, customer, product } = data;
+
+  const rescheduledCount = installments.filter(
+    (i: any) => i.status === InstallmentStatus.RESCHEDULED,
+  ).length;
+
+  const visibleInstallments = showRescheduled
+    ? installments
+    : installments.filter(
+        (i: any) => i.status !== InstallmentStatus.RESCHEDULED,
+      );
 
   const actionableStatuses: string[] = [
     InstallmentStatus.UPCOMING,
@@ -192,7 +207,24 @@ export function InstallmentDetailPage() {
 
       {/* Bottom section: Installment table */}
       <div className="rounded-lg border bg-card p-6">
-        <h2 className="text-lg font-medium mb-4">All Installments</h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-medium">All Installments</h2>
+          {rescheduledCount > 0 && (
+            <button
+              onClick={() => setShowRescheduled((v) => !v)}
+              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              {showRescheduled ? (
+                <EyeOff className="h-3.5 w-3.5" />
+              ) : (
+                <Eye className="h-3.5 w-3.5" />
+              )}
+              {showRescheduled
+                ? 'Hide rescheduled'
+                : `Show ${rescheduledCount} rescheduled`}
+            </button>
+          )}
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -227,7 +259,7 @@ export function InstallmentDetailPage() {
               </tr>
             </thead>
             <tbody>
-              {installments.map((inst) => {
+              {visibleInstallments.map((inst) => {
                 const canPay = actionableStatuses.includes(inst.status);
                 const canReschedule =
                   inst.status === InstallmentStatus.UPCOMING ||

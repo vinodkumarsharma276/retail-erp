@@ -964,11 +964,15 @@ export const installmentsService = {
           },
         });
 
-        // Create new installment on the new date
+        // Create new installment on the new date. Preserve sub-row identity
+        // (parentInstallmentNumber + subSequence) so e.g. 6.1 stays 6.1 on the
+        // new date rather than appearing as a primary #6.
         newInstallment = await tx.installment.create({
           data: {
             scheduleId: schedule.id,
             installmentNumber: installment.installmentNumber,
+            parentInstallmentNumber: installment.parentInstallmentNumber,
+            subSequence: installment.subSequence,
             dueDate: newDate,
             amountDue: Number(installment.remainingAmount),
             amountPaid: 0,
@@ -977,6 +981,36 @@ export const installmentsService = {
             isRescheduled: false,
             rescheduledFromId: installmentId,
             notes: data.notes ?? `Rescheduled from ${new Date(installment.dueDate).toISOString().split('T')[0]}. Original installment #${installment.installmentNumber}.`,
+          },
+        });
+
+        // Audit log
+        const instLabel =
+          installment.parentInstallmentNumber != null && installment.subSequence != null
+            ? `#${installment.parentInstallmentNumber}.${installment.subSequence}`
+            : `#${installment.installmentNumber}`;
+        const fromDateStr = new Date(installment.dueDate).toISOString().split('T')[0];
+        const toDateStr = newDate.toISOString().split('T')[0];
+        await tx.installmentRollLog.create({
+          data: {
+            scheduleId: schedule.id,
+            installmentId,
+            eventType: 'rescheduled',
+            eventDate: new Date(),
+            actorUserId: userId,
+            displayMessage:
+              `Installment ${instLabel} rescheduled from ${fromDateStr} to ${toDateStr}.` +
+              (data.notes ? ` Note: ${data.notes}` : ''),
+            metadata: {
+              installmentId,
+              newInstallmentId: newInstallment.id,
+              installmentNumber: installment.installmentNumber,
+              parentInstallmentNumber: installment.parentInstallmentNumber,
+              subSequence: installment.subSequence,
+              fromDate: fromDateStr,
+              toDate: toDateStr,
+              amount: Number(installment.remainingAmount),
+            } as Prisma.InputJsonValue,
           },
         });
       } else if (data.scenario === 'partial_reschedule') {
@@ -1169,6 +1203,7 @@ export const installmentsService = {
   async reschedule(
     installmentId: string,
     data: { newDate: string; notes?: string },
+    userId: string | null = null,
   ) {
     const installment = await prisma.installment.findUnique({
       where: { id: installmentId },
@@ -1204,11 +1239,14 @@ export const installmentsService = {
         },
       });
 
-      // Create new installment on new date
+      // Create new installment on new date. Preserve sub-row identity so
+      // rescheduling 6.1 produces a new 6.1 on the new date (not a primary #6).
       const newInstallment = await tx.installment.create({
         data: {
           scheduleId: installment.schedule.id,
           installmentNumber: installment.installmentNumber,
+          parentInstallmentNumber: installment.parentInstallmentNumber,
+          subSequence: installment.subSequence,
           dueDate: newDate,
           amountDue: Number(installment.remainingAmount),
           amountPaid: 0,
@@ -1217,6 +1255,36 @@ export const installmentsService = {
           isRescheduled: false,
           rescheduledFromId: installmentId,
           notes: data.notes ?? `Rescheduled from ${new Date(installment.dueDate).toISOString().split('T')[0]}. Original installment #${installment.installmentNumber}.`,
+        },
+      });
+
+      // Audit log
+      const instLabel =
+        installment.parentInstallmentNumber != null && installment.subSequence != null
+          ? `#${installment.parentInstallmentNumber}.${installment.subSequence}`
+          : `#${installment.installmentNumber}`;
+      const fromDateStr = new Date(installment.dueDate).toISOString().split('T')[0];
+      const toDateStr = newDate.toISOString().split('T')[0];
+      await tx.installmentRollLog.create({
+        data: {
+          scheduleId: installment.schedule.id,
+          installmentId,
+          eventType: 'rescheduled',
+          eventDate: new Date(),
+          actorUserId: userId,
+          displayMessage:
+            `Installment ${instLabel} rescheduled from ${fromDateStr} to ${toDateStr}.` +
+            (data.notes ? ` Note: ${data.notes}` : ''),
+          metadata: {
+            installmentId,
+            newInstallmentId: newInstallment.id,
+            installmentNumber: installment.installmentNumber,
+            parentInstallmentNumber: installment.parentInstallmentNumber,
+            subSequence: installment.subSequence,
+            fromDate: fromDateStr,
+            toDate: toDateStr,
+            amount: Number(installment.remainingAmount),
+          } as Prisma.InputJsonValue,
         },
       });
 
