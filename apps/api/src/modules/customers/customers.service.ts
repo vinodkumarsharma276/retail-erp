@@ -119,8 +119,11 @@ export const customersService = {
       }
     }
 
-    // Get last customer code to generate next one
+    // Get last `CUST-####` code to generate the next one. Filter explicitly so
+    // that non-standard codes (e.g. `SHOP-VE-NE` for transfer-shop customers)
+    // can't poison the sequence and produce `CUST-0NaN`.
     const lastCustomer = await prisma.customer.findFirst({
+      where: { customerCode: { startsWith: 'CUST-' } },
       orderBy: { customerCode: 'desc' },
       select: { customerCode: true },
     });

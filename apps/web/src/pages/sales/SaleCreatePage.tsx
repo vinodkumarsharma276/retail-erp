@@ -83,7 +83,7 @@ const defaultValues: SaleFormValues = {
   gstRate: 18,
   downPayment: '',
   promiseDate: getDateDaysFromNow(7),
-  interestRate: 1,
+  interestRate: 0,
   fileCharge: '',
   numInstallments: 6,
   financeCompanyId: '',
@@ -370,6 +370,16 @@ export function SaleCreatePage() {
       fileCharge,
       numInstallments,
     });
+  }, [saleType, sellingPrice, downPayment, interestRate, fileCharge, numInstallments]);
+
+  // Effective monthly rate % = interest + (fileCharge / principal / months) × 100.
+  // Mirrors server-side calculation so UI and DB agree.
+  const effectiveMonthlyRate = useMemo<number | null>(() => {
+    if (saleType !== SaleType.SELF_FINANCE) return null;
+    const principal = sellingPrice - downPayment;
+    if (principal <= 0 || numInstallments <= 0) return null;
+    const raw = interestRate + (fileCharge / principal / numInstallments) * 100;
+    return Math.round(raw * 1000) / 1000;
   }, [saleType, sellingPrice, downPayment, interestRate, fileCharge, numInstallments]);
 
   // -----------------------------------------------------------------------
@@ -1015,22 +1025,24 @@ export function SaleCreatePage() {
                   <label className="block text-sm font-medium mb-1.5">
                     Interest Rate (% per month) <span className="text-destructive">*</span>
                   </label>
-                  <div className="flex flex-wrap gap-2">
-                    {INTEREST_RATES.map((rate) => (
-                      <button
-                        key={rate}
-                        type="button"
-                        onClick={() => setValue('interestRate', rate)}
-                        className={cn(
-                          'rounded-md border px-3 py-1.5 text-sm font-medium transition-colors',
-                          interestRate === rate
-                            ? 'border-primary bg-primary text-primary-foreground'
-                            : 'hover:bg-muted',
-                        )}
-                      >
-                        {rate}%
-                      </button>
-                    ))}
+                  <div className="relative">
+                    <select
+                      value={interestRate}
+                      onChange={(e) =>
+                        setValue('interestRate', Number(e.target.value))
+                      }
+                      className={cn(
+                        'w-full appearance-none rounded-md border bg-background px-3 py-2.5 pr-8 text-sm',
+                        'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                      )}
+                    >
+                      {INTEREST_RATES.map((rate) => (
+                        <option key={rate} value={rate}>
+                          {rate}%
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   </div>
                 </div>
 
@@ -1140,6 +1152,25 @@ export function SaleCreatePage() {
                         {formatINR(emiResult.fileCharge)}
                       </p>
                     </div>
+                    {effectiveMonthlyRate !== null && (
+                      <div>
+                        <p className="text-xs font-medium text-blue-700 dark:text-blue-400">
+                          Effective Rate / Month
+                        </p>
+                        <p className="text-lg font-semibold text-blue-900 dark:text-blue-100">
+                          {effectiveMonthlyRate}%
+                        </p>
+                        <p className="text-[10px] text-blue-500 dark:text-blue-400">
+                          {interestRate}% interest +{' '}
+                          {(
+                            Math.round(
+                              (effectiveMonthlyRate - interestRate) * 1000,
+                            ) / 1000
+                          ).toFixed(3)}
+                          % file
+                        </p>
+                      </div>
+                    )}
                     <div>
                       <p className="text-xs font-medium text-blue-700 dark:text-blue-400">
                         Total Payable
@@ -1694,6 +1725,36 @@ export function SaleCreatePage() {
                 <Shield className="h-4 w-4 text-purple-600" />
                 Guarantor <span className="text-destructive">*</span>
               </h3>
+
+              {/* Self-guarantor checkbox — for installments to known customers
+                  the customer may stand as their own guarantor. */}
+              {selectedCustomer && (
+                <label className="mb-3 flex items-center gap-2 cursor-pointer select-none text-sm">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-input text-primary focus:ring-2 focus:ring-ring"
+                    checked={
+                      !!selectedGuarantor &&
+                      selectedGuarantor.id === selectedCustomer.id
+                    }
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedGuarantor(selectedCustomer);
+                        setGuarantorSearchText('');
+                        setShowNewGuarantorForm(false);
+                      } else {
+                        setSelectedGuarantor(null);
+                      }
+                    }}
+                  />
+                  <span>
+                    Customer is their own guarantor{' '}
+                    <span className="text-muted-foreground">
+                      (use for trusted / known customers)
+                    </span>
+                  </span>
+                </label>
+              )}
 
               {selectedGuarantor ? (
                 <div className="rounded-md border p-3 bg-purple-50 dark:bg-purple-950/30 border-purple-200 dark:border-purple-800">

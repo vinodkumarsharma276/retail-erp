@@ -17,21 +17,20 @@ const PAGE_SIZE = 20;
 
 function getLastMonthStart(): string {
   const d = new Date();
-  const start = new Date(d.getFullYear(), d.getMonth() - 1, 1);
+  // One month back from today (same day-of-month, handles month rollover).
+  const start = new Date(d.getFullYear(), d.getMonth() - 1, d.getDate());
   const y = start.getFullYear();
   const m = String(start.getMonth() + 1).padStart(2, '0');
   const day = String(start.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
 }
 
-/** Last day of the previous month (YYYY-MM-DD). */
+/** Today (YYYY-MM-DD). */
 function getLastMonthEnd(): string {
   const d = new Date();
-  // Day 0 of current month = last day of previous month
-  const end = new Date(d.getFullYear(), d.getMonth(), 0);
-  const y = end.getFullYear();
-  const m = String(end.getMonth() + 1).padStart(2, '0');
-  const day = String(end.getDate()).padStart(2, '0');
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
 }
 

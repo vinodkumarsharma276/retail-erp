@@ -27,6 +27,7 @@ export interface SaleRecord {
   // Self finance
   interestRate?: number;
   fileCharge: number;
+  effectiveMonthlyRate?: number | null;
   totalFinancedAmount?: number;
   numInstallments?: number;
   emiAmount?: number;

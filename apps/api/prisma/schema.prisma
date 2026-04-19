@@ -90,6 +90,7 @@ enum FormFieldType {
   radio
   file
   hidden
+  readonly
 }
 
 enum BankTxnType {
@@ -597,6 +598,10 @@ model SaleRecord {
   // Self finance
   interestRate                Decimal?             @map("interest_rate") @db.Decimal(4, 2)
   fileCharge                  Decimal              @default(0) @map("file_charge") @db.Decimal(12, 2)
+  /// Computed: interestRate + (fileCharge / principal / numInstallments) × 100.
+  /// Shown in UI so users see the true monthly finance cost when a flat fee and
+  /// an interest rate are combined. Stored for reporting.
+  effectiveMonthlyRate        Decimal?             @map("effective_monthly_rate") @db.Decimal(6, 3)
   totalFinancedAmount         Decimal?             @map("total_financed_amount") @db.Decimal(12, 2)
   numInstallments             Int?                 @map("num_installments")
   emiAmount                   Decimal?             @map("emi_amount") @db.Decimal(12, 2)

@@ -51,6 +51,13 @@ export interface Product {
   createdBy?: string;
   createdAt: string;
   updatedAt: string;
+  purchase?: {
+    id: string;
+    invoiceDate?: string;
+    gstAmount?: number;
+    totalAmount?: number;
+    discountAmount?: number;
+  } | null;
 }
 
 export interface ProductAuditTrailEntry {
@@ -63,5 +70,10 @@ export interface ProductAuditTrailEntry {
   referenceType?: 'sale' | 'transfer' | 'purchase' | 'return';
   notes?: string;
   performedBy?: string;
+  performer?: {
+    id: string;
+    username: string;
+    fullName?: string | null;
+  } | null;
   createdAt: string;
 }

@@ -142,6 +142,7 @@ export const salesService = {
     let totalFinancedAmount: number | null = null;
     let emiAmount: number | null = null;
     let emiResult: ReturnType<typeof calculateEMI> | null = null;
+    let effectiveMonthlyRate: number | null = null;
 
     if (data.saleType === 'self_finance') {
       emiResult = calculateEMI({
@@ -153,6 +154,17 @@ export const salesService = {
       });
       totalFinancedAmount = emiResult.totalPayable;
       emiAmount = emiResult.emiAmount;
+      // Effective monthly rate blends the interest % per month with the file
+      // charge spread across the tenure: interest + (fileCharge / principal / months) × 100.
+      const principal = sellingPrice - downPayment;
+      if (principal > 0 && numInstallments > 0) {
+        effectiveMonthlyRate =
+          Math.round(
+            (interestRate + (fileCharge / principal / numInstallments) * 100) * 1000,
+          ) / 1000;
+      } else {
+        effectiveMonthlyRate = interestRate;
+      }
     }
 
     // For partial_with_promise: calculate pending amount
@@ -199,6 +211,7 @@ export const salesService = {
           // Self finance
           interestRate: data.saleType === 'self_finance' ? interestRate : null,
           fileCharge: data.saleType === 'self_finance' ? fileCharge : 0,
+          effectiveMonthlyRate,
           totalFinancedAmount,
           numInstallments: data.saleType === 'self_finance' ? numInstallments : null,
           emiAmount,

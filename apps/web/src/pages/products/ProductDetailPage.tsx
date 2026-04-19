@@ -187,6 +187,14 @@ export function ProductDetailPage() {
               )}
               <InfoRow label="Barcode" value={product.barcode ?? '-'} />
               <InfoRow
+                label="Invoice Date"
+                value={
+                  product.purchase?.invoiceDate
+                    ? formatDateIN(product.purchase.invoiceDate)
+                    : '-'
+                }
+              />
+              <InfoRow
                 label="Created"
                 value={formatDateIN(product.createdAt)}
               />
@@ -352,7 +360,11 @@ function TimelineNode({
         )}
         <p className="text-xs text-muted-foreground mt-1">
           {formatDateIN(entry.createdAt)}
-          {entry.performedBy && <span> &middot; by {entry.performedBy}</span>}
+          {entry.performer && (
+            <span>
+              {' '}&middot; by {entry.performer.fullName || entry.performer.username}
+            </span>
+          )}
         </p>
       </div>
     </div>
