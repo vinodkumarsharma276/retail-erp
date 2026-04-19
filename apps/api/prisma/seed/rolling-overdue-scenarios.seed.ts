@@ -97,6 +97,18 @@ async function getCollector(
 }
 
 export async function seedRollingOverdueScenarios(
+  _prisma: PrismaClient,
+): Promise<{ scheduleIds: string[] }> {
+  // The rolling-overdue rule engine was rewritten to use redistribution
+  // instead of chain-absorption. The old scenarios (A–E) no longer map to
+  // the new semantics. Scenarios are now intended to be driven by user
+  // interaction (record payment with promise date, etc.) rather than seeded
+  // statically. This seed is intentionally a no-op until it's rewritten.
+  return { scheduleIds: [] };
+}
+/* eslint-disable @typescript-eslint/no-unused-vars */
+// Retaining the legacy implementation below for reference; it is unreachable.
+async function _legacySeedRollingOverdueScenarios(
   prisma: PrismaClient,
 ): Promise<{ scheduleIds: string[] }> {
   // Pick 5 self_finance schedules with >=4 installments, from different sales.
@@ -107,32 +119,66 @@ export async function seedRollingOverdueScenarios(
       installments: { orderBy: [{ installmentNumber: 'asc' }, { subSequence: 'asc' }] },
     },
     orderBy: { createdAt: 'asc' },
-    take: 50,
+    take: 200,
   });
   if (candidates.length < 5) {
     console.log('  Scenario seed: not enough candidate schedules, skipping.');
     return { scheduleIds: [] };
   }
 
-  // Spread picks across customers/shops
+  const today = toDateOnly(new Date());
   const used = new Set<string>();
-  const picked: typeof candidates = [];
-  for (const c of candidates) {
-    const key = `${c.sale.customerId}`;
-    if (used.has(key)) continue;
-    used.add(key);
-    picked.push(c);
-    if (picked.length === 5) break;
+
+  // Scenario E needs a schedule whose primary #1 falls today or within the
+  // last 3 days so it can reasonably be shown as due_today/overdue without
+  // rewriting the real due date.
+  const schE = candidates.find((c) => {
+    const p1 = c.installments.find((i) => i.installmentNumber === 1 && i.parentInstallmentNumber === null);
+    if (!p1) return false;
+    const p1Due = toDateOnly(new Date(p1.dueDate)).getTime();
+    const windowStart = addDays(today, -3).getTime();
+    return p1Due >= windowStart && p1Due <= today.getTime();
+  });
+  if (!schE) {
+    console.log('  Scenario seed: no schedule with primary #1 due in last 3 days found, skipping.');
+    return { scheduleIds: [] };
   }
-  if (picked.length < 5) {
+  used.add(schE.sale.customerId);
+
+  // Scenario C needs a schedule whose primary #3 falls today or within the
+  // last 14 days — the window during which Rule C would organically fire when
+  // #2 is still unpaid. The absorption event is dated on p3's due date.
+  const schC = candidates.find((c) => {
+    if (c.id === schE.id) return false;
+    if (used.has(c.sale.customerId)) return false;
+    const p3 = c.installments.find((i) => i.installmentNumber === 3 && i.parentInstallmentNumber === null);
+    if (!p3) return false;
+    const p3Due = toDateOnly(new Date(p3.dueDate)).getTime();
+    const windowStart = addDays(today, -14).getTime();
+    return p3Due >= windowStart && p3Due <= today.getTime();
+  });
+  if (!schC) {
+    console.log('  Scenario seed: no schedule with primary #3 due in last 14 days found, skipping.');
+    return { scheduleIds: [] };
+  }
+  used.add(schC.sale.customerId);
+
+  // The other 3 can be any other distinct-customer schedules.
+  const others: typeof candidates = [];
+  for (const c of candidates) {
+    if (c.id === schE.id || c.id === schC.id) continue;
+    if (used.has(c.sale.customerId)) continue;
+    used.add(c.sale.customerId);
+    others.push(c);
+    if (others.length === 3) break;
+  }
+  if (others.length < 3) {
     console.log('  Scenario seed: not enough distinct customers, skipping.');
     return { scheduleIds: [] };
   }
 
-  const today = toDateOnly(new Date());
+  const [schA, schB, schD] = others;
   const collectorCache = new Map<string, ShopCollector>();
-
-  const [schA, schB, schC, schD, schE] = picked;
   const scheduleIds: string[] = [];
 
   // ---------------- Scenario A: Happy path ----------------
@@ -356,15 +402,18 @@ export async function seedRollingOverdueScenarios(
         },
       });
 
-      // #3 absorbs the carry and is due_today
+      // #3 absorbs the carry. Its natural dueDate is today or in the recent
+      // past (enforced by the candidate picker). Status mirrors reality:
+      //   dueDate == today → due_today;   dueDate < today → overdue.
       const newAmount = Number(p3.amountDue) + carry;
+      const p3Due = toDateOnly(new Date(p3.dueDate));
+      const isP3Today = p3Due.getTime() === today.getTime();
       await prisma.installment.update({
         where: { id: p3.id },
         data: {
-          dueDate: today,
           amountDue: newAmount,
           remainingAmount: newAmount,
-          status: 'due_today',
+          status: isP3Today ? 'due_today' : 'overdue',
           notes: `Absorbed remainder ${INR(carry)} from installment #${p2.installmentNumber}.`,
         },
       });
@@ -383,7 +432,7 @@ export async function seedRollingOverdueScenarios(
           scheduleId: schC.id,
           installmentId: p2.id,
           eventType: 'chain_absorbed',
-          eventDate: today,
+          eventDate: p3Due,
           displayMessage: `Chain #${p2.installmentNumber} absorbed: ${INR(carry)} merged into #${p3.installmentNumber}. New total ${INR(newAmount)}.`,
           metadata: {
             carry,
@@ -397,7 +446,7 @@ export async function seedRollingOverdueScenarios(
           scheduleId: schC.id,
           installmentId: p3.id,
           eventType: 'installment_due',
-          eventDate: today,
+          eventDate: p3Due,
           displayMessage: `Installment #${p3.installmentNumber} (${INR(newAmount)}) became due.`,
         },
       });
@@ -488,22 +537,25 @@ export async function seedRollingOverdueScenarios(
     scheduleIds.push(schD.id);
   }
 
-  // ---------------- Scenario E: Current due_today ----------------
-  // Primary #1 is due today, nothing paid yet. Simplest demo.
+  // ---------------- Scenario E: Current due_today / recently overdue ----------------
+  // Primary #1's natural date is today or within the last 3 days. Flip status
+  // to match, emit installment_due event on that date. No date rewrite.
   {
     const primaries = await resetSchedule(prisma, schE.id);
     if (primaries.length >= 1) {
       const p1 = primaries[0];
+      const p1Due = toDateOnly(new Date(p1.dueDate));
+      const isToday = p1Due.getTime() === today.getTime();
       await prisma.installment.update({
         where: { id: p1.id },
-        data: { dueDate: today, status: 'due_today' },
+        data: { status: isToday ? 'due_today' : 'overdue' },
       });
       await prisma.installmentRollLog.create({
         data: {
           scheduleId: schE.id,
           installmentId: p1.id,
           eventType: 'installment_due',
-          eventDate: today,
+          eventDate: p1Due,
           displayMessage: `Installment #${p1.installmentNumber} (${INR(Number(p1.amountDue))}) became due.`,
         },
       });

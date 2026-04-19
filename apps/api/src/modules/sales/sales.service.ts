@@ -35,6 +35,7 @@ export const salesService = {
       where: { id: data.productId },
       include: {
         shop: { select: { id: true, code: true } },
+        purchase: { select: { invoiceDate: true } },
       },
     });
     if (!product) {
@@ -90,6 +91,24 @@ export const salesService = {
     // 3. Generate saleNumber
     const saleDate = data.saleDate ? new Date(data.saleDate) : new Date();
     const shopCode = product.shop.code.toUpperCase();
+
+    // Sale date cannot be before the product's purchase invoice date, nor in the future.
+    const today = new Date();
+    today.setHours(23, 59, 59, 999);
+    if (saleDate.getTime() > today.getTime()) {
+      throw new Error('Sale date cannot be in the future');
+    }
+    if (product.purchase?.invoiceDate) {
+      const invoiceDate = new Date(product.purchase.invoiceDate);
+      invoiceDate.setHours(0, 0, 0, 0);
+      const saleDay = new Date(saleDate);
+      saleDay.setHours(0, 0, 0, 0);
+      if (saleDay.getTime() < invoiceDate.getTime()) {
+        throw new Error(
+          `Sale date cannot be before the product's purchase invoice date (${invoiceDate.toISOString().slice(0, 10)})`,
+        );
+      }
+    }
 
     const lastSale = await prisma.saleRecord.findFirst({
       where: {
@@ -191,6 +210,9 @@ export const salesService = {
           financePaymentStatus: data.saleType === 'company_finance' ? 'pending' as any : null,
           financePaymentReceivedDate: null,
           financeReferenceNumber: null,
+          // Completion — full_payment sales are complete at creation; other
+          // types transition to completed when their money flow settles.
+          completedAt: data.saleType === 'full_payment' ? new Date() : null,
           // Metadata
           notes: data.notes ?? null,
           createdBy: userId,
@@ -364,13 +386,16 @@ export const salesService = {
     }
 
     if (filters.customerSearch) {
-      where.customer = {
-        OR: [
-          { name: { contains: filters.customerSearch, mode: 'insensitive' } },
-          { phone: { contains: filters.customerSearch, mode: 'insensitive' } },
-          { customerCode: { contains: filters.customerSearch, mode: 'insensitive' } },
-        ],
-      };
+      const q = filters.customerSearch;
+      where.OR = [
+        { ledgerNumber: { contains: q, mode: 'insensitive' } },
+        { customer: { name: { contains: q, mode: 'insensitive' } } },
+        { customer: { phone: { contains: q, mode: 'insensitive' } } },
+        { customer: { customerCode: { contains: q, mode: 'insensitive' } } },
+        { product: { modelNumber: { contains: q, mode: 'insensitive' } } },
+        { product: { serialNumber: { contains: q, mode: 'insensitive' } } },
+        { product: { brand: { contains: q, mode: 'insensitive' } } },
+      ];
     }
 
     const [sales, totalItems] = await Promise.all([
@@ -443,13 +468,16 @@ export const salesService = {
     }
 
     if (filters.customerSearch) {
-      where.customer = {
-        OR: [
-          { name: { contains: filters.customerSearch, mode: 'insensitive' } },
-          { phone: { contains: filters.customerSearch, mode: 'insensitive' } },
-          { customerCode: { contains: filters.customerSearch, mode: 'insensitive' } },
-        ],
-      };
+      const q = filters.customerSearch;
+      where.OR = [
+        { ledgerNumber: { contains: q, mode: 'insensitive' } },
+        { customer: { name: { contains: q, mode: 'insensitive' } } },
+        { customer: { phone: { contains: q, mode: 'insensitive' } } },
+        { customer: { customerCode: { contains: q, mode: 'insensitive' } } },
+        { product: { modelNumber: { contains: q, mode: 'insensitive' } } },
+        { product: { serialNumber: { contains: q, mode: 'insensitive' } } },
+        { product: { brand: { contains: q, mode: 'insensitive' } } },
+      ];
     }
 
     const [sales, totalItems] = await Promise.all([
@@ -531,7 +559,17 @@ export const salesService = {
           },
         },
         customer: {
-          select: { id: true, name: true, phone: true, customerCode: true },
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+            customerCode: true,
+            addressLine1: true,
+            addressLine2: true,
+            city: true,
+            state: true,
+            pincode: true,
+          },
         },
         guarantor: {
           select: { id: true, name: true, phone: true, customerCode: true },
@@ -639,6 +677,11 @@ export const salesService = {
           ? new Date(data.financePaymentReceivedDate)
           : null,
         financeReferenceNumber: data.financeReferenceNumber ?? null,
+        // Auto-complete the sale when the finance company pays.
+        completedAt:
+          data.financePaymentStatus === 'received'
+            ? (sale.completedAt ?? new Date())
+            : null,
       },
       include: {
         product: {
@@ -691,6 +734,8 @@ export const salesService = {
         pendingAmount: newPending,
         downPayment: newDownPayment,
         notes: updatedNotes,
+        // Sale auto-completes when all pending money is collected.
+        completedAt: newPending <= 0 ? (sale.completedAt ?? new Date()) : null,
       },
     });
 

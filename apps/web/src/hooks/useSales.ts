@@ -171,6 +171,7 @@ export interface SaleListItem {
   paymentMode: string;
   pendingAmount: number;
   financePaymentStatus?: string;
+  completedAt?: string | null;
   createdBy: string;
   // Joined data
   customerName?: string;

@@ -85,7 +85,7 @@ export const productsService = {
           select: { id: true, name: true, slug: true, path: true },
         },
         purchase: {
-          select: { id: true, gstAmount: true, totalAmount: true, discountAmount: true },
+          select: { id: true, invoiceDate: true, gstAmount: true, totalAmount: true, discountAmount: true },
         },
       },
       orderBy: { createdAt: 'desc' },
@@ -111,7 +111,7 @@ export const productsService = {
           select: { id: true, companyName: true, contactPerson: true },
         },
         purchase: {
-          select: { id: true, gstAmount: true, totalAmount: true, discountAmount: true },
+          select: { id: true, invoiceDate: true, gstAmount: true, totalAmount: true, discountAmount: true },
         },
         creator: {
           select: { id: true, username: true, fullName: true },

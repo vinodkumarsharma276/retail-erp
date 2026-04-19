@@ -19,6 +19,8 @@ export interface Installment {
   id: string;
   scheduleId: string;
   installmentNumber: number;
+  parentInstallmentNumber?: number | null;
+  subSequence?: number | null;
   dueDate: string;
   amountDue: number;
   amountPaid: number;

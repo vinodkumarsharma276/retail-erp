@@ -8,20 +8,31 @@ import type { SaleListItem } from '../../hooks/useSales';
 import { DataTable } from '../../components/DataTable';
 import type { Column, PaginationState } from '../../components/DataTable';
 import { StatusBadge } from '../../components/StatusBadge';
+import { CompletionBadge } from '../../components/CompletionBadge';
 import { formatINR, formatDateIN } from '@retailerp/shared-utils';
 import { SaleType } from '@retailerp/shared-types';
 import { handleInvoiceDownload } from '../../lib/invoice-utils';
 
 const PAGE_SIZE = 20;
 
-function getDateDaysAgo(days: number): string {
+function getLastMonthStart(): string {
   const d = new Date();
-  d.setDate(d.getDate() - days);
-  return d.toISOString().split('T')[0];
+  const start = new Date(d.getFullYear(), d.getMonth() - 1, 1);
+  const y = start.getFullYear();
+  const m = String(start.getMonth() + 1).padStart(2, '0');
+  const day = String(start.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
-function getToday(): string {
-  return new Date().toISOString().split('T')[0];
+/** Last day of the previous month (YYYY-MM-DD). */
+function getLastMonthEnd(): string {
+  const d = new Date();
+  // Day 0 of current month = last day of previous month
+  const end = new Date(d.getFullYear(), d.getMonth(), 0);
+  const y = end.getFullYear();
+  const m = String(end.getMonth() + 1).padStart(2, '0');
+  const day = String(end.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
 const SALE_TYPE_OPTIONS = [
@@ -42,8 +53,12 @@ export function SaleListPage() {
   const customerSearch = searchParams.get('customerSearch') || '';
   const debouncedCustomerSearch = useDebounce(customerSearch, 300);
   const saleType = searchParams.get('saleType') || '';
-  const dateFrom = searchParams.get('dateFrom') || getDateDaysAgo(90);
-  const dateTo = searchParams.get('dateTo') || getToday();
+  const defaultDateFrom = getLastMonthStart();
+  const defaultDateTo = getLastMonthEnd();
+  const dateFrom = searchParams.get('dateFrom') || defaultDateFrom;
+  const dateTo = searchParams.get('dateTo') || defaultDateTo;
+  // When user is actively searching, ignore the date range so matches aren't hidden.
+  const isSearching = customerSearch.trim().length > 0;
 
   const updateFilters = (updates: Record<string, string>) => {
     setSearchParams((prev) => {
@@ -65,15 +80,15 @@ export function SaleListPage() {
     pageSize: PAGE_SIZE,
     saleType: saleType || undefined,
     customerSearch: debouncedCustomerSearch.length >= 2 ? debouncedCustomerSearch : undefined,
-    dateFrom: dateFrom || undefined,
-    dateTo: dateTo || undefined,
+    dateFrom: isSearching ? undefined : dateFrom || undefined,
+    dateTo: isSearching ? undefined : dateTo || undefined,
   });
 
   const sales = salesQuery.data?.data ?? [];
   const pagination = salesQuery.data?.pagination;
 
   // ------ Clear filters ------
-  const hasFilters = !!customerSearch || !!saleType || dateFrom !== getDateDaysAgo(90) || dateTo !== getToday();
+  const hasFilters = !!customerSearch || !!saleType || dateFrom !== defaultDateFrom || dateTo !== defaultDateTo;
   const clearFilters = () => {
     setSearchParams({}, { replace: true });
   };
@@ -189,6 +204,11 @@ export function SaleListPage() {
       render: (row) => <StatusBadge status={getPaymentStatus(row)} />,
     },
     {
+      key: 'completion',
+      header: 'Status',
+      render: (row) => <CompletionBadge completedAt={row.completedAt} />,
+    },
+    {
       key: 'createdBy',
       header: 'Created By',
       render: (row) => {
@@ -255,10 +275,10 @@ export function SaleListPage() {
 
       {/* Filters row */}
       <div className="flex flex-wrap items-end gap-4 mb-6">
-        {/* Customer search */}
+        {/* Customer / product search */}
         <div className="min-w-[240px] flex-1 max-w-sm">
           <label className="block text-xs font-medium text-muted-foreground mb-1">
-            Customer
+            Search
           </label>
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -268,7 +288,7 @@ export function SaleListPage() {
               onChange={(e) => {
                 updateFilters({ customerSearch: e.target.value, page: '1' });
               }}
-              placeholder="Name or phone (min 2 chars)..."
+              placeholder="Ledger #, name, phone, model, or serial (min 2 chars)..."
               className={cn(
                 'w-full rounded-md border bg-background pl-9 pr-8 py-2 text-sm',
                 'placeholder:text-muted-foreground',
@@ -322,12 +342,14 @@ export function SaleListPage() {
           <input
             type="date"
             value={dateFrom}
+            disabled={isSearching}
             onChange={(e) => {
               updateFilters({ dateFrom: e.target.value, page: '1' });
             }}
             className={cn(
               'w-full rounded-md border bg-background px-3 py-2 text-sm',
               'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+              'disabled:opacity-50 disabled:cursor-not-allowed',
             )}
           />
         </div>
@@ -340,12 +362,15 @@ export function SaleListPage() {
           <input
             type="date"
             value={dateTo}
+            disabled={isSearching}
+            max={defaultDateTo}
             onChange={(e) => {
               updateFilters({ dateTo: e.target.value, page: '1' });
             }}
             className={cn(
               'w-full rounded-md border bg-background px-3 py-2 text-sm',
               'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+              'disabled:opacity-50 disabled:cursor-not-allowed',
             )}
           />
         </div>

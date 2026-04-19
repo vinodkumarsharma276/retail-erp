@@ -1,6 +1,6 @@
 import { prisma } from '../../config/database.js';
 import type { Prisma } from '@prisma/client';
-import { ensureRolledForToday, applyPartialWithPromise } from './installments.rules.js';
+import { ensureRolledForToday, applyPartialWithPromise, syncScheduleAndSale } from './installments.rules.js';
 
 export const installmentsService = {
   /**
@@ -117,7 +117,7 @@ export const installmentsService = {
         dueDate: { lt: today },
         status: { notIn: ['paid', 'rescheduled'] },
         isRescheduled: false,
-        isClosed: false,
+        remainingAmount: { gt: 0 },
         schedule: {
           sale: { shopId },
           status: 'active',
@@ -217,7 +217,7 @@ export const installmentsService = {
       dueDate: targetDate,
       status: { notIn: ['paid', 'rescheduled'] },
       isRescheduled: false,
-      isClosed: false,
+      remainingAmount: { gt: 0 },
       schedule: {
         sale: { shopId },
         status: 'active',
@@ -390,7 +390,7 @@ export const installmentsService = {
       dueDate: { gte: fromDate, lte: toDate },
       status: { notIn: ['paid', 'rescheduled'] },
       isRescheduled: false,
-      isClosed: false,
+      remainingAmount: { gt: 0 },
       schedule: {
         sale: { shopId },
         status: 'active',
@@ -926,34 +926,10 @@ export const installmentsService = {
         }
       }
 
-      // Check if ALL non-rescheduled, non-closed installments in this schedule are now paid
-      const unpaidCount = await tx.installment.count({
-        where: {
-          scheduleId: schedule.id,
-          isRescheduled: false,
-          isClosed: false,
-          status: { notIn: ['paid', 'rescheduled'] },
-        },
-      });
-
-      if (unpaidCount === 0) {
-        await tx.installmentSchedule.update({
-          where: { id: schedule.id },
-          data: { status: 'completed' },
-        });
-
-        await tx.installmentRollLog.create({
-          data: {
-            scheduleId: schedule.id,
-            eventType: 'schedule_completed',
-            eventDate: new Date(),
-            actorUserId: userId,
-            displayMessage:
-              `Schedule completed. All installments have been paid for sale ${schedule.sale.saleNumber}.`,
-            metadata: { scheduleId: schedule.id } as Prisma.InputJsonValue,
-          },
-        });
-      }
+      // Sync schedule + sale aggregates. This also handles the
+      // "schedule_completed" roll log and sets sale.completedAt when every
+      // installment is settled (remaining == 0 across the schedule).
+      await syncScheduleAndSale(tx, schedule.id, userId);
 
       return { paymentRecord, newInstallment };
     });
@@ -1135,6 +1111,8 @@ export const installmentsService = {
           notes: data.notes ?? `Rescheduled from ${new Date(installment.dueDate).toISOString().split('T')[0]}. Original installment #${installment.installmentNumber}.`,
         },
       });
+
+      await syncScheduleAndSale(tx, installment.schedule.id);
 
       return newInstallment;
     });

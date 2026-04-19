@@ -1,32 +1,39 @@
 /**
- * Installment Rule Engine
+ * Installment Rule Engine (v2 — redistribution model)
  * ---------------------------------------------------------------------------
- * Pure, idempotent functions that enforce the rolling-overdue installment
- * rules. Each function runs inside a Prisma transaction and writes to the
- * `installment_roll_log` table for auditability.
+ * Pure functions that enforce the rolling-overdue installment rules.
  *
- * Rules (see PLAN.md for full spec):
- *   A. markDueToday      — upcoming → due_today on the morning of dueDate.
- *   C. applyRuleC        — when primary N+1's dueDate arrives and the
- *                          previous chain (N + its subs) is still active,
- *                          close that chain (is_closed=true) and merge its
- *                          remainder into N+1's amountDue.
- *   D. applyPartialWithPromise
- *                        — record a partial payment + new promise date. If
- *                          newDate < N+1.dueDate, create/advance sub row.
- *                          Otherwise, close the chain and pre-merge into N+1.
+ * Rules:
+ *   R1. markOverdueForToday — on the morning of (or after) dueDate, upcoming →
+ *       overdue if nothing was paid that day; row keeps appearing daily.
  *
- * These functions are called from:
- *   - The list endpoints (lazy-on-read) for the scope being queried.
- *   - The admin manual run-rollover endpoint for ops/recovery.
- *   - The recordPayment flow (only Rule D).
+ *   R2. applyPartialWithPromise — customer pays (partial/zero) + commits a
+ *       new date ≤ next primary's due date → create #N.(k+1) sub row with
+ *       the remainder; current row becomes partially_paid / overdue.
+ *
+ *   R3. applyRedistribution — customer pays (partial/zero) + commits a new
+ *       date > next primary's due date → distribute the chain's remainder
+ *       equally across all future primaries that still owe; current chain's
+ *       remainingAmount drops to zero but statuses stay (overdue /
+ *       partially_paid). No "closed" flag is used.
+ *
+ *   R4. applyDailyRollover — when #N+1's due date arrives and the #N chain
+ *       still owes money and no fresh promise was captured, redistribute
+ *       automatically. Same math as R3.
+ *
+ *   R5. Sub-row day-of logic — sub rows behave exactly like primaries for
+ *       R1/R2/R3 purposes. R4 only fires against the parent primary's
+ *       aggregate remainder.
+ *
+ *   R6. syncScheduleAndSale — after every mutation, recompute schedule
+ *       aggregates and sale.pendingAmount; if everything is settled, set
+ *       sale.completedAt and schedule.status='completed'.
  */
 
 import type { Prisma, PrismaClient } from '@prisma/client';
 
 type Tx = Prisma.TransactionClient | PrismaClient;
 
-/** Strip time portion so date comparisons work reliably with @db.Date columns. */
 function toDateOnly(d: Date): Date {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
 }
@@ -36,23 +43,166 @@ function formatDate(d: Date): string {
 }
 
 function formatINR(n: number): string {
-  return `₹${n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `₹${Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+/** Round to 2 decimals (paise) to keep sums exact. */
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
 }
 
 // ---------------------------------------------------------------------------
-// Rule A — markDueToday
+// Helper — load full chain view for a schedule
+// ---------------------------------------------------------------------------
+
+interface ChainRow {
+  id: string;
+  installmentNumber: number;
+  parentInstallmentNumber: number | null;
+  subSequence: number | null;
+  dueDate: Date;
+  amountDue: number;
+  amountPaid: number;
+  remainingAmount: number;
+  status: string;
+  isRescheduled: boolean;
+}
+
+async function loadChains(tx: Tx, scheduleId: string): Promise<ChainRow[]> {
+  const rows = await tx.installment.findMany({
+    where: { scheduleId },
+    orderBy: [{ installmentNumber: 'asc' }, { subSequence: 'asc' }],
+  });
+  return rows.map((r) => ({
+    id: r.id,
+    installmentNumber: r.installmentNumber,
+    parentInstallmentNumber: r.parentInstallmentNumber,
+    subSequence: r.subSequence,
+    dueDate: r.dueDate,
+    amountDue: Number(r.amountDue),
+    amountPaid: Number(r.amountPaid),
+    remainingAmount: Number(r.remainingAmount),
+    status: r.status,
+    isRescheduled: r.isRescheduled,
+  }));
+}
+
+/** Returns the set of rows (primary + sub rows) belonging to primary #N. */
+function rowsForPrimary(chains: ChainRow[], primaryNumber: number): ChainRow[] {
+  return chains.filter(
+    (r) => (r.parentInstallmentNumber ?? r.installmentNumber) === primaryNumber,
+  );
+}
+
+/** Primary rows only (no sub rows), sorted by installmentNumber. */
+function primariesOnly(chains: ChainRow[]): ChainRow[] {
+  return chains
+    .filter((r) => r.parentInstallmentNumber === null)
+    .sort((a, b) => a.installmentNumber - b.installmentNumber);
+}
+
+/** Aggregate remaining for primary #N across its primary + sub rows. */
+function remainingForPrimary(chains: ChainRow[], primaryNumber: number): number {
+  return rowsForPrimary(chains, primaryNumber).reduce(
+    (sum, r) => sum + r.remainingAmount,
+    0,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// R6 — syncScheduleAndSale
 // ---------------------------------------------------------------------------
 
 /**
- * For all installments in the given scope whose dueDate <= today AND status
- * is still `upcoming`, flip them to `due_today`. Idempotent.
+ * Recomputes derived values and persists them:
+ *   - installment.remainingAmount (safety: amountDue − amountPaid, never < 0)
+ *   - schedule.status: 'completed' when sum(remaining) == 0 across non-rescheduled rows
+ *   - schedule.lastRolloverDate: set when rollover runs (passed in)
+ *   - sale.pendingAmount: sum(remaining) across non-rescheduled rows
+ *   - sale.completedAt: set (if null) when schedule becomes completed
  *
- * Scope options:
- *   - scheduleId: only this schedule
- *   - shopId:     all active schedules in this shop (via sale.shopId)
- *   - undefined:  all active schedules (admin-only global sweep)
+ * Writes a `schedule_completed` roll log when completion transitions.
  */
-export async function markDueToday(
+export async function syncScheduleAndSale(
+  tx: Tx,
+  scheduleId: string,
+  actorUserId?: string,
+): Promise<{ completed: boolean }> {
+  const schedule = await tx.installmentSchedule.findUnique({
+    where: { id: scheduleId },
+    select: {
+      id: true,
+      status: true,
+      saleId: true,
+      sale: { select: { id: true, completedAt: true, saleNumber: true } },
+    },
+  });
+  if (!schedule) return { completed: false };
+
+  const rows = await tx.installment.findMany({
+    where: { scheduleId, isRescheduled: false },
+    select: { id: true, amountDue: true, amountPaid: true, remainingAmount: true },
+  });
+
+  const totalRemaining = round2(
+    rows.reduce((s, r) => s + Number(r.remainingAmount), 0),
+  );
+
+  await tx.saleRecord.update({
+    where: { id: schedule.saleId },
+    data: { pendingAmount: totalRemaining },
+  });
+
+  const wasCompleted = schedule.status === 'completed';
+  const nowCompleted = totalRemaining === 0;
+
+  if (nowCompleted && !wasCompleted) {
+    const completedAt = new Date();
+    await tx.installmentSchedule.update({
+      where: { id: scheduleId },
+      data: { status: 'completed' },
+    });
+    await tx.saleRecord.update({
+      where: { id: schedule.saleId },
+      data: { completedAt: schedule.sale.completedAt ?? completedAt },
+    });
+    await tx.installmentRollLog.create({
+      data: {
+        scheduleId,
+        eventType: 'schedule_completed',
+        eventDate: toDateOnly(completedAt),
+        actorUserId: actorUserId ?? null,
+        displayMessage: `All installments settled. Sale ${schedule.sale.saleNumber} marked as completed.`,
+        metadata: { scheduleId, saleId: schedule.saleId } as Prisma.InputJsonValue,
+      },
+    });
+  } else if (!nowCompleted && wasCompleted) {
+    // Reopened (e.g., through a correction). Clear completedAt.
+    await tx.installmentSchedule.update({
+      where: { id: scheduleId },
+      data: { status: 'active' },
+    });
+    await tx.saleRecord.update({
+      where: { id: schedule.saleId },
+      data: { completedAt: null },
+    });
+  }
+
+  return { completed: nowCompleted };
+}
+
+// ---------------------------------------------------------------------------
+// R1 — markOverdueForToday
+// ---------------------------------------------------------------------------
+
+/**
+ * For rows whose dueDate <= today with status 'upcoming' / 'due_today' and
+ * remaining > 0, flip status to 'overdue'. Idempotent.
+ *
+ * Legacy: also promotes 'upcoming' → 'due_today' first for visibility; the
+ * service's collection queries treat both 'due_today' and 'overdue' as live.
+ */
+export async function markOverdueForToday(
   tx: Tx,
   today: Date,
   scope: { scheduleId?: string; shopId?: string },
@@ -61,223 +211,275 @@ export async function markDueToday(
 
   const where: Prisma.InstallmentWhereInput = {
     dueDate: { lte: todayDate },
-    status: 'upcoming',
+    status: { in: ['upcoming', 'due_today'] },
     isRescheduled: false,
-    isClosed: false,
+    remainingAmount: { gt: 0 },
   };
 
   if (scope.scheduleId) {
     where.scheduleId = scope.scheduleId;
   } else if (scope.shopId) {
-    where.schedule = {
-      status: 'active',
-      sale: { shopId: scope.shopId },
-    };
+    where.schedule = { status: 'active', sale: { shopId: scope.shopId } };
   } else {
     where.schedule = { status: 'active' };
   }
 
-  const toMark = await tx.installment.findMany({
+  const rows = await tx.installment.findMany({
     where,
-    select: { id: true, scheduleId: true, installmentNumber: true, amountDue: true, dueDate: true },
+    select: { id: true, dueDate: true, scheduleId: true, installmentNumber: true, subSequence: true },
   });
+  if (rows.length === 0) return 0;
 
-  if (toMark.length === 0) return 0;
+  // Split into: rows whose dueDate === today → due_today, and rows whose
+  // dueDate < today → overdue.
+  const dueToday: string[] = [];
+  const overdue: string[] = [];
+  for (const r of rows) {
+    if (toDateOnly(r.dueDate).getTime() === todayDate.getTime()) {
+      dueToday.push(r.id);
+    } else {
+      overdue.push(r.id);
+    }
+  }
 
-  await tx.installment.updateMany({
-    where: { id: { in: toMark.map((i) => i.id) } },
-    data: { status: 'due_today' },
-  });
+  if (dueToday.length > 0) {
+    await tx.installment.updateMany({
+      where: { id: { in: dueToday }, status: 'upcoming' },
+      data: { status: 'due_today' },
+    });
+  }
+  if (overdue.length > 0) {
+    await tx.installment.updateMany({
+      where: { id: { in: overdue } },
+      data: { status: 'overdue' },
+    });
+  }
 
-  // Log one event per installment that just became due.
-  await tx.installmentRollLog.createMany({
-    data: toMark.map((i) => ({
-      scheduleId: i.scheduleId,
-      installmentId: i.id,
-      eventType: 'installment_due',
-      eventDate: toDateOnly(i.dueDate),
-      displayMessage: `Installment #${i.installmentNumber} (${formatINR(Number(i.amountDue))}) became due.`,
-      metadata: {
-        installmentNumber: i.installmentNumber,
-        amountDue: Number(i.amountDue),
-      } as Prisma.InputJsonValue,
-    })),
-  });
-
-  return toMark.length;
+  return rows.length;
 }
 
 // ---------------------------------------------------------------------------
-// Rule C — applyRuleC (absorb prior chain into next primary)
+// R3 / R4 — redistribute a primary's chain remainder across future primaries
 // ---------------------------------------------------------------------------
 
 /**
- * For each primary installment N+1 whose dueDate has arrived, if primary N
- * (or its sub row) is still unpaid and not yet closed, we:
- *   1. Sum the remaining amount across N's active chain (N + any active sub).
- *   2. Add that carryover to N+1's amountDue and remainingAmount.
- *   3. Mark N and its subs as is_closed=true, status=overdue.
- *   4. Write a `chain_absorbed` roll log row.
+ * Core redistribution helper. Given a primary #N whose chain still owes
+ * `carryover` (computed from current rows), spread that amount equally
+ * across future primaries (installmentNumber > N) that still have remaining > 0.
  *
- * Idempotent: a chain with is_closed=true is skipped.
+ * On the source chain we set remainingAmount=0 on each row and update status:
+ *   - amountPaid === 0           → 'overdue'
+ *   - 0 < amountPaid < amountDue → 'partially_paid'
+ *   - else already paid and untouched
+ *
+ * Writes a 'redistributed' roll log row with metadata.targets = [{id, delta}].
+ * If there are no eligible future primaries this is a no-op.
  */
-export async function applyRuleC(
+async function redistributePrimaryChain(
   tx: Tx,
-  today: Date,
-  scope: { scheduleId?: string; shopId?: string },
-): Promise<number> {
-  const todayDate = toDateOnly(today);
-
-  // Find active "next primary" installments whose dueDate has arrived AND
-  // whose schedule still has an earlier primary with an active/unclosed chain.
-  const scheduleWhere: Prisma.InstallmentScheduleWhereInput = { status: 'active' };
-  if (scope.scheduleId) {
-    scheduleWhere.id = scope.scheduleId;
-  } else if (scope.shopId) {
-    scheduleWhere.sale = { shopId: scope.shopId };
+  args: {
+    scheduleId: string;
+    primaryNumber: number;
+    today: Date;
+    actorUserId?: string;
+    reason: 'auto_next_due' | 'promise_after_next';
+    promisedDate?: Date;
+    employeeNote?: string;
+  },
+): Promise<{ carryover: number; targets: { id: string; delta: number; installmentNumber: number }[] }> {
+  const chains = await loadChains(tx, args.scheduleId);
+  const primaries = primariesOnly(chains);
+  const sourceChainRows = rowsForPrimary(chains, args.primaryNumber).filter(
+    (r) => !r.isRescheduled,
+  );
+  const carryover = round2(
+    sourceChainRows.reduce((sum, r) => sum + r.remainingAmount, 0),
+  );
+  if (carryover <= 0) {
+    return { carryover: 0, targets: [] };
   }
 
-  const schedules = await tx.installmentSchedule.findMany({
-    where: scheduleWhere,
-    select: {
-      id: true,
-      installments: {
-        where: { isRescheduled: false },
-        orderBy: { installmentNumber: 'asc' },
-        select: {
-          id: true,
-          installmentNumber: true,
-          parentInstallmentNumber: true,
-          subSequence: true,
-          dueDate: true,
-          amountDue: true,
-          amountPaid: true,
-          remainingAmount: true,
-          status: true,
-          isClosed: true,
-        },
+  // Eligible targets: primaries with installmentNumber > N, not rescheduled,
+  // with remainingAmount > 0 (or still upcoming).
+  const targets = primaries.filter(
+    (p) =>
+      p.installmentNumber > args.primaryNumber &&
+      !p.isRescheduled &&
+      p.remainingAmount > 0,
+  );
+
+  if (targets.length === 0) {
+    // Nothing to distribute into. Leave source as-is; caller should handle
+    // (this means we're at the last primary or all future rows are closed/paid).
+    return { carryover, targets: [] };
+  }
+
+  // Equal split with residue going to the last target so sum matches exactly.
+  const perTarget = round2(carryover / targets.length);
+  const distributed = round2(perTarget * targets.length);
+  const residue = round2(carryover - distributed);
+
+  const targetDeltas: { id: string; delta: number; installmentNumber: number }[] = [];
+  for (let i = 0; i < targets.length; i++) {
+    const t = targets[i];
+    const delta = i === targets.length - 1 ? round2(perTarget + residue) : perTarget;
+    targetDeltas.push({ id: t.id, delta, installmentNumber: t.installmentNumber });
+    await tx.installment.update({
+      where: { id: t.id },
+      data: {
+        amountDue: { increment: delta },
+        remainingAmount: { increment: delta },
       },
+    });
+  }
+
+  // Zero out the source chain rows' remainingAmount, preserve paid & status.
+  for (const r of sourceChainRows) {
+    let newStatus: string = r.status;
+    if (r.amountPaid === 0) newStatus = 'overdue';
+    else if (r.amountPaid < r.amountDue) newStatus = 'partially_paid';
+    else newStatus = 'paid';
+
+    await tx.installment.update({
+      where: { id: r.id },
+      data: {
+        remainingAmount: 0,
+        status: newStatus as any,
+      },
+    });
+  }
+
+  const todayDate = toDateOnly(args.today);
+  const lastTargetNum = targets[targets.length - 1].installmentNumber;
+  const targetLabel = targets.length === 1
+    ? `#${targets[0].installmentNumber}`
+    : `#${targets[0].installmentNumber}..#${lastTargetNum}`;
+  const message =
+    args.reason === 'promise_after_next'
+      ? `Customer promised to pay on ${formatDate(args.promisedDate!)}, which falls on/after the next ` +
+        `installment's due date. ${formatINR(carryover)} from Installment #${args.primaryNumber} ` +
+        `redistributed across ${targetLabel} (${formatINR(perTarget)} each).` +
+        (args.employeeNote ? ` Note: ${args.employeeNote}` : '')
+      : `Next installment's due date arrived while Installment #${args.primaryNumber} still owed ${formatINR(carryover)}. ` +
+        `Amount redistributed across ${targetLabel} (${formatINR(perTarget)} each).`;
+
+  await tx.installmentRollLog.create({
+    data: {
+      scheduleId: args.scheduleId,
+      eventType: 'redistributed',
+      eventDate: todayDate,
+      actorUserId: args.actorUserId ?? null,
+      displayMessage: message,
+      metadata: {
+        sourcePrimary: args.primaryNumber,
+        reason: args.reason,
+        carryover,
+        perTarget,
+        targets: targetDeltas,
+        promisedDate: args.promisedDate ? formatDate(args.promisedDate) : null,
+      } as Prisma.InputJsonValue,
     },
   });
 
-  let absorbedChains = 0;
-
-  for (const schedule of schedules) {
-    // Group installments by "chain" = primary installmentNumber.
-    // A primary row has parentInstallmentNumber = null, subSequence = null.
-    // Sub rows have parentInstallmentNumber = the primary's number.
-    const chains = new Map<number, typeof schedule.installments>();
-    for (const inst of schedule.installments) {
-      const chainKey = inst.parentInstallmentNumber ?? inst.installmentNumber;
-      const list = chains.get(chainKey) ?? [];
-      list.push(inst);
-      chains.set(chainKey, list);
-    }
-
-    const chainKeys = [...chains.keys()].sort((a, b) => a - b);
-
-    for (let i = 0; i < chainKeys.length - 1; i++) {
-      const currentKey = chainKeys[i];
-      const nextKey = chainKeys[i + 1];
-      const currentChain = chains.get(currentKey)!;
-      const nextChain = chains.get(nextKey)!;
-
-      // Next primary (parent row for that chain)
-      const nextPrimary = nextChain.find(
-        (inst) => inst.parentInstallmentNumber === null,
-      );
-      if (!nextPrimary) continue;
-
-      // Rule C only fires on/after N+1's due date
-      if (toDateOnly(nextPrimary.dueDate) > todayDate) continue;
-
-      // Skip if current chain is already fully closed
-      const activeRows = currentChain.filter(
-        (inst) => !inst.isClosed && inst.status !== 'paid' && inst.status !== 'rescheduled',
-      );
-      if (activeRows.length === 0) continue;
-
-      // Compute remaining to carry forward
-      const carryover = activeRows.reduce(
-        (sum, inst) => sum + Number(inst.remainingAmount),
-        0,
-      );
-      if (carryover <= 0) continue;
-
-      const daysOverdueFromPrimary =
-        Math.floor(
-          (todayDate.getTime() - toDateOnly(currentChain[0].dueDate).getTime()) /
-            (1000 * 60 * 60 * 24),
-        );
-
-      // 1. Add carryover to next primary
-      await tx.installment.update({
-        where: { id: nextPrimary.id },
-        data: {
-          amountDue: { increment: carryover },
-          remainingAmount: { increment: carryover },
-        },
-      });
-
-      // 2. Close all active rows in the current chain
-      await tx.installment.updateMany({
-        where: { id: { in: activeRows.map((r) => r.id) } },
-        data: {
-          status: 'overdue',
-          isClosed: true,
-        },
-      });
-
-      // 3. Audit log
-      const displayMessage =
-        `Installment #${currentKey} chain closed. ${formatINR(carryover)} remaining was added to ` +
-        `Installment #${nextPrimary.installmentNumber} (new total ${formatINR(Number(nextPrimary.amountDue) + carryover)}). ` +
-        `Customer was ${daysOverdueFromPrimary} days overdue.`;
-
-      await tx.installmentRollLog.create({
-        data: {
-          scheduleId: schedule.id,
-          installmentId: nextPrimary.id,
-          eventType: 'chain_absorbed',
-          eventDate: todayDate,
-          displayMessage,
-          metadata: {
-            closedChainIds: activeRows.map((r) => r.id),
-            closedPrimaryNumber: currentKey,
-            absorbedIntoId: nextPrimary.id,
-            absorbedIntoNumber: nextPrimary.installmentNumber,
-            amountCarried: carryover,
-            daysOverdue: daysOverdueFromPrimary,
-          } as Prisma.InputJsonValue,
-        },
-      });
-
-      absorbedChains++;
-    }
-  }
-
-  return absorbedChains;
+  return { carryover, targets: targetDeltas };
 }
 
 // ---------------------------------------------------------------------------
-// Rule D — applyPartialWithPromise (called from recordPayment)
+// R4 — daily rollover (auto-redistribute when next primary's date arrives)
 // ---------------------------------------------------------------------------
 
 /**
- * Record a partial payment with a new promise date. Branches:
- *   (a) newPromiseDate < nextPrimary.dueDate → create/advance a sub row
- *                                              (or create the first sub if none).
- *   (b) newPromiseDate >= nextPrimary.dueDate → close this chain and pre-merge
- *                                               remainder into nextPrimary.
+ * For every active schedule in scope, iterate primaries in order:
+ *   - If primary #N's chain has remainingAmount > 0 AND #N+1 exists AND
+ *     #N+1.dueDate <= today → apply redistribution R4 to chain #N.
+ *   - Repeat until no more redistributions are needed (at most once per
+ *     primary). Idempotent across multiple same-day runs.
+ */
+export async function applyDailyRollover(
+  tx: Tx,
+  today: Date,
+  scope: { scheduleId?: string; shopId?: string },
+): Promise<{ redistributions: number }> {
+  const todayDate = toDateOnly(today);
+
+  const scheduleWhere: Prisma.InstallmentScheduleWhereInput = { status: 'active' };
+  if (scope.scheduleId) scheduleWhere.id = scope.scheduleId;
+  else if (scope.shopId) scheduleWhere.sale = { shopId: scope.shopId };
+
+  const schedules = await tx.installmentSchedule.findMany({
+    where: scheduleWhere,
+    select: { id: true, lastRolloverDate: true },
+  });
+
+  let total = 0;
+  for (const s of schedules) {
+    // Skip if already processed today.
+    if (s.lastRolloverDate && toDateOnly(s.lastRolloverDate).getTime() === todayDate.getTime()) {
+      continue;
+    }
+
+    // Walk primaries; redistribute any #N whose chain has remaining > 0 and
+    // whose #N+1 due date <= today.
+    let iterationGuard = 0;
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      iterationGuard++;
+      if (iterationGuard > 50) break; // safety
+
+      const chains = await loadChains(tx, s.id);
+      const primaries = primariesOnly(chains);
+
+      const target = primaries.find((p, idx) => {
+        const next = primaries[idx + 1];
+        if (!next) return false;
+        const chainRemaining = remainingForPrimary(chains, p.installmentNumber);
+        return chainRemaining > 0 && toDateOnly(next.dueDate) <= todayDate;
+      });
+
+      if (!target) break;
+
+      await redistributePrimaryChain(tx, {
+        scheduleId: s.id,
+        primaryNumber: target.installmentNumber,
+        today: toDateOnly(next_primary_eventDate(chains, target.installmentNumber) ?? today),
+        reason: 'auto_next_due',
+      });
+      total++;
+    }
+
+    await tx.installmentSchedule.update({
+      where: { id: s.id },
+      data: { lastRolloverDate: todayDate },
+    });
+
+    await syncScheduleAndSale(tx, s.id);
+  }
+
+  return { redistributions: total };
+}
+
+/** Returns the dueDate of the primary immediately following `primaryNumber`, if any. */
+function next_primary_eventDate(chains: ChainRow[], primaryNumber: number): Date | null {
+  const primaries = primariesOnly(chains);
+  const idx = primaries.findIndex((p) => p.installmentNumber === primaryNumber);
+  if (idx < 0 || idx + 1 >= primaries.length) return null;
+  return primaries[idx + 1].dueDate;
+}
+
+// ---------------------------------------------------------------------------
+// R2 / R3 — applyPartialWithPromise (called from recordPayment)
+// ---------------------------------------------------------------------------
+
+/**
+ * Called when the customer has made a (possibly zero) payment on a specific
+ * row and committed to a new date for the remainder.
  *
- * Caller (recordPayment) is responsible for:
- *   - Validating amountPaid < remainingAmount.
- *   - Creating the InstallmentPayment row.
- *   - Updating amountPaid/remainingAmount on the source installment.
+ * Branches:
+ *   (a) promiseDate ≤ next primary's dueDate  → create sub #N.(k+1)
+ *   (b) promiseDate >  next primary's dueDate → redistribute chain #N
  *
- * This function only handles the "what happens to the chain" side.
- *
- * Returns: { branch: 'sub_created' | 'sub_advanced' | 'absorbed', newSubId?, absorbedIntoId? }
+ * The caller already recorded the payment on the source row. This function
+ * only arranges the chain.
  */
 export async function applyPartialWithPromise(
   tx: Tx,
@@ -290,9 +492,9 @@ export async function applyPartialWithPromise(
     today: Date;
   },
 ): Promise<{
-  branch: 'sub_created' | 'sub_advanced' | 'absorbed';
+  branch: 'sub_created' | 'redistributed';
   newSubId?: string;
-  absorbedIntoId?: string;
+  redistributeResult?: { carryover: number; targets: { id: string; delta: number; installmentNumber: number }[] };
 }> {
   const source = await tx.installment.findUnique({
     where: { id: args.sourceInstallmentId },
@@ -306,6 +508,7 @@ export async function applyPartialWithPromise(
       amountDue: true,
       amountPaid: true,
       remainingAmount: true,
+      status: true,
     },
   });
   if (!source) throw new Error('Source installment not found');
@@ -314,8 +517,7 @@ export async function applyPartialWithPromise(
   const todayDate = toDateOnly(args.today);
   const promiseDate = toDateOnly(args.newPromiseDate);
 
-  // Find the next primary installment in this schedule (installmentNumber > primaryNumber,
-  // parentInstallmentNumber = null, not rescheduled)
+  // Find the next primary (installmentNumber > primaryNumber).
   const nextPrimary = await tx.installment.findFirst({
     where: {
       scheduleId: source.scheduleId,
@@ -327,104 +529,22 @@ export async function applyPartialWithPromise(
     select: { id: true, installmentNumber: true, dueDate: true, amountDue: true },
   });
 
-  // ---------- Branch (b): promise is on/after next primary → absorb ----------
-  if (nextPrimary && promiseDate >= toDateOnly(nextPrimary.dueDate)) {
-    // Close the entire current chain (primary + subs) and merge remainder into next primary.
-    const chainRows = await tx.installment.findMany({
-      where: {
-        scheduleId: source.scheduleId,
-        OR: [
-          { installmentNumber: primaryNumber, parentInstallmentNumber: null },
-          { parentInstallmentNumber: primaryNumber },
-        ],
-        isClosed: false,
-        status: { notIn: ['paid', 'rescheduled'] },
-      },
-      select: { id: true, remainingAmount: true },
+  // Branch (b): promise > next primary's due → redistribute.
+  if (nextPrimary && promiseDate > toDateOnly(nextPrimary.dueDate)) {
+    const result = await redistributePrimaryChain(tx, {
+      scheduleId: source.scheduleId,
+      primaryNumber,
+      today: todayDate,
+      actorUserId: args.actorUserId,
+      reason: 'promise_after_next',
+      promisedDate: promiseDate,
+      employeeNote: args.employeeNote,
     });
-
-    const carryover = chainRows.reduce((sum, r) => sum + Number(r.remainingAmount), 0);
-
-    await tx.installment.update({
-      where: { id: nextPrimary.id },
-      data: {
-        amountDue: { increment: carryover },
-        remainingAmount: { increment: carryover },
-      },
-    });
-
-    await tx.installment.updateMany({
-      where: { id: { in: chainRows.map((r) => r.id) } },
-      data: { status: 'overdue', isClosed: true },
-    });
-
-    await tx.installmentRollLog.create({
-      data: {
-        scheduleId: source.scheduleId,
-        installmentId: nextPrimary.id,
-        eventType: 'chain_absorbed',
-        eventDate: todayDate,
-        actorUserId: args.actorUserId,
-        displayMessage:
-          `Customer promised to pay on ${formatDate(promiseDate)} which falls on/after Installment ` +
-          `#${nextPrimary.installmentNumber}'s due date (${formatDate(nextPrimary.dueDate)}). ` +
-          `Installment #${primaryNumber} chain closed; ${formatINR(carryover)} added to Installment ` +
-          `#${nextPrimary.installmentNumber} (new total ${formatINR(Number(nextPrimary.amountDue) + carryover)}).` +
-          (args.employeeNote ? ` Note: ${args.employeeNote}` : ''),
-        metadata: {
-          closedChainIds: chainRows.map((r) => r.id),
-          closedPrimaryNumber: primaryNumber,
-          absorbedIntoId: nextPrimary.id,
-          absorbedIntoNumber: nextPrimary.installmentNumber,
-          amountCarried: carryover,
-          promisedDate: formatDate(promiseDate),
-        } as Prisma.InputJsonValue,
-      },
-    });
-
-    return { branch: 'absorbed', absorbedIntoId: nextPrimary.id };
+    return { branch: 'redistributed', redistributeResult: result };
   }
 
-  // ---------- Branch (a): promise is before next primary (or no next) → sub row ----------
-
-  // If source is already a sub row, just advance its dueDate and amount.
-  if (source.subSequence !== null && source.parentInstallmentNumber !== null) {
-    await tx.installment.update({
-      where: { id: source.id },
-      data: {
-        dueDate: promiseDate,
-        amountDue: args.remainderAfterPayment,
-        remainingAmount: args.remainderAfterPayment,
-        status: promiseDate.getTime() === todayDate.getTime() ? 'due_today' : 'upcoming',
-        notes: args.employeeNote ?? source.id,
-      },
-    });
-
-    await tx.installmentRollLog.create({
-      data: {
-        scheduleId: source.scheduleId,
-        installmentId: source.id,
-        eventType: 'sub_created',
-        eventDate: todayDate,
-        actorUserId: args.actorUserId,
-        displayMessage:
-          `Customer made a partial payment. Remaining ${formatINR(args.remainderAfterPayment)} ` +
-          `rescheduled to ${formatDate(promiseDate)} (Installment #${source.parentInstallmentNumber}.${source.subSequence}).` +
-          (args.employeeNote ? ` Note: ${args.employeeNote}` : ''),
-        metadata: {
-          subInstallmentId: source.id,
-          parentNumber: source.parentInstallmentNumber,
-          subSequence: source.subSequence,
-          remainder: args.remainderAfterPayment,
-          newDueDate: formatDate(promiseDate),
-        } as Prisma.InputJsonValue,
-      },
-    });
-
-    return { branch: 'sub_advanced', newSubId: source.id };
-  }
-
-  // Source is a primary row → create the next sub (k+1). Find the highest subSequence so far.
+  // Branch (a): create a fresh sub row #N.(k+1).
+  // Find current highest subSequence on this chain.
   const existingSubs = await tx.installment.findMany({
     where: {
       scheduleId: source.scheduleId,
@@ -436,12 +556,20 @@ export async function applyPartialWithPromise(
   });
   const nextSubSeq = (existingSubs[0]?.subSequence ?? 0) + 1;
 
-  // Mark the source primary as rescheduled (chain pointer).
+  // Source becomes "partially_paid" or stays "overdue" — do NOT mark rescheduled.
+  // Statuses: if the source is a sub row, it too carries its state.
+  const newSourceStatus =
+    Number(source.amountPaid) === 0
+      ? 'overdue'
+      : Number(source.amountPaid) < Number(source.amountDue)
+        ? 'partially_paid'
+        : 'paid';
   await tx.installment.update({
     where: { id: source.id },
     data: {
-      isRescheduled: true,
-      status: 'rescheduled',
+      // The source's remainingAmount moves to the new sub row; zero it here.
+      remainingAmount: 0,
+      status: newSourceStatus,
     },
   });
 
@@ -470,9 +598,8 @@ export async function applyPartialWithPromise(
       eventDate: todayDate,
       actorUserId: args.actorUserId,
       displayMessage:
-        `Customer made a partial payment on Installment #${primaryNumber}. Remaining ` +
-        `${formatINR(args.remainderAfterPayment)} rescheduled to ${formatDate(promiseDate)} ` +
-        `as Installment #${primaryNumber}.${nextSubSeq}.` +
+        `Customer committed ${formatDate(promiseDate)} for the remaining ${formatINR(args.remainderAfterPayment)} ` +
+        `on Installment #${primaryNumber}. New sub-row #${primaryNumber}.${nextSubSeq} created.` +
         (args.employeeNote ? ` Note: ${args.employeeNote}` : ''),
       metadata: {
         parentInstallmentId: source.id,
@@ -493,20 +620,29 @@ export async function applyPartialWithPromise(
 // ---------------------------------------------------------------------------
 
 /**
- * Runs the full daily rule engine for a scope. Called lazily from list
- * endpoints and from the admin manual run-rollover endpoint.
- *
- * Order matters:
- *   1. applyRuleC first — absorb stale chains into their next primary (this
- *      may cause a row to transition to due_today naturally).
- *   2. markDueToday second — flip upcoming→due_today for anything now due.
+ * Runs the full daily rule engine for a scope. Safe to call multiple times.
+ *   1. applyDailyRollover — redistribute stale chains whose next primary has come due.
+ *   2. markOverdueForToday — flip due-today / overdue status flags for visibility.
+ *   3. syncScheduleAndSale — keep sale.pendingAmount and completion state in sync
+ *      (called per-schedule inside applyDailyRollover too; this top-level call
+ *      handles schedules that didn't redistribute but may still need recompute).
  */
 export async function ensureRolledForToday(
   tx: Tx,
   today: Date,
   scope: { scheduleId?: string; shopId?: string },
-): Promise<{ chainsAbsorbed: number; markedDueToday: number }> {
-  const chainsAbsorbed = await applyRuleC(tx, today, scope);
-  const markedDueToday = await markDueToday(tx, today, scope);
-  return { chainsAbsorbed, markedDueToday };
+): Promise<{ redistributions: number; markedOverdue: number }> {
+  const { redistributions } = await applyDailyRollover(tx, today, scope);
+  const markedOverdue = await markOverdueForToday(tx, today, scope);
+
+  // For single-schedule scope also sync directly.
+  if (scope.scheduleId) {
+    await syncScheduleAndSale(tx, scope.scheduleId);
+  }
+
+  return { redistributions, markedOverdue };
 }
+
+// ---------------------------------------------------------------------------
+// Backwards-compatible alias: service imports `markDueToday` historically.
+// ---------------------------------------------------------------------------

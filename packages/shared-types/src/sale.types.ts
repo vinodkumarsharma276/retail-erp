@@ -38,6 +38,8 @@ export interface SaleRecord {
   financePaymentStatus?: FinancePaymentStatus;
   financePaymentReceivedDate?: string;
   financeReferenceNumber?: string;
+  // Completion
+  completedAt?: string | null;
   // Metadata
   notes?: string;
   createdBy: string;

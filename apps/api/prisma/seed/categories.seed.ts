@@ -1,5 +1,46 @@
 import type { PrismaClient, ProductCategory } from '@prisma/client';
 
+// Standard Indian GST HSN codes per product category.
+// Leaf entries inherit their parent's code unless overridden.
+const HSN_CODES: Record<string, string> = {
+  // TVs - HSN 8528
+  'tv': '8528',
+  'led-tv': '8528',
+  'oled-tv': '8528',
+  'qled-tv': '8528',
+  'plasma-tv': '8528',
+  // Mobile - HSN 8517
+  'mobile': '8517',
+  'smartphone': '8517',
+  'feature-phone': '8517',
+  // Washing machines - HSN 8450
+  'washing-machine': '8450',
+  'top-load': '8450',
+  'front-load': '8450',
+  'semi-automatic': '8450',
+  // Air conditioners - HSN 8415
+  'ac': '8415',
+  'window-ac': '8415',
+  'split-ac': '8415',
+  'tower-ac': '8415',
+  // Refrigerators - HSN 8418
+  'refrigerator': '8418',
+  'single-door': '8418',
+  'double-door': '8418',
+  'side-by-side': '8418',
+  // Furniture - HSN 9403
+  'furniture': '9403',
+  'sofa': '9403',
+  'bed': '9403',
+  'dining-table': '9403',
+  'wardrobe': '9403',
+  // Small appliances
+  'small-appliances': '8509',
+  'mixer-grinder': '8509',
+  'water-purifier': '8421',
+  'iron': '8516',
+};
+
 export async function seedCategories(prisma: PrismaClient): Promise<ProductCategory[]> {
   const categories: ProductCategory[] = [];
 
@@ -73,7 +114,13 @@ export async function seedCategories(prisma: PrismaClient): Promise<ProductCateg
           displayOrder: i,
           isLeaf: false,
           icon: parent.icon,
+          hsnCode: HSN_CODES[parent.slug] ?? null,
         },
+      });
+    } else if (!parentCat.hsnCode && HSN_CODES[parent.slug]) {
+      parentCat = await prisma.productCategory.update({
+        where: { id: parentCat.id },
+        data: { hsnCode: HSN_CODES[parent.slug] },
       });
     }
     categories.push(parentCat);
@@ -94,7 +141,13 @@ export async function seedCategories(prisma: PrismaClient): Promise<ProductCateg
             displayOrder: j,
             isLeaf: true,
             icon: parent.icon,
+            hsnCode: HSN_CODES[child.slug] ?? HSN_CODES[parent.slug] ?? null,
           },
+        });
+      } else if (!childCat.hsnCode && (HSN_CODES[child.slug] || HSN_CODES[parent.slug])) {
+        childCat = await prisma.productCategory.update({
+          where: { id: childCat.id },
+          data: { hsnCode: HSN_CODES[child.slug] ?? HSN_CODES[parent.slug] },
         });
       }
       categories.push(childCat);

@@ -608,6 +608,10 @@ model SaleRecord {
   financePaymentStatus        FinancePaymentStatus? @map("finance_payment_status")
   financePaymentReceivedDate  DateTime?            @map("finance_payment_received_date") @db.Date
   financeReferenceNumber      String?              @map("finance_reference_number") @db.VarChar(100)
+  // Completion
+  /// Timestamp when the sale was fully settled (installments all paid, or full-payment at creation).
+  /// Null means still active/pending.
+  completedAt                 DateTime?            @map("completed_at") @db.Timestamptz()
   // Metadata
   notes                       String?              @db.Text
   createdBy                   String               @map("created_by")
@@ -632,6 +636,7 @@ model SaleRecord {
   @@index([financeCompanyId])
   @@index([guarantorId])
   @@index([createdBy])
+  @@index([completedAt])
   @@map("sale_records")
 }
 
@@ -679,6 +684,9 @@ model InstallmentSchedule {
   emiAmount       Decimal  @map("emi_amount") @db.Decimal(12, 2)
   startDate       DateTime @map("start_date") @db.Date
   status          String   @default("active") @db.VarChar(20)
+  /// The last business date on which the daily rollover job processed this schedule.
+  /// Used for idempotent scheduler runs.
+  lastRolloverDate DateTime? @map("last_rollover_date") @db.Date
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz()
   updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 

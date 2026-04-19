@@ -19,6 +19,7 @@ import {
 } from '../../hooks/useSales';
 import { useAuthStore } from '../../stores/auth-store';
 import { StatusBadge } from '../../components/StatusBadge';
+import { CompletionBadge } from '../../components/CompletionBadge';
 import { formatINR, formatDateIN } from '@retailerp/shared-utils';
 import { UserRole, SaleType, FinancePaymentStatus } from '@retailerp/shared-types';
 
@@ -151,11 +152,12 @@ export function SaleDetailPage() {
           <h1 className="text-2xl font-semibold">
             Sale {sale.saleNumber}
           </h1>
-          <div className="flex items-center gap-2 mt-1">
+          <div className="flex flex-wrap items-center gap-2 mt-1">
             <StatusBadge status={sale.saleType} />
             {sale.pendingAmount > 0 && (
               <StatusBadge status="pending" />
             )}
+            <CompletionBadge completedAt={(sale as any).completedAt} variant="hero" />
           </div>
         </div>
         <button
@@ -251,7 +253,11 @@ export function SaleDetailPage() {
               )}
               <InfoRow
                 label="Created By"
-                value={sale.createdBy}
+                value={
+                  (sale as any).creator?.fullName ||
+                  (sale as any).creator?.username ||
+                  sale.createdBy
+                }
               />
               <InfoRow
                 label="Created"
@@ -426,28 +432,55 @@ export function SaleDetailPage() {
                           </tr>
                         </thead>
                         <tbody>
-                          {installmentData.installments.map((inst) => (
-                            <tr
-                              key={inst.id}
-                              className="border-b last:border-0"
-                            >
-                              <td className="px-3 py-2">
-                                {inst.installmentNumber}
-                              </td>
-                              <td className="px-3 py-2">
-                                {formatDateIN(inst.dueDate)}
-                              </td>
-                              <td className="px-3 py-2 text-right font-medium">
-                                {formatINR(inst.amountDue)}
-                              </td>
-                              <td className="px-3 py-2 text-right">
-                                {formatINR(inst.amountPaid)}
-                              </td>
-                              <td className="px-3 py-2">
-                                <StatusBadge status={inst.status} />
-                              </td>
-                            </tr>
-                          ))}
+                          {[...installmentData.installments]
+                            .sort((a, b) => {
+                              const ap = a.parentInstallmentNumber ?? a.installmentNumber;
+                              const bp = b.parentInstallmentNumber ?? b.installmentNumber;
+                              if (ap !== bp) return ap - bp;
+                              // primary first, then subs by subSequence
+                              const aSub = a.subSequence ?? 0;
+                              const bSub = b.subSequence ?? 0;
+                              return aSub - bSub;
+                            })
+                            .map((inst) => {
+                              const isSub =
+                                inst.parentInstallmentNumber != null &&
+                                inst.subSequence != null;
+                              return (
+                                <tr
+                                  key={inst.id}
+                                  className={cn(
+                                    'border-b last:border-0',
+                                    isSub && 'bg-muted/30',
+                                  )}
+                                >
+                                  <td className="px-3 py-2">
+                                    <span
+                                      className={cn(
+                                        isSub &&
+                                          'ml-5 text-muted-foreground',
+                                      )}
+                                    >
+                                      {isSub
+                                        ? `↳ ${inst.parentInstallmentNumber}.${inst.subSequence}`
+                                        : inst.installmentNumber}
+                                    </span>
+                                  </td>
+                                  <td className="px-3 py-2">
+                                    {formatDateIN(inst.dueDate)}
+                                  </td>
+                                  <td className="px-3 py-2 text-right font-medium">
+                                    {formatINR(inst.amountDue)}
+                                  </td>
+                                  <td className="px-3 py-2 text-right">
+                                    {formatINR(inst.amountPaid)}
+                                  </td>
+                                  <td className="px-3 py-2">
+                                    <StatusBadge status={inst.status} />
+                                  </td>
+                                </tr>
+                              );
+                            })}
                         </tbody>
                       </table>
                     </div>

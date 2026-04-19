@@ -23,6 +23,7 @@ import { formRoutes } from './modules/forms/forms.routes.js';
 import { employeeRoutes } from './modules/employees/employees.routes.js';
 import { notificationRoutes } from './modules/notifications/notifications.routes.js';
 import { rolesRoutes } from './modules/roles/roles.routes.js';
+import { registerInstallmentScheduler } from './jobs/installments-scheduler.js';
 
 export async function buildApp() {
   const app = Fastify({
@@ -69,6 +70,9 @@ export async function buildApp() {
   await app.register(employeeRoutes, { prefix: '/api/v1/employees' });
   await app.register(notificationRoutes, { prefix: '/api/v1/notifications' });
   await app.register(rolesRoutes, { prefix: '/api/v1/roles' });
+
+  // Background jobs (gated by ENABLE_SCHEDULER=true).
+  registerInstallmentScheduler(app.log);
 
   return app;
 }

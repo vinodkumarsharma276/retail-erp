@@ -54,6 +54,7 @@ const GST_SLABS = [0, 5, 12, 18, 28] as const;
 // ---------------------------------------------------------------------------
 interface SaleFormValues {
   ledgerNumber: string;
+  saleDate: string;
   saleType: SaleType;
   // Pricing
   sellingPrice: number | '';
@@ -76,6 +77,7 @@ interface SaleFormValues {
 
 const defaultValues: SaleFormValues = {
   ledgerNumber: '',
+  saleDate: new Date().toISOString().split('T')[0],
   saleType: SaleType.FULL_PAYMENT,
   sellingPrice: '',
   gstRate: 18,
@@ -395,6 +397,7 @@ export function SaleCreatePage() {
       productId: selectedProduct.id,
       customerId: selectedCustomer.id,
       ledgerNumber: formData.ledgerNumber.trim(),
+      saleDate: formData.saleDate || undefined,
       saleType: formData.saleType,
       sellingPrice: Number(formData.sellingPrice),
       discountAmount: autoDiscount > 0 ? autoDiscount : 0,
@@ -633,34 +636,80 @@ export function SaleCreatePage() {
         <section className="rounded-lg border bg-card p-6">
           <h2 className="text-lg font-medium mb-4 flex items-center gap-2">
             <FileText className="h-5 w-5 text-primary" />
-            Ledger Number
+            Ledger & Sale Date
           </h2>
-          <div className="max-w-sm">
-            <label htmlFor="ledgerNumber" className="block text-sm font-medium mb-1.5">
-              Office Register Number <span className="text-destructive">*</span>
-            </label>
-            <input
-              id="ledgerNumber"
-              type="text"
-              {...register('ledgerNumber', {
-                required: 'Ledger number is required',
-              })}
-              placeholder="e.g., VE001"
-              className={cn(
-                'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
-                'placeholder:text-muted-foreground',
-                'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                errors.ledgerNumber && 'border-destructive',
-              )}
-            />
-            <p className="mt-1 text-xs text-muted-foreground">
-              Format: 2 capital letters + up to 5 digits (e.g., VE001, AB123, NE045)
-            </p>
-            {errors.ledgerNumber && (
-              <p className="mt-1 text-xs text-destructive">
-                {errors.ledgerNumber.message}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label htmlFor="ledgerNumber" className="block text-sm font-medium mb-1.5">
+                Office Register Number <span className="text-destructive">*</span>
+              </label>
+              <input
+                id="ledgerNumber"
+                type="text"
+                {...register('ledgerNumber', {
+                  required: 'Ledger number is required',
+                })}
+                placeholder="e.g., VE001"
+                className={cn(
+                  'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                  'placeholder:text-muted-foreground',
+                  'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                  errors.ledgerNumber && 'border-destructive',
+                )}
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Format: 2 capital letters + up to 5 digits (e.g., VE001, AB123, NE045)
               </p>
-            )}
+              {errors.ledgerNumber && (
+                <p className="mt-1 text-xs text-destructive">
+                  {errors.ledgerNumber.message}
+                </p>
+              )}
+            </div>
+
+            <div>
+              <label htmlFor="saleDate" className="block text-sm font-medium mb-1.5">
+                Sold on <span className="text-destructive">*</span>
+              </label>
+              <input
+                id="saleDate"
+                type="date"
+                min={
+                  (selectedProduct as any)?.purchase?.invoiceDate
+                    ? String((selectedProduct as any).purchase.invoiceDate).slice(0, 10)
+                    : undefined
+                }
+                max={new Date().toISOString().split('T')[0]}
+                {...register('saleDate', {
+                  required: 'Sale date is required',
+                  validate: (value) => {
+                    if (!value) return 'Sale date is required';
+                    const invoiceDate = (selectedProduct as any)?.purchase?.invoiceDate;
+                    if (invoiceDate && value < String(invoiceDate).slice(0, 10)) {
+                      return `Sale date cannot be before purchase invoice date (${String(invoiceDate).slice(0, 10)})`;
+                    }
+                    const today = new Date().toISOString().split('T')[0];
+                    if (value > today) return 'Sale date cannot be in the future';
+                    return true;
+                  },
+                })}
+                className={cn(
+                  'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                  'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                  errors.saleDate && 'border-destructive',
+                )}
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                {(selectedProduct as any)?.purchase?.invoiceDate
+                  ? `Must be on or after purchase invoice date (${String((selectedProduct as any).purchase.invoiceDate).slice(0, 10)}).`
+                  : 'Defaults to today. You can backdate if the sale was actually on an earlier day.'}
+              </p>
+              {errors.saleDate && (
+                <p className="mt-1 text-xs text-destructive">
+                  {errors.saleDate.message}
+                </p>
+              )}
+            </div>
           </div>
         </section>
 

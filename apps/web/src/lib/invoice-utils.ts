@@ -28,6 +28,27 @@ function buildShopAddress(shop: Shop): string {
 }
 
 /**
+ * Build a multi-line customer address string.
+ */
+function buildCustomerAddress(customer: {
+  addressLine1?: string | null;
+  addressLine2?: string | null;
+  city?: string | null;
+  state?: string | null;
+  pincode?: string | null;
+} | null | undefined): string | undefined {
+  if (!customer) return undefined;
+  const parts: string[] = [];
+  if (customer.addressLine1) parts.push(customer.addressLine1);
+  if (customer.addressLine2) parts.push(customer.addressLine2);
+  const cityState = [customer.city, customer.state, customer.pincode]
+    .filter(Boolean)
+    .join(', ');
+  if (cityState) parts.push(cityState);
+  return parts.length > 0 ? parts.join(', ') : undefined;
+}
+
+/**
  * Fetch all data needed for the invoice and trigger the PDF download.
  * Fetches both the sale detail and the shop detail in parallel.
  */
@@ -64,7 +85,7 @@ export async function handleInvoiceDownload(saleId: string): Promise<void> {
     // Customer
     customerName: sale.customer?.name || '',
     customerPhone: sale.customer?.phone || '',
-    customerAddress: sale.customer?.city || undefined,
+    customerAddress: buildCustomerAddress(sale.customer as any),
     // Product
     productBrand: sale.product?.brand || '',
     productModel: sale.product?.modelNumber || '',
