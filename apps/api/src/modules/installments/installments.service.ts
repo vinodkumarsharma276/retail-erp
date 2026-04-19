@@ -1,6 +1,6 @@
 import { prisma } from '../../config/database.js';
 import type { Prisma } from '@prisma/client';
-import { ensureRolledForToday, applyPartialWithPromise, syncScheduleAndSale } from './installments.rules.js';
+import { ensureRolledForToday, applyPartialWithPromise, syncScheduleAndSale, distributeOverpayment } from './installments.rules.js';
 
 export const installmentsService = {
   /**
@@ -358,6 +358,79 @@ export const installmentsService = {
     });
 
     return { collections: flattenCollections(collections), rescheduledNotes };
+  },
+
+  /**
+   * Get installments whose dueDate is within the range AND that have received
+   * at least one payment (full or partial). Used by the "Paid" tab to show
+   * who actually paid (on or around their due date) over a period.
+   */
+  async getPaidCollectionsForDateRange(
+    shopId: string,
+    dateFrom: string,
+    dateTo: string,
+  ) {
+    const fromDate = new Date(dateFrom);
+    fromDate.setHours(0, 0, 0, 0);
+    const toDate = new Date(dateTo);
+    toDate.setHours(23, 59, 59, 999);
+
+    const collections = await prisma.installment.findMany({
+      where: {
+        dueDate: { gte: fromDate, lte: toDate },
+        amountPaid: { gt: 0 },
+        schedule: {
+          sale: { shopId },
+        },
+      },
+      include: {
+        schedule: {
+          select: {
+            id: true,
+            numInstallments: true,
+            sale: {
+              select: {
+                id: true,
+                saleNumber: true,
+                ledgerNumber: true,
+                customer: {
+                  select: {
+                    id: true,
+                    name: true,
+                    phone: true,
+                    customerCode: true,
+                    addressLine1: true,
+                    addressLine2: true,
+                    city: true,
+                    pincode: true,
+                  },
+                },
+                product: {
+                  select: {
+                    id: true,
+                    brand: true,
+                    modelNumber: true,
+                    serialNumber: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+        payments: {
+          orderBy: { paymentDate: 'asc' },
+          select: {
+            id: true,
+            amount: true,
+            paymentMode: true,
+            paymentDate: true,
+          },
+        },
+      },
+      orderBy: [{ dueDate: 'desc' }, { installmentNumber: 'asc' }],
+    });
+
+    return { collections: flattenPaidCollections(collections) };
   },
 
   /**
@@ -789,26 +862,31 @@ export const installmentsService = {
           );
         }
 
-        // Determine payment date (employee can override)
-        const paidOnDate = data.paymentDate ? new Date(data.paymentDate) : new Date();
+        // Overpayment handling: excess is distributed across future primaries
+        // (R7). We cap the source installment's amountPaid at its amountDue
+        // so the row reports as cleanly paid; the full cash amount is still
+        // recorded as a single InstallmentPayment so the audit trail matches
+        // what the customer actually handed over.
+        const excess = amount - remainingAmount;
+        const amountAppliedToRow = remainingAmount;
 
-        // Mark installment as paid; update dueDate if employee changed it
-        const updateData: any = {
-          amountPaid: { increment: amount },
-          remainingAmount: 0,
-          status: 'paid',
-          notes: data.notes ?? null,
-        };
-        if (data.paymentDate) {
-          updateData.dueDate = paidOnDate;
-        }
+        // Determine payment date (employee can override). NOTE: we never
+        // mutate the installment's original dueDate — the paid-on date lives
+        // on the InstallmentPayment row so the timeline preserves whether
+        // the customer paid early, on time, or late.
+        const paidOnDate = data.paymentDate ? new Date(data.paymentDate) : new Date();
 
         await tx.installment.update({
           where: { id: installmentId },
-          data: updateData,
+          data: {
+            amountPaid: { increment: amountAppliedToRow },
+            remainingAmount: 0,
+            status: 'paid',
+            notes: data.notes ?? null,
+          },
         });
 
-        // Create payment record
+        // Create payment record (full cash amount, including excess)
         paymentRecord = await tx.installmentPayment.create({
           data: {
             installmentId,
@@ -838,11 +916,41 @@ export const installmentsService = {
               installmentId,
               installmentNumber: installment.installmentNumber,
               amount,
+              amountAppliedToRow,
+              excess,
               paymentMode: data.paymentMode,
               referenceNumber: data.referenceNumber ?? null,
             } as Prisma.InputJsonValue,
           },
         });
+
+        // Distribute any excess across future primaries (R7).
+        if (excess > 0.005) {
+          const sourcePrimaryNumber =
+            installment.parentInstallmentNumber ?? installment.installmentNumber;
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          const { distributed, targets } = await distributeOverpayment(tx, {
+            scheduleId: schedule.id,
+            sourcePrimaryNumber,
+            sourceInstallmentId: installmentId,
+            excess,
+            today,
+            actorUserId: userId,
+            paymentMode: data.paymentMode,
+            notes: data.notes,
+          });
+          if (targets.length === 0) {
+            // No future primaries to absorb the excess. Roll back the
+            // transaction so the caller can show a clear validation error
+            // instead of silently keeping the excess on the source row.
+            throw new Error(
+              `Overpayment of ₹${excess.toLocaleString('en-IN')} cannot be distributed: ` +
+                `no future unpaid installments remain on this schedule.`,
+            );
+          }
+          void distributed;
+        }
       } else if (data.scenario === 'reschedule') {
         const newDate = new Date(data.newDate!);
 
@@ -1214,6 +1322,54 @@ function flattenCollections(collections: any[]) {
       productName: product?.modelNumber ?? '',
       productBrand: product?.brand ?? '',
       saleId: sale?.id ?? '',
+    };
+  });
+}
+
+function flattenPaidCollections(collections: any[]) {
+  return collections.map((inst: any) => {
+    const sale = inst.schedule?.sale;
+    const customer = sale?.customer;
+    const product = sale?.product;
+    const payments = (inst.payments ?? []) as Array<{
+      id: string;
+      amount: any;
+      paymentMode: string;
+      paymentDate: Date | string;
+    }>;
+    const firstPayment = payments[0];
+    const lastPayment = payments[payments.length - 1];
+    const firstPaymentDate = firstPayment?.paymentDate ?? null;
+    const daysFromDue = firstPaymentDate
+      ? Math.floor(
+          (new Date(firstPaymentDate).getTime() - new Date(inst.dueDate).getTime()) /
+            (1000 * 60 * 60 * 24),
+        )
+      : null;
+    return {
+      id: inst.id,
+      scheduleId: inst.scheduleId,
+      installmentNumber: inst.installmentNumber,
+      parentInstallmentNumber: inst.parentInstallmentNumber,
+      subSequence: inst.subSequence,
+      totalInstallments: inst.schedule?.numInstallments ?? 0,
+      dueDate: inst.dueDate,
+      amountDue: inst.amountDue,
+      amountPaid: inst.amountPaid,
+      remainingAmount: inst.remainingAmount,
+      status: inst.status,
+      firstPaymentDate,
+      lastPaymentDate: lastPayment?.paymentDate ?? null,
+      daysFromDue,
+      paymentCount: payments.length,
+      customerName: customer?.name ?? '',
+      customerPhone: customer?.phone ?? '',
+      customerAddress: [customer?.addressLine1, customer?.city].filter(Boolean).join(', ') || undefined,
+      productName: product?.modelNumber ?? '',
+      productBrand: product?.brand ?? '',
+      saleId: sale?.id ?? '',
+      saleNumber: sale?.saleNumber ?? '',
+      ledgerNumber: sale?.ledgerNumber ?? '',
     };
   });
 }

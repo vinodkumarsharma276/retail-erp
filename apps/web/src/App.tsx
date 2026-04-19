@@ -34,6 +34,7 @@ import { CategoryManagerPage } from './pages/settings/CategoryManagerPage';
 import RolesUsersPage from './pages/settings/RolesUsersPage';
 import { ProtectedRoute, getDefaultRoute } from './routes/ProtectedRoute';
 import { RoleGuard } from './routes/RoleGuard';
+import { PermissionGuard } from './routes/PermissionGuard';
 import { useAuthStore } from './stores/auth-store';
 import { UserRole } from '@retailerp/shared-types';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -78,9 +79,15 @@ function App() {
             <Route path="/distributors/new" element={<DistributorFormPage />} />
             <Route path="/distributors/:id" element={<DistributorDetailPage />} />
             <Route path="/distributors/:id/edit" element={<DistributorFormPage />} />
-            <Route path="/purchases" element={<PurchaseListPage />} />
-            <Route path="/purchases/new" element={<PurchaseCreatePage />} />
-            <Route path="/purchases/:id" element={<PurchaseDetailPage />} />
+            <Route element={<PermissionGuard anyOf={['purchases.list']} />}>
+              <Route path="/purchases" element={<PurchaseListPage />} />
+            </Route>
+            <Route element={<PermissionGuard anyOf={['purchases.create']} />}>
+              <Route path="/purchases/new" element={<PurchaseCreatePage />} />
+            </Route>
+            <Route element={<PermissionGuard anyOf={['purchases.detail']} />}>
+              <Route path="/purchases/:id" element={<PurchaseDetailPage />} />
+            </Route>
             <Route path="/installments" element={<InstallmentListPage />} />
             <Route
               path="/installments/:scheduleId"

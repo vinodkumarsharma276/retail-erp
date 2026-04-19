@@ -40,6 +40,7 @@ export interface InstallmentPayment {
   paymentMode: PaymentMode;
   paymentDate: string;
   collectedBy?: string;
+  collectorName?: string;
   referenceNumber?: string;
   notes?: string;
   createdAt: string;

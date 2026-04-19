@@ -20,6 +20,7 @@ interface RecordPaymentDialogProps {
   amountDue: number;
   installmentNumber?: number;
   defaultDate?: string; // ISO date string for the installment due date
+  initialScenario?: 'full_payment' | 'reschedule' | 'partial_reschedule';
   onSuccess: () => void;
   onClose: () => void;
 }
@@ -44,11 +45,12 @@ export function RecordPaymentDialog({
   amountDue,
   installmentNumber,
   defaultDate,
+  initialScenario = 'full_payment',
   onSuccess,
   onClose,
 }: RecordPaymentDialogProps) {
   const todayStr = new Date().toISOString().split('T')[0];
-  const [scenario, setScenario] = useState<Scenario>('full_payment');
+  const [scenario, setScenario] = useState<Scenario>(initialScenario);
 
   // Full payment state
   const [fullAmount, setFullAmount] = useState<string>(String(amountDue));
@@ -219,6 +221,12 @@ export function RecordPaymentDialog({
                   'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                 )}
               />
+              {Number(fullAmount) > amountDue && (
+                <p className="mt-1.5 text-xs text-blue-600 dark:text-blue-400">
+                  Excess of {formatINR(Number(fullAmount) - amountDue)} will be
+                  deducted equally from upcoming installments.
+                </p>
+              )}
             </div>
 
             {/* Payment Date */}

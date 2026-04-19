@@ -472,6 +472,15 @@ async function randomRealisticPay(ctx: SchedulePrimaries, asOf: Date, seed: numb
   const pastDue = ctx.primaries.filter((p) => p.dueDate.getTime() <= asOf.getTime());
 
   for (const p of pastDue) {
+    // Simulate the daily cron firing on this primary's due date BEFORE the
+    // customer pays. This lets R4 redistribute any stale sub row from the
+    // previous primary (promise expired before #p's due date) across #p and
+    // all later primaries — matching what production would do. Subsequent
+    // `recordFullPayment` reads the bumped `amountDue` from the DB, so the
+    // customer is credited with paying the redistributed amount, not the
+    // original face value.
+    await ensureRolledForToday(prisma, p.dueDate, { scheduleId: ctx.id });
+
     const shouldPay = rand(s++) < paidRatio;
     if (!shouldPay) continue;
 
@@ -490,8 +499,17 @@ async function randomRealisticPay(ctx: SchedulePrimaries, asOf: Date, seed: numb
       });
     } else {
       // Partial 40-70% then same-chain promise 3-5 days out → sub row.
+      // Re-read current amountDue from DB in case R4 already bumped it.
+      const currentRow = await prisma.installment.findUnique({
+        where: { id: p.id },
+        select: { amountDue: true, amountPaid: true, remainingAmount: true },
+      });
+      const currentDue = Number(currentRow?.amountDue ?? p.amountDue);
+      const currentRemaining = Number(currentRow?.remainingAmount ?? p.amountDue);
+      if (currentRemaining <= 0) continue; // already covered by an earlier redistribution
+
       const pct = 0.4 + rand(s++) * 0.3;
-      const partial = Math.round(p.amountDue * pct);
+      const partial = Math.round(currentRemaining * pct);
       await recordPartialPayment({
         installmentId: p.id,
         amount: partial,
@@ -508,7 +526,7 @@ async function randomRealisticPay(ctx: SchedulePrimaries, asOf: Date, seed: numb
             await applyPartialWithPromise(prisma, {
               sourceInstallmentId: p.id,
               newPromiseDate: promise,
-              remainderAfterPayment: Number((p.amountDue - partial).toFixed(2)),
+              remainderAfterPayment: Number((currentDue - Number(currentRow?.amountPaid ?? 0) - partial).toFixed(2)),
               actorUserId: ctx.actorUserId,
               today: p.dueDate,
             });

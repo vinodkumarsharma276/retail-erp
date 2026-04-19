@@ -50,13 +50,16 @@ export function useMeQuery(enabled = true) {
     queryKey: ['auth', 'me'],
     queryFn: async () => {
       const { data } = await apiClient.get<
-        ApiResponse<{ user: User; shops: ShopListItem[] }>
+        ApiResponse<{ user: User; shops: ShopListItem[]; permissions: string[] }>
       >('/auth/me');
       return data.data!;
     },
     enabled,
     retry: false,
-    staleTime: 5 * 60 * 1000,
+    // Short stale window so role/permission changes propagate to the UI
+    // within a minute without a hard refresh.
+    staleTime: 30 * 1000,
+    refetchOnWindowFocus: true,
   });
 }
 

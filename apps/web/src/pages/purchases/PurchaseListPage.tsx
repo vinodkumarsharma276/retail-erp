@@ -13,6 +13,7 @@ import type { Column, PaginationState } from '../../components/DataTable';
 import { StatusBadge } from '../../components/StatusBadge';
 import { formatINR, formatDateIN } from '@retailerp/shared-utils';
 import type { Purchase } from '@retailerp/shared-types';
+import { usePermission } from '../../hooks/usePermission';
 
 const PAGE_SIZE = 20;
 
@@ -29,6 +30,8 @@ function getToday(): string {
 export function PurchaseListPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const canCreate = usePermission('purchases.create');
+  const canViewDetail = usePermission('purchases.detail');
 
   // ------ Filters state (URL search params) ------
   const page = Number(searchParams.get('page')) || 1;
@@ -88,14 +91,17 @@ export function PurchaseListPage() {
     {
       key: 'invoiceNumber',
       header: 'Invoice #',
-      render: (row) => (
-        <button
-          onClick={() => navigate(`/purchases/${row.id}`)}
-          className="font-mono text-xs text-primary hover:underline text-left"
-        >
-          {row.invoiceNumber}
-        </button>
-      ),
+      render: (row) =>
+        canViewDetail ? (
+          <button
+            onClick={() => navigate(`/purchases/${row.id}`)}
+            className="font-mono text-xs text-primary hover:underline text-left"
+          >
+            {row.invoiceNumber}
+          </button>
+        ) : (
+          <span className="font-mono text-xs">{row.invoiceNumber}</span>
+        ),
     },
     {
       key: 'date',
@@ -164,16 +170,18 @@ export function PurchaseListPage() {
       {/* Page header */}
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-semibold">Purchases</h1>
-        <Link
-          to="/purchases/new"
-          className={cn(
-            'flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground',
-            'hover:bg-primary/90 transition-colors',
-          )}
-        >
-          <Plus className="h-4 w-4" />
-          New Purchase
-        </Link>
+        {canCreate && (
+          <Link
+            to="/purchases/new"
+            className={cn(
+              'flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground',
+              'hover:bg-primary/90 transition-colors',
+            )}
+          >
+            <Plus className="h-4 w-4" />
+            New Purchase
+          </Link>
+        )}
       </div>
 
       {/* Filters row */}

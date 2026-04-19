@@ -488,23 +488,19 @@ export const dashboardService = {
     }
 
     return {
-      totalSalesThisMonth: {
-        amount: thisMonthTotal,
-        count: thisMonthSales._count.id,
-      },
+      totalSalesThisMonth: thisMonthTotal,
+      salesCountThisMonth: thisMonthSales._count.id,
       salesChangePercent: Math.round(salesChangePercent * 100) / 100,
       pendingInstallments: {
         count: overdueInstallments._count.id,
         totalAmount: Number(overdueInstallments._sum.remainingAmount ?? 0),
       },
-      stockValue: {
-        amount: Number(stockValue._sum.sellingPrice ?? 0),
-        count: stockValue._count.id,
-      },
+      stockValue: Number(stockValue._sum.sellingPrice ?? 0),
+      stockCount: stockValue._count.id,
       todaysCollections: {
-        expectedAmount: Number(todaysExpectedCollections._sum.remainingAmount ?? 0),
+        expected: Number(todaysExpectedCollections._sum.remainingAmount ?? 0),
         expectedCount: todaysExpectedCollections._count.id,
-        collectedAmount: Number(todaysActualCollections._sum.amount ?? 0),
+        collected: Number(todaysActualCollections._sum.amount ?? 0),
         collectedCount: todaysActualCollections._count.id,
       },
     };

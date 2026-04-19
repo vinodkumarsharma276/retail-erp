@@ -145,6 +145,35 @@ export const installmentsController = {
     }
   },
 
+  async getPaidCollectionsForDateRange(
+    request: FastifyRequest<{
+      Querystring: { dateFrom?: string; dateTo?: string };
+    }>,
+    reply: FastifyReply,
+  ) {
+    try {
+      const shopId = request.shopFilter!.shopId;
+      const today = new Date().toISOString().split('T')[0];
+      const twoWeeksAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000)
+        .toISOString()
+        .split('T')[0];
+
+      const dateFrom = request.query.dateFrom || twoWeeksAgo;
+      const dateTo = request.query.dateTo || today;
+
+      const result = await installmentsService.getPaidCollectionsForDateRange(
+        shopId,
+        dateFrom,
+        dateTo,
+      );
+      return sendSuccess(reply, result);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Failed to fetch paid collections';
+      return sendError(reply, message, 500);
+    }
+  },
+
   async searchSchedules(
     request: FastifyRequest<{
       Querystring: { q?: string; filterBy?: string };

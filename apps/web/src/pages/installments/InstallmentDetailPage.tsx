@@ -32,6 +32,7 @@ export function InstallmentDetailPage() {
     id: string;
     amount: number;
     number: number;
+    initialScenario?: 'full_payment' | 'reschedule' | 'partial_reschedule';
   } | null>(null);
 
   // Loading
@@ -313,6 +314,7 @@ export function InstallmentDetailPage() {
                                 id: inst.id,
                                 amount: inst.remainingAmount,
                                 number: inst.installmentNumber,
+                                initialScenario: 'reschedule',
                               })
                             }
                             className={cn(
@@ -345,6 +347,7 @@ export function InstallmentDetailPage() {
         <RecordPaymentDialog
           installmentId={paymentTarget.id}
           amountDue={paymentTarget.amount}
+          initialScenario={paymentTarget.initialScenario}
           installmentNumber={paymentTarget.number}
           onSuccess={() => setPaymentTarget(null)}
           onClose={() => setPaymentTarget(null)}

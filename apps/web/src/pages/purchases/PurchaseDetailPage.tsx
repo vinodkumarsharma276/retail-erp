@@ -16,6 +16,7 @@ import { StatusBadge } from '../../components/StatusBadge';
 import { formatINR, formatDateIN } from '@retailerp/shared-utils';
 import { PaymentMode } from '@retailerp/shared-types';
 import type { PurchaseProduct, PurchasePayment } from '@retailerp/shared-types';
+import { usePermission } from '../../hooks/usePermission';
 
 // ---------------------------------------------------------------------------
 // Payment form values
@@ -35,6 +36,7 @@ export function PurchaseDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
+  const canRecordPayment = usePermission('purchases.record_payment');
 
   const { data: purchase, isLoading, isError } = usePurchaseDetailQuery(id);
 
@@ -198,7 +200,7 @@ export function PurchaseDetailPage() {
       <div className="rounded-lg border bg-card p-6">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-medium">Payment History</h2>
-          {purchase.paymentStatus !== 'paid' && (
+          {canRecordPayment && purchase.paymentStatus !== 'paid' && (
             <button
               onClick={() => setShowPaymentDialog(true)}
               className={cn(

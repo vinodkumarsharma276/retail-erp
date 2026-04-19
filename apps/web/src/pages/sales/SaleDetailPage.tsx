@@ -8,6 +8,8 @@ import {
   CreditCard,
   CheckCircle,
   Download,
+  Banknote,
+  Eye,
 } from 'lucide-react';
 import { handleInvoiceDownload } from '../../lib/invoice-utils';
 import { cn } from '../../lib/utils';
@@ -20,8 +22,9 @@ import {
 import { useAuthStore } from '../../stores/auth-store';
 import { StatusBadge } from '../../components/StatusBadge';
 import { CompletionBadge } from '../../components/CompletionBadge';
+import { RecordPaymentDialog } from '../../components/RecordPaymentDialog';
 import { formatINR, formatDateIN } from '@retailerp/shared-utils';
-import { UserRole, SaleType, FinancePaymentStatus } from '@retailerp/shared-types';
+import { UserRole, SaleType, FinancePaymentStatus, InstallmentStatus } from '@retailerp/shared-types';
 
 export function SaleDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -61,6 +64,11 @@ export function SaleDetailPage() {
   const [paymentMode, setPaymentMode] = useState('cash');
   const [paymentNotes, setPaymentNotes] = useState('');
   const recordPaymentMutation = useRecordPendingPaymentMutation();
+
+  // Per-installment "Pay" dialog state (for advance payments + overpayments)
+  const [installmentPaymentTarget, setInstallmentPaymentTarget] = useState<
+    { id: string; amount: number; number: number } | null
+  >(null);
 
   const handleRecordPayment = () => {
     if (!id || !paymentAmount || paymentAmount <= 0) return;
@@ -407,9 +415,23 @@ export function SaleDetailPage() {
                   </div>
                 ) : installmentData ? (
                   <div className="mt-4 pt-4 border-t">
-                    <h3 className="text-sm font-medium mb-3">
-                      Installment Schedule
-                    </h3>
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-sm font-medium">
+                        Installment Schedule
+                      </h3>
+                      {installmentData.schedule?.id && (
+                        <Link
+                          to={`/installments/${installmentData.schedule.id}`}
+                          className={cn(
+                            'flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs font-medium',
+                            'hover:bg-muted transition-colors',
+                          )}
+                        >
+                          <Eye className="h-3.5 w-3.5" />
+                          View Timeline
+                        </Link>
+                      )}
+                    </div>
                     <div className="overflow-x-auto">
                       <table className="w-full text-sm">
                         <thead>
@@ -429,6 +451,9 @@ export function SaleDetailPage() {
                             <th className="px-3 py-2 text-left font-medium text-muted-foreground">
                               Status
                             </th>
+                            <th className="px-3 py-2 text-right font-medium text-muted-foreground">
+                              Action
+                            </th>
                           </tr>
                         </thead>
                         <tbody>
@@ -446,6 +471,12 @@ export function SaleDetailPage() {
                               const isSub =
                                 inst.parentInstallmentNumber != null &&
                                 inst.subSequence != null;
+                              const canPay =
+                                !inst.isRescheduled &&
+                                (inst.status === InstallmentStatus.UPCOMING ||
+                                  inst.status === InstallmentStatus.DUE_TODAY ||
+                                  inst.status === InstallmentStatus.OVERDUE ||
+                                  inst.status === InstallmentStatus.PARTIALLY_PAID);
                               return (
                                 <tr
                                   key={inst.id}
@@ -477,6 +508,26 @@ export function SaleDetailPage() {
                                   </td>
                                   <td className="px-3 py-2">
                                     <StatusBadge status={inst.status} />
+                                  </td>
+                                  <td className="px-3 py-2 text-right">
+                                    {canPay && isAdminOrAccountant ? (
+                                      <button
+                                        onClick={() =>
+                                          setInstallmentPaymentTarget({
+                                            id: inst.id,
+                                            amount: Number(inst.remainingAmount),
+                                            number: inst.installmentNumber,
+                                          })
+                                        }
+                                        className={cn(
+                                          'inline-flex items-center gap-1 rounded-md bg-green-600 px-2 py-1 text-xs font-medium text-white',
+                                          'hover:bg-green-700 transition-colors',
+                                        )}
+                                      >
+                                        <Banknote className="h-3 w-3" />
+                                        Pay
+                                      </button>
+                                    ) : null}
                                   </td>
                                 </tr>
                               );
@@ -730,6 +781,17 @@ export function SaleDetailPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Per-installment Pay dialog (advance + overpayment) */}
+      {installmentPaymentTarget && (
+        <RecordPaymentDialog
+          installmentId={installmentPaymentTarget.id}
+          amountDue={installmentPaymentTarget.amount}
+          installmentNumber={installmentPaymentTarget.number}
+          onSuccess={() => setInstallmentPaymentTarget(null)}
+          onClose={() => setInstallmentPaymentTarget(null)}
+        />
       )}
     </div>
   );

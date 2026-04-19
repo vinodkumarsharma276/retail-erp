@@ -352,7 +352,7 @@ export function PaymentTimeline({ scheduleId }: PaymentTimelineProps) {
                         {payment.collectedBy && (
                           <span className="flex items-center gap-1">
                             <User className="h-3 w-3" />
-                            {payment.collectedBy}
+                            {payment.collectorName ?? payment.collectedBy}
                           </span>
                         )}
                       </div>

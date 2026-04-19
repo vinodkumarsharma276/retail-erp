@@ -20,8 +20,10 @@ import {
   useOverdueInstallmentsQuery,
   useCollectionsRangeQuery,
   useInstallmentSearchQuery,
+  usePaidCollectionsRangeQuery,
   type OverdueInstallmentItem,
   type CollectionItem,
+  type PaidCollectionItem,
 } from '../../hooks/useInstallments';
 import { useDebounce } from '../../hooks/useDebounce';
 import { formatINR, formatDateIN } from '@retailerp/shared-utils';
@@ -41,11 +43,12 @@ const SEARCH_FILTERS = [
 // ---------------------------------------------------------------------------
 // Tabs
 // ---------------------------------------------------------------------------
-type TabKey = 'collections' | 'overdue' | 'search';
+type TabKey = 'collections' | 'overdue' | 'paid' | 'search';
 
 const tabs: { key: TabKey; label: string }[] = [
   { key: 'collections', label: "Today's Scheduled" },
   { key: 'overdue', label: 'All Overdue' },
+  { key: 'paid', label: 'Paid' },
   { key: 'search', label: 'Search Installment' },
 ];
 
@@ -54,6 +57,7 @@ const tabs: { key: TabKey; label: string }[] = [
 // ---------------------------------------------------------------------------
 export function InstallmentListPage() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
 
   const activeTab = (searchParams.get('tab') as TabKey) || 'collections';
 
@@ -222,42 +226,60 @@ export function InstallmentListPage() {
                   return (
                     <div key={schedule.id} className="rounded-lg border bg-card">
                       {/* Collapsible header */}
-                      <button
-                        type="button"
-                        onClick={() => toggleScheduleExpanded(schedule.id)}
+                      <div
                         className={cn(
-                          'flex w-full items-center gap-3 p-3 text-left transition-colors',
+                          'flex w-full items-center gap-3 p-3 transition-colors',
                           'hover:bg-muted/50',
                           isExpanded && 'border-b',
                         )}
                       >
-                        <ChevronRight
-                          className={cn(
-                            'h-4 w-4 flex-shrink-0 text-muted-foreground transition-transform',
-                            isExpanded && 'rotate-90',
-                          )}
-                        />
-                        <div className="min-w-0 flex-1 flex flex-wrap items-center gap-x-4 gap-y-1">
-                          <div className="min-w-0">
-                            <p className="font-medium truncate">{schedule.sale.customer.name}</p>
-                            <p className="text-xs text-muted-foreground truncate">
-                              {schedule.sale.customer.phone} | {schedule.sale.product.brand} {schedule.sale.product.modelNumber}
+                        <button
+                          type="button"
+                          onClick={() => toggleScheduleExpanded(schedule.id)}
+                          className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                        >
+                          <ChevronRight
+                            className={cn(
+                              'h-4 w-4 flex-shrink-0 text-muted-foreground transition-transform',
+                              isExpanded && 'rotate-90',
+                            )}
+                          />
+                          <div className="min-w-0 flex-1 flex flex-wrap items-center gap-x-4 gap-y-1">
+                            <div className="min-w-0">
+                              <p className="font-medium truncate">{schedule.sale.customer.name}</p>
+                              <p className="text-xs text-muted-foreground truncate">
+                                {schedule.sale.customer.phone} | {schedule.sale.product.brand} {schedule.sale.product.modelNumber}
+                              </p>
+                            </div>
+                            <div className="text-xs text-muted-foreground whitespace-nowrap">
+                              Ledger: <span className="font-medium text-foreground">{schedule.sale.ledgerNumber}</span>
+                              {' '}| Sale: <span className="font-medium text-foreground">{schedule.sale.saleNumber}</span>
+                            </div>
+                          </div>
+                          <div className="text-right flex-shrink-0">
+                            <p className="text-sm font-medium whitespace-nowrap">
+                              {formatINR(schedule.emiAmount)}/mo
+                            </p>
+                            <p className="text-xs text-muted-foreground whitespace-nowrap">
+                              {pendingCount} pending / {schedule.numInstallments}
                             </p>
                           </div>
-                          <div className="text-xs text-muted-foreground whitespace-nowrap">
-                            Ledger: <span className="font-medium text-foreground">{schedule.sale.ledgerNumber}</span>
-                            {' '}| Sale: <span className="font-medium text-foreground">{schedule.sale.saleNumber}</span>
-                          </div>
-                        </div>
-                        <div className="text-right flex-shrink-0">
-                          <p className="text-sm font-medium whitespace-nowrap">
-                            {formatINR(schedule.emiAmount)}/mo
-                          </p>
-                          <p className="text-xs text-muted-foreground whitespace-nowrap">
-                            {pendingCount} pending / {schedule.numInstallments}
-                          </p>
-                        </div>
-                      </button>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigate(`/installments/${schedule.id}`);
+                          }}
+                          className={cn(
+                            'flex flex-shrink-0 items-center gap-1 rounded-md border px-2.5 py-1.5 text-xs font-medium',
+                            'hover:bg-muted transition-colors',
+                          )}
+                        >
+                          <Eye className="h-3.5 w-3.5" />
+                          View
+                        </button>
+                      </div>
 
                       {/* Collapsible body */}
                       {isExpanded && (
@@ -338,6 +360,7 @@ export function InstallmentListPage() {
       {/* Tab content */}
       {activeTab === 'collections' && <CollectionsTab />}
       {activeTab === 'overdue' && <OverdueTab />}
+      {activeTab === 'paid' && <PaidTab />}
 
       {/* Payment dialog for search results */}
       {searchPaymentTarget && (
@@ -520,13 +543,21 @@ function OverdueTab() {
 // ---------------------------------------------------------------------------
 // Today's Scheduled Tab (date range)
 // ---------------------------------------------------------------------------
+/** Local-timezone YYYY-MM-DD (avoids UTC toISOString offset bugs at midnight). */
+function toLocalDateStr(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 function getDateDaysAgo(days: number): string {
-  return new Date(Date.now() - days * 86400000).toISOString().split('T')[0];
+  return toLocalDateStr(new Date(Date.now() - days * 86400000));
 }
 
 function CollectionsTab() {
   const navigate = useNavigate();
-  const today = new Date().toISOString().split('T')[0];
+  const today = toLocalDateStr(new Date());
 
   const [dateFrom, setDateFrom] = useState(today);
   const [dateTo, setDateTo] = useState(today);
@@ -629,7 +660,7 @@ function CollectionsTab() {
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                navigate(`/sales/${row.saleId}`);
+                navigate(`/installments/${row.scheduleId}`);
               }}
               className={cn(
                 'flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-xs font-medium',
@@ -787,3 +818,268 @@ function CollectionsTab() {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Paid Tab — installments whose dueDate is in the range AND have payments
+// ---------------------------------------------------------------------------
+function PaidTab() {
+  const navigate = useNavigate();
+  const today = toLocalDateStr(new Date());
+
+  const [dateFrom, setDateFrom] = useState(getDateDaysAgo(14));
+  const [dateTo, setDateTo] = useState(today);
+
+  const { data, isLoading, isError } = usePaidCollectionsRangeQuery(dateFrom, dateTo);
+  const rows = data ?? [];
+
+  const totalCollected = rows.reduce(
+    (sum, r) => sum + Number(r.amountPaid ?? 0),
+    0,
+  );
+  const fullyPaidCount = rows.filter((r) => r.status === 'paid').length;
+  const partialCount = rows.filter((r) => r.status === 'partially_paid').length;
+
+  const columns: Column<PaidCollectionItem>[] = useMemo(
+    () => [
+      {
+        key: 'dueDate',
+        header: 'Due Date',
+        render: (row) => (
+          <span className="text-sm">{formatDateIN(row.dueDate)}</span>
+        ),
+      },
+      {
+        key: 'paymentDate',
+        header: 'First Paid',
+        render: (row) =>
+          row.firstPaymentDate ? (
+            <div className="flex flex-col">
+              <span className="text-sm">{formatDateIN(row.firstPaymentDate)}</span>
+              {row.daysFromDue !== null && (
+                <span
+                  className={cn(
+                    'text-[10px] font-medium',
+                    row.daysFromDue <= 0
+                      ? 'text-green-600'
+                      : row.daysFromDue <= 7
+                        ? 'text-yellow-600'
+                        : 'text-red-600',
+                  )}
+                >
+                  {row.daysFromDue === 0
+                    ? 'on time'
+                    : row.daysFromDue < 0
+                      ? `${-row.daysFromDue}d early`
+                      : `${row.daysFromDue}d late`}
+                </span>
+              )}
+            </div>
+          ) : (
+            <span className="text-xs text-muted-foreground">—</span>
+          ),
+      },
+      {
+        key: 'customer',
+        header: 'Customer',
+        render: (row) => (
+          <div>
+            <p className="font-medium">{row.customerName}</p>
+            <p className="text-xs text-muted-foreground">{row.customerPhone}</p>
+          </div>
+        ),
+      },
+      {
+        key: 'product',
+        header: 'Product',
+        render: (row) => (
+          <span className="text-sm">
+            {row.productBrand} {row.productName}
+          </span>
+        ),
+      },
+      {
+        key: 'emiNumber',
+        header: 'EMI #',
+        render: (row) => (
+          <span className="text-sm font-medium">
+            {formatInstallmentLabel(row)} of {row.totalInstallments}
+          </span>
+        ),
+      },
+      {
+        key: 'amountPaid',
+        header: 'Paid',
+        align: 'right' as const,
+        render: (row) => (
+          <span className="font-semibold text-green-700">
+            {formatINR(row.amountPaid)}
+          </span>
+        ),
+      },
+      {
+        key: 'amountDue',
+        header: 'Due',
+        align: 'right' as const,
+        render: (row) => (
+          <span className="text-sm">{formatINR(row.amountDue)}</span>
+        ),
+      },
+      {
+        key: 'status',
+        header: 'Status',
+        render: (row) => <StatusBadge status={row.status} />,
+      },
+      {
+        key: 'actions',
+        header: 'Actions',
+        render: (row) => (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              navigate(`/installments/${row.scheduleId}`);
+            }}
+            className={cn(
+              'flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-xs font-medium',
+              'hover:bg-muted transition-colors',
+            )}
+          >
+            <Eye className="h-3.5 w-3.5" />
+            View
+          </button>
+        ),
+      },
+    ],
+    [navigate],
+  );
+
+  return (
+    <div>
+      {/* Date range picker */}
+      <div className="flex flex-wrap items-center gap-3 mb-6">
+        <div className="flex items-center gap-2">
+          <Calendar className="h-4 w-4 text-muted-foreground" />
+          <label className="text-sm font-medium">From:</label>
+        </div>
+        <input
+          type="date"
+          value={dateFrom}
+          onChange={(e) => setDateFrom(e.target.value)}
+          className={cn(
+            'rounded-md border bg-background px-3 py-2 text-sm',
+            'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+          )}
+        />
+        <label className="text-sm font-medium">To:</label>
+        <input
+          type="date"
+          value={dateTo}
+          onChange={(e) => setDateTo(e.target.value)}
+          className={cn(
+            'rounded-md border bg-background px-3 py-2 text-sm',
+            'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+          )}
+        />
+        <button
+          onClick={() => {
+            setDateFrom(today);
+            setDateTo(today);
+          }}
+          className="rounded-md border px-3 py-2 text-sm font-medium hover:bg-muted transition-colors"
+        >
+          Today
+        </button>
+        <button
+          onClick={() => {
+            setDateFrom(getDateDaysAgo(7));
+            setDateTo(today);
+          }}
+          className="rounded-md border px-3 py-2 text-sm font-medium hover:bg-muted transition-colors"
+        >
+          Last 7 Days
+        </button>
+        <button
+          onClick={() => {
+            setDateFrom(getDateDaysAgo(30));
+            setDateTo(today);
+          }}
+          className="rounded-md border px-3 py-2 text-sm font-medium hover:bg-muted transition-colors"
+        >
+          Last 30 Days
+        </button>
+      </div>
+
+      {/* Loading */}
+      {isLoading && (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      )}
+
+      {/* Error */}
+      {isError && (
+        <div className="flex flex-col items-center justify-center py-12">
+          <AlertCircle className="h-8 w-8 text-destructive mb-2" />
+          <p className="text-sm text-muted-foreground">
+            Failed to load paid installments
+          </p>
+        </div>
+      )}
+
+      {/* Empty */}
+      {!isLoading && !isError && rows.length === 0 && (
+        <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+          <CalendarDays className="h-12 w-12 mb-3 opacity-50" />
+          <p className="text-lg font-medium">No paid installments in this period</p>
+          <p className="text-sm mt-1">
+            No full or partial payments found against due dates between{' '}
+            {formatDateIN(dateFrom)} and {formatDateIN(dateTo)}.
+          </p>
+        </div>
+      )}
+
+      {/* Table */}
+      {!isLoading && !isError && rows.length > 0 && (
+        <div className="space-y-4">
+          {/* Summary bar */}
+          <div className="rounded-lg border bg-card p-4 flex flex-wrap items-center gap-6">
+            <div>
+              <p className="text-xs text-muted-foreground uppercase tracking-wider">
+                Installments
+              </p>
+              <p className="text-lg font-semibold">{rows.length}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground uppercase tracking-wider">
+                Fully Paid
+              </p>
+              <p className="text-lg font-semibold text-green-700">
+                {fullyPaidCount}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground uppercase tracking-wider">
+                Partial
+              </p>
+              <p className="text-lg font-semibold text-amber-600">
+                {partialCount}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground uppercase tracking-wider">
+                Total Collected
+              </p>
+              <p className="text-lg font-semibold">{formatINR(totalCollected)}</p>
+            </div>
+          </div>
+
+          <DataTable<PaidCollectionItem>
+            columns={columns}
+            data={rows}
+            isLoading={false}
+            emptyMessage=""
+            rowKey={(row) => row.id}
+          />
+        </div>
+      )}
+    </div>
+  );
+}

@@ -5,7 +5,7 @@ import { useDebounce } from '../../hooks/useDebounce';
 import { useCustomersQuery } from '../../hooks/useCustomers';
 import { DataTable } from '../../components/DataTable';
 import type { Column, PaginationState } from '../../components/DataTable';
-import { formatDateIN } from '@retailerp/shared-utils';
+import { formatDateIN, formatPhone } from '@retailerp/shared-utils';
 import type { Customer } from '@retailerp/shared-types';
 
 const PAGE_SIZE = 20;
@@ -89,8 +89,10 @@ export function CustomerListPage() {
       header: 'Phone',
       render: (row) => (
         <div>
-          <p>{row.phone}</p>
-          {row.altPhone && <p className="text-xs text-muted-foreground">{row.altPhone}</p>}
+          <p>{formatPhone(row.phone)}</p>
+          {row.altPhone && (
+            <p className="text-xs text-muted-foreground">{formatPhone(row.altPhone)}</p>
+          )}
         </div>
       ),
     },

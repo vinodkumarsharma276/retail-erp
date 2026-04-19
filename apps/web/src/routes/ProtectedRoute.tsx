@@ -14,16 +14,26 @@ export function ProtectedRoute() {
   // Need rehydration: token in storage but store not yet hydrated
   const needsRehydration = tokenExists && !isHydrated;
 
-  const { data, isLoading, isError, isSuccess } = useMeQuery(needsRehydration);
+  // Always run /auth/me while a token exists so that permission / role
+  // changes made elsewhere propagate into this session without a hard
+  // refresh. The first run rehydrates the store; subsequent refetches
+  // just sync permissions.
+  const { data, isLoading, isError, isSuccess } = useMeQuery(tokenExists);
 
   // Track if we've received data but haven't processed it in useEffect yet
   const pendingHydration = useRef(false);
 
   useEffect(() => {
-    if (data?.user) {
+    if (!data?.user) return;
+
+    const store = useAuthStore.getState();
+    const perms = (data as any).permissions ?? [];
+
+    if (!store.isAuthenticated) {
+      // First hydration after a page load — full login().
       const accessToken = localStorage.getItem('accessToken') ?? '';
       const refreshToken = localStorage.getItem('refreshToken') ?? '';
-      useAuthStore.getState().login(
+      store.login(
         {
           id: data.user.id,
           username: data.user.username,
@@ -34,7 +44,7 @@ export function ProtectedRoute() {
         },
         accessToken,
         refreshToken,
-        (data as any).permissions ?? [],
+        perms,
       );
 
       const shopId = localStorage.getItem('currentShopId');
@@ -43,8 +53,12 @@ export function ProtectedRoute() {
       if (shopId && shopName && shopCode) {
         useShopStore.getState().setShop(shopId, shopName, shopCode);
       }
-      pendingHydration.current = false;
+    } else {
+      // Already authenticated — background refetch. Just keep perms in
+      // sync so sidebar / guards react to role changes.
+      store.setPermissions(perms);
     }
+    pendingHydration.current = false;
   }, [data]);
 
   // Mark pending when query succeeds but effect hasn't run yet

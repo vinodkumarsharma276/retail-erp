@@ -28,6 +28,11 @@
  *   R6. syncScheduleAndSale — after every mutation, recompute schedule
  *       aggregates and sale.pendingAmount; if everything is settled, set
  *       sale.completedAt and schedule.status='completed'.
+ *
+ *   R7. distributeOverpayment — when a customer pays more than the current
+ *       row's remaining, the excess is spread equally across every future
+ *       primary that still owes money (amountDue *and* remainingAmount are
+ *       reduced by the same delta). Symmetric counterpart of R4.
  */
 
 import type { Prisma, PrismaClient } from '@prisma/client';
@@ -382,6 +387,160 @@ async function redistributePrimaryChain(
   });
 
   return { carryover, targets: targetDeltas };
+}
+
+// ---------------------------------------------------------------------------
+// R7 — overpayment distribution (symmetric to R3/R4 but subtracts)
+// ---------------------------------------------------------------------------
+
+/**
+ * Customer paid more than the source installment needed. Take the excess and
+ * spread it across every future primary (installmentNumber > sourcePrimary)
+ * that is not rescheduled and still has remainingAmount > 0.
+ *
+ * For each target: amountDue and remainingAmount are decremented by the same
+ * delta (equal split; residue lands on the last target). If a target becomes
+ * fully covered (remainingAmount hits 0 and amountPaid == amountDue), status
+ * is flipped to 'paid'.
+ *
+ * Returns the amount successfully distributed. If no eligible targets exist,
+ * returns 0 with an empty targets array — caller must decide whether that's
+ * an error (we throw at the service layer).
+ */
+export async function distributeOverpayment(
+  tx: Tx,
+  args: {
+    scheduleId: string;
+    sourcePrimaryNumber: number;
+    sourceInstallmentId: string;
+    excess: number;
+    today: Date;
+    actorUserId?: string;
+    paymentMode?: string;
+    notes?: string;
+  },
+): Promise<{
+  distributed: number;
+  targets: { id: string; delta: number; installmentNumber: number; paidOff: boolean }[];
+}> {
+  const excess = round2(args.excess);
+  if (excess <= 0) {
+    return { distributed: 0, targets: [] };
+  }
+
+  const chains = await loadChains(tx, args.scheduleId);
+  const primaries = primariesOnly(chains);
+
+  const targets = primaries.filter(
+    (p) =>
+      p.installmentNumber > args.sourcePrimaryNumber &&
+      !p.isRescheduled &&
+      p.remainingAmount > 0,
+  );
+
+  if (targets.length === 0) {
+    return { distributed: 0, targets: [] };
+  }
+
+  // Equal split with residue on the last target.
+  const perTarget = round2(excess / targets.length);
+  const distributed = round2(perTarget * targets.length);
+  const residue = round2(excess - distributed);
+
+  const targetDeltas: {
+    id: string;
+    delta: number;
+    installmentNumber: number;
+    paidOff: boolean;
+  }[] = [];
+
+  // A target's delta can't exceed its own remainingAmount. If that happens
+  // (e.g., very large overpayment on a tiny future installment) we cap the
+  // delta at the target's remaining and roll leftover into a running pool
+  // that is then re-applied to subsequent targets. This keeps totals exact
+  // without inventing negative amounts.
+  let leftover = 0;
+  for (let i = 0; i < targets.length; i++) {
+    const t = targets[i];
+    const nominal = i === targets.length - 1 ? round2(perTarget + residue + leftover) : round2(perTarget + leftover);
+    leftover = 0;
+
+    let delta = nominal;
+    if (delta > t.remainingAmount) {
+      leftover = round2(delta - t.remainingAmount);
+      delta = t.remainingAmount;
+    }
+
+    const newRemaining = round2(t.remainingAmount - delta);
+    const newAmountDue = round2(t.amountDue - delta);
+    const paidOff = newRemaining <= 0 && t.amountPaid >= newAmountDue;
+
+    await tx.installment.update({
+      where: { id: t.id },
+      data: {
+        amountDue: { decrement: delta },
+        remainingAmount: { decrement: delta },
+        status: paidOff ? ('paid' as any) : (t.status as any),
+      },
+    });
+
+    targetDeltas.push({
+      id: t.id,
+      delta,
+      installmentNumber: t.installmentNumber,
+      paidOff,
+    });
+
+    if (leftover <= 0 && i === targets.length - 1) break;
+  }
+
+  // If any leftover remains (overpayment was larger than all future remaining
+  // combined) we fold it back onto the source installment as extra amountPaid
+  // beyond amountDue. That preserves cash-flow accuracy without breaking
+  // schedule totals. In practice callers should validate before this point.
+  if (leftover > 0) {
+    await tx.installment.update({
+      where: { id: args.sourceInstallmentId },
+      data: { amountPaid: { increment: leftover } },
+    });
+  }
+
+  const todayDate = toDateOnly(args.today);
+  const lastTargetNum = targets[targets.length - 1].installmentNumber;
+  const targetLabel =
+    targets.length === 1
+      ? `#${targets[0].installmentNumber}`
+      : `#${targets[0].installmentNumber}..#${lastTargetNum}`;
+  const distributedAmount = round2(excess - leftover);
+
+  const message =
+    `Overpayment of ${formatINR(excess)} on Installment #${args.sourcePrimaryNumber} ` +
+    `distributed across ${targetLabel} (${formatINR(perTarget)} each).` +
+    (leftover > 0 ? ` Unallocated excess ${formatINR(leftover)} kept on source row.` : '') +
+    (args.notes ? ` Note: ${args.notes}` : '');
+
+  await tx.installmentRollLog.create({
+    data: {
+      scheduleId: args.scheduleId,
+      installmentId: args.sourceInstallmentId,
+      eventType: 'redistributed',
+      eventDate: todayDate,
+      actorUserId: args.actorUserId ?? null,
+      displayMessage: message,
+      metadata: {
+        sourcePrimary: args.sourcePrimaryNumber,
+        reason: 'overpayment',
+        excess,
+        distributed: distributedAmount,
+        leftover,
+        perTarget,
+        targets: targetDeltas,
+        paymentMode: args.paymentMode ?? null,
+      } as Prisma.InputJsonValue,
+    },
+  });
+
+  return { distributed: distributedAmount, targets: targetDeltas };
 }
 
 // ---------------------------------------------------------------------------

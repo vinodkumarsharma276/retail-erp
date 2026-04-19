@@ -84,8 +84,15 @@ function RolesPanel() {
   const saveMut = useMutation({
     mutationFn: (perms: string[]) => rolesApi.setPermissions(selectedId!, perms),
     onSuccess: () => {
-      toast({ type: 'success', message: 'Permissions saved' });
+      toast({
+        type: 'success',
+        message:
+          'Permissions saved. Signed-in users will pick up the change within a minute or on their next page refresh.',
+      });
       qc.invalidateQueries({ queryKey: ['rbac', 'roles'] });
+      // Refetch /auth/me for the current session so any guard or sidebar
+      // item backed by these permissions re-renders immediately.
+      qc.invalidateQueries({ queryKey: ['auth', 'me'] });
     },
     onError: (e: any) =>
       toast({ type: 'error', message: e?.response?.data?.error ?? 'Save failed' }),

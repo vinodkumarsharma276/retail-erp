@@ -224,6 +224,31 @@ export function useCollectionsRangeQuery(dateFrom: string, dateTo: string) {
 }
 
 // ---------------------------------------------------------------------------
+// Paid installments within a date range (by due-date)
+// ---------------------------------------------------------------------------
+export interface PaidCollectionItem extends CollectionItem {
+  firstPaymentDate: string | null;
+  lastPaymentDate: string | null;
+  daysFromDue: number | null;
+  paymentCount: number;
+  saleNumber: string;
+  ledgerNumber: string;
+}
+
+export function usePaidCollectionsRangeQuery(dateFrom: string, dateTo: string) {
+  return useQuery({
+    queryKey: ['installments', 'paid-range', dateFrom, dateTo],
+    queryFn: async () => {
+      const { data } = await apiClient.get<ApiResponse<{ collections: PaidCollectionItem[] }>>(
+        `/installments/collections/paid-range?dateFrom=${dateFrom}&dateTo=${dateTo}`,
+      );
+      return data.data?.collections ?? [];
+    },
+    enabled: !!dateFrom && !!dateTo,
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Schedule detail with all installments + payments
 // ---------------------------------------------------------------------------
 export function useScheduleDetailQuery(scheduleId: string | undefined) {

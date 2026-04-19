@@ -43,6 +43,9 @@ export async function installmentRoutes(app: FastifyInstance) {
   // Get collections for date range (admin, accountant, employee — shop-scoped)
   app.get('/collections/range', { preHandler: collectionRoles }, installmentsController.getCollectionsForDateRange as any);
 
+  // Get paid installments for a date range (admin, accountant — shop-scoped)
+  app.get('/collections/paid-range', { preHandler: adminAccountantShopScoped }, installmentsController.getPaidCollectionsForDateRange as any);
+
   // Get today's collections (admin, accountant, employee — shop-scoped)
   app.get('/collections/today', { preHandler: collectionRoles }, installmentsController.getCollectionsToday as any);
 
