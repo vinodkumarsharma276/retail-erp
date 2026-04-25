@@ -183,7 +183,7 @@ export function CustomerFormPage() {
   }
 
   return (
-    <div className="max-w-4xl">
+    <div className="max-w-6xl">
       {/* Page header */}
       <div className="flex items-center gap-4 mb-6">
         <button
@@ -201,7 +201,7 @@ export function CustomerFormPage() {
         {/* Section 1: Basic Info */}
         <section className="rounded-lg border bg-card p-6">
           <h2 className="text-lg font-medium mb-4">Basic Information</h2>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {/* Name */}
             <div className="sm:col-span-2 lg:col-span-1">
               <label htmlFor="name" className="block text-sm font-medium mb-1.5">
@@ -308,7 +308,7 @@ export function CustomerFormPage() {
         {/* Section 2: Address */}
         <section className="rounded-lg border bg-card p-6">
           <h2 className="text-lg font-medium mb-4">Address</h2>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {/* Address Line 1 */}
             <div className="sm:col-span-2 lg:col-span-3">
               <label htmlFor="addressLine1" className="block text-sm font-medium mb-1.5">

@@ -1,14 +1,16 @@
 import { Outlet } from 'react-router-dom';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
+import { InstallPrompt } from '../components/InstallPrompt';
 
 export function DashboardLayout() {
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="density-compact flex h-screen overflow-hidden">
       <Sidebar />
       <div className="flex flex-1 flex-col overflow-hidden">
         <Header />
-        <main className="flex-1 overflow-y-auto p-3 sm:p-4 md:p-6 bg-muted/30">
+        <InstallPrompt />
+        <main className="flex-1 overflow-y-auto bg-muted/30 p-2 sm:p-4 md:p-6">
           <Outlet />
         </main>
       </div>

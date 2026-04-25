@@ -18,6 +18,7 @@ type DistributorDraft = {
   companyName: string;
   contactPerson: string;
   phone: string;
+  altPhone: string;
   gstNumber: string;
   panNumber: string;
   addressLine1: string;
@@ -25,6 +26,22 @@ type DistributorDraft = {
   state: string;
   pincode: string;
 };
+
+// Phone numbers from OCR may be comma/slash/semicolon separated, contain spaces,
+// dashes, parentheses, country-code prefixes, etc. The API caps each phone field
+// at 15 chars (E.164). Normalise to digits + leading + only.
+function sanitizePhone(raw: string): string {
+  const cleaned = raw.replace(/[^0-9+]/g, '').replace(/(?!^)\+/g, '');
+  return cleaned.slice(0, 15);
+}
+
+function splitPhones(raw: string): { primary: string; alternate: string } {
+  const parts = raw
+    .split(/[,;/|\n]+/)
+    .map((p) => sanitizePhone(p))
+    .filter((p) => p.length >= 10);
+  return { primary: parts[0] ?? '', alternate: parts[1] ?? '' };
+}
 
 function distributorFromMatch(result: InvoiceParseResult): DistributorListItem | null {
   const match = result.distributor.match;
@@ -53,10 +70,12 @@ function distributorFromMatch(result: InvoiceParseResult): DistributorListItem |
 
 function initialDraft(result: InvoiceParseResult): DistributorDraft {
   const parsed = result.distributor.parsed;
+  const { primary, alternate } = splitPhones(parsed.phone || '');
   return {
     companyName: parsed.companyName || '',
     contactPerson: parsed.companyName || '',
-    phone: parsed.phone || '',
+    phone: primary,
+    altPhone: alternate,
     gstNumber: parsed.gstNumber || '',
     panNumber: parsed.panNumber || '',
     addressLine1: parsed.address || '',
@@ -111,15 +130,28 @@ export function ScanInvoiceDialog({ open, onClose, onApply }: Props) {
 
   const handleCreateDistributor = () => {
     if (!draft) return;
-    createDistributor.mutate({ ...draft, gstNumber: draft.gstNumber || undefined, panNumber: draft.panNumber || undefined }, {
-      onSuccess: (distributor) => {
-        setCreatedDistributor(toListItem(distributor));
-        toast({ type: 'success', message: 'Distributor created' });
+    // Re-sanitise on submit in case the user pasted a multi-phone string into the field
+    const { primary, alternate } = splitPhones(draft.phone);
+    const altPhoneFinal = sanitizePhone(draft.altPhone) || alternate || '';
+    const phoneFinal = primary || sanitizePhone(draft.phone);
+    createDistributor.mutate(
+      {
+        ...draft,
+        phone: phoneFinal,
+        altPhone: altPhoneFinal || undefined,
+        gstNumber: draft.gstNumber || undefined,
+        panNumber: draft.panNumber || undefined,
       },
-      onError: (error: any) => {
-        toast({ type: 'error', message: error?.response?.data?.error ?? 'Failed to create distributor' });
+      {
+        onSuccess: (distributor) => {
+          setCreatedDistributor(toListItem(distributor));
+          toast({ type: 'success', message: 'Distributor created' });
+        },
+        onError: (error: any) => {
+          toast({ type: 'error', message: error?.response?.data?.error ?? 'Failed to create distributor' });
+        },
       },
-    });
+    );
   };
 
   return (
@@ -183,14 +215,21 @@ export function ScanInvoiceDialog({ open, onClose, onApply }: Props) {
 
                 {!selectedDistributor && draft && (
                   <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                    {(['companyName', 'contactPerson', 'phone', 'gstNumber', 'panNumber', 'addressLine1', 'city', 'state', 'pincode'] as const).map((key) => (
+                    {(['companyName', 'contactPerson', 'phone', 'altPhone', 'gstNumber', 'panNumber', 'addressLine1', 'city', 'state', 'pincode'] as const).map((key) => (
                       <div key={key} className={key === 'addressLine1' ? 'sm:col-span-2 lg:col-span-3' : ''}>
-                        <label className="block text-xs font-medium capitalize text-muted-foreground">{key.replace(/([A-Z])/g, ' $1')}</label>
+                        <label className="block text-xs font-medium capitalize text-muted-foreground">
+                          {key === 'altPhone' ? 'Alt phone (optional)' : key.replace(/([A-Z])/g, ' $1')}
+                        </label>
                         <input
                           value={draft[key]}
                           onChange={(e) => setDraft({ ...draft, [key]: e.target.value })}
                           className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm"
                         />
+                        {key === 'phone' && draft.phone.includes(',') && (
+                          <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">
+                            Multiple phones detected. The first becomes the primary phone; move the second to “Alt phone”.
+                          </p>
+                        )}
                       </div>
                     ))}
                     <div className="sm:col-span-2 lg:col-span-3">

@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useForm, useFieldArray, FormProvider } from 'react-hook-form';
 import {
@@ -389,8 +389,26 @@ export function PurchaseCreatePage() {
     setIsScanOpen(false);
   };
 
+  // Ctrl+S / Cmd+S — submit on the last step, otherwise advance to next
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        if (currentStep === STEPS.length - 1) {
+          if (!createMutation.isPending) {
+            handleSubmit(onSubmit)();
+          }
+        } else if (canGoNext()) {
+          goNext();
+        }
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [currentStep, createMutation.isPending, handleSubmit, onSubmit, canGoNext, goNext]);
+
   return (
-    <div className="max-w-5xl">
+    <div className="mx-auto max-w-[1600px]">
       {/* Page header */}
       <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
         <div className="flex items-center gap-4">
@@ -536,7 +554,7 @@ export function PurchaseCreatePage() {
           {currentStep === 1 && (
             <section className="rounded-lg border bg-card p-6">
               <h2 className="text-lg font-medium mb-4">Invoice Details</h2>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {/* Invoice Number */}
                 <div>
                   <label htmlFor="invoiceNumber" className="block text-sm font-medium mb-1.5">
@@ -617,7 +635,7 @@ export function PurchaseCreatePage() {
 
           {/* Step 3: Add Products */}
           {currentStep === 2 && (
-            <section className="space-y-6">
+            <section className="space-y-4">
               {fields.map((field, index) => (
                 <div
                   key={field.id}
@@ -661,7 +679,7 @@ export function PurchaseCreatePage() {
                     </div>
                   )}
                   <div className={cn(
-                    'grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3',
+                    'grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4',
                     !itemCategoryIds[index] && 'opacity-40 pointer-events-none',
                   )}>
                     {/* Model */}
@@ -910,8 +928,8 @@ export function PurchaseCreatePage() {
                 Add Another Product
               </button>
 
-              {/* Totals summary */}
-              <div className="rounded-lg border bg-card p-4">
+              {/* Totals summary — docked to viewport bottom while user scrolls a long product list */}
+              <div className="sticky bottom-2 z-10 rounded-lg border-2 border-primary/20 bg-card/95 p-3 shadow-lg backdrop-blur">
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                   <div>
                     <p className="text-xs font-medium text-muted-foreground">Products</p>
@@ -936,7 +954,7 @@ export function PurchaseCreatePage() {
 
           {/* Step 3: Review */}
           {currentStep === 3 && (
-            <section className="space-y-6">
+            <section className="space-y-4">
               {/* Distributor */}
               <div className="rounded-lg border bg-card p-6">
                 <h3 className="text-base font-medium mb-3">Distributor</h3>

@@ -96,6 +96,44 @@
   }
 }
 
+@layer components {
+  .density-compact input:not([type='checkbox']):not([type='radio']),
+  .density-compact select {
+    @apply min-h-0 py-1.5 text-sm;
+  }
+
+  .density-compact textarea {
+    @apply py-2 text-sm;
+  }
+
+  .density-compact button {
+    @apply text-sm;
+  }
+
+  .density-compact label {
+    @apply text-xs;
+  }
+
+  .density-compact section,
+  .density-compact .erp-card-padding {
+    @apply p-4;
+  }
+
+  .density-compact h1 {
+    @apply text-xl;
+  }
+
+  .density-compact h2 {
+    @apply text-lg;
+  }
+
+  /* Right-align numeric inputs (prices, quantities, EMIs) and use tabular figures */
+  .density-compact input[type='number'] {
+    @apply text-right;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
 /* Custom scrollbar styling */
 @layer utilities {
   .scrollbar-thin {

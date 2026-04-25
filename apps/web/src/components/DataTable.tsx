@@ -15,6 +15,12 @@ export interface Column<T> {
   align?: 'left' | 'center' | 'right';
   /** Optional className for the td */
   className?: string;
+  /** Hide this column in mobile card layout */
+  hideOnMobile?: boolean;
+  /** Lower numbers appear earlier in mobile card layout */
+  mobilePriority?: number;
+  /** Optional label override for mobile card layout */
+  mobileLabel?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -56,11 +62,27 @@ export function DataTable<T>({
   rowKey,
   onRowClick,
 }: DataTableProps<T>) {
+  const mobileColumns = columns
+    .filter((column) => !column.hideOnMobile)
+    .sort((a, b) => (a.mobilePriority ?? 50) - (b.mobilePriority ?? 50));
+  const [mobileTitleColumn, ...mobileDetailColumns] = mobileColumns;
+
   // Skeleton rows when loading
   if (isLoading) {
     return (
       <div className="rounded-lg border bg-card">
-        <div className="overflow-x-auto">
+        <div className="divide-y md:hidden">
+          {Array.from({ length: 4 }).map((_, rowIdx) => (
+            <div key={rowIdx} className="p-3">
+              <div className="mb-3 h-4 w-2/3 animate-pulse rounded bg-muted" />
+              <div className="space-y-2">
+                <div className="h-3 w-full animate-pulse rounded bg-muted" />
+                <div className="h-3 w-3/4 animate-pulse rounded bg-muted" />
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="hidden overflow-x-auto md:block">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b bg-muted/50">
@@ -99,7 +121,7 @@ export function DataTable<T>({
   if (data.length === 0) {
     return (
       <div className="rounded-lg border bg-card">
-        <div className="overflow-x-auto">
+        <div className="hidden overflow-x-auto md:block">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b bg-muted/50">
@@ -140,7 +162,42 @@ export function DataTable<T>({
 
   return (
     <div className="rounded-lg border bg-card">
-      <div className="overflow-x-auto">
+      <div className="divide-y md:hidden">
+        {data.map((row, idx) => (
+          <div
+            key={rowKey ? rowKey(row, idx) : idx}
+            onClick={onRowClick ? () => onRowClick(row, idx) : undefined}
+            role={onRowClick ? 'button' : undefined}
+            tabIndex={onRowClick ? 0 : undefined}
+            onKeyDown={onRowClick ? (event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                onRowClick(row, idx);
+              }
+            } : undefined}
+            className={cn(
+              'block w-full p-3 text-left transition-colors',
+              onRowClick ? 'cursor-pointer hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring' : 'cursor-default',
+            )}
+          >
+            {mobileTitleColumn && (
+              <div className="mb-2 flex items-start justify-between gap-3 text-sm font-semibold">
+                <span className="min-w-0 flex-1 break-words">{mobileTitleColumn.render(row, idx)}</span>
+              </div>
+            )}
+            <dl className="grid grid-cols-1 gap-2 text-xs sm:grid-cols-2">
+              {mobileDetailColumns.slice(0, 6).map((col) => (
+                <div key={col.key} className="min-w-0">
+                  <dt className="text-muted-foreground">{col.mobileLabel ?? col.header}</dt>
+                  <dd className="mt-0.5 break-words text-foreground">{col.render(row, idx)}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        ))}
+      </div>
+
+      <div className="hidden overflow-x-auto md:block">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b bg-muted/50">
@@ -189,7 +246,7 @@ export function DataTable<T>({
 
       {/* Pagination */}
       {pagination && pagination.totalPages > 1 && onPageChange && (
-        <div className="flex items-center justify-between border-t px-4 py-3">
+        <div className="flex flex-col gap-3 border-t px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-4">
           <p className="text-sm text-muted-foreground">
             Showing{' '}
             {(pagination.page - 1) * pagination.pageSize + 1}

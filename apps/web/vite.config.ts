@@ -14,6 +14,7 @@ export default defineConfig({
       },
       includeAssets: ['favicon.svg'],
       manifest: {
+        id: '/',
         name: 'RetailERP',
         short_name: 'RetailERP',
         description: 'Retail ERP for electronics and appliance shops',
@@ -22,6 +23,7 @@ export default defineConfig({
         display: 'standalone',
         orientation: 'any',
         start_url: '/',
+        categories: ['business', 'finance', 'productivity'],
         icons: [
           { src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png' },
           { src: '/pwa-512x512.png', sizes: '512x512', type: 'image/png' },

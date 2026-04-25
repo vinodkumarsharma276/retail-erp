@@ -107,7 +107,7 @@ export function TransferCreatePage() {
     : null;
 
   return (
-    <div className="max-w-3xl">
+    <div className="max-w-5xl">
       {/* Page header */}
       <div className="flex items-center gap-4 mb-6">
         <button
@@ -119,7 +119,7 @@ export function TransferCreatePage() {
         <h1 className="text-2xl font-semibold">New Transfer</h1>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-6">
+      <form onSubmit={handleSubmit} className="space-y-4">
         {/* =============================================================== */}
         {/* STEP 1: PRODUCT SEARCH */}
         {/* =============================================================== */}

@@ -222,6 +222,7 @@ export function SaleCreatePage() {
   const [selectedGuarantor, setSelectedGuarantor] = useState<Customer | null>(null);
   const [showGuarantorDropdown, setShowGuarantorDropdown] = useState(false);
   const [showNewGuarantorForm, setShowNewGuarantorForm] = useState(false);
+  const [summaryOpen, setSummaryOpen] = useState(false);
   const [newGuarantor, setNewGuarantor] = useState<NewGuarantorFormValues>(emptyNewGuarantor);
   const createGuarantorMutation = useCreateCustomerMutation();
 
@@ -508,6 +509,22 @@ export function SaleCreatePage() {
     return true;
   }, [selectedProduct, selectedCustomer, saleType, selectedGuarantor]);
 
+  // -----------------------------------------------------------------------
+  // Ctrl+S / Cmd+S keyboard shortcut to submit
+  // -----------------------------------------------------------------------
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        if (canSubmit && !createSaleMutation.isPending) {
+          handleSubmit(onSubmit)();
+        }
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [canSubmit, createSaleMutation.isPending, handleSubmit, onSubmit]);
+
   // Error message from mutation
   const errorMessage = createSaleMutation.error
     ? (createSaleMutation.error as any)?.response?.data?.error ??
@@ -515,26 +532,106 @@ export function SaleCreatePage() {
       'Something went wrong. Please try again.'
     : null;
 
+  // Total displayed on mobile bottom bar (covers all sale types)
+  const mobileBarTotal =
+    saleType === SaleType.SELF_FINANCE && emiResult
+      ? sellingPrice + emiResult.totalInterest + emiResult.fileCharge
+      : sellingPrice;
+
+  // Shared summary body (used in desktop right rail and mobile drawer)
+  const summaryBody = (
+    <div className="space-y-2 text-sm">
+      <SummaryRow label="Selling Price (incl. GST)" value={formatINR(sellingPrice)} />
+      {gstRate > 0 && (
+        <SummaryRow
+          label={
+            saleGstType === 'CGST_SGST'
+              ? `CGST ${gstRate / 2}% + SGST ${gstRate / 2}% (included)`
+              : saleGstType === 'IGST'
+                ? `IGST ${gstRate}% (included)`
+                : `GST ${gstRate}% (included)`
+          }
+          value={formatINR(gstAmount)}
+        />
+      )}
+
+      {saleType === SaleType.FULL_PAYMENT && (
+        <div className="flex justify-between border-t pt-2 font-semibold text-base">
+          <span>Amount Payable</span>
+          <span className="text-primary">{formatINR(sellingPrice)}</span>
+        </div>
+      )}
+
+      {saleType === SaleType.PARTIAL_WITH_PROMISE && (
+        <>
+          <SummaryRow label="Down Payment" value={formatINR(downPayment)} />
+          {pendingAmount > 0 && (
+            <div className="flex justify-between border-t pt-2 font-semibold">
+              <span>Pending Amount</span>
+              <span className="text-red-600">{formatINR(pendingAmount)}</span>
+            </div>
+          )}
+        </>
+      )}
+
+      {saleType === SaleType.SELF_FINANCE && emiResult && (
+        <>
+          <SummaryRow label="Down Payment" value={formatINR(downPayment)} />
+          <SummaryRow label="Principal (SP - Down)" value={formatINR(emiResult.principal)} />
+          <SummaryRow label="Total Interest" value={formatINR(emiResult.totalInterest)} />
+          {emiResult.fileCharge > 0 && (
+            <SummaryRow label="File Charge" value={formatINR(emiResult.fileCharge)} />
+          )}
+          <SummaryRow label="EMI / month" value={formatINR(emiResult.emiAmount)} />
+          <div className="flex justify-between border-t pt-2 font-semibold text-base">
+            <span>Total Amount</span>
+            <span className="text-primary">
+              {formatINR(sellingPrice + emiResult.totalInterest + emiResult.fileCharge)}
+            </span>
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            SP ({formatINR(sellingPrice)}) + Interest ({formatINR(emiResult.totalInterest)}) + File ({formatINR(emiResult.fileCharge)})
+          </p>
+        </>
+      )}
+
+      {saleType === SaleType.COMPANY_FINANCE && (
+        <>
+          <SummaryRow label="Down Payment" value={formatINR(downPayment)} />
+          <SummaryRow label="Financed Amount" value={formatINR(financedAmount)} />
+          {pendingAmount > 0 && (
+            <div className="flex justify-between border-t pt-2 font-semibold">
+              <span>Remaining (Unpaid)</span>
+              <span className="text-red-600">{formatINR(pendingAmount)}</span>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+
   return (
-    <div className="max-w-5xl">
+    <div className="mx-auto max-w-[1600px] pb-24 lg:pb-0">
       {/* Page header */}
-      <div className="flex items-center gap-4 mb-6">
+      <div className="flex items-center gap-4 mb-4">
         <button
           onClick={() => navigate(-1)}
           className="rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
         >
           <ArrowLeft className="h-5 w-5" />
         </button>
-        <h1 className="text-2xl font-semibold">New Sale</h1>
+        <h1 className="text-xl font-semibold sm:text-2xl">New Sale</h1>
       </div>
 
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+      <form onSubmit={handleSubmit(onSubmit)} className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:gap-6">
+        {/* === MAIN COLUMN ============================================== */}
+        <div className="space-y-4 lg:col-span-8">
         {/* =============================================================== */}
         {/* SECTION 1: PRODUCT */}
         {/* =============================================================== */}
-        <section className="rounded-lg border bg-card p-6">
-          <h2 className="text-lg font-medium mb-4 flex items-center gap-2">
-            <Package className="h-5 w-5 text-primary" />
+        <section className="rounded-lg border bg-card p-4">
+          <h2 className="text-sm font-semibold mb-3 flex items-center gap-2 text-muted-foreground uppercase tracking-wide">
+            <Package className="h-4 w-4 text-primary" />
             Product
           </h2>
 
@@ -544,72 +641,53 @@ export function SaleCreatePage() {
               Loading product...
             </div>
           ) : selectedProduct ? (
-            <div className="rounded-md border-2 border-primary/20 bg-primary/5 p-4">
-              {/* Header: name + change button */}
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-3">
-                  <p className="font-semibold text-lg">
+            <div className="flex items-start gap-3 rounded-md border bg-muted/30 p-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-primary/10">
+                <Package className="h-5 w-5 text-primary" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="font-semibold">
                     {selectedProduct.brand} {selectedProduct.modelNumber}
                   </p>
                   <StatusBadge status={selectedProduct.status} />
+                  {!productIdFromUrl && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedProduct(null);
+                        setProductSearchText('');
+                      }}
+                      className="ml-auto text-xs text-primary hover:underline"
+                    >
+                      Change
+                    </button>
+                  )}
                 </div>
-                {!productIdFromUrl && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedProduct(null);
-                      setProductSearchText('');
-                    }}
-                    className="text-sm text-primary hover:underline"
-                  >
-                    Change
-                  </button>
-                )}
-              </div>
-
-              {/* Product details grid */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-6 gap-y-3 text-sm">
-                {selectedProduct.serialNumber && (
-                  <div>
-                    <span className="text-muted-foreground">Serial No.</span>
-                    <p className="font-mono text-xs mt-0.5">{selectedProduct.serialNumber}</p>
-                  </div>
-                )}
-                {(selectedProduct as any).category?.name && (
-                  <div>
-                    <span className="text-muted-foreground">Category</span>
-                    <p className="font-medium mt-0.5">{(selectedProduct as any).category.name}</p>
-                  </div>
-                )}
-                {selectedProduct.color && (
-                  <div>
-                    <span className="text-muted-foreground">Color</span>
-                    <p className="font-medium mt-0.5">{selectedProduct.color}</p>
-                  </div>
-                )}
-                {selectedProduct.barcode && (
-                  <div>
-                    <span className="text-muted-foreground">Barcode</span>
-                    <p className="font-mono text-xs mt-0.5">{selectedProduct.barcode}</p>
-                  </div>
-                )}
-                {selectedProduct.warrantyMonths && (
-                  <div>
-                    <span className="text-muted-foreground">Warranty</span>
-                    <p className="font-medium mt-0.5">{selectedProduct.warrantyMonths} months</p>
-                  </div>
-                )}
-              </div>
-
-              {/* Pricing row */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mt-4 pt-3 border-t border-primary/10">
-                <div>
-                  <span className="text-xs text-muted-foreground">MRP</span>
-                  <p className="font-semibold">{formatINR(selectedProduct.mrp)}</p>
-                </div>
-                <div>
-                  <span className="text-xs text-muted-foreground">DP (Dealer Price)</span>
-                  <p className="font-semibold">{formatINR(selectedProduct.purchasePrice)}</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {[
+                    selectedProduct.serialNumber && `SN ${selectedProduct.serialNumber}`,
+                    (selectedProduct as any).category?.name,
+                    selectedProduct.color,
+                    selectedProduct.warrantyMonths && `${selectedProduct.warrantyMonths}mo warranty`,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </p>
+                <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+                  <span>
+                    <span className="text-muted-foreground">MRP </span>
+                    <span className="font-semibold">{formatINR(selectedProduct.mrp)}</span>
+                  </span>
+                  <span>
+                    <span className="text-muted-foreground">DP </span>
+                    <span className="font-semibold">{formatINR(selectedProduct.purchasePrice)}</span>
+                  </span>
+                  {selectedProduct.barcode && (
+                    <span className="font-mono text-[11px] text-muted-foreground">
+                      {selectedProduct.barcode}
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
@@ -643,9 +721,9 @@ export function SaleCreatePage() {
         {/* =============================================================== */}
         {/* SECTION 2: LEDGER NUMBER */}
         {/* =============================================================== */}
-        <section className="rounded-lg border bg-card p-6">
-          <h2 className="text-lg font-medium mb-4 flex items-center gap-2">
-            <FileText className="h-5 w-5 text-primary" />
+        <section className="rounded-lg border bg-card p-4">
+          <h2 className="text-sm font-semibold mb-3 flex items-center gap-2 text-muted-foreground uppercase tracking-wide">
+            <FileText className="h-4 w-4 text-primary" />
             Ledger & Sale Date
           </h2>
           <div className="grid gap-4 sm:grid-cols-2">
@@ -726,9 +804,9 @@ export function SaleCreatePage() {
         {/* =============================================================== */}
         {/* SECTION 3: SALE TYPE */}
         {/* =============================================================== */}
-        <section className="rounded-lg border bg-card p-6">
-          <h2 className="text-lg font-medium mb-4 flex items-center gap-2">
-            <CreditCard className="h-5 w-5 text-primary" />
+        <section className="rounded-lg border bg-card p-4">
+          <h2 className="text-sm font-semibold mb-3 flex items-center gap-2 text-muted-foreground uppercase tracking-wide">
+            <CreditCard className="h-4 w-4 text-primary" />
             Sale Type
           </h2>
 
@@ -767,7 +845,7 @@ export function SaleCreatePage() {
           {/* ---- FULL PAYMENT ---- */}
           {saleType === SaleType.FULL_PAYMENT && (
             <div className="space-y-4">
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {/* Selling Price */}
                 <div>
                   <label className="block text-sm font-medium mb-1.5">
@@ -832,7 +910,7 @@ export function SaleCreatePage() {
           {/* ---- PARTIAL WITH PROMISE ---- */}
           {saleType === SaleType.PARTIAL_WITH_PROMISE && (
             <div className="space-y-4">
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {/* Selling Price */}
                 <div>
                   <label className="block text-sm font-medium mb-1.5">
@@ -960,8 +1038,8 @@ export function SaleCreatePage() {
 
           {/* ---- SELF FINANCE (INSTALLMENT) ---- */}
           {saleType === SaleType.SELF_FINANCE && !isOthersRole && (
-            <div className="space-y-6">
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {/* Selling Price */}
                 <div>
                   <label className="block text-sm font-medium mb-1.5">
@@ -1243,7 +1321,7 @@ export function SaleCreatePage() {
           {/* ---- COMPANY FINANCE ---- */}
           {saleType === SaleType.COMPANY_FINANCE && !isOthersRole && (
             <div className="space-y-4">
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {/* Selling Price */}
                 <div>
                   <label className="block text-sm font-medium mb-1.5">
@@ -1407,9 +1485,9 @@ export function SaleCreatePage() {
         {/* =============================================================== */}
         {/* SECTION 4: CUSTOMER + GUARANTOR */}
         {/* =============================================================== */}
-        <section className="rounded-lg border bg-card p-6">
-          <h2 className="text-lg font-medium mb-4 flex items-center gap-2">
-            <User className="h-5 w-5 text-primary" />
+        <section className="rounded-lg border bg-card p-4">
+          <h2 className="text-sm font-semibold mb-3 flex items-center gap-2 text-muted-foreground uppercase tracking-wide">
+            <User className="h-4 w-4 text-primary" />
             Customer
           </h2>
 
@@ -2035,121 +2113,43 @@ export function SaleCreatePage() {
         {/* =============================================================== */}
         {/* SECTION 5: NOTES */}
         {/* =============================================================== */}
-        <section className="rounded-lg border bg-card p-6">
-          <h2 className="text-lg font-medium mb-4">Notes</h2>
-          <textarea
-            rows={3}
-            {...register('notes')}
-            placeholder="Any additional notes about this sale..."
-            className={cn(
-              'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
-              'placeholder:text-muted-foreground',
-              'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-            )}
-          />
+        <section className="rounded-lg border bg-card">
+          <details className="group">
+            <summary className="flex cursor-pointer items-center justify-between p-4 list-none">
+              <h2 className="text-sm font-semibold flex items-center gap-2 text-muted-foreground uppercase tracking-wide">
+                <FileText className="h-4 w-4 text-primary" />
+                Notes
+                <span className="text-xs font-normal normal-case tracking-normal text-muted-foreground/70">(optional)</span>
+              </h2>
+              <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform group-open:rotate-180" />
+            </summary>
+            <div className="px-4 pb-4">
+              <textarea
+                rows={3}
+                {...register('notes')}
+                placeholder="Any additional notes about this sale..."
+                className={cn(
+                  'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                  'placeholder:text-muted-foreground',
+                  'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                )}
+              />
+            </div>
+          </details>
         </section>
 
+        </div>
+        {/* === END MAIN COLUMN ========================================== */}
+
+        {/* === RIGHT RAIL =============================================== */}
+        <aside className="lg:col-span-4">
+          <div className="space-y-4 lg:sticky lg:top-4">
         {/* =============================================================== */}
-        {/* SECTION 6: SUMMARY CARD */}
+        {/* SECTION 6: SUMMARY CARD (desktop right rail only) */}
         {/* =============================================================== */}
-        <section className="rounded-lg border-2 border-primary/20 bg-primary/5 p-6">
-          <h2 className="text-lg font-medium mb-4">Sale Summary</h2>
-          <div className="space-y-2 text-sm max-w-md">
-            <SummaryRow label="Selling Price (incl. GST)" value={formatINR(sellingPrice)} />
-            {gstRate > 0 && (
-              <SummaryRow
-                label={
-                  saleGstType === 'CGST_SGST'
-                    ? `CGST ${gstRate / 2}% + SGST ${gstRate / 2}% (included)`
-                    : saleGstType === 'IGST'
-                      ? `IGST ${gstRate}% (included)`
-                      : `GST ${gstRate}% (included)`
-                }
-                value={formatINR(gstAmount)}
-              />
-            )}
-
-            {saleType === SaleType.FULL_PAYMENT && (
-              <div className="flex justify-between border-t pt-2 font-semibold text-base">
-                <span>Amount Payable</span>
-                <span className="text-primary">{formatINR(sellingPrice)}</span>
-              </div>
-            )}
-
-            {saleType === SaleType.PARTIAL_WITH_PROMISE && (
-              <>
-                <SummaryRow
-                  label="Down Payment"
-                  value={formatINR(downPayment)}
-                />
-                {pendingAmount > 0 && (
-                  <div className="flex justify-between border-t pt-2 font-semibold">
-                    <span>Pending Amount</span>
-                    <span className="text-red-600">
-                      {formatINR(pendingAmount)}
-                    </span>
-                  </div>
-                )}
-              </>
-            )}
-
-            {saleType === SaleType.SELF_FINANCE && emiResult && (
-              <>
-                <SummaryRow
-                  label="Down Payment"
-                  value={formatINR(downPayment)}
-                />
-                <SummaryRow
-                  label="Principal (SP - Down)"
-                  value={formatINR(emiResult.principal)}
-                />
-                <SummaryRow
-                  label="Total Interest"
-                  value={formatINR(emiResult.totalInterest)}
-                />
-                {emiResult.fileCharge > 0 && (
-                  <SummaryRow
-                    label="File Charge"
-                    value={formatINR(emiResult.fileCharge)}
-                  />
-                )}
-                <SummaryRow
-                  label="EMI / month"
-                  value={formatINR(emiResult.emiAmount)}
-                />
-                <div className="flex justify-between border-t pt-2 font-semibold text-base">
-                  <span>Total Amount</span>
-                  <span className="text-primary">
-                    {formatINR(sellingPrice + emiResult.totalInterest + emiResult.fileCharge)}
-                  </span>
-                </div>
-                <p className="text-[11px] text-muted-foreground">
-                  SP ({formatINR(sellingPrice)}) + Interest ({formatINR(emiResult.totalInterest)}) + File ({formatINR(emiResult.fileCharge)})
-                </p>
-              </>
-            )}
-
-            {saleType === SaleType.COMPANY_FINANCE && (
-              <>
-                <SummaryRow
-                  label="Down Payment"
-                  value={formatINR(downPayment)}
-                />
-                <SummaryRow
-                  label="Financed Amount"
-                  value={formatINR(financedAmount)}
-                />
-                {pendingAmount > 0 && (
-                  <div className="flex justify-between border-t pt-2 font-semibold">
-                    <span>Remaining (Unpaid)</span>
-                    <span className="text-red-600">
-                      {formatINR(pendingAmount)}
-                    </span>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
+        <section className="hidden lg:block rounded-lg border-2 border-primary/20 bg-primary/5 p-5">
+          <h2 className="text-base font-semibold mb-3">Sale Summary</h2>
+          {summaryBody}
         </section>
 
         {/* =============================================================== */}
@@ -2163,39 +2163,123 @@ export function SaleCreatePage() {
         )}
 
         {/* =============================================================== */}
-        {/* FOOTER */}
+        {/* DESKTOP ACTIONS (inside right rail) */}
         {/* =============================================================== */}
-        <div className="flex items-center justify-between pt-4 border-t">
-          <button
-            type="button"
-            onClick={() => navigate(-1)}
-            className="rounded-md border px-4 py-2.5 text-sm font-medium text-muted-foreground hover:bg-muted transition-colors"
-          >
-            Cancel
-          </button>
-
+        <div className="hidden lg:flex lg:flex-col lg:gap-2">
           <button
             type="submit"
             disabled={!canSubmit || createSaleMutation.isPending}
+            title="Save (Ctrl+S)"
             className={cn(
-              'flex items-center gap-2 rounded-md bg-green-600 px-8 py-3 text-base font-medium text-white',
+              'flex w-full items-center justify-center gap-2 rounded-md bg-green-600 px-4 py-2.5 text-sm font-semibold text-white',
               'hover:bg-green-700 transition-colors',
               'disabled:opacity-50 disabled:cursor-not-allowed',
             )}
           >
             {createSaleMutation.isPending ? (
               <>
-                <Loader2 className="h-5 w-5 animate-spin" />
-                Creating Sale...
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Creating Sale…
               </>
             ) : (
               <>
-                <ShoppingCart className="h-5 w-5" />
+                <ShoppingCart className="h-4 w-4" />
                 Complete Sale
+                <kbd className="ml-1 hidden rounded border border-white/30 bg-white/10 px-1.5 py-0.5 text-[10px] font-medium xl:inline">Ctrl+S</kbd>
               </>
             )}
           </button>
+          <button
+            type="button"
+            onClick={() => navigate(-1)}
+            className="w-full rounded-md border px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-muted transition-colors"
+          >
+            Cancel
+          </button>
         </div>
+          </div>
+        </aside>
+        {/* === END RIGHT RAIL =========================================== */}
+
+        {/* === MOBILE STICKY ACTION BAR ================================= */}
+        <div className="fixed inset-x-0 bottom-0 z-30 border-t bg-card shadow-lg lg:hidden">
+          <div className="flex items-center gap-2 p-3">
+            <button
+              type="button"
+              onClick={() => setSummaryOpen(true)}
+              className="flex flex-1 items-center justify-between rounded-md border bg-muted/30 px-3 py-2 text-left hover:bg-muted transition-colors"
+              aria-label="View sale summary"
+            >
+              <span className="flex flex-col">
+                <span className="text-[10px] uppercase tracking-wide text-muted-foreground">Total</span>
+                <span className="text-sm font-semibold leading-tight">{formatINR(mobileBarTotal)}</span>
+              </span>
+              <ChevronDown className="h-4 w-4 rotate-180 text-muted-foreground" />
+            </button>
+            <button
+              type="submit"
+              disabled={!canSubmit || createSaleMutation.isPending}
+              className={cn(
+                'flex items-center justify-center gap-2 rounded-md bg-green-600 px-4 py-2.5 text-sm font-semibold text-white',
+                'hover:bg-green-700 transition-colors',
+                'disabled:opacity-50 disabled:cursor-not-allowed',
+              )}
+            >
+              {createSaleMutation.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Saving…
+                </>
+              ) : (
+                <>
+                  <ShoppingCart className="h-4 w-4" />
+                  Save Sale
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* === MOBILE SUMMARY DRAWER ==================================== */}
+        {summaryOpen && (
+          <div className="fixed inset-0 z-40 lg:hidden" role="dialog" aria-modal="true" aria-label="Sale summary">
+            <div
+              className="absolute inset-0 bg-black/50"
+              onClick={() => setSummaryOpen(false)}
+            />
+            <div className="absolute inset-x-0 bottom-0 max-h-[85vh] overflow-y-auto rounded-t-2xl border-t bg-card p-5 shadow-2xl">
+              <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-muted-foreground/30" />
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="text-base font-semibold">Sale Summary</h2>
+                <button
+                  type="button"
+                  onClick={() => setSummaryOpen(false)}
+                  className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                  aria-label="Close summary"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              {summaryBody}
+              {errorMessage && (
+                <div className="mt-4 flex items-center gap-2 rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  {errorMessage}
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  setSummaryOpen(false);
+                  navigate(-1);
+                }}
+                className="mt-4 w-full rounded-md border px-4 py-2.5 text-sm font-medium text-muted-foreground hover:bg-muted transition-colors"
+              >
+                Cancel Sale
+              </button>
+            </div>
+          </div>
+        )}
       </form>
     </div>
   );
@@ -2450,7 +2534,7 @@ function GstSelector({
       </div>
 
       {/* GST % dropdown + computed amount */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {gstType === 'CGST_SGST' ? (
           <>
             <div>

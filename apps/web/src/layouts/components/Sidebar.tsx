@@ -61,7 +61,7 @@ export function Sidebar() {
       <aside
         className={cn(
           // Base styles — uses sidebar-specific tokens
-          'flex w-64 flex-col border-r border-sidebar-border bg-sidebar',
+          'flex w-64 max-w-[85vw] flex-col border-r border-sidebar-border bg-sidebar',
           // Mobile: fixed overlay, off-screen by default
           'fixed inset-y-0 left-0 z-50 transition-transform duration-200 lg:static lg:translate-x-0',
           isOpen ? 'translate-x-0' : '-translate-x-full',
