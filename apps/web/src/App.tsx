@@ -18,6 +18,7 @@ import { CustomerDetailPage } from './pages/customers/CustomerDetailPage';
 import { SaleListPage } from './pages/sales/SaleListPage';
 import { SaleCreatePage } from './pages/sales/SaleCreatePage';
 import { SaleDetailPage } from './pages/sales/SaleDetailPage';
+import { RegisterScanPage } from './pages/sales/RegisterScanPage';
 import { InstallmentListPage } from './pages/installments/InstallmentListPage';
 import { InstallmentDetailPage } from './pages/installments/InstallmentDetailPage';
 import { TransferListPage } from './pages/transfers/TransferListPage';
@@ -123,6 +124,7 @@ function App() {
             <Route path="/customers/:id" element={<CustomerDetailPage />} />
             <Route path="/customers/:id/edit" element={<CustomerFormPage />} />
             <Route path="/sales" element={<SaleListPage />} />
+            <Route path="/sales/scan-register" element={<RegisterScanPage />} />
             <Route path="/sales/new" element={<SaleCreatePage />} />
             <Route path="/sales/:id" element={<SaleDetailPage />} />
             <Route path="/transfers" element={<TransferListPage />} />

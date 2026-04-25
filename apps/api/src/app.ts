@@ -3,6 +3,7 @@ import cors from '@fastify/cors';
 import jwt from '@fastify/jwt';
 import cookie from '@fastify/cookie';
 import rateLimit from '@fastify/rate-limit';
+import multipart from '@fastify/multipart';
 import { config } from './config/index.js';
 import { errorHandler } from './middleware/error-handler.js';
 import { authRoutes } from './modules/auth/auth.routes.js';
@@ -23,7 +24,32 @@ import { formRoutes } from './modules/forms/forms.routes.js';
 import { employeeRoutes } from './modules/employees/employees.routes.js';
 import { notificationRoutes } from './modules/notifications/notifications.routes.js';
 import { rolesRoutes } from './modules/roles/roles.routes.js';
+import { ocrRoutes } from './modules/ocr/ocr.routes.js';
 import { registerInstallmentScheduler } from './jobs/installments-scheduler.js';
+
+function isAllowedDevOrigin(origin: string) {
+  try {
+    const url = new URL(origin);
+    const isWebDevPort = url.port === '5173' || url.port === '4173';
+    const isLocalhost = url.hostname === 'localhost' || url.hostname === '127.0.0.1';
+    const isPrivateLan = /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)/.test(url.hostname);
+    return isWebDevPort && (isLocalhost || isPrivateLan);
+  } catch {
+    return false;
+  }
+}
+
+function isAllowedCorsOrigin(origin: string | undefined) {
+  if (!origin) return true;
+
+  const configuredOrigins = config.corsOrigin
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  if (configuredOrigins.includes(origin)) return true;
+  return config.nodeEnv !== 'production' && isAllowedDevOrigin(origin);
+}
 
 export async function buildApp() {
   const app = Fastify({
@@ -34,7 +60,9 @@ export async function buildApp() {
 
   // Plugins
   await app.register(cors, {
-    origin: config.corsOrigin,
+    origin: (origin, callback) => {
+      callback(null, isAllowedCorsOrigin(origin));
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Shop-Id'],
@@ -42,6 +70,12 @@ export async function buildApp() {
   await app.register(jwt, { secret: config.jwt.secret });
   await app.register(cookie);
   await app.register(rateLimit, { max: 100, timeWindow: '1 minute' });
+  await app.register(multipart, {
+    limits: {
+      files: 1,
+      fileSize: config.ocr.maxFileMb * 1024 * 1024,
+    },
+  });
 
   // Error handler
   app.setErrorHandler(errorHandler);
@@ -70,6 +104,7 @@ export async function buildApp() {
   await app.register(employeeRoutes, { prefix: '/api/v1/employees' });
   await app.register(notificationRoutes, { prefix: '/api/v1/notifications' });
   await app.register(rolesRoutes, { prefix: '/api/v1/roles' });
+  await app.register(ocrRoutes, { prefix: '/api/v1/ocr' });
 
   // Background jobs (gated by ENABLE_SCHEDULER=true).
   registerInstallmentScheduler(app.log);

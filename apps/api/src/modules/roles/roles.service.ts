@@ -188,9 +188,11 @@ export const rolesService = {
   },
 
   async resetPassword(userId: string, newPasswordOverride?: string) {
-    const newPassword = newPasswordOverride && newPasswordOverride.length >= 8
-      ? newPasswordOverride
-      : generatePassword();
+    if (newPasswordOverride !== undefined && newPasswordOverride.length < 4) {
+      throw new Error('Password must be at least 4 characters');
+    }
+
+    const newPassword = newPasswordOverride ?? generatePassword();
     const passwordHash = await bcrypt.hash(newPassword, 10);
     await prisma.user.update({
       where: { id: userId },

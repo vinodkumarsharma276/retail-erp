@@ -454,11 +454,110 @@ const saleFields: FieldSeed[] = [
   },
 ];
 
+const productFields: FieldSeed[] = [
+  // Section: Product Info
+  {
+    fieldName: 'modelNumber',
+    fieldLabel: 'Model Number',
+    fieldType: 'autocomplete',
+    placeholder: 'Type model number to search...',
+    isRequired: true,
+    validationRules: { searchEndpoint: '/products/search', searchParam: 'query', minChars: 3, debounceMs: 250 },
+    displayOrder: 0,
+    sectionName: 'Product Info',
+    isVisible: true,
+    cssClass: 'col-span-full',
+  },
+  {
+    fieldName: 'serialNumbers',
+    fieldLabel: 'Serial Numbers',
+    fieldType: 'textarea',
+    placeholder: 'One serial number per line',
+    isRequired: false,
+    displayOrder: 1,
+    sectionName: 'Product Info',
+    isVisible: true,
+    cssClass: 'col-span-full',
+  },
+  {
+    fieldName: 'mrp',
+    fieldLabel: 'MRP',
+    fieldType: 'number',
+    isRequired: false,
+    displayOrder: 2,
+    sectionName: 'Pricing',
+    isVisible: true,
+  },
+  {
+    fieldName: 'purchasePrice',
+    fieldLabel: 'DP (Dealer Price)',
+    fieldType: 'number',
+    isRequired: true,
+    displayOrder: 3,
+    sectionName: 'Pricing',
+    isVisible: true,
+  },
+  {
+    fieldName: 'sellingPrice',
+    fieldLabel: 'Selling Price',
+    fieldType: 'number',
+    isRequired: false,
+    displayOrder: 4,
+    sectionName: 'Pricing',
+    isVisible: true,
+  },
+  {
+    fieldName: 'gstPercent',
+    fieldLabel: 'GST %',
+    fieldType: 'select',
+    isRequired: true,
+    options: [
+      { label: '0%', value: '0' },
+      { label: '5%', value: '5' },
+      { label: '12%', value: '12' },
+      { label: '18%', value: '18' },
+      { label: '28%', value: '28' },
+    ],
+    defaultValue: '18',
+    displayOrder: 5,
+    sectionName: 'Pricing',
+    isVisible: true,
+  },
+  {
+    fieldName: 'color',
+    fieldLabel: 'Color',
+    fieldType: 'text',
+    isRequired: false,
+    displayOrder: 6,
+    sectionName: 'Details',
+    isVisible: true,
+  },
+  {
+    fieldName: 'warrantyMonths',
+    fieldLabel: 'Warranty (months)',
+    fieldType: 'number',
+    isRequired: false,
+    displayOrder: 7,
+    sectionName: 'Details',
+    isVisible: true,
+  },
+  {
+    fieldName: 'barcode',
+    fieldLabel: 'Barcode',
+    fieldType: 'text',
+    isRequired: false,
+    displayOrder: 8,
+    sectionName: 'Details',
+    isVisible: true,
+  },
+];
+
 export async function seedFormDefinitions(prisma: PrismaClient): Promise<FormDefinition[]> {
   const formConfigs = [
     { formName: 'customer', description: 'Customer registration and details form', fields: customerFields },
     { formName: 'distributor', description: 'Distributor/supplier registration form', fields: distributorFields },
     { formName: 'sale', description: 'Sale recording form with conditional finance sections', fields: saleFields },
+    { formName: 'product', description: 'Product entry form for purchases', fields: productFields },
   ];
 
   const definitions: FormDefinition[] = [];

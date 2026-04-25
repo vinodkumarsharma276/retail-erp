@@ -1,6 +1,20 @@
 import axios from 'axios';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api/v1';
+function normalizeApiUrl(url: string) {
+  const trimmedUrl = url.replace(/\/$/, '');
+  return trimmedUrl.endsWith('/api/v1') ? trimmedUrl : `${trimmedUrl}/api/v1`;
+}
+
+function resolveApiBaseUrl() {
+  const configuredUrl = import.meta.env.VITE_API_URL;
+  if (configuredUrl) return normalizeApiUrl(configuredUrl);
+
+  const host = window.location.hostname;
+  const apiHost = host === 'localhost' || host === '127.0.0.1' ? 'localhost' : host;
+  return `http://${apiHost}:3001/api/v1`;
+}
+
+const API_BASE_URL = resolveApiBaseUrl();
 
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,

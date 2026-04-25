@@ -81,4 +81,9 @@ export async function installmentRoutes(app: FastifyInstance) {
       authorize([UserRole.OWNER, UserRole.ADMIN]),
     ],
   }, installmentsController.runRollover as any);
+
+  // Revert a payment (admin only)
+  app.post('/payments/:paymentId/revert', {
+    preHandler: [...adminAccountantShopScoped],
+  }, installmentsController.revertPayment as any);
 }

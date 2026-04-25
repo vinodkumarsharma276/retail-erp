@@ -36,7 +36,7 @@ export function PurchaseListPage() {
   // ------ Filters state (URL search params) ------
   const page = Number(searchParams.get('page')) || 1;
   const distributorId = searchParams.get('distributorId') || '';
-  const dateFrom = searchParams.get('dateFrom') || getDateDaysAgo(90);
+  const dateFrom = searchParams.get('dateFrom') || getDateDaysAgo(30);
   const dateTo = searchParams.get('dateTo') || getToday();
   const paymentStatus = searchParams.get('paymentStatus') || '';
 

@@ -57,6 +57,7 @@ export function RecordPaymentDialog({
   const [fullMode, setFullMode] = useState<PaymentMode>(PaymentMode.CASH);
   const [fullDate, setFullDate] = useState<string>(defaultDate || todayStr);
   const [fullNotes, setFullNotes] = useState('');
+  const [earlyCollectionDate, setEarlyCollectionDate] = useState('');
 
   // Reschedule state
   const [rescheduleDate, setRescheduleDate] = useState('');
@@ -88,6 +89,7 @@ export function RecordPaymentDialog({
       paymentDate?: string;
       newDate?: string;
       notes?: string;
+      earlyCollectionDate?: string;
     };
 
     if (scenario === 'full_payment') {
@@ -97,6 +99,7 @@ export function RecordPaymentDialog({
         paymentMode: fullMode,
         paymentDate: fullDate || undefined,
         notes: fullNotes.trim() || undefined,
+        earlyCollectionDate: earlyCollectionDate || undefined,
       };
     } else if (scenario === 'reschedule') {
       payload = {
@@ -282,6 +285,25 @@ export function RecordPaymentDialog({
                 className={cn(
                   'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
                   'placeholder:text-muted-foreground',
+                  'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                )}
+              />
+            </div>
+
+            {/* Early Collection Date for Next Installment */}
+            <div className="rounded-md border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/30 p-3">
+              <label className="block text-sm font-medium mb-1.5 text-blue-800 dark:text-blue-200">
+                Early Collection Date (Next Installment)
+              </label>
+              <p className="text-xs text-blue-600 dark:text-blue-400 mb-2">
+                If the customer wants to pay the next installment before its due date, set the preferred date here.
+              </p>
+              <input
+                type="date"
+                value={earlyCollectionDate}
+                onChange={(e) => setEarlyCollectionDate(e.target.value)}
+                className={cn(
+                  'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
                   'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                 )}
               />

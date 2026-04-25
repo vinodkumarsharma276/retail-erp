@@ -77,6 +77,7 @@ export enum FormFieldType {
   RADIO = 'radio',
   FILE = 'file',
   HIDDEN = 'hidden',
+  AUTOCOMPLETE = 'autocomplete',
 }
 
 export enum BankTxnType {

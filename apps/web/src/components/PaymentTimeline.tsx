@@ -175,6 +175,16 @@ const rollLogConfig: Record<
     color: 'text-indigo-600 dark:text-indigo-400',
     bg: 'bg-indigo-100 dark:bg-indigo-900/30',
   },
+  payment_reverted: {
+    icon: <AlertCircle className="h-4 w-4" />,
+    color: 'text-red-600 dark:text-red-400',
+    bg: 'bg-red-100 dark:bg-red-900/30',
+  },
+  early_collection_scheduled: {
+    icon: <CalendarDays className="h-4 w-4" />,
+    color: 'text-blue-600 dark:text-blue-400',
+    bg: 'bg-blue-100 dark:bg-blue-900/30',
+  },
   note_added: {
     icon: <FileText className="h-4 w-4" />,
     color: 'text-gray-600 dark:text-gray-400',

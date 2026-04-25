@@ -163,13 +163,17 @@ export function PurchaseDetailPage() {
                   <th className="px-4 py-3 text-right font-medium text-muted-foreground">
                     Purchase Price
                   </th>
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                    Status
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 {purchase.products.map((product: PurchaseProduct, idx: number) => (
                   <tr
                     key={product.id}
-                    className="border-b last:border-0 hover:bg-muted/30 transition-colors"
+                    className="border-b last:border-0 hover:bg-muted/30 transition-colors cursor-pointer"
+                    onClick={() => navigate(`/products/${product.id}`)}
                   >
                     <td className="px-4 py-3">{idx + 1}</td>
                     <td className="px-4 py-3 font-medium">{product.brand}</td>
@@ -187,6 +191,9 @@ export function PurchaseDetailPage() {
                     </td>
                     <td className="px-4 py-3 text-right font-medium">
                       {formatINR(product.purchasePrice)}
+                    </td>
+                    <td className="px-4 py-3">
+                      <StatusBadge status={(product as any).status ?? 'in_stock'} />
                     </td>
                   </tr>
                 ))}

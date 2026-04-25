@@ -430,6 +430,10 @@ function UsersPanel() {
   const rolesQ = useQuery({ queryKey: ['rbac', 'roles'], queryFn: rolesApi.listRoles });
   const [search, setSearch] = useState('');
   const [revealed, setRevealed] = useState<Set<string>>(new Set());
+  const [resetTarget, setResetTarget] = useState<UserSummary | null>(null);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
   const [resetResult, setResetResult] = useState<{ username: string; password: string } | null>(null);
 
   const assignMut = useMutation({
@@ -445,10 +449,15 @@ function UsersPanel() {
   });
 
   const resetMut = useMutation({
-    mutationFn: ({ userId }: { userId: string; username: string }) => rolesApi.resetUserPassword(userId),
+    mutationFn: ({ userId, password }: { userId: string; username: string; password: string }) =>
+      rolesApi.resetUserPassword(userId, password),
     onSuccess: (data, variables) => {
       toast({ type: 'success', message: 'Password reset' });
       setResetResult({ username: variables.username, password: data.newPassword });
+      setResetTarget(null);
+      setNewPassword('');
+      setConfirmPassword('');
+      setShowNewPassword(false);
       qc.invalidateQueries({ queryKey: ['rbac', 'users'] });
     },
     onError: (e: any) =>
@@ -481,6 +490,20 @@ function UsersPanel() {
     } catch {
       toast({ type: 'error', message: 'Copy failed' });
     }
+  };
+
+  const passwordError = (() => {
+    if (!resetTarget) return '';
+    if (newPassword.length < 4) return 'Password must be at least 4 characters.';
+    if (newPassword !== confirmPassword) return 'Passwords do not match.';
+    return '';
+  })();
+
+  const closeResetDialog = () => {
+    setResetTarget(null);
+    setNewPassword('');
+    setConfirmPassword('');
+    setShowNewPassword(false);
   };
 
   return (
@@ -568,11 +591,7 @@ function UsersPanel() {
                         <span className="text-xs italic text-muted-foreground">Changed by user</span>
                       )}
                       <button
-                        onClick={() => {
-                          if (confirm(`Reset password for ${u.username}? They will be signed out.`)) {
-                            resetMut.mutate({ userId: u.id, username: u.username });
-                          }
-                        }}
+                        onClick={() => setResetTarget(u)}
                         title="Reset password"
                         disabled={resetMut.isPending}
                         className="ml-1 rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
@@ -605,6 +624,86 @@ function UsersPanel() {
           </tbody>
         </table>
       </div>
+
+      {resetTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-lg border bg-card p-6 shadow-xl">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold">Reset password</h3>
+              <button onClick={closeResetDialog} className="rounded p-1 hover:bg-accent">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <p className="mt-3 text-sm text-muted-foreground">
+              Set a new password for <span className="font-mono font-medium text-foreground">@{resetTarget.username}</span>.
+              The user will be signed out from existing sessions.
+            </p>
+            <div className="mt-4 space-y-3">
+              <div>
+                <label htmlFor="new-password" className="block text-sm font-medium">
+                  New password
+                </label>
+                <div className="mt-1 flex rounded-md border bg-background focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2">
+                  <input
+                    id="new-password"
+                    type={showNewPassword ? 'text' : 'password'}
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    className="min-w-0 flex-1 rounded-l-md bg-transparent px-3 py-2 text-sm outline-none"
+                    autoComplete="new-password"
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowNewPassword((value) => !value)}
+                    className="rounded-r-md px-2 text-muted-foreground hover:bg-accent hover:text-foreground"
+                    title={showNewPassword ? 'Hide password' : 'Show password'}
+                  >
+                    {showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label htmlFor="confirm-new-password" className="block text-sm font-medium">
+                  Confirm password
+                </label>
+                <input
+                  id="confirm-new-password"
+                  type={showNewPassword ? 'text' : 'password'}
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                  autoComplete="new-password"
+                />
+              </div>
+              {passwordError && <p className="text-xs text-destructive">{passwordError}</p>}
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={closeResetDialog}
+                className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={resetMut.isPending || !!passwordError}
+                onClick={() =>
+                  resetMut.mutate({
+                    userId: resetTarget.id,
+                    username: resetTarget.username,
+                    password: newPassword,
+                  })
+                }
+                className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+              >
+                {resetMut.isPending ? 'Resetting...' : 'Reset password'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {resetResult && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">

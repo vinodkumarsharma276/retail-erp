@@ -327,4 +327,27 @@ export const installmentsController = {
       return sendError(reply, message, 500);
     }
   },
+
+  async revertPayment(
+    request: FastifyRequest<{
+      Params: { paymentId: string };
+      Body: { reason: string };
+    }>,
+    reply: FastifyReply,
+  ) {
+    try {
+      const result = await installmentsService.revertPayment(
+        request.params.paymentId,
+        request.body.reason,
+        request.currentUser?.userId ?? '',
+      );
+      return sendSuccess(reply, result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to revert payment';
+      if (message === 'Payment not found') {
+        return sendError(reply, message, 404);
+      }
+      return sendError(reply, message, 500);
+    }
+  },
 };

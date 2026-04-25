@@ -118,7 +118,7 @@ export const salesService = {
       select: { saleNumber: true },
     });
 
-    const saleNumber = generateSaleNumber(shopCode, saleDate, lastSale?.saleNumber ?? undefined);
+    let saleNumber = generateSaleNumber(shopCode, saleDate, lastSale?.saleNumber ?? undefined);
 
     // 4. Calculate financials
     const sellingPrice = data.sellingPrice;
@@ -181,6 +181,14 @@ export const salesService = {
 
     // 5-9. Create everything in a transaction
     const result = await prisma.$transaction(async (tx) => {
+      // Re-generate sale number inside the transaction to prevent race conditions
+      const txLastSale = await tx.saleRecord.findFirst({
+        where: { saleNumber: { startsWith: `SALE-${shopCode}-` } },
+        orderBy: { saleNumber: 'desc' },
+        select: { saleNumber: true },
+      });
+      saleNumber = generateSaleNumber(shopCode, saleDate, txLastSale?.saleNumber ?? undefined);
+
       // 5. Create SaleRecord
       const saleRecord = await tx.saleRecord.create({
         data: {

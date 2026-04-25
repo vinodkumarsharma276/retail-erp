@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Search, X, ChevronDown, Download, Loader2 } from 'lucide-react';
+import { Search, X, ChevronDown, Download, Loader2, ScanLine } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useDebounce } from '../../hooks/useDebounce';
 import { useSalesQuery } from '../../hooks/useSales';
@@ -257,8 +257,18 @@ export function SaleListPage() {
   return (
     <div>
       {/* Page header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between gap-3 mb-6">
         <h1 className="text-2xl font-semibold">Sales</h1>
+        <button
+          onClick={() => navigate('/sales/scan-register')}
+          className={cn(
+            'flex items-center gap-2 rounded-md border px-4 py-2.5 text-sm font-medium',
+            'hover:bg-muted transition-colors',
+          )}
+        >
+          <ScanLine className="h-4 w-4" />
+          Scan Register Page
+        </button>
         {/* Hidden for now — sales initiated from Products page "Sell" button */}
         {/* <Link
           to="/sales/new"

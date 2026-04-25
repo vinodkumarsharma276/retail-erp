@@ -297,6 +297,8 @@ export interface RollLogEvent {
     | 'schedule_completed'
     | 'rescheduled'
     | 'redistributed'
+    | 'payment_reverted'
+    | 'early_collection_scheduled'
     | 'note_added';
   eventDate: string;
   displayMessage: string;
@@ -390,6 +392,33 @@ export function useRescheduleInstallmentMutation() {
         payload,
       );
       return data.data!;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['installments'] });
+      queryClient.invalidateQueries({ queryKey: ['sales'] });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Revert (undo) a payment
+// ---------------------------------------------------------------------------
+export function useRevertPaymentMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      paymentId,
+      reason,
+    }: {
+      paymentId: string;
+      reason: string;
+    }) => {
+      const { data } = await apiClient.post(
+        `/installments/payments/${paymentId}/revert`,
+        { reason },
+      );
+      return data.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['installments'] });

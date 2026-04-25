@@ -91,6 +91,7 @@ enum FormFieldType {
   file
   hidden
   readonly
+  autocomplete
 }
 
 enum BankTxnType {

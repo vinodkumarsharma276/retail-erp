@@ -10,9 +10,11 @@ import {
   ExternalLink,
   Eye,
   EyeOff,
+  Undo2,
+  X,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { useScheduleDetailQuery } from '../../hooks/useInstallments';
+import { useScheduleDetailQuery, useRevertPaymentMutation } from '../../hooks/useInstallments';
 import { StatusBadge } from '../../components/StatusBadge';
 import { PaymentTimeline } from '../../components/PaymentTimeline';
 import { RecordPaymentDialog } from '../../components/RecordPaymentDialog';
@@ -36,6 +38,15 @@ export function InstallmentDetailPage() {
     number: number;
     initialScenario?: 'full_payment' | 'reschedule' | 'partial_reschedule';
   } | null>(null);
+
+  // Revert dialog state
+  const [revertTarget, setRevertTarget] = useState<{
+    paymentId: string;
+    amount: number;
+    installmentLabel: string;
+  } | null>(null);
+  const [revertReason, setRevertReason] = useState('');
+  const revertMutation = useRevertPaymentMutation();
 
   // Toggle to show/hide rescheduled (superseded) rows
   const [showRescheduled, setShowRescheduled] = useState(false);
@@ -286,6 +297,9 @@ export function InstallmentDetailPage() {
                       {inst.rescheduledFromId && (
                         <span className="ml-1 text-xs text-amber-600 font-normal">(Remainder)</span>
                       )}
+                      {inst.notes?.includes('Early collection scheduled') && (
+                        <span className="ml-1 text-xs text-blue-600 font-normal">(Early)</span>
+                      )}
                     </td>
                     <td className="px-3 py-2.5">
                       {formatDateIN(inst.dueDate)}
@@ -364,6 +378,25 @@ export function InstallmentDetailPage() {
                             Moved to #{inst.rescheduledTo.installmentNumber}
                           </span>
                         )}
+                        {lastPayment && inst.status !== 'rescheduled' && (
+                          <button
+                            onClick={() =>
+                              setRevertTarget({
+                                paymentId: lastPayment.id,
+                                amount: Number(lastPayment.amount),
+                                installmentLabel: formatInstallmentLabel(inst),
+                              })
+                            }
+                            title="Undo last payment"
+                            className={cn(
+                              'flex items-center gap-1 rounded-md border border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-950/30 px-2 py-1 text-xs font-medium text-red-600 dark:text-red-400',
+                              'hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors',
+                            )}
+                          >
+                            <Undo2 className="h-3 w-3" />
+                            Undo
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -384,6 +417,62 @@ export function InstallmentDetailPage() {
           onSuccess={() => setPaymentTarget(null)}
           onClose={() => setPaymentTarget(null)}
         />
+      )}
+
+      {/* Revert payment confirmation dialog */}
+      {revertTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/50" onClick={() => { setRevertTarget(null); setRevertReason(''); }} />
+          <div className="relative z-10 w-full max-w-md rounded-lg border bg-card p-6 shadow-xl mx-4">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-medium text-red-600">Revert Payment</h3>
+              <button onClick={() => { setRevertTarget(null); setRevertReason(''); }} className="rounded-md p-1 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <p className="text-sm text-muted-foreground mb-2">
+              Are you sure you want to undo the payment of <span className="font-semibold text-foreground">{formatINR(revertTarget.amount)}</span> on installment <span className="font-semibold text-foreground">{revertTarget.installmentLabel}</span>?
+            </p>
+            <p className="text-xs text-amber-600 mb-4">This action will restore the installment balance and log the reversal in the activity log.</p>
+            <div className="mb-4">
+              <label className="block text-sm font-medium mb-1.5">Reason <span className="text-destructive">*</span></label>
+              <textarea
+                rows={2}
+                value={revertReason}
+                onChange={(e) => setRevertReason(e.target.value)}
+                placeholder="e.g. Wrong amount entered, wrong installment selected..."
+                className={cn(
+                  'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                  'placeholder:text-muted-foreground',
+                  'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                )}
+              />
+            </div>
+            <div className="flex justify-end gap-3">
+              <button onClick={() => { setRevertTarget(null); setRevertReason(''); }} className="rounded-md border px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-muted transition-colors">Cancel</button>
+              <button
+                disabled={!revertReason.trim() || revertMutation.isPending}
+                onClick={() => {
+                  revertMutation.mutate(
+                    { paymentId: revertTarget.paymentId, reason: revertReason.trim() },
+                    { onSuccess: () => { setRevertTarget(null); setRevertReason(''); } },
+                  );
+                }}
+                className={cn(
+                  'flex items-center gap-2 rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white',
+                  'hover:bg-red-700 transition-colors',
+                  'disabled:opacity-50 disabled:cursor-not-allowed',
+                )}
+              >
+                {revertMutation.isPending ? (
+                  <><Loader2 className="h-4 w-4 animate-spin" /> Reverting...</>
+                ) : (
+                  <><Undo2 className="h-4 w-4" /> Confirm Revert</>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

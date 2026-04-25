@@ -10,6 +10,7 @@ import {
   Plus,
   Check,
   Search,
+  ScanLine,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useDebounce } from '../../hooks/useDebounce';
@@ -17,14 +18,18 @@ import { useDistributorsQuery } from '../../hooks/useDistributors';
 import { useCreatePurchaseMutation } from '../../hooks/usePurchases';
 import { CategoryCascader } from '../../components/CategoryCascader';
 import { DynamicAttributeFields } from '../../components/DynamicAttributeFields';
+import { ModelAutocomplete } from '../../components/ModelAutocomplete';
+import { ScanInvoiceDialog } from '../../components/ScanInvoiceDialog';
 import { formatINR } from '@retailerp/shared-utils';
 import type { DistributorListItem } from '@retailerp/shared-types';
 import { apiClient } from '../../lib/api-client';
+import type { InvoiceParseResult } from '../../api/ocr-api';
+import { useOcrStatusQuery } from '../../hooks/useOcr';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-type GstType = 'GST' | 'CGST_SGST';
+type GstType = 'GST' | 'CGST_SGST'; // kept for potential future use
 const GST_SLABS = [0, 5, 12, 18, 28] as const;
 
 interface ProductItem {
@@ -34,6 +39,8 @@ interface ProductItem {
   serialNumbers: string; // textarea: one serial per line, supports multiple
   mrp: number | '';
   purchasePrice: number | '';
+  sellingPrice: number | '';
+  gstPercent: number;
   color: string;
   warrantyMonths: number | '';
   barcode: string;
@@ -54,6 +61,8 @@ const emptyProductItem: ProductItem = {
   serialNumbers: '',
   mrp: '',
   purchasePrice: '',
+  sellingPrice: '',
+  gstPercent: 18,
   color: '',
   warrantyMonths: '',
   barcode: '',
@@ -64,7 +73,6 @@ const STEPS = [
   'Select Distributor',
   'Invoice Details',
   'Add Products',
-  'GST & Totals',
   'Review',
 ] as const;
 
@@ -74,6 +82,8 @@ const STEPS = [
 export function PurchaseCreatePage() {
   const navigate = useNavigate();
   const [currentStep, setCurrentStep] = useState(0);
+  const [isScanOpen, setIsScanOpen] = useState(false);
+  const ocrStatus = useOcrStatusQuery();
 
   // Step 1: Distributor selection
   const [selectedDistributor, setSelectedDistributor] = useState<DistributorListItem | null>(null);
@@ -109,16 +119,12 @@ export function PurchaseCreatePage() {
     formState: { errors },
   } = methods;
 
-  const { fields, append, remove } = useFieldArray({
+  const { fields, append, remove, replace } = useFieldArray({
     control,
     name: 'items',
   });
 
   const watchedItems = watch('items');
-
-  // GST state (invoice-level)
-  const [gstType, setGstType] = useState<GstType>('GST');
-  const [gstPercent, setGstPercent] = useState<number>(18);
 
   // Parse serial numbers from textarea for each item
   const parsedSerials = useMemo(
@@ -164,7 +170,7 @@ export function PurchaseCreatePage() {
     return map;
   }, [parsedSerials]);
 
-  // Computed totals — no useMemo, recalculate every render since watch() is reactive
+  // Computed totals — per-product GST
   const totalPurchasePrice = watchedItems.reduce((sum, item, idx) => {
     const qty = Math.max(1, parsedSerials[idx]?.length ?? 1);
     return sum + (Number(item.purchasePrice) || 0) * qty;
@@ -174,7 +180,12 @@ export function PurchaseCreatePage() {
     return sum + Math.max(1, parsedSerials[idx]?.length ?? 1);
   }, 0);
 
-  const gstAmount = Math.round((totalPurchasePrice * gstPercent) / 100 * 100) / 100;
+  const gstAmount = watchedItems.reduce((sum, item, idx) => {
+    const qty = Math.max(1, parsedSerials[idx]?.length ?? 1);
+    const itemTotal = (Number(item.purchasePrice) || 0) * qty;
+    return sum + Math.round(itemTotal * (item.gstPercent ?? 18) / 100 * 100) / 100;
+  }, 0);
+
   const netAmount = totalPurchasePrice + gstAmount;
 
   // Mutation
@@ -192,11 +203,9 @@ export function PurchaseCreatePage() {
       case 0:
         return !!selectedDistributor;
       case 1:
-        return !invoiceCheckError && !isCheckingInvoice; // Block if duplicate detected
+        return !invoiceCheckError && !isCheckingInvoice;
       case 2:
         return watchedItems.length > 0 && watchedItems.every((item) => (item.dynamicAttributes?.brand || item.brand) && item.modelNumber && item.purchasePrice) && serialDuplicateMap.size === 0;
-      case 3:
-        return true;
       default:
         return false;
     }
@@ -279,7 +288,9 @@ export function PurchaseCreatePage() {
         brand: ((item.dynamicAttributes?.brand as string) || item.brand || '').trim(),
         modelNumber: item.modelNumber.trim(),
         mrp: Number(item.mrp) || 0,
+        sellingPrice: Number(item.sellingPrice) || Number(item.mrp) || 0,
         purchasePrice: Number(item.purchasePrice),
+        gstPercent: item.gstPercent ?? 18,
         color: item.color.trim() || undefined,
         warrantyMonths: item.warrantyMonths ? Number(item.warrantyMonths) : undefined,
         barcode: item.barcode.trim() || undefined,
@@ -291,11 +302,13 @@ export function PurchaseCreatePage() {
       return serials.map((sn) => ({ ...baseItem, serialNumber: sn }));
     });
 
-    // Recalculate totals from expanded items (in case watchedItems were stale)
+    // Recalculate totals from expanded items
     const calcTotalPurchase = expandedItems.reduce(
       (sum, item) => sum + (Number(item.purchasePrice) || 0), 0,
     );
-    const calcGst = Math.round((calcTotalPurchase * gstPercent) / 100 * 100) / 100;
+    const calcGst = expandedItems.reduce((sum, item) => {
+      return sum + Math.round((Number(item.purchasePrice) || 0) * ((item as any).gstPercent ?? 18) / 100 * 100) / 100;
+    }, 0);
     const calcNet = calcTotalPurchase + calcGst;
 
     const payload: Record<string, unknown> = {
@@ -345,10 +358,42 @@ export function PurchaseCreatePage() {
     setItemCategoryIds((prev) => prev.filter((_, i) => i !== index));
   };
 
+  const applyInvoiceParse = (result: InvoiceParseResult, distributor: DistributorListItem) => {
+    setSelectedDistributor(distributor);
+    setDistributorSearchText(distributor.companyName);
+    methods.setValue('invoiceNumber', result.invoice.number || '', { shouldValidate: true });
+    methods.setValue('invoiceDate', result.invoice.date || new Date().toISOString().split('T')[0], { shouldValidate: true });
+    methods.setValue('notes', result.warnings.length > 0 ? `OCR warnings: ${result.warnings.join(' ')}` : '');
+
+    const parsedItems = result.items.length > 0
+      ? result.items.map((item) => ({
+          categoryId: '',
+          brand: item.brand || '',
+          modelNumber: item.modelNumber || '',
+          serialNumbers: item.serialNumbers.join('\n'),
+          mrp: item.mrp ?? '',
+          purchasePrice: item.purchasePrice ?? '',
+          sellingPrice: item.sellingPrice ?? '',
+          gstPercent: item.gstPercent ?? 18,
+          color: item.color || '',
+          warrantyMonths: item.warrantyMonths ?? '',
+          barcode: item.barcode || '',
+          dynamicAttributes: item.brand ? { brand: item.brand } : {},
+        }))
+      : [{ ...emptyProductItem }];
+
+    replace(parsedItems);
+    setItemCategoryIds(parsedItems.map(() => undefined));
+    setInvoiceCheckError('');
+    setCurrentStep(2);
+    setIsScanOpen(false);
+  };
+
   return (
     <div className="max-w-5xl">
       {/* Page header */}
-      <div className="flex items-center gap-4 mb-6">
+      <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+        <div className="flex items-center gap-4">
         <button
           onClick={() => navigate(-1)}
           className="rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
@@ -356,7 +401,22 @@ export function PurchaseCreatePage() {
           <ArrowLeft className="h-5 w-5" />
         </button>
         <h1 className="text-2xl font-semibold">New Purchase</h1>
+        </div>
+        <button
+          type="button"
+          onClick={() => setIsScanOpen(true)}
+          className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+        >
+          <ScanLine className="h-4 w-4" />
+          Scan Invoice
+        </button>
       </div>
+
+      <ScanInvoiceDialog
+        open={isScanOpen}
+        onClose={() => setIsScanOpen(false)}
+        onApply={applyInvoiceParse}
+      />
 
       {/* Step indicator */}
       <div className="flex items-center gap-2 mb-8 overflow-x-auto pb-2">
@@ -534,6 +594,24 @@ export function PurchaseCreatePage() {
                 </div>
 
               </div>
+
+              {/* Notes */}
+              <div className="mt-4">
+                <label htmlFor="notes" className="block text-sm font-medium mb-1.5">
+                  Notes
+                </label>
+                <textarea
+                  id="notes"
+                  rows={2}
+                  {...register('notes')}
+                  placeholder="Any additional notes about this purchase..."
+                  className={cn(
+                    'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                    'placeholder:text-muted-foreground',
+                    'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                  )}
+                />
+              </div>
             </section>
           )}
 
@@ -587,23 +665,43 @@ export function PurchaseCreatePage() {
                     !itemCategoryIds[index] && 'opacity-40 pointer-events-none',
                   )}>
                     {/* Model */}
-                    <div>
+                    <div className="sm:col-span-2 lg:col-span-3">
                       <label className="block text-sm font-medium mb-1.5">
                         Model <span className="text-destructive">*</span>
                       </label>
-                      <input
-                        type="text"
-                        {...register(`items.${index}.modelNumber`, {
-                          required: 'Model is required',
-                        })}
-                        placeholder="e.g. UA55AU7700"
-                        className={cn(
-                          'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
-                          'placeholder:text-muted-foreground',
-                          'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                          errors.items?.[index]?.modelNumber && 'border-destructive',
-                        )}
+                      <ModelAutocomplete
+                        value={watch(`items.${index}.modelNumber`) || ''}
+                        onChange={(val) => {
+                          methods.setValue(`items.${index}.modelNumber`, val, { shouldValidate: true });
+                        }}
+                        onSelect={(product) => {
+                          const { setValue } = methods;
+                          // Auto-fill all fields from the selected product
+                          setValue(`items.${index}.modelNumber`, product.modelNumber, { shouldValidate: true });
+                          if (!watch(`items.${index}.mrp`)) setValue(`items.${index}.mrp`, Number(product.mrp) || '');
+                          if (!watch(`items.${index}.purchasePrice`)) setValue(`items.${index}.purchasePrice`, Number(product.purchasePrice) || '');
+                          if (!watch(`items.${index}.sellingPrice`)) setValue(`items.${index}.sellingPrice`, Number(product.sellingPrice) || '');
+                          if (!watch(`items.${index}.color`) && product.color) setValue(`items.${index}.color`, product.color);
+                          if (!watch(`items.${index}.warrantyMonths`) && product.warrantyMonths) setValue(`items.${index}.warrantyMonths`, product.warrantyMonths);
+
+                          // Auto-fill dynamic attributes (brand, capacity, starRating, etc.)
+                          // Must set each key individually so DynamicAttributeFields registered fields update
+                          if (product.dynamicAttributes && typeof product.dynamicAttributes === 'object') {
+                            const dynAttrs = product.dynamicAttributes as Record<string, unknown>;
+                            for (const [key, val] of Object.entries(dynAttrs)) {
+                              if (val !== undefined && val !== null && val !== '') {
+                                const currentVal = watch(`items.${index}.dynamicAttributes.${key}`);
+                                if (!currentVal && currentVal !== 0) {
+                                  setValue(`items.${index}.dynamicAttributes.${key}`, val);
+                                }
+                              }
+                            }
+                          }
+                        }}
+                        placeholder="Type model number to search..."
+                        error={!!errors.items?.[index]?.modelNumber}
                       />
+                      <input type="hidden" {...register(`items.${index}.modelNumber`, { required: 'Model is required' })} />
                       {errors.items?.[index]?.modelNumber && (
                         <p className="mt-1 text-xs text-destructive">
                           {errors.items[index].modelNumber?.message}
@@ -691,6 +789,46 @@ export function PurchaseCreatePage() {
                       )}
                     </div>
 
+                    {/* Selling Price */}
+                    <div>
+                      <label className="block text-sm font-medium mb-1.5">
+                        Selling Price
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        {...register(`items.${index}.sellingPrice`, {
+                          min: { value: 0, message: 'Must be positive' },
+                        })}
+                        placeholder="Same as MRP if empty"
+                        className={cn(
+                          'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                          'placeholder:text-muted-foreground',
+                          'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                        )}
+                      />
+                    </div>
+
+                    {/* GST % per product */}
+                    <div>
+                      <label className="block text-sm font-medium mb-1.5">
+                        GST %
+                      </label>
+                      <select
+                        {...register(`items.${index}.gstPercent`, { valueAsNumber: true })}
+                        className={cn(
+                          'w-full appearance-none rounded-md border bg-background px-3 py-2.5 text-sm',
+                          'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                        )}
+                      >
+                        {GST_SLABS.map((slab) => (
+                          <option key={slab} value={slab}>
+                            {slab}%
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
                     {/* Color */}
                     <div>
                       <label className="block text-sm font-medium mb-1.5">
@@ -771,176 +909,33 @@ export function PurchaseCreatePage() {
                 <Plus className="h-4 w-4" />
                 Add Another Product
               </button>
-            </section>
-          )}
-
-          {/* Step 4: Payment / GST */}
-          {currentStep === 3 && (
-            <section className="rounded-lg border bg-card p-6">
-              <h2 className="text-lg font-medium mb-4">GST & Totals</h2>
-
-              {/* GST Type toggle */}
-              <div className="mb-6">
-                <label className="block text-sm font-medium mb-2">GST Type</label>
-                <div className="flex items-center gap-4">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="gstType"
-                      checked={gstType === 'GST'}
-                      onChange={() => setGstType('GST')}
-                      className="h-4 w-4 text-primary"
-                    />
-                    <span className="text-sm">GST</span>
-                  </label>
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="gstType"
-                      checked={gstType === 'CGST_SGST'}
-                      onChange={() => setGstType('CGST_SGST')}
-                      className="h-4 w-4 text-primary"
-                    />
-                    <span className="text-sm">CGST + SGST</span>
-                  </label>
-                </div>
-              </div>
-
-              {/* GST % selection */}
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 mb-6">
-                {gstType === 'GST' ? (
-                  <div>
-                    <label className="block text-sm font-medium mb-1.5">GST %</label>
-                    <select
-                      value={gstPercent}
-                      onChange={(e) => setGstPercent(Number(e.target.value))}
-                      className={cn(
-                        'w-full appearance-none rounded-md border bg-background px-3 py-2.5 text-sm',
-                        'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                      )}
-                    >
-                      {GST_SLABS.map((slab) => (
-                        <option key={slab} value={slab}>
-                          {slab}%
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                ) : (
-                  <>
-                    <div>
-                      <label className="block text-sm font-medium mb-1.5">
-                        CGST %{' '}
-                        <span className="text-xs text-muted-foreground font-normal">(auto)</span>
-                      </label>
-                      <div className="flex items-center gap-2">
-                        <select
-                          value={gstPercent}
-                          onChange={(e) => setGstPercent(Number(e.target.value))}
-                          className={cn(
-                            'w-full appearance-none rounded-md border bg-background px-3 py-2.5 text-sm',
-                            'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                          )}
-                        >
-                          {GST_SLABS.map((slab) => (
-                            <option key={slab} value={slab}>
-                              {slab}% total &rarr; {slab / 2}% CGST
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1.5">CGST %</label>
-                      <input
-                        type="text"
-                        readOnly
-                        value={`${gstPercent / 2}%`}
-                        className="w-full rounded-md border bg-muted px-3 py-2.5 text-sm cursor-not-allowed"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1.5">SGST %</label>
-                      <input
-                        type="text"
-                        readOnly
-                        value={`${gstPercent / 2}%`}
-                        className="w-full rounded-md border bg-muted px-3 py-2.5 text-sm cursor-not-allowed"
-                      />
-                    </div>
-                  </>
-                )}
-              </div>
 
               {/* Totals summary */}
-              <div className="rounded-md bg-muted/50 p-4 mb-6">
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+              <div className="rounded-lg border bg-card p-4">
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                   <div>
-                    <p className="text-xs font-medium text-muted-foreground">
-                      Total (Dealer Prices)
-                    </p>
-                    <p className="text-lg font-semibold mt-0.5">
-                      {formatINR(totalPurchasePrice)}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {totalExpandedCount} product{totalExpandedCount !== 1 ? 's' : ''}
-                    </p>
+                    <p className="text-xs font-medium text-muted-foreground">Products</p>
+                    <p className="text-lg font-semibold mt-0.5">{totalExpandedCount}</p>
                   </div>
                   <div>
-                    <p className="text-xs font-medium text-muted-foreground">
-                      GST Amount{' '}
-                      <span className="font-normal">
-                        ({gstType === 'CGST_SGST' ? `${gstPercent / 2}% + ${gstPercent / 2}%` : `${gstPercent}%`})
-                      </span>
-                    </p>
-                    <p className="text-lg font-semibold mt-0.5">
-                      {formatINR(gstAmount)}
-                    </p>
-                    {gstType === 'CGST_SGST' && gstAmount > 0 && (
-                      <p className="text-xs text-muted-foreground">
-                        CGST: {formatINR(gstAmount / 2)} + SGST: {formatINR(gstAmount / 2)}
-                      </p>
-                    )}
+                    <p className="text-xs font-medium text-muted-foreground">Total (DP)</p>
+                    <p className="text-lg font-semibold mt-0.5">{formatINR(totalPurchasePrice)}</p>
                   </div>
                   <div>
-                    <p className="text-xs font-medium text-muted-foreground">
-                      Net Amount
-                    </p>
-                    <p className="text-lg font-bold text-primary mt-0.5">
-                      {formatINR(netAmount)}
-                    </p>
+                    <p className="text-xs font-medium text-muted-foreground">GST Amount</p>
+                    <p className="text-lg font-semibold mt-0.5">{formatINR(gstAmount)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground">Net Amount</p>
+                    <p className="text-lg font-bold text-primary mt-0.5">{formatINR(netAmount)}</p>
                   </div>
                 </div>
-              </div>
-
-              {/* Notes */}
-              <div>
-                <label htmlFor="notes" className="block text-sm font-medium mb-1.5">
-                  Notes
-                </label>
-                <textarea
-                  id="notes"
-                  rows={3}
-                  {...register('notes')}
-                  placeholder="Any additional notes about this purchase..."
-                  className={cn(
-                    'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
-                    'placeholder:text-muted-foreground',
-                    'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                  )}
-                />
-              </div>
-
-              <div className="mt-4 p-3 rounded-md border bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800">
-                <p className="text-sm text-amber-800 dark:text-amber-200">
-                  Payment will be recorded as pending. Use the distributor page to record lump-sum payments against invoices.
-                </p>
               </div>
             </section>
           )}
 
-          {/* Step 5: Review */}
-          {currentStep === 4 && (
+          {/* Step 3: Review */}
+          {currentStep === 3 && (
             <section className="space-y-6">
               {/* Distributor */}
               <div className="rounded-lg border bg-card p-6">
@@ -1004,6 +999,9 @@ export function PurchaseCreatePage() {
                         <th className="px-3 py-2 text-right font-medium text-muted-foreground">
                           DP (Dealer Price)
                         </th>
+                        <th className="px-3 py-2 text-right font-medium text-muted-foreground">
+                          GST %
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1026,6 +1024,9 @@ export function PurchaseCreatePage() {
                                 <td className="px-3 py-2 text-right font-medium">
                                   {formatINR(Number(item.purchasePrice) || 0)}
                                 </td>
+                                <td className="px-3 py-2 text-right">
+                                  {item.gstPercent ?? 18}%
+                                </td>
                               </tr>
                             )];
                           }
@@ -1042,6 +1043,9 @@ export function PurchaseCreatePage() {
                                 </td>
                                 <td className="px-3 py-2 text-right font-medium">
                                   {formatINR(Number(item.purchasePrice) || 0)}
+                                </td>
+                                <td className="px-3 py-2 text-right">
+                                  {item.gstPercent ?? 18}%
                                 </td>
                               </tr>
                             );
@@ -1062,9 +1066,7 @@ export function PurchaseCreatePage() {
                     <span>{formatINR(totalPurchasePrice)}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">
-                      GST ({gstType === 'CGST_SGST' ? `CGST ${gstPercent / 2}% + SGST ${gstPercent / 2}%` : `${gstPercent}%`})
-                    </span>
+                    <span className="text-muted-foreground">GST Amount</span>
                     <span>{formatINR(gstAmount)}</span>
                   </div>
                   <div className="flex justify-between border-t pt-2 font-semibold">
@@ -1075,6 +1077,11 @@ export function PurchaseCreatePage() {
                     <span>Payment Status</span>
                     <span className="text-amber-600 font-medium">Pending</span>
                   </div>
+                </div>
+                <div className="mt-4 p-3 rounded-md border bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800">
+                  <p className="text-sm text-amber-800 dark:text-amber-200">
+                    Payment will be recorded as pending. Use the distributor page to record lump-sum payments against invoices.
+                  </p>
                 </div>
               </div>
             </section>

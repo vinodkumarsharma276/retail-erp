@@ -818,6 +818,7 @@ export const installmentsService = {
       newDate?: string;
       referenceNumber?: string;
       notes?: string;
+      earlyCollectionDate?: string;
     },
     userId: string,
   ) {
@@ -950,6 +951,79 @@ export const installmentsService = {
             );
           }
           void distributed;
+        }
+
+        // Handle early collection date for next installment
+        if (data.earlyCollectionDate) {
+          const earlyDate = new Date(data.earlyCollectionDate);
+          // Find the next upcoming primary installment after this one
+          const nextInstallment = await tx.installment.findFirst({
+            where: {
+              scheduleId: schedule.id,
+              installmentNumber: { gt: installment.installmentNumber },
+              status: { in: ['upcoming', 'overdue', 'due_today'] },
+              parentInstallmentNumber: null,
+            },
+            orderBy: { installmentNumber: 'asc' },
+          });
+
+          if (nextInstallment) {
+            // Determine next subSequence
+            const lastSub = await tx.installment.findFirst({
+              where: {
+                scheduleId: schedule.id,
+                parentInstallmentNumber: nextInstallment.installmentNumber,
+              },
+              orderBy: { subSequence: 'desc' },
+              select: { subSequence: true },
+            });
+            const nextSub = (lastSub?.subSequence ?? 0) + 1;
+
+            // Create a sub-row marker for early collection
+            await tx.installment.create({
+              data: {
+                scheduleId: schedule.id,
+                installmentNumber: nextInstallment.installmentNumber,
+                parentInstallmentNumber: nextInstallment.installmentNumber,
+                subSequence: nextSub,
+                dueDate: earlyDate,
+                amountDue: Number(nextInstallment.amountDue),
+                amountPaid: 0,
+                remainingAmount: Number(nextInstallment.remainingAmount),
+                status: 'upcoming',
+                notes: `Early collection scheduled — customer willing to pay before ${new Date(nextInstallment.dueDate).toISOString().split('T')[0]}.`,
+              },
+            });
+
+            // Mark the original next installment as rescheduled
+            await tx.installment.update({
+              where: { id: nextInstallment.id },
+              data: {
+                isRescheduled: true,
+                status: 'rescheduled',
+                notes: `Rescheduled to ${data.earlyCollectionDate} (early collection)`,
+              },
+            });
+
+            // Log the early collection scheduling
+            await tx.installmentRollLog.create({
+              data: {
+                scheduleId: schedule.id,
+                installmentId: nextInstallment.id,
+                eventType: 'early_collection_scheduled',
+                eventDate: new Date(),
+                actorUserId: userId,
+                displayMessage:
+                  `Early collection for installment #${nextInstallment.installmentNumber} ` +
+                  `scheduled on ${data.earlyCollectionDate} (original due: ${new Date(nextInstallment.dueDate).toISOString().split('T')[0]}).`,
+                metadata: {
+                  originalDueDate: nextInstallment.dueDate,
+                  earlyDate: data.earlyCollectionDate,
+                  installmentNumber: nextInstallment.installmentNumber,
+                } as Prisma.InputJsonValue,
+              },
+            });
+          }
         }
       } else if (data.scenario === 'reschedule') {
         const newDate = new Date(data.newDate!);
@@ -1355,6 +1429,83 @@ export const installmentsService = {
       scope: args.scheduleId ? `schedule:${args.scheduleId}` : 'all-active-schedules',
       ...result,
     };
+  },
+
+  /**
+   * Revert (undo) a specific installment payment.
+   * Restores the installment amounts and logs the reversal in the activity log.
+   */
+  async revertPayment(
+    paymentId: string,
+    reason: string,
+    userId: string,
+  ) {
+    const payment = await prisma.installmentPayment.findUnique({
+      where: { id: paymentId },
+      include: {
+        installment: {
+          include: {
+            schedule: { select: { id: true, status: true } },
+          },
+        },
+      },
+    });
+
+    if (!payment) {
+      throw new Error('Payment not found');
+    }
+
+    const inst = payment.installment;
+    const amountToRevert = Number(payment.amount);
+
+    const result = await prisma.$transaction(async (tx) => {
+      // Delete the payment record
+      await tx.installmentPayment.delete({ where: { id: paymentId } });
+
+      // Restore installment amounts
+      const newAmountPaid = Math.max(0, Number(inst.amountPaid) - amountToRevert);
+      const newRemaining = Number(inst.amountDue) - newAmountPaid;
+      const newStatus = newAmountPaid <= 0
+        ? (new Date(inst.dueDate) < new Date() ? 'overdue' : 'upcoming')
+        : 'partially_paid';
+
+      await tx.installment.update({
+        where: { id: inst.id },
+        data: {
+          amountPaid: newAmountPaid,
+          remainingAmount: newRemaining,
+          status: newStatus,
+        },
+      });
+
+      // Log the reversal
+      const instLabel = inst.parentInstallmentNumber != null && inst.subSequence != null
+        ? `#${inst.parentInstallmentNumber}.${inst.subSequence}`
+        : `#${inst.installmentNumber}`;
+      await tx.installmentRollLog.create({
+        data: {
+          scheduleId: inst.schedule.id,
+          installmentId: inst.id,
+          eventType: 'payment_reverted',
+          eventDate: new Date(),
+          actorUserId: userId,
+          displayMessage: `Payment of ₹${amountToRevert.toLocaleString('en-IN')} on installment ${instLabel} was reverted. Reason: ${reason}`,
+          metadata: {
+            paymentId,
+            amount: amountToRevert,
+            paymentMode: payment.paymentMode,
+            reason,
+          } as Prisma.InputJsonValue,
+        },
+      });
+
+      // Re-sync schedule totals
+      await syncScheduleAndSale(tx, inst.schedule.id);
+
+      return { installmentId: inst.id, amountReverted: amountToRevert };
+    });
+
+    return result;
   },
 };
 
