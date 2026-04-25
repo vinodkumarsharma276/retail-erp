@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Shield, Users, Plus, Save, Trash2, Copy, Search, X, Eye, EyeOff, RefreshCw, Check } from 'lucide-react';
+import { Shield, Users, Plus, Save, Trash2, Copy, Search, X, Eye, EyeOff, RefreshCw, Check, ChevronRight, ChevronDown, ListChecks } from 'lucide-react';
 import { rolesApi, type RoleSummary, type UserSummary } from '../../api/roles-api';
 import type { PermissionGroup } from '@retailerp/shared-types';
 import { useToastStore } from '../../stores/toast-store';
@@ -61,6 +61,8 @@ function RolesPanel() {
   const [search, setSearch] = useState('');
   const [showNewRole, setShowNewRole] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<RoleSummary | null>(null);
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const [showOnlyGranted, setShowOnlyGranted] = useState(false);
 
   // Auto-select first role
   useEffect(() => {
@@ -211,6 +213,33 @@ function RolesPanel() {
                   />
                 </div>
                 <button
+                  type="button"
+                  onClick={() => setShowOnlyGranted((v) => !v)}
+                  className={`inline-flex items-center gap-1 rounded-md border px-3 py-1.5 text-sm transition ${
+                    showOnlyGranted ? 'border-primary bg-primary/10 text-primary' : 'bg-background hover:bg-accent'
+                  }`}
+                  title="Show only permissions granted to this role"
+                >
+                  <ListChecks className="h-4 w-4" /> Granted only
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const all = new Set((catalogQ.data ?? []).map((g) => g.module));
+                    setExpandedGroups(all);
+                  }}
+                  className="inline-flex items-center gap-1 rounded-md border bg-background px-3 py-1.5 text-sm hover:bg-accent"
+                >
+                  <ChevronDown className="h-4 w-4" /> Expand all
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setExpandedGroups(new Set())}
+                  className="inline-flex items-center gap-1 rounded-md border bg-background px-3 py-1.5 text-sm hover:bg-accent"
+                >
+                  <ChevronRight className="h-4 w-4" /> Collapse all
+                </button>
+                <button
                   onClick={() => {
                     const code = prompt('Code (snake_case):');
                     if (!code) return;
@@ -241,62 +270,106 @@ function RolesPanel() {
               </div>
             </div>
 
-            <div className="space-y-3">
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
               {catalogQ.data
                 ?.map((g) => ({
                   group: g,
-                  perms: search
-                    ? g.permissions.filter(
-                        (p) =>
-                          p.key.toLowerCase().includes(search.toLowerCase()) ||
-                          p.description.toLowerCase().includes(search.toLowerCase()),
-                      )
-                    : g.permissions,
+                  perms: g.permissions
+                    .filter((p) => (showOnlyGranted ? draftPerms.has(p.key) : true))
+                    .filter((p) =>
+                      search
+                        ? p.key.toLowerCase().includes(search.toLowerCase()) ||
+                          p.description.toLowerCase().includes(search.toLowerCase())
+                        : true,
+                    ),
                 }))
                 .filter((x) => x.perms.length > 0)
                 .map(({ group, perms }) => {
                   const granted = perms.filter((p) => draftPerms.has(p.key)).length;
                   const allOn = granted === perms.length;
                   const partial = granted > 0 && granted < perms.length;
+                  // Auto-expand when filtering, or when explicitly expanded
+                  const isOpen = !!search || expandedGroups.has(group.module);
+                  const togglePanel = () => {
+                    setExpandedGroups((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(group.module)) next.delete(group.module);
+                      else next.add(group.module);
+                      return next;
+                    });
+                  };
                   return (
-                    <details key={group.module} open className="rounded-md border bg-card">
-                      <summary className="flex cursor-pointer items-center justify-between px-4 py-3">
-                        <div className="flex items-center gap-3">
-                          <input
-                            type="checkbox"
-                            checked={allOn}
-                            ref={(el) => {
-                              if (el) el.indeterminate = partial;
-                            }}
-                            onChange={(e) => toggleGroup(group, e.target.checked)}
-                            onClick={(e) => e.stopPropagation()}
-                            className="h-4 w-4"
-                          />
+                    <div key={group.module} className="rounded-md border bg-card">
+                      <div className="flex items-center justify-between gap-2 px-3 py-2.5">
+                        <button
+                          type="button"
+                          onClick={togglePanel}
+                          className="flex flex-1 items-center gap-2 text-left"
+                          aria-expanded={isOpen}
+                        >
+                          {isOpen ? (
+                            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                          ) : (
+                            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                          )}
                           <span className="font-medium">{group.label}</span>
-                          <span className="text-xs text-muted-foreground">
+                          <span
+                            className={`ml-auto rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                              allOn
+                                ? 'bg-green-100 text-green-700 dark:bg-green-950/40 dark:text-green-400'
+                                : granted === 0
+                                  ? 'bg-muted text-muted-foreground'
+                                  : 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400'
+                            }`}
+                          >
                             {granted}/{perms.length}
                           </span>
-                        </div>
-                      </summary>
-                      <ul className="divide-y border-t">
-                        {perms.map((p) => (
-                          <li key={p.key} className="flex items-start gap-3 px-4 py-2 hover:bg-accent/50">
-                            <input
-                              type="checkbox"
-                              checked={draftPerms.has(p.key)}
-                              onChange={() => togglePerm(p.key)}
-                              className="mt-1 h-4 w-4"
-                            />
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-baseline gap-2">
-                                <code className="text-xs font-mono text-foreground">{p.key}</code>
-                              </div>
-                              <p className="text-sm text-muted-foreground">{p.description}</p>
-                            </div>
-                          </li>
-                        ))}
-                      </ul>
-                    </details>
+                        </button>
+                        <input
+                          type="checkbox"
+                          checked={allOn}
+                          ref={(el) => {
+                            if (el) el.indeterminate = partial;
+                          }}
+                          onChange={(e) => toggleGroup(group, e.target.checked)}
+                          className="h-4 w-4"
+                          title={allOn ? 'Uncheck all in this group' : 'Check all in this group'}
+                        />
+                      </div>
+                      {isOpen && (
+                        <ul className="grid grid-cols-1 gap-1 border-t p-2 sm:grid-cols-2">
+                          {perms.map((p) => {
+                            const checked = draftPerms.has(p.key);
+                            return (
+                              <li key={p.key}>
+                                <label
+                                  className={`flex cursor-pointer items-start gap-2 rounded-md border px-2.5 py-2 text-xs transition ${
+                                    checked
+                                      ? 'border-primary/40 bg-primary/5'
+                                      : 'border-transparent hover:bg-accent/50'
+                                  }`}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={() => togglePerm(p.key)}
+                                    className="mt-0.5 h-3.5 w-3.5"
+                                  />
+                                  <div className="min-w-0 flex-1">
+                                    <p className="text-xs font-medium leading-snug">
+                                      {p.description}
+                                    </p>
+                                    <code className="mt-0.5 block truncate text-[10px] font-mono text-muted-foreground">
+                                      {p.key}
+                                    </code>
+                                  </div>
+                                </label>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      )}
+                    </div>
                   );
                 })}
             </div>

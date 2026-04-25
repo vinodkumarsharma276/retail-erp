@@ -115,6 +115,66 @@ export const salesController = {
     }
   },
 
+  async update(
+    request: FastifyRequest<{
+      Params: { id: string };
+      Body: {
+        productId: string;
+        customerId: string;
+        ledgerNumber: string;
+        saleDate?: string;
+        saleType: 'full_payment' | 'partial_with_promise' | 'self_finance' | 'company_finance';
+        sellingPrice: number;
+        discountAmount?: number;
+        gstRate?: number;
+        downPayment?: number;
+        paymentMode: string;
+        paymentBreakdown?: Array<{mode: string; amount: number}> | null;
+        promiseDate?: string | null;
+        interestRate?: number | null;
+        fileCharge?: number | null;
+        numInstallments?: number | null;
+        guarantorId?: string | null;
+        financeCompanyId?: string | null;
+        financedAmount?: number | null;
+        expectedPaymentDate?: string | null;
+        notes?: string | null;
+      };
+    }>,
+    reply: FastifyReply,
+  ) {
+    try {
+      const shopId = request.shopFilter!.shopId;
+      const userId = request.currentUser!.userId;
+      const sale = await salesService.update(request.params.id, shopId, request.body, userId);
+      return sendSuccess(reply, sale);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to update sale';
+      if (
+        message === 'Sale not found' ||
+        message === 'Customer not found' ||
+        message === 'Guarantor not found' ||
+        message === 'Finance company not found'
+      ) {
+        return sendError(reply, message, 404);
+      }
+      if (
+        message === 'Sale does not belong to this shop' ||
+        message === 'Product cannot be changed when editing a sale' ||
+        message === 'Sale type cannot be changed when editing a sale' ||
+        message === 'Guarantor is required for self-finance sales' ||
+        message === 'Number of installments is required for self-finance sales' ||
+        message === 'Interest rate is required for self-finance sales' ||
+        message === 'Finance company is required for company-finance sales' ||
+        message === 'Sale date cannot be in the future' ||
+        message.startsWith('Sale date cannot be before')
+      ) {
+        return sendError(reply, message, 400);
+      }
+      return sendError(reply, message, 500);
+    }
+  },
+
   async getInstallments(
     request: FastifyRequest<{ Params: { id: string } }>,
     reply: FastifyReply,

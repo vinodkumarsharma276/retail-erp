@@ -356,6 +356,296 @@ export const salesService = {
   },
 
   /**
+   * Update an existing sale — full edit per user policy:
+   * any installment payments, finance payment status, and partial-promise
+   * settlements ARE RESET. Installment schedule is rebuilt from scratch.
+   * productId and saleType cannot be changed.
+   */
+  async update(saleId: string, shopId: string, data: {
+    productId: string;
+    customerId: string;
+    ledgerNumber: string;
+    saleDate?: string;
+    saleType: 'full_payment' | 'partial_with_promise' | 'self_finance' | 'company_finance';
+    sellingPrice: number;
+    discountAmount?: number;
+    gstRate?: number;
+    downPayment?: number;
+    paymentMode: string;
+    paymentBreakdown?: Array<{mode: string; amount: number}> | null;
+    promiseDate?: string | null;
+    interestRate?: number | null;
+    fileCharge?: number | null;
+    numInstallments?: number | null;
+    guarantorId?: string | null;
+    financeCompanyId?: string | null;
+    financedAmount?: number | null;
+    expectedPaymentDate?: string | null;
+    notes?: string | null;
+  }, userId: string) {
+    // Load existing sale
+    const existing = await prisma.saleRecord.findUnique({
+      where: { id: saleId },
+      include: {
+        product: { include: { purchase: { select: { invoiceDate: true } } } },
+        installmentSchedule: { include: { installments: { select: { id: true } } } },
+      },
+    });
+    if (!existing) {
+      throw new Error('Sale not found');
+    }
+    if (existing.shopId !== shopId) {
+      throw new Error('Sale does not belong to this shop');
+    }
+    if (existing.productId !== data.productId) {
+      throw new Error('Product cannot be changed when editing a sale');
+    }
+    if (existing.saleType !== data.saleType) {
+      throw new Error('Sale type cannot be changed when editing a sale');
+    }
+
+    // Validate customer exists
+    const customer = await prisma.customer.findUnique({ where: { id: data.customerId } });
+    if (!customer) {
+      throw new Error('Customer not found');
+    }
+
+    // Validate guarantor / finance company by saleType
+    if (data.saleType === 'self_finance') {
+      if (!data.guarantorId) throw new Error('Guarantor is required for self-finance sales');
+      const g = await prisma.customer.findUnique({ where: { id: data.guarantorId } });
+      if (!g) throw new Error('Guarantor not found');
+      if (!data.numInstallments || data.numInstallments < 1) {
+        throw new Error('Number of installments is required for self-finance sales');
+      }
+      if (data.interestRate === undefined || data.interestRate === null) {
+        throw new Error('Interest rate is required for self-finance sales');
+      }
+    }
+    if (data.saleType === 'company_finance') {
+      if (!data.financeCompanyId) throw new Error('Finance company is required for company-finance sales');
+      const fc = await prisma.financeCompany.findUnique({ where: { id: data.financeCompanyId } });
+      if (!fc) throw new Error('Finance company not found');
+    }
+
+    // Validate sale date
+    const saleDate = data.saleDate ? new Date(data.saleDate) : existing.saleDate;
+    const today = new Date();
+    today.setHours(23, 59, 59, 999);
+    if (saleDate.getTime() > today.getTime()) {
+      throw new Error('Sale date cannot be in the future');
+    }
+    if (existing.product.purchase?.invoiceDate) {
+      const invoiceDate = new Date(existing.product.purchase.invoiceDate);
+      invoiceDate.setHours(0, 0, 0, 0);
+      const saleDay = new Date(saleDate);
+      saleDay.setHours(0, 0, 0, 0);
+      if (saleDay.getTime() < invoiceDate.getTime()) {
+        throw new Error(
+          `Sale date cannot be before the product's purchase invoice date (${invoiceDate.toISOString().slice(0, 10)})`,
+        );
+      }
+    }
+
+    // Recalculate financials
+    const sellingPrice = data.sellingPrice;
+    const discountAmount = data.discountAmount ?? 0;
+    const gstRate = data.gstRate ?? 0;
+    const downPayment = data.downPayment ?? 0;
+    const fileCharge = data.fileCharge ?? 0;
+    const interestRate = data.interestRate ?? 0;
+    const numInstallments = data.numInstallments ?? 0;
+
+    const gstAmount = gstRate > 0 ? Math.round(sellingPrice * gstRate / (100 + gstRate)) : 0;
+    const netAmount = sellingPrice - gstAmount;
+    const totalAmount = sellingPrice;
+
+    const purchasePrice = Number(existing.product.purchasePrice);
+    const purchaseGstAmount = gstRate > 0 ? Math.round(purchasePrice * gstRate / (100 + gstRate)) : 0;
+
+    let totalFinancedAmount: number | null = null;
+    let emiAmount: number | null = null;
+    let emiResult: ReturnType<typeof calculateEMI> | null = null;
+    let effectiveMonthlyRate: number | null = null;
+
+    if (data.saleType === 'self_finance') {
+      emiResult = calculateEMI({
+        sellingPrice,
+        downPayment,
+        interestRate,
+        fileCharge,
+        numInstallments,
+      });
+      totalFinancedAmount = emiResult.totalPayable;
+      emiAmount = emiResult.emiAmount;
+      const principal = sellingPrice - downPayment;
+      if (principal > 0 && numInstallments > 0) {
+        effectiveMonthlyRate =
+          Math.round(
+            (interestRate + (fileCharge / principal / numInstallments) * 100) * 1000,
+          ) / 1000;
+      } else {
+        effectiveMonthlyRate = interestRate;
+      }
+    }
+
+    let pendingAmount = 0;
+    if (data.saleType === 'partial_with_promise') {
+      pendingAmount = totalAmount - downPayment;
+    }
+
+    const financedAmount = data.saleType === 'company_finance'
+      ? (data.financedAmount ?? totalAmount - downPayment)
+      : null;
+    const expectedPaymentDate = data.saleType === 'company_finance'
+      ? (data.expectedPaymentDate ? new Date(data.expectedPaymentDate) : (() => { const d = new Date(); d.setDate(d.getDate() + 1); return d; })())
+      : null;
+
+    await prisma.$transaction(async (tx) => {
+      // 1. Tear down existing installment schedule (if any)
+      if (existing.installmentSchedule) {
+        const scheduleId = existing.installmentSchedule.id;
+        const installmentIds = existing.installmentSchedule.installments.map((i) => i.id);
+        if (installmentIds.length > 0) {
+          await tx.installmentPayment.deleteMany({
+            where: { installmentId: { in: installmentIds } },
+          });
+        }
+        await tx.installmentRollLog.deleteMany({ where: { scheduleId } });
+        await tx.employeeCollectionAssignment.deleteMany({ where: { scheduleId } });
+        await tx.installment.deleteMany({ where: { scheduleId } });
+        await tx.installmentSchedule.delete({ where: { id: scheduleId } });
+      }
+
+      // 2. Update SaleRecord
+      await tx.saleRecord.update({
+        where: { id: saleId },
+        data: {
+          ledgerNumber: data.ledgerNumber,
+          customerId: data.customerId,
+          saleDate,
+          sellingPrice,
+          discountAmount,
+          netAmount,
+          gstRate,
+          gstAmount,
+          purchasePrice,
+          purchaseGstAmount,
+          totalAmount,
+          downPayment,
+          paymentMode: data.paymentMode as any,
+          paymentBreakdown: data.paymentBreakdown ?? null,
+          promiseDate: data.saleType === 'partial_with_promise' && data.promiseDate
+            ? new Date(data.promiseDate)
+            : null,
+          pendingAmount,
+          interestRate: data.saleType === 'self_finance' ? interestRate : null,
+          fileCharge: data.saleType === 'self_finance' ? fileCharge : 0,
+          effectiveMonthlyRate,
+          totalFinancedAmount,
+          numInstallments: data.saleType === 'self_finance' ? numInstallments : null,
+          emiAmount,
+          guarantorId: data.saleType === 'self_finance' ? data.guarantorId : null,
+          financeCompanyId: data.saleType === 'company_finance' ? data.financeCompanyId : null,
+          financedAmount,
+          expectedPaymentDate,
+          // Reset finance payment status to pending on edit
+          financePaymentStatus: data.saleType === 'company_finance' ? 'pending' as any : null,
+          financePaymentReceivedDate: null,
+          financeReferenceNumber: null,
+          // Completion is reset; only full_payment is "complete" at edit save
+          completedAt: data.saleType === 'full_payment' ? new Date() : null,
+          notes: data.notes ?? null,
+        },
+      });
+
+      // 3. Update SaleRecordSanitized (mirror)
+      await tx.saleRecordSanitized.update({
+        where: { id: saleId },
+        data: {
+          ledgerNumber: data.ledgerNumber,
+          customerId: data.customerId,
+          saleDate,
+          sellingPrice,
+          totalAmount,
+          // saleType + paymentMode stay 'full_payment'/'cash' by sanitization rule
+        },
+      });
+
+      // 4. Recreate ProductAuditTrail entry for the edit
+      await tx.productAuditTrail.create({
+        data: {
+          productId: existing.productId,
+          eventType: 'sold',
+          toShopId: shopId,
+          referenceId: saleId,
+          referenceType: 'sale',
+          performedBy: userId,
+          notes: `Sale ${existing.saleNumber} edited; installment schedule rebuilt`,
+        },
+      });
+
+      // 5. If self_finance, recreate schedule + installments
+      if (data.saleType === 'self_finance' && emiResult) {
+        const schedule = await tx.installmentSchedule.create({
+          data: {
+            saleId,
+            totalPrincipal: emiResult.principal,
+            totalInterest: emiResult.totalInterest,
+            fileCharge: emiResult.fileCharge,
+            totalPayable: emiResult.totalPayable,
+            numInstallments: emiResult.schedule.length,
+            emiAmount: emiResult.emiAmount,
+            startDate: new Date(emiResult.schedule[0].dueDate),
+            status: 'active',
+          },
+        });
+        for (const inst of emiResult.schedule) {
+          await tx.installment.create({
+            data: {
+              scheduleId: schedule.id,
+              installmentNumber: inst.installmentNumber,
+              dueDate: new Date(inst.dueDate),
+              amountDue: inst.amount,
+              amountPaid: 0,
+              remainingAmount: inst.amount,
+              status: 'upcoming',
+              isRescheduled: false,
+            },
+          });
+        }
+      }
+    });
+
+    // Return updated full sale
+    const fullSale = await prisma.saleRecord.findUnique({
+      where: { id: saleId },
+      include: {
+        product: {
+          select: {
+            id: true,
+            brand: true,
+            modelNumber: true,
+            serialNumber: true,
+            category: { select: { id: true, name: true, slug: true, hsnCode: true } },
+          },
+        },
+        customer: { select: { id: true, name: true, phone: true, customerCode: true } },
+        guarantor: { select: { id: true, name: true, phone: true, customerCode: true } },
+        financeCompany: { select: { id: true, name: true, code: true } },
+        shop: { select: { id: true, name: true, code: true } },
+        creator: { select: { id: true, username: true, fullName: true } },
+        installmentSchedule: {
+          include: {
+            installments: { orderBy: [{ dueDate: 'asc' }, { installmentNumber: 'asc' }] },
+          },
+        },
+      },
+    });
+    return fullSale;
+  },
+
+  /**
    * List sales — CRITICAL RBAC:
    * - 'others' role: query from sale_records_sanitized (never expose real data)
    * - 'admin'/'accountant': query from sale_records with full details

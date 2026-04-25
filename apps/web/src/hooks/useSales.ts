@@ -110,6 +110,29 @@ export function useCreateSaleMutation() {
 }
 
 // ---------------------------------------------------------------------------
+// Update sale
+// ---------------------------------------------------------------------------
+export function useUpdateSaleMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ saleId, payload }: { saleId: string; payload: Record<string, unknown> }) => {
+      const { data } = await apiClient.put<ApiResponse<SaleRecord>>(
+        `/sales/${saleId}`,
+        payload,
+      );
+      return data.data!;
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['sales'] });
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      queryClient.invalidateQueries({ queryKey: keys.saleDetail(variables.saleId) });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Record finance company payment
 // ---------------------------------------------------------------------------
 export function useRecordFinancePaymentMutation() {
