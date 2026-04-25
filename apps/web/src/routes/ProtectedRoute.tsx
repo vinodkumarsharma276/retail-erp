@@ -1,7 +1,8 @@
-import { Navigate, Outlet } from 'react-router-dom';
+import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useAuthStore, hasStoredToken } from '../stores/auth-store';
 import { useShopStore } from '../stores/shop-store';
 import { useMeQuery } from '../hooks/useAuth';
+import { useQueryClient } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import { UserRole } from '@retailerp/shared-types';
@@ -10,6 +11,8 @@ export function ProtectedRoute() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const isHydrated = useAuthStore((s) => s.isHydrated);
   const tokenExists = hasStoredToken();
+  const location = useLocation();
+  const qc = useQueryClient();
 
   // Need rehydration: token in storage but store not yet hydrated
   const needsRehydration = tokenExists && !isHydrated;
@@ -19,6 +22,15 @@ export function ProtectedRoute() {
   // refresh. The first run rehydrates the store; subsequent refetches
   // just sync permissions.
   const { data, isLoading, isError, isSuccess } = useMeQuery(tokenExists);
+
+  // Refetch permissions on every navigation so an admin's edit takes
+  // effect on the affected user's next page load. Without this the
+  // permission Set in zustand could lag by up to a focus event.
+  useEffect(() => {
+    if (tokenExists && isAuthenticated) {
+      qc.invalidateQueries({ queryKey: ['auth', 'me'] });
+    }
+  }, [location.pathname, tokenExists, isAuthenticated, qc]);
 
   // Track if we've received data but haven't processed it in useEffect yet
   const pendingHydration = useRef(false);

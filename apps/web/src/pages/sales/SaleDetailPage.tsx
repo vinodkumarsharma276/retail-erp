@@ -10,6 +10,7 @@ import {
   Download,
   Banknote,
   Eye,
+  Pencil,
 } from 'lucide-react';
 import { handleInvoiceDownload } from '../../lib/invoice-utils';
 import { cn } from '../../lib/utils';
@@ -19,27 +20,44 @@ import {
   useRecordFinancePaymentMutation,
   useRecordPendingPaymentMutation,
 } from '../../hooks/useSales';
-import { useAuthStore } from '../../stores/auth-store';
+import { usePermission, useCanCheck } from '../../hooks/usePermission';
 import { StatusBadge } from '../../components/StatusBadge';
 import { CompletionBadge } from '../../components/CompletionBadge';
 import { RecordPaymentDialog } from '../../components/RecordPaymentDialog';
+import { AccessDenied } from '../../routes/RoleGuard';
 import { formatINR, formatDateIN } from '@retailerp/shared-utils';
-import { UserRole, SaleType, FinancePaymentStatus, InstallmentStatus } from '@retailerp/shared-types';
+import { SaleType, FinancePaymentStatus, InstallmentStatus } from '@retailerp/shared-types';
 
 export function SaleDetailPage() {
+  const canViewDetail = usePermission('sales.detail');
+  if (!canViewDetail) return <AccessDenied />;
+  return <SaleDetailPageInner />;
+}
+
+function SaleDetailPageInner() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const user = useAuthStore((s) => s.user);
-  const userRole = user?.role;
+  const can = useCanCheck();
 
-  const isAdminOrAccountant =
-    userRole === UserRole.OWNER || userRole === UserRole.ADMIN || userRole === UserRole.ACCOUNTANT;
+  // Permission-based section visibility
+  const canViewProfit = can('sales.section.profit');
+  const canViewPurchasePrice = can('sales.section.purchase_price');
+  const canViewSelfFinance = can('sales.section.self_finance');
+  const canViewCompanyFinance = can('sales.section.company_finance');
+  const canViewGuarantor = can('sales.section.guarantor');
+  const canViewPaymentBreakdown = can('sales.section.payment_breakdown');
+  const canViewFinancials = can('sales.section.financials');
+  const canRecordCompanyPayment = can('sales.record_company_finance_payment');
+  const canMarkPartialSettled = can('sales.mark_partial_settled');
+  const canDownloadInvoice = can('sales.invoice.download_pdf');
+  const canViewInvoice = can('sales.invoice.view');
+  const canEditSale = can('sales.edit');
 
   const { data: sale, isLoading, isError } = useSaleDetailQuery(id);
 
-  // Only fetch installments for admin/accountant on self-finance sales
+  // Only fetch installments when user has self-finance perm on self-finance sales
   const shouldFetchInstallments =
-    isAdminOrAccountant && sale?.saleType === SaleType.SELF_FINANCE;
+    canViewSelfFinance && sale?.saleType === SaleType.SELF_FINANCE;
   const { data: installmentData, isLoading: isInstallmentsLoading } =
     useSaleInstallmentsQuery(id, shouldFetchInstallments);
 
@@ -168,6 +186,19 @@ export function SaleDetailPage() {
             <CompletionBadge completedAt={(sale as any).completedAt} variant="hero" />
           </div>
         </div>
+        {canEditSale && (
+          <Link
+            to={`/sales/${sale.id}/edit`}
+            className={cn(
+              'flex items-center gap-2 rounded-md border px-4 py-2 text-sm font-medium',
+              'hover:bg-muted transition-colors',
+            )}
+          >
+            <Pencil className="h-4 w-4" />
+            Edit Sale
+          </Link>
+        )}
+        {(canDownloadInvoice || canViewInvoice) && (
         <button
           onClick={onDownloadInvoice}
           disabled={isDownloading}
@@ -184,6 +215,7 @@ export function SaleDetailPage() {
           )}
           Download Invoice
         </button>
+        )}
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
@@ -202,7 +234,7 @@ export function SaleDetailPage() {
               />
               <InfoRow label="MRP" value={formatINR(sale.mrp)} />
               <InfoRow label="Selling Price (incl. GST)" value={formatINR(sale.sellingPrice)} />
-              {sale.gstAmount > 0 && (
+              {canViewFinancials && sale.gstAmount > 0 && (
                 <InfoRow label={`GST ${sale.gstRate}% (included)`} value={formatINR(sale.gstAmount)} />
               )}
               <InfoRow label="Total Amount" value={formatINR(sale.totalAmount)} />
@@ -213,7 +245,7 @@ export function SaleDetailPage() {
               <InfoRow
                 label="Payment Mode"
                 value={
-                  sale.paymentBreakdown && sale.paymentBreakdown.length > 0
+                  canViewPaymentBreakdown && sale.paymentBreakdown && sale.paymentBreakdown.length > 0
                     ? sale.paymentBreakdown
                         .map((p: {mode: string; amount: number}) =>
                           `${p.mode.replace(/_/g, ' ')}: ${formatINR(p.amount)}`
@@ -228,7 +260,7 @@ export function SaleDetailPage() {
                   value={formatINR(sale.pendingAmount)}
                 />
               )}
-              {sale.pendingAmount > 0 && isAdminOrAccountant && (
+              {sale.pendingAmount > 0 && canMarkPartialSettled && (
                 <div className="sm:col-span-2">
                   <button
                     type="button"
@@ -274,8 +306,8 @@ export function SaleDetailPage() {
             </dl>
           </div>
 
-          {/* Profit & GST Breakdown Card (admin/accountant only) */}
-          {isAdminOrAccountant && sale.product && (
+          {/* Profit & GST Breakdown Card (permission-gated) */}
+          {(canViewProfit || canViewPurchasePrice) && sale.product && (
             <ProfitBreakdownCard
               sellingPrice={sale.sellingPrice}
               purchasePrice={sale.product.purchasePrice}
@@ -286,8 +318,8 @@ export function SaleDetailPage() {
             />
           )}
 
-          {/* Self Finance details (admin/accountant only) */}
-          {isAdminOrAccountant &&
+          {/* Self Finance details (permission-gated) */}
+          {canViewSelfFinance &&
             sale.saleType === SaleType.SELF_FINANCE && (
               <div className="rounded-lg border bg-card p-6">
                 <h2 className="text-lg font-medium mb-4">
@@ -385,7 +417,7 @@ export function SaleDetailPage() {
                 })()}
 
                 {/* Guarantor */}
-                {sale.guarantor && (
+                {canViewGuarantor && sale.guarantor && (
                   <div className="mt-4 pt-4 border-t">
                     <h3 className="text-sm font-medium mb-3 flex items-center gap-2">
                       <Shield className="h-4 w-4 text-purple-600" />
@@ -510,7 +542,7 @@ export function SaleDetailPage() {
                                     <StatusBadge status={inst.status} />
                                   </td>
                                   <td className="px-3 py-2 text-right">
-                                    {canPay && isAdminOrAccountant ? (
+                                    {canPay && can('installments.record_payment') ? (
                                       <button
                                         onClick={() =>
                                           setInstallmentPaymentTarget({
@@ -540,8 +572,8 @@ export function SaleDetailPage() {
               </div>
             )}
 
-          {/* Company Finance details (admin/accountant only) */}
-          {isAdminOrAccountant &&
+          {/* Company Finance details (permission-gated) */}
+          {canViewCompanyFinance &&
             sale.saleType === SaleType.COMPANY_FINANCE && (
               <div className="rounded-lg border bg-card p-6">
                 <h2 className="text-lg font-medium mb-4 flex items-center gap-2">
@@ -584,7 +616,7 @@ export function SaleDetailPage() {
                 </dl>
 
                 {/* Record payment button */}
-                {sale.financePaymentStatus !== FinancePaymentStatus.RECEIVED && (
+                {canRecordCompanyPayment && sale.financePaymentStatus !== FinancePaymentStatus.RECEIVED && (
                   <div className="mt-4 pt-4 border-t">
                     {showFinanceDialog ? (
                       <div className="space-y-3">
@@ -663,7 +695,9 @@ export function SaleDetailPage() {
                   />
                 )}
                 <InfoRow label="MRP" value={formatINR(sale.product.mrp)} />
-                <InfoRow label="DP (Dealer Price)" value={formatINR(sale.product.purchasePrice)} />
+                {canViewPurchasePrice && (
+                  <InfoRow label="DP (Dealer Price)" value={formatINR(sale.product.purchasePrice)} />
+                )}
               </dl>
               <Link
                 to={`/products/${sale.product.id}`}

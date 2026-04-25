@@ -56,10 +56,13 @@ export function useMeQuery(enabled = true) {
     },
     enabled,
     retry: false,
-    // Short stale window so role/permission changes propagate to the UI
-    // within a minute without a hard refresh.
-    staleTime: 30 * 1000,
+    // Always treat permissions as stale so any mount or focus refetches
+    // them. Combined with route-change invalidation in ProtectedRoute this
+    // means an admin's permission edit takes effect for the affected user
+    // on their very next navigation, not after a 30s window.
+    staleTime: 0,
     refetchOnWindowFocus: true,
+    refetchOnMount: 'always',
   });
 }
 

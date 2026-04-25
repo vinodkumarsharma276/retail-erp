@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams, useParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import {
   ArrowLeft,
@@ -24,11 +24,13 @@ import {
   useCustomerSearchQuery,
   useCreateCustomerMutation,
 } from '../../hooks/useCustomers';
-import { useCreateSaleMutation } from '../../hooks/useSales';
+import { useCreateSaleMutation, useUpdateSaleMutation, useSaleDetailQuery } from '../../hooks/useSales';
 import { useFinanceCompaniesQuery } from '../../hooks/useFinanceCompanies';
 import { useAuthStore } from '../../stores/auth-store';
 import { StatusBadge } from '../../components/StatusBadge';
 import { CustomerReliabilityCard } from '../../components/CustomerReliabilityCard';
+import { useAnyPermission, useCanCheck, usePermission } from '../../hooks/usePermission';
+import { AccessDenied } from '../../routes/RoleGuard';
 import {
   formatINR,
   calculateEMI,
@@ -176,23 +178,50 @@ function getDateDaysFromNow(days: number): string {
 // COMPONENT
 // ===========================================================================
 export function SaleCreatePage() {
+  const { id } = useParams<{ id?: string }>();
+  const isEditMode = Boolean(id);
+  const canCreate = useAnyPermission(
+    'sales.create_full_payment',
+    'sales.create_partial_with_promise',
+    'sales.create_self_finance',
+    'sales.create_company_finance',
+  );
+  const canEdit = usePermission('sales.edit');
+  const allowed = isEditMode ? canEdit : canCreate;
+  if (!allowed) return <AccessDenied />;
+  return <SaleCreatePageInner editingSaleId={id} />;
+}
+
+function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
+  const isEditMode = Boolean(editingSaleId);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const productIdFromUrl = searchParams.get('productId');
   const user = useAuthStore((s) => s.user);
   const userRole = user?.role;
+  const can = useCanCheck();
 
-  const isOthersRole = userRole === UserRole.OTHERS;
+  // Section permissions for the create form
+  const canViewFinancials = can('sales.section.financials');
+
+  // -----------------------------------------------------------------------
+  // Existing sale (edit mode)
+  // -----------------------------------------------------------------------
+  const { data: existingSale, isLoading: isExistingSaleLoading } = useSaleDetailQuery(editingSaleId);
 
   // -----------------------------------------------------------------------
   // Product state
   // -----------------------------------------------------------------------
+  // In edit mode, drive product fetch from the loaded sale; otherwise from URL.
+  const productIdSource = isEditMode
+    ? (existingSale?.productId ?? undefined)
+    : (productIdFromUrl ?? undefined);
   const { data: preSelectedProduct, isLoading: isProductLoading } =
-    useProductDetailQuery(productIdFromUrl ?? undefined);
+    useProductDetailQuery(productIdSource);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [productSearchText, setProductSearchText] = useState('');
 
-  // If product is preselected from URL, use it
+  // If product is preselected from URL or sale, use it
   useEffect(() => {
     if (preSelectedProduct) {
       setSelectedProduct(preSelectedProduct);
@@ -270,16 +299,18 @@ export function SaleCreatePage() {
 
   // Pre-fill selling price with MRP and down payment with 50% when product is selected
   useEffect(() => {
+    if (isEditMode) return; // edit mode prefills from existing sale instead
     if (selectedProduct && !watch('sellingPrice')) {
       setValue('sellingPrice', selectedProduct.mrp);
       // Set initial down payment to 50% of MRP
       setValue('downPayment', Math.round(selectedProduct.mrp / 2));
       setDownPaymentManuallySet(false);
     }
-  }, [selectedProduct, setValue, watch]);
+  }, [selectedProduct, setValue, watch, isEditMode]);
 
   // Auto-select GST rate from purchase invoice
   useEffect(() => {
+    if (isEditMode) return; // GST rate prefilled from existing sale in edit mode
     if (selectedProduct) {
       const purchase = (selectedProduct as any).purchase;
       if (purchase && purchase.totalAmount > 0) {
@@ -322,6 +353,7 @@ export function SaleCreatePage() {
 
   // Reset payment splits and down payment defaults when sale type changes
   useEffect(() => {
+    if (isEditMode) return; // edit mode locks saleType; defaults come from prefill
     setPaymentSplits([{ mode: PaymentMode.CASH, amount: '' }]);
     setDownPaymentManuallySet(false);
     if (saleType === SaleType.COMPANY_FINANCE) {
@@ -331,6 +363,79 @@ export function SaleCreatePage() {
       setValue('downPayment', Math.round(sellingPrice / 2));
     }
   }, [saleType]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // -----------------------------------------------------------------------
+  // Edit-mode prefill — runs once when existingSale loads
+  // -----------------------------------------------------------------------
+  const editPrefilledRef = useRef(false);
+  useEffect(() => {
+    if (!isEditMode) return;
+    if (!existingSale) return;
+    if (editPrefilledRef.current) return;
+
+    const s: any = existingSale;
+
+    // Sale type & ledger & date & notes (strip the "GST Type: ..." suffix we append on save)
+    setValue('saleType', s.saleType as SaleType);
+    setValue('ledgerNumber', s.ledgerNumber ?? '');
+    if (s.saleDate) {
+      const d = new Date(s.saleDate);
+      setValue('saleDate', d.toISOString().split('T')[0]);
+    }
+    let notesStr = String(s.notes ?? '');
+    let parsedGstType: GstType = 'GST';
+    const gstTypeMatch = notesStr.match(/GST Type:\s*(GST|CGST_SGST|IGST)/);
+    if (gstTypeMatch) {
+      parsedGstType = gstTypeMatch[1] as GstType;
+      notesStr = notesStr.replace(/\s*\|?\s*GST Type:\s*(GST|CGST_SGST|IGST)/, '').trim();
+    }
+    setSaleGstType(parsedGstType);
+    setValue('notes', notesStr);
+
+    // Pricing
+    setValue('sellingPrice', Number(s.sellingPrice));
+    setValue('gstRate', Number(s.gstRate ?? 0));
+    setValue('downPayment', Number(s.downPayment ?? 0));
+
+    // Type-specific
+    if (s.saleType === SaleType.PARTIAL_WITH_PROMISE && s.promiseDate) {
+      setValue('promiseDate', new Date(s.promiseDate).toISOString().split('T')[0]);
+    }
+    if (s.saleType === SaleType.SELF_FINANCE) {
+      setValue('interestRate', Number(s.interestRate ?? 0));
+      setValue('fileCharge', Number(s.fileCharge ?? 0));
+      setValue('numInstallments', Number(s.numInstallments ?? 6));
+    }
+    if (s.saleType === SaleType.COMPANY_FINANCE) {
+      setValue('financeCompanyId', s.financeCompanyId ?? '');
+      setValue('financedAmount', Number(s.financedAmount ?? 0));
+      if (s.expectedPaymentDate) {
+        setValue('expectedPaymentDate', new Date(s.expectedPaymentDate).toISOString().split('T')[0]);
+      }
+    }
+
+    // Selected customer / guarantor (from sale relations)
+    if (s.customer) setSelectedCustomer(s.customer as Customer);
+    if (s.guarantor) setSelectedGuarantor(s.guarantor as Customer);
+
+    // Payment splits
+    if (Array.isArray(s.paymentBreakdown) && s.paymentBreakdown.length > 0) {
+      setPaymentSplits(
+        s.paymentBreakdown.map((b: { mode: PaymentMode; amount: number }) => ({
+          mode: b.mode,
+          amount: Number(b.amount),
+        })),
+      );
+    } else if (s.paymentMode) {
+      const totalPaid = s.saleType === 'full_payment'
+        ? Number(s.sellingPrice)
+        : Number(s.downPayment ?? 0);
+      setPaymentSplits([{ mode: s.paymentMode as PaymentMode, amount: totalPaid }]);
+    }
+
+    setDownPaymentManuallySet(true);
+    editPrefilledRef.current = true;
+  }, [isEditMode, existingSale, setValue]);
 
   // -----------------------------------------------------------------------
   // Computed amounts
@@ -384,9 +489,11 @@ export function SaleCreatePage() {
   }, [saleType, sellingPrice, downPayment, interestRate, fileCharge, numInstallments]);
 
   // -----------------------------------------------------------------------
-  // Create sale mutation
+  // Create / Update sale mutation
   // -----------------------------------------------------------------------
   const createSaleMutation = useCreateSaleMutation();
+  const updateSaleMutation = useUpdateSaleMutation();
+  const activeMutation = isEditMode ? updateSaleMutation : createSaleMutation;
 
   const onSubmit = (formData: SaleFormValues) => {
     if (!selectedProduct || !selectedCustomer) return;
@@ -446,11 +553,22 @@ export function SaleCreatePage() {
         break;
     }
 
-    createSaleMutation.mutate(payload, {
-      onSuccess: (data) => {
-        navigate(`/sales/${data.id}`, { replace: true });
-      },
-    });
+    if (isEditMode && editingSaleId) {
+      updateSaleMutation.mutate(
+        { saleId: editingSaleId, payload },
+        {
+          onSuccess: (data) => {
+            navigate(`/sales/${data.id}`, { replace: true });
+          },
+        },
+      );
+    } else {
+      createSaleMutation.mutate(payload, {
+        onSuccess: (data) => {
+          navigate(`/sales/${data.id}`, { replace: true });
+        },
+      });
+    }
   };
 
   // -----------------------------------------------------------------------
@@ -516,19 +634,19 @@ export function SaleCreatePage() {
     const handler = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
         e.preventDefault();
-        if (canSubmit && !createSaleMutation.isPending) {
+        if (canSubmit && !activeMutation.isPending) {
           handleSubmit(onSubmit)();
         }
       }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [canSubmit, createSaleMutation.isPending, handleSubmit, onSubmit]);
+  }, [canSubmit, activeMutation.isPending, handleSubmit, onSubmit]);
 
   // Error message from mutation
-  const errorMessage = createSaleMutation.error
-    ? (createSaleMutation.error as any)?.response?.data?.error ??
-      (createSaleMutation.error as any)?.response?.data?.message ??
+  const errorMessage = activeMutation.error
+    ? (activeMutation.error as any)?.response?.data?.error ??
+      (activeMutation.error as any)?.response?.data?.message ??
       'Something went wrong. Please try again.'
     : null;
 
@@ -542,7 +660,7 @@ export function SaleCreatePage() {
   const summaryBody = (
     <div className="space-y-2 text-sm">
       <SummaryRow label="Selling Price (incl. GST)" value={formatINR(sellingPrice)} />
-      {gstRate > 0 && (
+      {canViewFinancials && gstRate > 0 && (
         <SummaryRow
           label={
             saleGstType === 'CGST_SGST'
@@ -620,8 +738,27 @@ export function SaleCreatePage() {
         >
           <ArrowLeft className="h-5 w-5" />
         </button>
-        <h1 className="text-xl font-semibold sm:text-2xl">New Sale</h1>
+        <h1 className="text-xl font-semibold sm:text-2xl">
+          {isEditMode
+            ? `Edit Sale${existingSale?.saleNumber ? ` ${existingSale.saleNumber}` : ''}`
+            : 'New Sale'}
+        </h1>
       </div>
+
+      {isEditMode && isExistingSaleLoading && (
+        <div className="mb-4 flex items-center gap-2 rounded-md border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Loading sale…
+        </div>
+      )}
+      {isEditMode && existingSale && (
+        <div className="mb-4 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+          <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+          <span>
+            Editing this sale will reset any installment payments, finance payment status, and partial-promise settlements. Product and sale type cannot be changed.
+          </span>
+        </div>
+      )}
 
       <form onSubmit={handleSubmit(onSubmit)} className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:gap-6">
         {/* === MAIN COLUMN ============================================== */}
@@ -651,7 +788,7 @@ export function SaleCreatePage() {
                     {selectedProduct.brand} {selectedProduct.modelNumber}
                   </p>
                   <StatusBadge status={selectedProduct.status} />
-                  {!productIdFromUrl && (
+                  {!productIdFromUrl && !isEditMode && (
                     <button
                       type="button"
                       onClick={() => {
@@ -812,32 +949,40 @@ export function SaleCreatePage() {
 
           {/* Segmented control */}
           <div className="flex flex-wrap gap-2 mb-6">
-            {/* Full Payment — always visible */}
-            <SaleTypeButton
-              active={saleType === SaleType.FULL_PAYMENT}
-              onClick={() => setValue('saleType', SaleType.FULL_PAYMENT)}
-              label="Full Payment"
-            />
-            {/* Partial with Promise — always visible */}
-            <SaleTypeButton
-              active={saleType === SaleType.PARTIAL_WITH_PROMISE}
-              onClick={() => setValue('saleType', SaleType.PARTIAL_WITH_PROMISE)}
-              label="Partial with Promise"
-            />
-            {/* Self Finance — hidden for "others" */}
-            {!isOthersRole && (
+            {/* Full Payment */}
+            {(can('sales.create_full_payment') || (isEditMode && saleType === SaleType.FULL_PAYMENT)) && (
+              <SaleTypeButton
+                active={saleType === SaleType.FULL_PAYMENT}
+                onClick={() => setValue('saleType', SaleType.FULL_PAYMENT)}
+                label="Full Payment"
+                disabled={isEditMode && saleType !== SaleType.FULL_PAYMENT}
+              />
+            )}
+            {/* Partial with Promise */}
+            {(can('sales.create_partial_with_promise') || (isEditMode && saleType === SaleType.PARTIAL_WITH_PROMISE)) && (
+              <SaleTypeButton
+                active={saleType === SaleType.PARTIAL_WITH_PROMISE}
+                onClick={() => setValue('saleType', SaleType.PARTIAL_WITH_PROMISE)}
+                label="Partial with Promise"
+                disabled={isEditMode && saleType !== SaleType.PARTIAL_WITH_PROMISE}
+              />
+            )}
+            {/* Self Finance */}
+            {(can('sales.create_self_finance') || (isEditMode && saleType === SaleType.SELF_FINANCE)) && (
               <SaleTypeButton
                 active={saleType === SaleType.SELF_FINANCE}
                 onClick={() => setValue('saleType', SaleType.SELF_FINANCE)}
                 label="Self Finance (Installment)"
+                disabled={isEditMode && saleType !== SaleType.SELF_FINANCE}
               />
             )}
-            {/* Company Finance — hidden for "others" */}
-            {!isOthersRole && (
+            {/* Company Finance */}
+            {(can('sales.create_company_finance') || (isEditMode && saleType === SaleType.COMPANY_FINANCE)) && (
               <SaleTypeButton
                 active={saleType === SaleType.COMPANY_FINANCE}
                 onClick={() => setValue('saleType', SaleType.COMPANY_FINANCE)}
                 label="Company Finance"
+                disabled={isEditMode && saleType !== SaleType.COMPANY_FINANCE}
               />
             )}
           </div>
@@ -1037,7 +1182,7 @@ export function SaleCreatePage() {
           )}
 
           {/* ---- SELF FINANCE (INSTALLMENT) ---- */}
-          {saleType === SaleType.SELF_FINANCE && !isOthersRole && (
+          {saleType === SaleType.SELF_FINANCE && (can('sales.create_self_finance') || isEditMode) && (
             <div className="space-y-4">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {/* Selling Price */}
@@ -1319,7 +1464,7 @@ export function SaleCreatePage() {
           )}
 
           {/* ---- COMPANY FINANCE ---- */}
-          {saleType === SaleType.COMPANY_FINANCE && !isOthersRole && (
+          {saleType === SaleType.COMPANY_FINANCE && (can('sales.create_company_finance') || isEditMode) && (
             <div className="space-y-4">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {/* Selling Price */}
@@ -1797,7 +1942,7 @@ export function SaleCreatePage() {
           )}
 
           {/* Guarantor — shown only for self-finance */}
-          {saleType === SaleType.SELF_FINANCE && !isOthersRole && (
+          {saleType === SaleType.SELF_FINANCE && (can('sales.create_self_finance') || isEditMode) && (
             <div className="pt-4 border-t mt-4">
               <h3 className="text-sm font-medium mb-3 flex items-center gap-2">
                 <Shield className="h-4 w-4 text-purple-600" />
@@ -2147,10 +2292,12 @@ export function SaleCreatePage() {
         {/* =============================================================== */}
         {/* SECTION 6: SUMMARY CARD (desktop right rail only) */}
         {/* =============================================================== */}
+        {canViewFinancials && (
         <section className="hidden lg:block rounded-lg border-2 border-primary/20 bg-primary/5 p-5">
           <h2 className="text-base font-semibold mb-3">Sale Summary</h2>
           {summaryBody}
         </section>
+        )}
 
         {/* =============================================================== */}
         {/* ERROR */}
@@ -2168,7 +2315,7 @@ export function SaleCreatePage() {
         <div className="hidden lg:flex lg:flex-col lg:gap-2">
           <button
             type="submit"
-            disabled={!canSubmit || createSaleMutation.isPending}
+            disabled={!canSubmit || activeMutation.isPending}
             title="Save (Ctrl+S)"
             className={cn(
               'flex w-full items-center justify-center gap-2 rounded-md bg-green-600 px-4 py-2.5 text-sm font-semibold text-white',
@@ -2176,15 +2323,15 @@ export function SaleCreatePage() {
               'disabled:opacity-50 disabled:cursor-not-allowed',
             )}
           >
-            {createSaleMutation.isPending ? (
+            {activeMutation.isPending ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin" />
-                Creating Sale…
+                {isEditMode ? 'Saving Changes…' : 'Creating Sale…'}
               </>
             ) : (
               <>
                 <ShoppingCart className="h-4 w-4" />
-                Complete Sale
+                {isEditMode ? 'Save Changes' : 'Complete Sale'}
                 <kbd className="ml-1 hidden rounded border border-white/30 bg-white/10 px-1.5 py-0.5 text-[10px] font-medium xl:inline">Ctrl+S</kbd>
               </>
             )}
@@ -2204,6 +2351,7 @@ export function SaleCreatePage() {
         {/* === MOBILE STICKY ACTION BAR ================================= */}
         <div className="fixed inset-x-0 bottom-0 z-30 border-t bg-card shadow-lg lg:hidden">
           <div className="flex items-center gap-2 p-3">
+            {canViewFinancials ? (
             <button
               type="button"
               onClick={() => setSummaryOpen(true)}
@@ -2216,16 +2364,19 @@ export function SaleCreatePage() {
               </span>
               <ChevronDown className="h-4 w-4 rotate-180 text-muted-foreground" />
             </button>
+            ) : (
+              <div className="flex-1" />
+            )}
             <button
               type="submit"
-              disabled={!canSubmit || createSaleMutation.isPending}
+              disabled={!canSubmit || activeMutation.isPending}
               className={cn(
                 'flex items-center justify-center gap-2 rounded-md bg-green-600 px-4 py-2.5 text-sm font-semibold text-white',
                 'hover:bg-green-700 transition-colors',
                 'disabled:opacity-50 disabled:cursor-not-allowed',
               )}
             >
-              {createSaleMutation.isPending ? (
+              {activeMutation.isPending ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />
                   Saving…
@@ -2233,7 +2384,7 @@ export function SaleCreatePage() {
               ) : (
                 <>
                   <ShoppingCart className="h-4 w-4" />
-                  Save Sale
+                  {isEditMode ? 'Save Changes' : 'Save Sale'}
                 </>
               )}
             </button>
@@ -2241,7 +2392,7 @@ export function SaleCreatePage() {
         </div>
 
         {/* === MOBILE SUMMARY DRAWER ==================================== */}
-        {summaryOpen && (
+        {canViewFinancials && summaryOpen && (
           <div className="fixed inset-0 z-40 lg:hidden" role="dialog" aria-modal="true" aria-label="Sale summary">
             <div
               className="absolute inset-0 bg-black/50"
@@ -2293,20 +2444,24 @@ function SaleTypeButton({
   active,
   onClick,
   label,
+  disabled,
 }: {
   active: boolean;
   onClick: () => void;
   label: string;
+  disabled?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       className={cn(
         'rounded-md border px-4 py-2 text-sm font-medium transition-colors',
         active
           ? 'border-primary bg-primary text-primary-foreground'
           : 'border-border bg-background text-foreground hover:bg-muted',
+        disabled && 'opacity-50 cursor-not-allowed',
       )}
     >
       {label}
@@ -2622,6 +2777,12 @@ function SellingPriceCalculations({
   dp: number;
   gstRate: number;
 }) {
+  const can = useCanCheck();
+  const canViewProfit = can('sales.section.profit');
+  const canViewPurchasePrice = can('sales.section.purchase_price');
+  const canViewFinancials = can('sales.section.financials');
+  const canShow = canViewProfit || canViewPurchasePrice || canViewFinancials;
+  if (!canShow) return null;
   if (sellingPrice <= 0) return null;
 
   const discount = mrp - sellingPrice;
@@ -2662,7 +2823,7 @@ function SellingPriceCalculations({
             {formatINR(discount)} <span className="text-xs font-normal">({discountPct}%)</span>
           </p>
         </div>
-        {gstRate > 0 && (
+        {canViewFinancials && gstRate > 0 && (
           <>
             <div>
               <span className="text-xs text-muted-foreground">Output GST (on sale)</span>
@@ -2678,12 +2839,14 @@ function SellingPriceCalculations({
             </div>
           </>
         )}
+        {canViewProfit && (
         <div>
           <span className="text-xs text-muted-foreground">Net Profit</span>
           <p className={cn('text-sm font-semibold', netProfit >= 0 ? 'text-green-600' : 'text-red-600')}>
             {formatINR(netProfit)} <span className="text-xs font-normal">({netProfitPct}%)</span>
           </p>
         </div>
+        )}
       </div>
     </div>
   );

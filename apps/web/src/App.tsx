@@ -123,10 +123,32 @@ function App() {
             <Route path="/customers/new" element={<CustomerFormPage />} />
             <Route path="/customers/:id" element={<CustomerDetailPage />} />
             <Route path="/customers/:id/edit" element={<CustomerFormPage />} />
-            <Route path="/sales" element={<SaleListPage />} />
-            <Route path="/sales/scan-register" element={<RegisterScanPage />} />
-            <Route path="/sales/new" element={<SaleCreatePage />} />
-            <Route path="/sales/:id" element={<SaleDetailPage />} />
+            <Route element={<PermissionGuard anyOf={['sales.list']} />}>
+              <Route path="/sales" element={<SaleListPage />} />
+            </Route>
+            <Route element={<PermissionGuard anyOf={['sales.list']} />}>
+              <Route path="/sales/scan-register" element={<RegisterScanPage />} />
+            </Route>
+            <Route
+              element={
+                <PermissionGuard
+                  anyOf={[
+                    'sales.create_full_payment',
+                    'sales.create_partial_with_promise',
+                    'sales.create_self_finance',
+                    'sales.create_company_finance',
+                  ]}
+                />
+              }
+            >
+              <Route path="/sales/new" element={<SaleCreatePage />} />
+            </Route>
+            <Route element={<PermissionGuard anyOf={['sales.edit']} />}>
+              <Route path="/sales/:id/edit" element={<SaleCreatePage />} />
+            </Route>
+            <Route element={<PermissionGuard anyOf={['sales.detail']} />}>
+              <Route path="/sales/:id" element={<SaleDetailPage />} />
+            </Route>
             <Route path="/transfers" element={<TransferListPage />} />
             <Route path="/transfers/:id" element={<TransferDetailPage />} />
           </Route>

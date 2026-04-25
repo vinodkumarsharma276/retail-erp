@@ -12,6 +12,8 @@ import { CompletionBadge } from '../../components/CompletionBadge';
 import { formatINR, formatDateIN } from '@retailerp/shared-utils';
 import { SaleType } from '@retailerp/shared-types';
 import { handleInvoiceDownload } from '../../lib/invoice-utils';
+import { usePermission, useCanCheck } from '../../hooks/usePermission';
+import { AccessDenied } from '../../routes/RoleGuard';
 
 const PAGE_SIZE = 20;
 
@@ -43,9 +45,16 @@ const SALE_TYPE_OPTIONS = [
 ];
 
 export function SaleListPage() {
+  const canListSales = usePermission('sales.list');
+  if (!canListSales) return <AccessDenied />;
+  return <SaleListPageInner />;
+}
+
+function SaleListPageInner() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const can = useCanCheck();
 
   // ------ Filters state (URL search params) ------
   const page = Number(searchParams.get('page')) || 1;
@@ -137,12 +146,16 @@ export function SaleListPage() {
       key: 'saleNumber',
       header: 'Sale #',
       render: (row) => (
-        <button
-          onClick={() => navigate(`/sales/${row.id}`)}
-          className="font-mono text-xs font-medium text-primary hover:underline text-left"
-        >
-          {row.saleNumber}
-        </button>
+        can('sales.detail') ? (
+          <button
+            onClick={() => navigate(`/sales/${row.id}`)}
+            className="font-mono text-xs font-medium text-primary hover:underline text-left"
+          >
+            {row.saleNumber}
+          </button>
+        ) : (
+          <span className="font-mono text-xs font-medium text-left">{row.saleNumber}</span>
+        )
       ),
     },
     {
@@ -217,11 +230,12 @@ export function SaleListPage() {
         );
       },
     },
-    {
-      key: 'actions',
+    // Invoice download — only if user has invoice permission
+    ...(can('sales.invoice.download_pdf') ? [{
+      key: 'actions' as keyof SaleListItem,
       header: '',
       className: 'w-10',
-      render: (row) => (
+      render: (row: SaleListItem) => (
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -241,7 +255,7 @@ export function SaleListPage() {
           )}
         </button>
       ),
-    },
+    }] : []),
   ];
 
   // ------ Pagination state for DataTable ------
