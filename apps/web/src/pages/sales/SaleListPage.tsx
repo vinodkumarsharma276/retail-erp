@@ -145,6 +145,8 @@ function SaleListPageInner() {
     {
       key: 'saleNumber',
       header: 'Sale #',
+      sortable: true,
+      sortAccessor: (row) => row.saleNumber,
       render: (row) => (
         can('sales.detail') ? (
           <button
@@ -161,6 +163,8 @@ function SaleListPageInner() {
     {
       key: 'ledgerNumber',
       header: 'Ledger #',
+      sortable: true,
+      sortAccessor: (row) => row.ledgerNumber,
       render: (row) => (
         <span className="font-mono text-xs">{row.ledgerNumber}</span>
       ),
@@ -168,11 +172,18 @@ function SaleListPageInner() {
     {
       key: 'saleDate',
       header: 'Date',
+      sortable: true,
+      sortAccessor: (row) => new Date(row.saleDate),
       render: (row) => formatDateIN(row.saleDate),
     },
     {
       key: 'customer',
       header: 'Customer',
+      sortable: true,
+      sortAccessor: (row) => {
+        const c = (row as any).customer;
+        return c?.name || row.customerName || '';
+      },
       render: (row) => {
         const c = (row as any).customer;
         return (
@@ -188,6 +199,11 @@ function SaleListPageInner() {
     {
       key: 'product',
       header: 'Product',
+      sortable: true,
+      sortAccessor: (row) => {
+        const p = (row as any).product;
+        return `${p?.brand || row.productBrand || ''} ${p?.modelNumber || row.productModel || ''}`.trim();
+      },
       render: (row) => {
         const p = (row as any).product;
         return (
@@ -200,12 +216,16 @@ function SaleListPageInner() {
     {
       key: 'saleType',
       header: 'Sale Type',
+      sortable: true,
+      sortAccessor: (row) => row.saleType,
       render: (row) => <StatusBadge status={row.saleType} />,
     },
     {
       key: 'totalAmount',
       header: 'Total',
       align: 'right',
+      sortable: true,
+      sortAccessor: (row) => Number(row.totalAmount) || 0,
       render: (row) => (
         <span className="font-medium">{formatINR(row.totalAmount)}</span>
       ),
@@ -213,16 +233,25 @@ function SaleListPageInner() {
     {
       key: 'paymentStatus',
       header: 'Payment',
+      sortable: true,
+      sortAccessor: (row) => getPaymentStatus(row),
       render: (row) => <StatusBadge status={getPaymentStatus(row)} />,
     },
     {
       key: 'completion',
       header: 'Status',
+      sortable: true,
+      sortAccessor: (row) => (row.completedAt ? 1 : 0),
       render: (row) => <CompletionBadge completedAt={row.completedAt} />,
     },
     {
       key: 'createdBy',
       header: 'Created By',
+      sortable: true,
+      sortAccessor: (row) => {
+        const creator = (row as any).creator;
+        return creator?.fullName || creator?.username || '';
+      },
       render: (row) => {
         const creator = (row as any).creator;
         return (

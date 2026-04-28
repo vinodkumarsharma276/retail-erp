@@ -396,6 +396,8 @@ function OverdueTab() {
       {
         key: 'customer',
         header: 'Customer',
+        sortable: true,
+        sortAccessor: (row) => row.customerName ?? '',
         render: (row) => (
           <div>
             <p className="font-medium">{row.customerName}</p>
@@ -406,6 +408,8 @@ function OverdueTab() {
       {
         key: 'product',
         header: 'Product',
+        sortable: true,
+        sortAccessor: (row) => `${row.productBrand ?? ''} ${row.productName ?? ''}`.trim(),
         render: (row) => (
           <span className="text-sm">{row.productBrand} {row.productName}</span>
         ),
@@ -413,6 +417,8 @@ function OverdueTab() {
       {
         key: 'emiNumber',
         header: 'EMI #',
+        sortable: true,
+        sortAccessor: (row) => row.installmentNumber,
         render: (row) => (
           <span className="text-sm font-medium">{formatInstallmentLabel(row)}</span>
         ),
@@ -421,6 +427,8 @@ function OverdueTab() {
         key: 'amountDue',
         header: 'Amount Due',
         align: 'right' as const,
+        sortable: true,
+        sortAccessor: (row) => Number(row.remainingAmount) || 0,
         render: (row) => (
           <span className="font-semibold text-red-600">
             {formatINR(row.remainingAmount)}
@@ -430,6 +438,8 @@ function OverdueTab() {
       {
         key: 'dueDate',
         header: 'Due Date',
+        sortable: true,
+        sortAccessor: (row) => new Date(row.dueDate),
         render: (row) => (
           <span className="text-sm">{formatDateIN(row.dueDate)}</span>
         ),
@@ -438,6 +448,8 @@ function OverdueTab() {
         key: 'daysOverdue',
         header: 'Days Overdue',
         align: 'right' as const,
+        sortable: true,
+        sortAccessor: (row) => Number(row.daysOverdue) || 0,
         render: (row) => (
           <span
             className={cn(
@@ -525,6 +537,7 @@ function OverdueTab() {
         isLoading={isLoading}
         emptyMessage="No overdue installments. Great job!"
         rowKey={(row) => row.id}
+        defaultSort={{ key: 'dueDate', dir: 'asc' }}
       />
 
       {paymentTarget && (
@@ -579,6 +592,8 @@ function CollectionsTab() {
       {
         key: 'dueDate',
         header: 'Due Date',
+        sortable: true,
+        sortAccessor: (row) => new Date(row.dueDate),
         render: (row) => {
           const dateStr = typeof row.dueDate === 'string'
             ? row.dueDate.split('T')[0]
@@ -599,6 +614,8 @@ function CollectionsTab() {
       {
         key: 'customer',
         header: 'Customer',
+        sortable: true,
+        sortAccessor: (row) => row.customerName ?? '',
         render: (row) => (
           <div>
             <p className="font-medium">{row.customerName}</p>
@@ -609,6 +626,8 @@ function CollectionsTab() {
       {
         key: 'product',
         header: 'Product',
+        sortable: true,
+        sortAccessor: (row) => `${row.productBrand ?? ''} ${row.productName ?? ''}`.trim(),
         render: (row) => (
           <span className="text-sm">{row.productBrand} {row.productName}</span>
         ),
@@ -616,6 +635,8 @@ function CollectionsTab() {
       {
         key: 'emiNumber',
         header: 'EMI #',
+        sortable: true,
+        sortAccessor: (row) => row.installmentNumber,
         render: (row) => (
           <span className="text-sm font-medium">
             {formatInstallmentLabel(row)} of {row.totalInstallments}
@@ -626,6 +647,8 @@ function CollectionsTab() {
         key: 'amountDue',
         header: 'Amount Due',
         align: 'right' as const,
+        sortable: true,
+        sortAccessor: (row) => Number(row.remainingAmount) || 0,
         render: (row) => (
           <span className="font-semibold">{formatINR(row.remainingAmount)}</span>
         ),
@@ -633,6 +656,8 @@ function CollectionsTab() {
       {
         key: 'status',
         header: 'Status',
+        sortable: true,
+        sortAccessor: (row) => row.status,
         render: (row) => <StatusBadge status={row.status} />,
       },
       {
@@ -843,6 +868,8 @@ function PaidTab() {
       {
         key: 'dueDate',
         header: 'Due Date',
+        sortable: true,
+        sortAccessor: (row) => new Date(row.dueDate),
         render: (row) => (
           <span className="text-sm">{formatDateIN(row.dueDate)}</span>
         ),
@@ -850,6 +877,8 @@ function PaidTab() {
       {
         key: 'paymentDate',
         header: 'First Paid',
+        sortable: true,
+        sortAccessor: (row) => (row.firstPaymentDate ? new Date(row.firstPaymentDate) : null),
         render: (row) =>
           row.firstPaymentDate ? (
             <div className="flex flex-col">
@@ -880,6 +909,8 @@ function PaidTab() {
       {
         key: 'customer',
         header: 'Customer',
+        sortable: true,
+        sortAccessor: (row) => row.customerName ?? '',
         render: (row) => (
           <div>
             <p className="font-medium">{row.customerName}</p>
@@ -890,6 +921,8 @@ function PaidTab() {
       {
         key: 'product',
         header: 'Product',
+        sortable: true,
+        sortAccessor: (row) => `${row.productBrand ?? ''} ${row.productName ?? ''}`.trim(),
         render: (row) => (
           <span className="text-sm">
             {row.productBrand} {row.productName}
@@ -899,6 +932,8 @@ function PaidTab() {
       {
         key: 'emiNumber',
         header: 'EMI #',
+        sortable: true,
+        sortAccessor: (row) => row.installmentNumber,
         render: (row) => (
           <span className="text-sm font-medium">
             {formatInstallmentLabel(row)} of {row.totalInstallments}
@@ -909,6 +944,8 @@ function PaidTab() {
         key: 'amountPaid',
         header: 'Paid',
         align: 'right' as const,
+        sortable: true,
+        sortAccessor: (row) => Number(row.amountPaid) || 0,
         render: (row) => (
           <span className="font-semibold text-green-700">
             {formatINR(row.amountPaid)}
@@ -919,6 +956,8 @@ function PaidTab() {
         key: 'amountDue',
         header: 'Due',
         align: 'right' as const,
+        sortable: true,
+        sortAccessor: (row) => Number(row.amountDue) || 0,
         render: (row) => (
           <span className="text-sm">{formatINR(row.amountDue)}</span>
         ),
@@ -926,6 +965,8 @@ function PaidTab() {
       {
         key: 'status',
         header: 'Status',
+        sortable: true,
+        sortAccessor: (row) => row.status,
         render: (row) => <StatusBadge status={row.status} />,
       },
       {

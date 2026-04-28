@@ -91,6 +91,8 @@ export function PurchaseListPage() {
     {
       key: 'invoiceNumber',
       header: 'Invoice #',
+      sortable: true,
+      sortAccessor: (row) => row.invoiceNumber,
       render: (row) =>
         canViewDetail ? (
           <button
@@ -106,11 +108,15 @@ export function PurchaseListPage() {
     {
       key: 'date',
       header: 'Date',
+      sortable: true,
+      sortAccessor: (row) => new Date(row.invoiceDate),
       render: (row) => formatDateIN(row.invoiceDate),
     },
     {
       key: 'distributor',
       header: 'Distributor',
+      sortable: true,
+      sortAccessor: (row) => row.distributor?.companyName ?? '',
       render: (row) => (
         <span className="font-medium">
           {row.distributor?.companyName ?? '-'}
@@ -121,24 +127,32 @@ export function PurchaseListPage() {
       key: 'totalAmount',
       header: 'Total',
       align: 'right',
+      sortable: true,
+      sortAccessor: (row) => Number(row.totalAmount) || 0,
       render: (row) => formatINR(row.totalAmount),
     },
     {
       key: 'gstAmount',
       header: 'GST',
       align: 'right',
+      sortable: true,
+      sortAccessor: (row) => Number(row.gstAmount) || 0,
       render: (row) => formatINR(row.gstAmount),
     },
     {
       key: 'paid',
       header: 'Paid',
       align: 'right',
+      sortable: true,
+      sortAccessor: (row) => Number(row.amountPaid) || 0,
       render: (row) => formatINR(row.amountPaid),
     },
     {
       key: 'pending',
       header: 'Pending',
       align: 'right',
+      sortable: true,
+      sortAccessor: (row) => (Number(row.netAmount) || 0) - (Number(row.amountPaid) || 0),
       render: (row) => {
         const pending = (Number(row.netAmount) || 0) - (Number(row.amountPaid) || 0);
         return (
@@ -151,6 +165,8 @@ export function PurchaseListPage() {
     {
       key: 'status',
       header: 'Status',
+      sortable: true,
+      sortAccessor: (row) => row.paymentStatus,
       render: (row) => <StatusBadge status={row.paymentStatus} />,
     },
   ];

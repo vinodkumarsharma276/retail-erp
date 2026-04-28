@@ -102,16 +102,22 @@ export function ProductListPage() {
     {
       key: 'brand',
       header: 'Brand',
+      sortable: true,
+      sortAccessor: (row) => row.brand,
       render: (row) => <span className="font-medium">{row.brand}</span>,
     },
     {
       key: 'model',
       header: 'Model',
+      sortable: true,
+      sortAccessor: (row) => row.modelNumber,
       render: (row) => row.modelNumber,
     },
     {
       key: 'category',
       header: 'Category',
+      sortable: true,
+      sortAccessor: (row) => findCategoryName(categoryTree ?? [], row.categoryId) ?? '',
       render: (row) => {
         // Find category name from tree
         const name = findCategoryName(categoryTree ?? [], row.categoryId);
@@ -121,6 +127,11 @@ export function ProductListPage() {
     {
       key: 'distributor',
       header: 'Distributor',
+      sortable: true,
+      sortAccessor: (row) => {
+        const distributor = (row as any).distributor as { id: string; companyName: string } | null;
+        return distributor?.companyName ?? '';
+      },
       render: (row) => {
         const distributor = (row as any).distributor as { id: string; companyName: string } | null;
         return distributor?.companyName ?? '-';
@@ -129,6 +140,8 @@ export function ProductListPage() {
     {
       key: 'serial',
       header: 'Serial Number',
+      sortable: true,
+      sortAccessor: (row) => row.serialNumber ?? '',
       render: (row) => (
         <span className="font-mono text-xs">{row.serialNumber ?? '-'}</span>
       ),
@@ -137,17 +150,23 @@ export function ProductListPage() {
       key: 'mrp',
       header: 'MRP',
       align: 'right',
+      sortable: true,
+      sortAccessor: (row) => Number(row.mrp) || 0,
       render: (row) => formatINR(row.mrp),
     },
     {
       key: 'purchasePrice',
       header: 'DP (Dealer Price)',
       align: 'right',
+      sortable: true,
+      sortAccessor: (row) => Number(row.purchasePrice) || 0,
       render: (row) => formatINR(row.purchasePrice),
     },
     {
       key: 'status',
       header: 'Status',
+      sortable: true,
+      sortAccessor: (row) => row.status,
       render: (row) => <StatusBadge status={row.status} />,
     },
     {

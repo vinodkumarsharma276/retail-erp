@@ -112,7 +112,7 @@ export function LoginPage() {
       : null;
 
   return (
-    <div className="w-full max-w-xl rounded-2xl border bg-card p-12 sm:p-14 shadow-xl shadow-black/5 dark:shadow-black/20">
+    <div className="w-full max-w-3xl rounded-2xl border bg-card p-8 sm:p-10 shadow-xl shadow-black/5 dark:shadow-black/20">
       {/* Logo / Title */}
       <div className="flex flex-col items-center mb-12">
         <div className="flex items-center gap-4 mb-5">
@@ -142,9 +142,9 @@ export function LoginPage() {
             )}
           >
             <div className="flex items-center gap-2.5">
-              <Store className="h-5 w-5 text-muted-foreground" />
+              <Store className="h-5 w-5 shrink-0 text-muted-foreground" />
               {selectedShop ? (
-                <span>
+                <span className="whitespace-nowrap">
                   {selectedShop.name}{' '}
                   <span className="text-muted-foreground">
                     ({selectedShop.code})
@@ -189,14 +189,14 @@ export function LoginPage() {
                         type="button"
                         onClick={() => handleShopSelect(shop)}
                         className={cn(
-                          'flex w-full items-center gap-2.5 px-4 py-2.5 text-base transition-colors',
+                          'flex w-full items-center gap-2.5 whitespace-nowrap px-4 py-2.5 text-base transition-colors',
                           'hover:bg-muted',
                           selectedShop?.id === shop.id && 'bg-primary/10 text-primary',
                         )}
                       >
-                        <Store className="h-4 w-4 text-muted-foreground" />
-                        <span>{shop.name}</span>
-                        <span className="text-muted-foreground">
+                        <Store className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        <span className="truncate">{shop.name}</span>
+                        <span className="shrink-0 text-muted-foreground">
                           ({shop.code})
                         </span>
                       </button>

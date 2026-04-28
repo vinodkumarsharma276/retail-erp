@@ -63,6 +63,8 @@ export function DistributorListPage() {
     {
       key: 'companyName',
       header: 'Company Name',
+      sortable: true,
+      sortAccessor: (row) => row.companyName,
       render: (row) => (
         <button
           onClick={() => navigate(`/distributors/${row.id}`)}
@@ -75,11 +77,15 @@ export function DistributorListPage() {
     {
       key: 'contactPerson',
       header: 'Contact Person',
+      sortable: true,
+      sortAccessor: (row) => row.contactPerson ?? '',
       render: (row) => row.contactPerson,
     },
     {
       key: 'phone',
       header: 'Phone',
+      sortable: true,
+      sortAccessor: (row) => row.phone ?? '',
       render: (row) => (
         <div>
           <p>{row.phone}</p>
@@ -90,6 +96,8 @@ export function DistributorListPage() {
     {
       key: 'gstNumber',
       header: 'GST Number',
+      sortable: true,
+      sortAccessor: (row) => row.gstNumber ?? '',
       render: (row) => (
         <span className="font-mono text-xs">{row.gstNumber || '-'}</span>
       ),
@@ -98,18 +106,24 @@ export function DistributorListPage() {
       key: 'totalProducts',
       header: 'Products Purchased',
       align: 'right',
+      sortable: true,
+      sortAccessor: (row) => Number(row.totalProductsPurchased) || 0,
       render: (row) => row.totalProductsPurchased,
     },
     {
       key: 'totalPaid',
       header: 'Total Paid',
       align: 'right',
+      sortable: true,
+      sortAccessor: (row) => Number(row.totalPaymentPaid) || 0,
       render: (row) => formatINR(row.totalPaymentPaid),
     },
     {
       key: 'pending',
       header: 'Pending',
       align: 'right',
+      sortable: true,
+      sortAccessor: (row) => Number(row.pendingPayment) || 0,
       render: (row) => (
         <span
           className={cn(
