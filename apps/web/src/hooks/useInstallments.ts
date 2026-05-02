@@ -353,8 +353,11 @@ export function useRecordInstallmentPaymentMutation() {
         scenario: 'full_payment' | 'reschedule' | 'partial_reschedule';
         amountPaid?: number;
         paymentMode?: string;
+        paymentBreakdown?: Array<{ mode: string; amount: number }>;
         newDate?: string;
         notes?: string;
+        applyInterest?: { amount: number; notes?: string };
+        waiveExcessInterest?: boolean;
       };
     }) => {
       const { data } = await apiClient.post<ApiResponse<Installment>>(
@@ -416,6 +419,158 @@ export function useRevertPaymentMutation() {
     }) => {
       const { data } = await apiClient.post(
         `/installments/payments/${paymentId}/revert`,
+        { reason },
+      );
+      return data.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['installments'] });
+      queryClient.invalidateQueries({ queryKey: ['sales'] });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Final settlement (early closure) — quote + record
+// ---------------------------------------------------------------------------
+export interface SettlementQuote {
+  scheduleId: string;
+  saleId: string;
+  saleNumber: string;
+  totalPrincipal: number;
+  totalInterest: number;
+  fileCharge: number;
+  numInstallments: number;
+  unpaidPrincipal: number;
+  unpaidFileCharge: number;
+  earnedInterest: number;
+  waivedInterest: number;
+  finalSettlement: number;
+  unpaidCount: number;
+  perInstallment: {
+    principalShare: number;
+    interestShare: number;
+    fileChargeShare: number;
+    emiAmount: number;
+  };
+  asOf: string;
+}
+
+export function useSettlementQuoteQuery(scheduleId: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: ['installments', 'settlement-quote', scheduleId],
+    queryFn: async () => {
+      const { data } = await apiClient.get<ApiResponse<SettlementQuote>>(
+        `/installments/schedules/${scheduleId}/settlement-quote`,
+      );
+      return data.data!;
+    },
+    enabled: !!scheduleId && enabled,
+    staleTime: 60_000,
+  });
+}
+
+export function useRecordFinalSettlementMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      scheduleId,
+      payload,
+    }: {
+      scheduleId: string;
+      payload: {
+        paymentMode: string;
+        paymentDate?: string;
+        referenceNumber?: string;
+        notes?: string;
+        expectedAmount?: number;
+      };
+    }) => {
+      const { data } = await apiClient.post<ApiResponse<unknown>>(
+        `/installments/schedules/${scheduleId}/final-settlement`,
+        payload,
+      );
+      return data.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['installments'] });
+      queryClient.invalidateQueries({ queryKey: ['sales'] });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Overdue interest accrual + apply / rollback
+// ---------------------------------------------------------------------------
+export interface InterestAccrualItem {
+  installmentId: string;
+  installmentNumber: number;
+  parentInstallmentNumber: number | null;
+  subSequence: number | null;
+  dueDate: string;
+  remainingAmount: number;
+  status: string;
+  daysOverdue: number;
+  suggestedInterest: number;
+  appliedInterest: number;
+  applications: Array<{
+    id: string;
+    appliedAmount: number;
+    appliedAt: string;
+    appliedBy: string;
+    notes: string | null;
+  }>;
+}
+
+export function useInterestAccrualQuery(scheduleId: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: ['installments', 'interest-accrual', scheduleId],
+    queryFn: async () => {
+      const { data } = await apiClient.get<ApiResponse<InterestAccrualItem[]>>(
+        `/installments/schedules/${scheduleId}/interest-accrual`,
+      );
+      return data.data ?? [];
+    },
+    enabled: !!scheduleId && enabled,
+    staleTime: 30_000,
+  });
+}
+
+export function useApplyOverdueInterestMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      installmentId,
+      payload,
+    }: {
+      installmentId: string;
+      payload: { amount: number; notes?: string };
+    }) => {
+      const { data } = await apiClient.post<ApiResponse<unknown>>(
+        `/installments/${installmentId}/apply-interest`,
+        payload,
+      );
+      return data.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['installments'] });
+      queryClient.invalidateQueries({ queryKey: ['sales'] });
+    },
+  });
+}
+
+export function useRollbackInterestApplicationMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      applicationId,
+      reason,
+    }: {
+      applicationId: string;
+      reason: string;
+    }) => {
+      const { data } = await apiClient.post<ApiResponse<unknown>>(
+        `/installments/interest-applications/${applicationId}/rollback`,
         { reason },
       );
       return data.data;

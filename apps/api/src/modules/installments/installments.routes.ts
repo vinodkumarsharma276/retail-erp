@@ -4,7 +4,14 @@ import { authenticate } from '../../middleware/auth.js';
 import { authorize } from '../../middleware/rbac.js';
 import { shopScope } from '../../middleware/shop-scope.js';
 import { validate } from '../../middleware/validate.js';
-import { recordPaymentSchema, rescheduleSchema } from './installments.validation.js';
+import { requirePermission } from '../../middleware/permissions.js';
+import {
+  recordPaymentSchema,
+  rescheduleSchema,
+  finalSettlementSchema,
+  applyInterestSchema,
+  rollbackInterestSchema,
+} from './installments.validation.js';
 import { UserRole } from '@retailerp/shared-types';
 
 export async function installmentRoutes(app: FastifyInstance) {
@@ -86,4 +93,51 @@ export async function installmentRoutes(app: FastifyInstance) {
   app.post('/payments/:paymentId/revert', {
     preHandler: [...adminAccountantShopScoped],
   }, installmentsController.revertPayment as any);
+
+  // ---- Final settlement (early closure) ----------------------------------
+  app.get(
+    '/schedules/:scheduleId/settlement-quote',
+    { preHandler: [...adminAccountantEmployee, requirePermission('installments.detail')] },
+    installmentsController.getSettlementQuote as any,
+  );
+  app.post(
+    '/schedules/:scheduleId/final-settlement',
+    {
+      preHandler: [
+        ...collectionRoles,
+        requirePermission('installments.final_settlement'),
+        validate(finalSettlementSchema),
+      ],
+    },
+    installmentsController.recordFinalSettlement as any,
+  );
+
+  // ---- Overdue interest accrual + apply / rollback -----------------------
+  app.get(
+    '/schedules/:scheduleId/interest-accrual',
+    { preHandler: [...adminAccountantEmployee, requirePermission('installments.detail')] },
+    installmentsController.getInterestAccrual as any,
+  );
+  app.post(
+    '/:installmentId/apply-interest',
+    {
+      preHandler: [
+        ...collectionRoles,
+        requirePermission('installments.interest.apply'),
+        validate(applyInterestSchema),
+      ],
+    },
+    installmentsController.applyOverdueInterest as any,
+  );
+  app.post(
+    '/interest-applications/:applicationId/rollback',
+    {
+      preHandler: [
+        ...adminAccountantShopScoped,
+        requirePermission('installments.interest.rollback'),
+        validate(rollbackInterestSchema),
+      ],
+    },
+    installmentsController.rollbackInterestApplication as any,
+  );
 }

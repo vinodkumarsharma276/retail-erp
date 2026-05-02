@@ -1487,16 +1487,16 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
 
                   {/* Schedule table */}
                   <div className="max-h-64 overflow-y-auto rounded-md border border-blue-200 dark:border-blue-800 bg-card">
-                    <table className="w-full text-sm">
-                      <thead className="sticky top-0 bg-blue-100 dark:bg-blue-900/40">
+                    <table className="w-full text-sm border-separate border-spacing-0">
+                      <thead className="sticky top-0 z-10 bg-blue-100 dark:bg-blue-950 shadow-sm">
                         <tr>
-                          <th className="px-3 py-2 text-left font-medium text-blue-800 dark:text-blue-300">
+                          <th className="px-3 py-2 text-left font-medium text-blue-800 dark:text-blue-300 border-b border-blue-200 dark:border-blue-800">
                             Month #
                           </th>
-                          <th className="px-3 py-2 text-left font-medium text-blue-800 dark:text-blue-300">
+                          <th className="px-3 py-2 text-left font-medium text-blue-800 dark:text-blue-300 border-b border-blue-200 dark:border-blue-800">
                             Due Date
                           </th>
-                          <th className="px-3 py-2 text-right font-medium text-blue-800 dark:text-blue-300">
+                          <th className="px-3 py-2 text-right font-medium text-blue-800 dark:text-blue-300 border-b border-blue-200 dark:border-blue-800">
                             Amount
                           </th>
                         </tr>
@@ -1505,13 +1505,13 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
                         {emiResult.schedule.map((item) => (
                           <tr
                             key={item.installmentNumber}
-                            className="border-t border-blue-100 dark:border-blue-900"
+                            className="bg-card"
                           >
-                            <td className="px-3 py-1.5">
+                            <td className="px-3 py-1.5 border-t border-blue-100 dark:border-blue-900">
                               {item.installmentNumber}
                             </td>
-                            <td className="px-3 py-1.5">{item.dueDate}</td>
-                            <td className="px-3 py-1.5 text-right font-medium">
+                            <td className="px-3 py-1.5 border-t border-blue-100 dark:border-blue-900">{item.dueDate}</td>
+                            <td className="px-3 py-1.5 text-right font-medium border-t border-blue-100 dark:border-blue-900">
                               {formatINR(item.amount)}
                             </td>
                           </tr>

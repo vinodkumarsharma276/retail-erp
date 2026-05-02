@@ -27,4 +27,7 @@ export async function dashboardRoutes(app: FastifyInstance) {
 
   // GET /summary — Dashboard header summary metrics
   app.get('/summary', { preHandler: adminOnly }, dashboardController.getSummary as any);
+
+  // GET /low-margin-sales?threshold=&dateFrom=&dateTo= — Sales whose net-profit % is at most threshold
+  app.get('/low-margin-sales', { preHandler: adminOnly }, dashboardController.getLowMarginSales as any);
 }

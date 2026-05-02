@@ -103,4 +103,25 @@ export const dashboardController = {
       return sendError(reply, message, 500);
     }
   },
+
+  async getLowMarginSales(
+    request: FastifyRequest<{
+      Querystring: { threshold?: string; dateFrom?: string; dateTo?: string };
+    }>,
+    reply: FastifyReply,
+  ) {
+    try {
+      const shopId = request.shopFilter!.shopId;
+      const threshold = Number(request.query.threshold ?? '5');
+      const data = await dashboardService.getLowMarginSales(shopId, {
+        threshold: Number.isFinite(threshold) ? threshold : 5,
+        dateFrom: request.query.dateFrom,
+        dateTo: request.query.dateTo,
+      });
+      return sendSuccess(reply, data);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to fetch low-margin sales';
+      return sendError(reply, message, 500);
+    }
+  },
 };

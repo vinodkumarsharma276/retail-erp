@@ -418,6 +418,13 @@ export async function distributeOverpayment(
     actorUserId?: string;
     paymentMode?: string;
     notes?: string;
+    /**
+     * When true (employee opted in), fully-cleared future installments
+     * have their baked-in interest share waived — customer pays only
+     * principal+file. When false (default), the excess is simply
+     * decremented from future installments without any interest discount.
+     */
+    waiveInterest?: boolean;
   },
 ): Promise<{
   distributed: number;
@@ -427,6 +434,7 @@ export async function distributeOverpayment(
   if (excess <= 0) {
     return { distributed: 0, targets: [] };
   }
+  const waiveInterest = args.waiveInterest === true;
 
   const chains = await loadChains(tx, args.scheduleId);
   const primaries = primariesOnly(chains);
@@ -442,68 +450,115 @@ export async function distributeOverpayment(
     return { distributed: 0, targets: [] };
   }
 
-  // Equal split with residue on the last target.
-  const perTarget = round2(excess / targets.length);
-  const distributed = round2(perTarget * targets.length);
-  const residue = round2(excess - distributed);
+  // Look up the schedule's interest / file shares so we can offer early
+  // closure with proper interest waiver. The waiver only kicks in when
+  // `waiveInterest === true`; otherwise we apply the excess straight as a
+  // partial decrement (legacy behavior).
+  const schedule = await tx.installmentSchedule.findUnique({
+    where: { id: args.scheduleId },
+    select: {
+      totalInterest: true,
+      totalPrincipal: true,
+      fileCharge: true,
+      numInstallments: true,
+    },
+  });
+  const totalInterest = Number(schedule?.totalInterest ?? 0);
+  const fileCharge = Number(schedule?.fileCharge ?? 0);
+  const principal = Number(schedule?.totalPrincipal ?? 0);
+  const numInstallments = Math.max(1, schedule?.numInstallments ?? 1);
+  const interestShare = round2(totalInterest / numInstallments);
+  const fileShare = round2(fileCharge / numInstallments);
+  const principalShare = round2(principal / numInstallments);
+  const noInterestEmi = round2(principalShare + fileShare);
 
   const targetDeltas: {
     id: string;
     delta: number;
     installmentNumber: number;
     paidOff: boolean;
+    interestWaived: number;
+    closedEarly: boolean;
   }[] = [];
 
-  // A target's delta can't exceed its own remainingAmount. If that happens
-  // (e.g., very large overpayment on a tiny future installment) we cap the
-  // delta at the target's remaining and roll leftover into a running pool
-  // that is then re-applied to subsequent targets. This keeps totals exact
-  // without inventing negative amounts.
-  let leftover = 0;
-  for (let i = 0; i < targets.length; i++) {
-    const t = targets[i];
-    const nominal = i === targets.length - 1 ? round2(perTarget + residue + leftover) : round2(perTarget + leftover);
-    leftover = 0;
+  let remaining = excess;
+  let waivedInterestTotal = 0;
 
-    let delta = nominal;
-    if (delta > t.remainingAmount) {
-      leftover = round2(delta - t.remainingAmount);
-      delta = t.remainingAmount;
+  for (const t of targets) {
+    if (remaining <= 0) break;
+
+    // Greedy waiver path — only when employee opted in.
+    if (
+      waiveInterest &&
+      interestShare > 0 &&
+      remaining >= Math.min(noInterestEmi, t.remainingAmount) &&
+      t.remainingAmount > 0
+    ) {
+      const closingCost = Math.min(noInterestEmi, t.remainingAmount);
+      const interestPortionPresent = Math.min(interestShare, t.remainingAmount);
+      const reductionToAmountDue = round2(closingCost + interestPortionPresent);
+      const cappedReduction = Math.min(reductionToAmountDue, t.remainingAmount);
+      const interestWaived = round2(cappedReduction - closingCost);
+
+      await tx.installment.update({
+        where: { id: t.id },
+        data: {
+          amountDue: { decrement: cappedReduction },
+          amountPaid: { increment: closingCost },
+          remainingAmount: { decrement: cappedReduction },
+          status: 'paid' as any,
+        },
+      });
+
+      remaining = round2(remaining - closingCost);
+      waivedInterestTotal = round2(waivedInterestTotal + interestWaived);
+      targetDeltas.push({
+        id: t.id,
+        delta: closingCost,
+        installmentNumber: t.installmentNumber,
+        paidOff: true,
+        interestWaived,
+        closedEarly: true,
+      });
+      continue;
     }
 
+    // Default / no-waiver path: legacy behavior — just decrement amountDue
+    // and remainingAmount by the available excess. Customer still owes the
+    // baked-in interest on these installments; they just owe less principal.
+    const delta = Math.min(remaining, t.remainingAmount);
+    if (delta <= 0) break;
     const newRemaining = round2(t.remainingAmount - delta);
-    const newAmountDue = round2(t.amountDue - delta);
-    const paidOff = newRemaining <= 0 && t.amountPaid >= newAmountDue;
-
+    const newAmountPaid = round2(t.amountPaid); // unchanged
+    const willBePaidOff = newRemaining <= 0;
     await tx.installment.update({
       where: { id: t.id },
       data: {
         amountDue: { decrement: delta },
         remainingAmount: { decrement: delta },
-        status: paidOff ? ('paid' as any) : (t.status as any),
+        status: willBePaidOff ? ('paid' as any) : (t.status as any),
       },
     });
-
+    remaining = round2(remaining - delta);
     targetDeltas.push({
       id: t.id,
       delta,
       installmentNumber: t.installmentNumber,
-      paidOff,
+      paidOff: willBePaidOff,
+      interestWaived: 0,
+      closedEarly: false,
     });
-
-    if (leftover <= 0 && i === targets.length - 1) break;
+    if (remaining <= 0) break;
+    void newAmountPaid; // declared for symmetry with prior version
   }
 
-  // If any leftover remains (overpayment was larger than all future remaining
-  // combined) we fold it back onto the source installment as extra amountPaid
-  // beyond amountDue. That preserves cash-flow accuracy without breaking
-  // schedule totals. In practice callers should validate before this point.
-  if (leftover > 0) {
-    await tx.installment.update({
-      where: { id: args.sourceInstallmentId },
-      data: { amountPaid: { increment: leftover } },
-    });
-  }
+  // Any cash the customer paid beyond what was actually distributed remains
+  // on the source row's amountPaid (the caller already incremented amountPaid
+  // by the FULL cash amount). We deliberately do NOT touch amountDue here —
+  // the contractual EMI for the source installment is preserved as the
+  // original schedule value; the leftover is just the unallocated portion
+  // of cash and is visible via the InstallmentPayment row(s).
+  const leftover = remaining;
 
   const todayDate = toDateOnly(args.today);
   const lastTargetNum = targets[targets.length - 1].installmentNumber;
@@ -515,7 +570,8 @@ export async function distributeOverpayment(
 
   const message =
     `Overpayment of ${formatINR(excess)} on Installment #${args.sourcePrimaryNumber} ` +
-    `distributed across ${targetLabel} (${formatINR(perTarget)} each).` +
+    `applied to ${targetLabel}.` +
+    (waivedInterestTotal > 0 ? ` ${formatINR(waivedInterestTotal)} future interest waived.` : '') +
     (leftover > 0 ? ` Unallocated excess ${formatINR(leftover)} kept on source row.` : '') +
     (args.notes ? ` Note: ${args.notes}` : '');
 
@@ -533,7 +589,10 @@ export async function distributeOverpayment(
         excess,
         distributed: distributedAmount,
         leftover,
-        perTarget,
+        interestWaived: waivedInterestTotal,
+        principalShare,
+        interestShare,
+        fileShare,
         targets: targetDeltas,
         paymentMode: args.paymentMode ?? null,
       } as Prisma.InputJsonValue,

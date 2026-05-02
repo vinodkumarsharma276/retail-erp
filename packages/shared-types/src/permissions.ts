@@ -144,6 +144,9 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
     ['installments.view_interest_rate', 'See interest rate'],
     ['installments.view_guarantor_contact', 'See guarantor contact info'],
     ['installments.payment_timeline', 'See payment timeline component'],
+    ['installments.final_settlement', 'Close loan with final settlement quote'],
+    ['installments.interest.apply', 'Apply overdue interest to installment'],
+    ['installments.interest.rollback', 'Roll back applied overdue interest'],
   ]),
 
   g('transfers', 'Inter-Shop Transfers', [
@@ -310,7 +313,7 @@ export const ROLE_ACCOUNTANT_PERMISSIONS: string[] = [
   'installments.list', 'installments.tab.todays_scheduled', 'installments.tab.all_overdue',
   'installments.tab.search', 'installments.detail', 'installments.record_payment',
   'installments.view_interest_rate', 'installments.view_guarantor_contact',
-  'installments.payment_timeline',
+  'installments.payment_timeline', 'installments.interest.apply',
   // Expenses
   'expenses.list', 'expenses.detail', 'expenses.create', 'expenses.edit',
   'expenses.upload_invoice', 'expenses.mark_gst_claimable', 'expenses.export',
@@ -344,7 +347,7 @@ export const ROLE_EMPLOYEE_PERMISSIONS: string[] = [
   'nav.installments',
   'installments.list', 'installments.tab.todays_scheduled', 'installments.tab.all_overdue',
   'installments.detail', 'installments.record_payment',
-  'installments.payment_timeline',
+  'installments.payment_timeline', 'installments.interest.apply',
   'customers.detail', 'customers.view_phone',
   'notifications.view_own',
 ];

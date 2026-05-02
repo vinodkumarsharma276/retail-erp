@@ -19,6 +19,25 @@ function applyToFormatters(prefs: UserPreferences): void {
   });
 }
 
+/**
+ * Native `<input type="date">` renders the date in the browser's UI locale,
+ * but Chromium-based browsers respect the `lang` attribute on `<html>`. By
+ * mapping the user's date-format preference to a sensible BCP-47 locale we
+ * get the input to display in the user's preferred order without rolling
+ * our own date picker. Firefox/Safari may still ignore this — but the
+ * underlying value (always YYYY-MM-DD) is unaffected, so submission works.
+ */
+function applyDocumentLang(dateFormat: UserPreferences['dateFormat']): void {
+  const fmt = dateFormat ?? DEFAULT_USER_PREFERENCES.dateFormat;
+  const lang =
+    fmt === 'MM/DD/YYYY'
+      ? 'en-US'
+      : fmt === 'YYYY-MM-DD'
+        ? 'en-CA'
+        : 'en-IN'; // DD/MM/YYYY, DD-MMM-YYYY, DD MMM YYYY all use day-first
+  document.documentElement.setAttribute('lang', lang);
+}
+
 function applyTheme(theme: UserPreferences['theme']): void {
   const resolved =
     theme === 'system' || !theme
@@ -45,12 +64,14 @@ export const usePreferencesStore = create<PreferencesState>((set, get) => ({
     const next = withDefaults(prefs);
     applyToFormatters(next);
     applyTheme(next.theme);
+    applyDocumentLang(next.dateFormat);
     set({ preferences: next });
   },
   patch: (partial) => {
     const next = { ...get().preferences, ...partial };
     applyToFormatters(next);
     if (partial.theme !== undefined) applyTheme(next.theme);
+    if (partial.dateFormat !== undefined) applyDocumentLang(next.dateFormat);
     set({ preferences: next });
   },
 }));

@@ -28,6 +28,10 @@ export interface SaleFilters {
   dateTo?: string;
   saleType?: string;
   customerSearch?: string;
+  /** Filter to sales whose net-profit % is at most this value (inclusive). */
+  maxProfitPct?: number;
+  /** Filter to sales whose net-profit % is at least this value (inclusive). */
+  minProfitPct?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -45,6 +49,8 @@ export function useSalesQuery(filters: SaleFilters) {
       if (filters.dateTo) params.set('dateTo', filters.dateTo);
       if (filters.saleType) params.set('saleType', filters.saleType);
       if (filters.customerSearch) params.set('customerSearch', filters.customerSearch);
+      if (filters.maxProfitPct !== undefined) params.set('maxProfitPct', String(filters.maxProfitPct));
+      if (filters.minProfitPct !== undefined) params.set('minProfitPct', String(filters.minProfitPct));
 
       const { data } = await apiClient.get<PaginatedResponse<SaleListItem>>(
         `/sales?${params.toString()}`,

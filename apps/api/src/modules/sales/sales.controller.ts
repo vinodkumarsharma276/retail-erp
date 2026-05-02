@@ -13,15 +13,23 @@ export const salesController = {
         dateTo?: string;
         saleType?: string;
         customerSearch?: string;
+        maxProfitPct?: string;
+        minProfitPct?: string;
       };
     }>,
     reply: FastifyReply,
   ) {
     try {
       const { page, pageSize, skip, take } = parsePagination(request.query);
-      const { dateFrom, dateTo, saleType, customerSearch } = request.query;
+      const { dateFrom, dateTo, saleType, customerSearch, maxProfitPct, minProfitPct } = request.query;
       const shopId = request.shopFilter!.shopId;
       const userRole = request.currentUser!.role;
+
+      const parsePct = (v?: string) => {
+        if (v === undefined || v === '') return undefined;
+        const n = Number(v);
+        return Number.isFinite(n) ? n : undefined;
+      };
 
       const { sales, totalItems } = await salesService.list(shopId, userRole, {
         page,
@@ -32,6 +40,8 @@ export const salesController = {
         dateTo,
         saleType,
         customerSearch,
+        maxProfitPct: parsePct(maxProfitPct),
+        minProfitPct: parsePct(minProfitPct),
       });
 
       return sendPaginated(reply, sales, { page, pageSize, totalItems });

@@ -65,6 +65,13 @@ function SaleListPageInner() {
   const defaultDateTo = getLastMonthEnd();
   const dateFrom = searchParams.get('dateFrom') || defaultDateFrom;
   const dateTo = searchParams.get('dateTo') || defaultDateTo;
+  // Profit% filter (only meaningful for users who can see profit numbers).
+  const canSeeProfit = can('sales.section.profit');
+  const maxProfitPctRaw = searchParams.get('maxProfitPct') || '';
+  const maxProfitPct =
+    canSeeProfit && maxProfitPctRaw !== '' && Number.isFinite(Number(maxProfitPctRaw))
+      ? Number(maxProfitPctRaw)
+      : undefined;
   // When user is actively searching, ignore the date range so matches aren't hidden.
   const isSearching = customerSearch.trim().length > 0;
 
@@ -90,13 +97,19 @@ function SaleListPageInner() {
     customerSearch: debouncedCustomerSearch.length >= 2 ? debouncedCustomerSearch : undefined,
     dateFrom: isSearching ? undefined : dateFrom || undefined,
     dateTo: isSearching ? undefined : dateTo || undefined,
+    maxProfitPct,
   });
 
   const sales = salesQuery.data?.data ?? [];
   const pagination = salesQuery.data?.pagination;
 
   // ------ Clear filters ------
-  const hasFilters = !!customerSearch || !!saleType || dateFrom !== defaultDateFrom || dateTo !== defaultDateTo;
+  const hasFilters =
+    !!customerSearch ||
+    !!saleType ||
+    dateFrom !== defaultDateFrom ||
+    dateTo !== defaultDateTo ||
+    maxProfitPct !== undefined;
   const clearFilters = () => {
     setSearchParams({}, { replace: true });
   };
@@ -426,6 +439,35 @@ function SaleListPageInner() {
             )}
           />
         </div>
+
+        {/* Net-profit % filter (only if user can see profit) */}
+        {canSeeProfit && (
+          <div className="min-w-[170px]">
+            <label className="block text-xs font-medium text-muted-foreground mb-1">
+              Net Profit %
+            </label>
+            <div className="relative">
+              <select
+                value={maxProfitPctRaw}
+                onChange={(e) => {
+                  updateFilters({ maxProfitPct: e.target.value, page: '1' });
+                }}
+                className={cn(
+                  'w-full appearance-none rounded-md border bg-background px-3 py-2 pr-8 text-sm',
+                  'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                )}
+              >
+                <option value="">All</option>
+                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 18, 20].map((t) => (
+                  <option key={t} value={t}>
+                    ≤ {t}%
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            </div>
+          </div>
+        )}
 
         <button
           onClick={() => {

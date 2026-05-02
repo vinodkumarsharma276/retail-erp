@@ -12,6 +12,9 @@ import {
   EyeOff,
   Undo2,
   X,
+  History,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useScheduleDetailQuery, useRevertPaymentMutation } from '../../hooks/useInstallments';
@@ -50,6 +53,21 @@ export function InstallmentDetailPage() {
 
   // Toggle to show/hide rescheduled (superseded) rows
   const [showRescheduled, setShowRescheduled] = useState(false);
+  const [showTimeline, setShowTimeline] = useState(false);
+  // Per-row override: when an overdue installment has been absorbed into
+  // future primaries (remainingAmount === 0) the Pay button is hidden by
+  // default. Toggling "Record manually" for that row re-enables it so the
+  // collector can still record cash actually received against the missed
+  // installment (server treats it as an overpayment that R7 distributes).
+  const [manuallyEnabled, setManuallyEnabled] = useState<Set<string>>(new Set());
+  const toggleManual = (id: string) => {
+    setManuallyEnabled((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   // Loading
   if (isLoading) {
@@ -210,10 +228,29 @@ export function InstallmentDetailPage() {
         </div>
       </div>
 
-      {/* Middle section: Payment Timeline */}
-      <div className="rounded-lg border bg-card p-6 mb-6">
-        <h2 className="text-lg font-medium mb-4">Payment Timeline</h2>
-        <PaymentTimeline scheduleId={scheduleId!} />
+      {/* Middle section: Payment Timeline (collapsed by default) */}
+      <div className="rounded-lg border bg-card mb-6">
+        <button
+          type="button"
+          onClick={() => setShowTimeline((v) => !v)}
+          className="w-full flex items-center justify-between gap-2 p-6 text-left hover:bg-muted/30 transition-colors rounded-lg"
+          aria-expanded={showTimeline}
+        >
+          <div className="flex items-center gap-2">
+            <History className="h-5 w-5 text-muted-foreground" />
+            <h2 className="text-lg font-medium">Payment Timeline & Activity Log</h2>
+          </div>
+          {showTimeline ? (
+            <ChevronDown className="h-5 w-5 text-muted-foreground" />
+          ) : (
+            <ChevronRight className="h-5 w-5 text-muted-foreground" />
+          )}
+        </button>
+        {showTimeline && (
+          <div className="px-6 pb-6 -mt-2">
+            <PaymentTimeline scheduleId={scheduleId!} />
+          </div>
+        )}
       </div>
 
       {/* Bottom section: Installment table */}
@@ -267,11 +304,17 @@ export function InstallmentDetailPage() {
                 <th className="px-3 py-2.5 text-left font-medium text-muted-foreground">
                   Actions
                 </th>
+                <th className="px-3 py-2.5 text-left font-medium text-muted-foreground">
+                  Override
+                </th>
               </tr>
             </thead>
             <tbody>
               {visibleInstallments.map((inst) => {
-                const canPay = actionableStatuses.includes(inst.status);
+                const remNum = Number(inst.remainingAmount) || 0;
+                const statusActionable = actionableStatuses.includes(inst.status);
+                const isAbsorbed = statusActionable && remNum <= 0;
+                const canPay = statusActionable && (remNum > 0 || manuallyEnabled.has(inst.id));
                 const canReschedule =
                   inst.status === InstallmentStatus.UPCOMING ||
                   inst.status === InstallmentStatus.OVERDUE ||
@@ -340,7 +383,7 @@ export function InstallmentDetailPage() {
                             onClick={() =>
                               setPaymentTarget({
                                 id: inst.id,
-                                amount: inst.remainingAmount,
+                                amount: remNum,
                                 number: inst.installmentNumber,
                               })
                             }
@@ -399,6 +442,39 @@ export function InstallmentDetailPage() {
                         )}
                       </div>
                     </td>
+                    <td className="px-3 py-2.5">
+                      {isAbsorbed ? (
+                        <button
+                          type="button"
+                          onClick={() => toggleManual(inst.id)}
+                          className="inline-flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                          title={
+                            manuallyEnabled.has(inst.id)
+                              ? 'Disable manual recording for this row.'
+                              : 'This installment was absorbed into future installments. Toggle on to record a missed payment manually.'
+                          }
+                        >
+                          <span
+                            className={cn(
+                              'relative inline-flex h-4 w-7 shrink-0 rounded-full transition-colors',
+                              manuallyEnabled.has(inst.id)
+                                ? 'bg-emerald-500/70'
+                                : 'bg-muted',
+                            )}
+                          >
+                            <span
+                              className={cn(
+                                'absolute top-0.5 h-3 w-3 rounded-full bg-background transition-transform',
+                                manuallyEnabled.has(inst.id) ? 'left-3.5' : 'left-0.5',
+                              )}
+                            />
+                          </span>
+                          {manuallyEnabled.has(inst.id) ? 'Manual on' : 'Enable Pay'}
+                        </button>
+                      ) : (
+                        <span className="text-xs text-muted-foreground/50">—</span>
+                      )}
+                    </td>
                   </tr>
                 );
               })}
@@ -414,6 +490,7 @@ export function InstallmentDetailPage() {
           amountDue={paymentTarget.amount}
           initialScenario={paymentTarget.initialScenario}
           installmentNumber={paymentTarget.number}
+          scheduleId={scheduleId}
           onSuccess={() => setPaymentTarget(null)}
           onClose={() => setPaymentTarget(null)}
         />

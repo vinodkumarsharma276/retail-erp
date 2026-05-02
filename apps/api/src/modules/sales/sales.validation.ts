@@ -47,6 +47,10 @@ export const saleListQuerySchema = z.object({
   dateTo: z.string().optional(),
   saleType: z.enum(['full_payment', 'partial_with_promise', 'self_finance', 'company_finance']).optional(),
   customerSearch: z.string().optional(),
+  /** Filter sales whose net-profit % is at most this value (inclusive). */
+  maxProfitPct: z.string().optional(),
+  /** Filter sales whose net-profit % is at least this value (inclusive). */
+  minProfitPct: z.string().optional(),
 });
 
 export const recordFinancePaymentSchema = z.object({

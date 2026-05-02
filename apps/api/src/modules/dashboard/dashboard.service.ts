@@ -1,5 +1,6 @@
 import { prisma } from '../../config/database.js';
 import type { Prisma } from '@prisma/client';
+import { computeNetProfit, computeNetProfitPct } from '../sales/sales.service.js';
 
 /**
  * Helper: generate an array of date strings (YYYY-MM-DD) between two dates, inclusive.
@@ -533,6 +534,59 @@ export const dashboardService = {
         collectedCount: todaysActualCollections._count.id,
       },
       totalExpensesCurrentFY: Number(totalExpensesCurrentFY._sum.amount ?? 0),
+    };
+  },
+
+  /**
+   * Sales whose net-profit percentage falls below the given threshold for a
+   * date range. Used by the dashboard "Low Margin Sales" tile.
+   * Returns { count, totalAmount, totalProfit, threshold } so the tile can
+   * render a single number without a follow-up call.
+   */
+  async getLowMarginSales(
+    shopId: string,
+    args: { threshold: number; dateFrom?: string; dateTo?: string },
+  ) {
+    const where: Prisma.SaleRecordWhereInput = { shopId };
+    if (args.dateFrom || args.dateTo) {
+      where.saleDate = {};
+      if (args.dateFrom) (where.saleDate as Prisma.DateTimeFilter).gte = new Date(args.dateFrom);
+      if (args.dateTo) (where.saleDate as Prisma.DateTimeFilter).lte = new Date(args.dateTo);
+    }
+
+    // Profit% is derived — fetch matching sales (capped) and reduce in memory.
+    const sales = await prisma.saleRecord.findMany({
+      where,
+      select: {
+        id: true,
+        sellingPrice: true,
+        gstAmount: true,
+        purchasePrice: true,
+        purchaseGstAmount: true,
+        saleDate: true,
+      },
+      take: 50000,
+    });
+
+    let count = 0;
+    let totalAmount = 0;
+    let totalProfit = 0;
+    for (const s of sales) {
+      const pct = computeNetProfitPct(s);
+      if (pct === null) continue;
+      if (pct > args.threshold) continue;
+      count += 1;
+      totalAmount += Number(s.sellingPrice ?? 0);
+      totalProfit += computeNetProfit(s);
+    }
+
+    return {
+      threshold: args.threshold,
+      dateFrom: args.dateFrom ?? null,
+      dateTo: args.dateTo ?? null,
+      count,
+      totalAmount: Math.round(totalAmount * 100) / 100,
+      totalProfit: Math.round(totalProfit * 100) / 100,
     };
   },
 };

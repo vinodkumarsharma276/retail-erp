@@ -715,6 +715,8 @@ export const salesService = {
     dateTo?: string;
     saleType?: string;
     customerSearch?: string;
+    maxProfitPct?: number;
+    minProfitPct?: number;
   }) {
     // Role-based data isolation: "others" see sanitized data ONLY
     if (userRole === 'others') {
@@ -733,6 +735,8 @@ export const salesService = {
     dateTo?: string;
     saleType?: string;
     customerSearch?: string;
+    maxProfitPct?: number;
+    minProfitPct?: number;
   }) {
     const where: Prisma.SaleRecordWhereInput = {
       shopId,
@@ -765,45 +769,99 @@ export const salesService = {
       ];
     }
 
-    const [sales, totalItems] = await Promise.all([
-      prisma.saleRecord.findMany({
-        where,
-        include: {
-          product: {
-            select: {
-              id: true,
-              brand: true,
-              modelNumber: true,
-              serialNumber: true,
-              category: { select: { id: true, name: true, slug: true, hsnCode: true } },
+    const profitFilterActive =
+      filters.maxProfitPct !== undefined || filters.minProfitPct !== undefined;
+
+    if (!profitFilterActive) {
+      const [sales, totalItems] = await Promise.all([
+        prisma.saleRecord.findMany({
+          where,
+          include: {
+            product: {
+              select: {
+                id: true,
+                brand: true,
+                modelNumber: true,
+                serialNumber: true,
+                category: { select: { id: true, name: true, slug: true, hsnCode: true } },
+              },
+            },
+            customer: {
+              select: { id: true, name: true, phone: true, customerCode: true },
+            },
+            guarantor: {
+              select: { id: true, name: true, phone: true, customerCode: true },
+            },
+            financeCompany: {
+              select: { id: true, name: true, code: true },
+            },
+            shop: {
+              select: { id: true, name: true, code: true },
+            },
+            creator: {
+              select: { id: true, username: true, fullName: true },
+            },
+            installmentSchedule: {
+              select: { id: true, status: true, numInstallments: true, emiAmount: true, totalPayable: true },
             },
           },
-          customer: {
-            select: { id: true, name: true, phone: true, customerCode: true },
-          },
-          guarantor: {
-            select: { id: true, name: true, phone: true, customerCode: true },
-          },
-          financeCompany: {
-            select: { id: true, name: true, code: true },
-          },
-          shop: {
-            select: { id: true, name: true, code: true },
-          },
-          creator: {
-            select: { id: true, username: true, fullName: true },
-          },
-          installmentSchedule: {
-            select: { id: true, status: true, numInstallments: true, emiAmount: true, totalPayable: true },
+          orderBy: { saleDate: 'desc' },
+          skip: filters.skip,
+          take: filters.take,
+        }),
+        prisma.saleRecord.count({ where }),
+      ]);
+
+      return { sales, totalItems };
+    }
+
+    // Profit-% filter is a derived value — fetch the full match set (capped),
+    // compute profit% in memory, filter, then apply pagination.
+    const all = await prisma.saleRecord.findMany({
+      where,
+      include: {
+        product: {
+          select: {
+            id: true,
+            brand: true,
+            modelNumber: true,
+            serialNumber: true,
+            category: { select: { id: true, name: true, slug: true, hsnCode: true } },
           },
         },
-        orderBy: { saleDate: 'desc' },
-        skip: filters.skip,
-        take: filters.take,
-      }),
-      prisma.saleRecord.count({ where }),
-    ]);
+        customer: {
+          select: { id: true, name: true, phone: true, customerCode: true },
+        },
+        guarantor: {
+          select: { id: true, name: true, phone: true, customerCode: true },
+        },
+        financeCompany: {
+          select: { id: true, name: true, code: true },
+        },
+        shop: {
+          select: { id: true, name: true, code: true },
+        },
+        creator: {
+          select: { id: true, username: true, fullName: true },
+        },
+        installmentSchedule: {
+          select: { id: true, status: true, numInstallments: true, emiAmount: true, totalPayable: true },
+        },
+      },
+      orderBy: { saleDate: 'desc' },
+      take: 10000,
+    });
 
+    const filtered = all.filter((s) => {
+      const profitPct = computeNetProfitPct(s);
+      if (profitPct === null) return false;
+      if (filters.maxProfitPct !== undefined && profitPct > filters.maxProfitPct) return false;
+      if (filters.minProfitPct !== undefined && profitPct < filters.minProfitPct) return false;
+      return true;
+    });
+
+    const totalItems = filtered.length;
+    const sales = filtered.slice(filters.skip, filters.skip + filters.take);
     return { sales, totalItems };
   },
 
@@ -1135,3 +1193,39 @@ export const salesService = {
     });
   },
 };
+
+/**
+ * Compute net-profit % for a sale record.
+ * Formula: ((SP - GST) - (PP - inputGST)) / (PP - inputGST) × 100.
+ * Mirrors the front-end calculation used on SaleCreatePage / SaleDetailPage.
+ * Returns null when purchase-price (excl GST) is zero (no meaningful %).
+ */
+export function computeNetProfitPct(sale: {
+  sellingPrice: unknown;
+  gstAmount: unknown;
+  purchasePrice: unknown;
+  purchaseGstAmount: unknown;
+}): number | null {
+  const sp = Number(sale.sellingPrice ?? 0);
+  const gst = Number(sale.gstAmount ?? 0);
+  const pp = Number(sale.purchasePrice ?? 0);
+  const ppGst = Number(sale.purchaseGstAmount ?? 0);
+  const spExcl = sp - gst;
+  const ppExcl = pp - ppGst;
+  if (ppExcl <= 0) return null;
+  return ((spExcl - ppExcl) / ppExcl) * 100;
+}
+
+/** Net profit (₹) for a sale record. */
+export function computeNetProfit(sale: {
+  sellingPrice: unknown;
+  gstAmount: unknown;
+  purchasePrice: unknown;
+  purchaseGstAmount: unknown;
+}): number {
+  const sp = Number(sale.sellingPrice ?? 0);
+  const gst = Number(sale.gstAmount ?? 0);
+  const pp = Number(sale.purchasePrice ?? 0);
+  const ppGst = Number(sale.purchaseGstAmount ?? 0);
+  return (sp - gst) - (pp - ppGst);
+}

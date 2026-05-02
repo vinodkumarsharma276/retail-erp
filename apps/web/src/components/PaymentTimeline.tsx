@@ -203,7 +203,7 @@ function RollLogSection({ scheduleId }: { scheduleId: string }) {
         <History className="h-4 w-4" />
         Activity Log ({events.length})
       </div>
-      <div className="max-h-[320px] overflow-y-auto pr-2 space-y-2">
+      <div className="space-y-2">
         {events.map((e) => {
           const cfg = rollLogConfig[e.eventType] ?? rollLogConfig.note_added;
           return (
@@ -279,7 +279,7 @@ export function PaymentTimeline({ scheduleId }: PaymentTimelineProps) {
   }
 
   return (
-    <div className="max-h-[500px] overflow-y-auto pr-2">
+    <div>
       <div className="relative">
         {timeline.map((event, idx) => {
           const config = getStatusConfig(event.status);

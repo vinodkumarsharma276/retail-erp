@@ -186,6 +186,8 @@ model User {
   purchasePaymentsBy    PurchasePayment[]      @relation("PurchasePaymentCreator")
   installmentPayments   InstallmentPayment[]   @relation("InstallmentCollector")
   installmentRollEvents InstallmentRollLog[]   @relation("RollLogActor")
+  interestApplied       InstallmentInterestApplication[] @relation("InterestAppliedBy")
+  interestRolledBack    InstallmentInterestApplication[] @relation("InterestRolledBackBy")
   auditTrailPerformed   ProductAuditTrail[]    @relation("AuditPerformer")
   transfersInitiated    InterShopTransfer[]    @relation("TransferInitiator")
   transfersReceived     InterShopTransfer[]    @relation("TransferReceiver")
@@ -701,6 +703,7 @@ model InstallmentSchedule {
   installments Installment[]
   collectionAssigns EmployeeCollectionAssignment[]
   rollLogEvents     InstallmentRollLog[] @relation("RollLogSchedule")
+  interestApplications InstallmentInterestApplication[] @relation("ScheduleInterestApps")
 
   @@index([saleId])
   @@map("installment_schedules")
@@ -733,6 +736,7 @@ model Installment {
   rescheduledTo   Installment[]       @relation("RescheduledFrom")
   payments        InstallmentPayment[]
   rollLogEvents   InstallmentRollLog[] @relation("RollLogInstallment")
+  interestApplications InstallmentInterestApplication[] @relation("InstallmentInterestApps")
 
   @@index([scheduleId])
   @@index([dueDate])
@@ -760,6 +764,39 @@ model InstallmentPayment {
   @@index([paymentDate])
   @@index([collectedBy])
   @@map("installment_payments")
+}
+
+/// Discretionary overdue-interest penalty applied by the field employee
+/// (or admin) to a specific installment. Multiple historical rows may
+/// exist; only rows with `rolledBackAt IS NULL` are "active" and
+/// contribute to the installment's amountDue / remainingAmount.
+model InstallmentInterestApplication {
+  id              String    @id @default(uuid())
+  installmentId   String    @map("installment_id")
+  scheduleId      String    @map("schedule_id")
+  daysOverdue     Int       @map("days_overdue")
+  /// Daily rate snapshot (fraction, e.g. 0.000667 for 2%/month ÷ 30).
+  dailyRate       Decimal   @map("daily_rate") @db.Decimal(8, 6)
+  /// Installment remainingAmount used as the base when this penalty was computed.
+  baseAmount      Decimal   @map("base_amount") @db.Decimal(12, 2)
+  /// Penalty amount added to the installment's amountDue / remainingAmount.
+  appliedAmount   Decimal   @map("applied_amount") @db.Decimal(12, 2)
+  appliedAt       DateTime  @default(now()) @map("applied_at") @db.Timestamptz()
+  appliedBy       String    @map("applied_by")
+  notes           String?   @db.Text
+  rolledBackAt    DateTime? @map("rolled_back_at") @db.Timestamptz()
+  rolledBackBy    String?   @map("rolled_back_by")
+  rollbackReason  String?   @map("rollback_reason") @db.Text
+
+  installment   Installment         @relation("InstallmentInterestApps", fields: [installmentId], references: [id])
+  schedule      InstallmentSchedule @relation("ScheduleInterestApps", fields: [scheduleId], references: [id])
+  appliedByUser User                @relation("InterestAppliedBy", fields: [appliedBy], references: [id])
+  rolledBackByUser User?            @relation("InterestRolledBackBy", fields: [rolledBackBy], references: [id])
+
+  @@index([installmentId])
+  @@index([scheduleId])
+  @@index([rolledBackAt])
+  @@map("installment_interest_applications")
 }
 
 /// Immutable audit log of every state change in an installment schedule.

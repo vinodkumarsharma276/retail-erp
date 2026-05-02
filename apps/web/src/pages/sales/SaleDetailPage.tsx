@@ -25,6 +25,7 @@ import { usePermission, useCanCheck } from '../../hooks/usePermission';
 import { StatusBadge } from '../../components/StatusBadge';
 import { CompletionBadge } from '../../components/CompletionBadge';
 import { RecordPaymentDialog } from '../../components/RecordPaymentDialog';
+import { FinalSettlementCard } from '../../components/FinalSettlementCard';
 import { AccessDenied } from '../../routes/RoleGuard';
 import { formatINR, formatDateIN } from '@retailerp/shared-utils';
 import { SaleType, FinancePaymentStatus, InstallmentStatus } from '@retailerp/shared-types';
@@ -91,7 +92,7 @@ function SaleDetailPageInner() {
 
   // Per-installment "Pay" dialog state (for advance payments + overpayments)
   const [installmentPaymentTarget, setInstallmentPaymentTarget] = useState<
-    { id: string; amount: number; number: number } | null
+    { id: string; amount: number; number: number; scheduleId?: string } | null
   >(null);
 
   const handleRecordPayment = () => {
@@ -324,6 +325,16 @@ function SaleDetailPageInner() {
             />
           )}
 
+          {/* Final Settlement quote (self-finance schedules with unpaid rows) */}
+          {canViewSelfFinance &&
+            sale.saleType === SaleType.SELF_FINANCE &&
+            installmentData?.schedule?.id && (
+              <FinalSettlementCard
+                scheduleId={installmentData.schedule.id}
+                canSettle={can('installments.final_settlement')}
+              />
+            )}
+
           {/* Self Finance details (permission-gated) */}
           {canViewSelfFinance &&
             sale.saleType === SaleType.SELF_FINANCE && (
@@ -555,6 +566,7 @@ function SaleDetailPageInner() {
                                             id: inst.id,
                                             amount: Number(inst.remainingAmount),
                                             number: inst.installmentNumber,
+                                            scheduleId: installmentData?.schedule?.id,
                                           })
                                         }
                                         className={cn(
@@ -867,6 +879,7 @@ function SaleDetailPageInner() {
         <RecordPaymentDialog
           installmentId={installmentPaymentTarget.id}
           amountDue={installmentPaymentTarget.amount}
+          scheduleId={installmentPaymentTarget.scheduleId}
           installmentNumber={installmentPaymentTarget.number}
           onSuccess={() => setInstallmentPaymentTarget(null)}
           onClose={() => setInstallmentPaymentTarget(null)}

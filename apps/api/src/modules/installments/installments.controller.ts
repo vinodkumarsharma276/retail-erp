@@ -232,9 +232,12 @@ export const installmentsController = {
         scenario: 'full_payment' | 'reschedule' | 'partial_reschedule';
         amountPaid?: number;
         paymentMode?: string;
+        paymentBreakdown?: Array<{ mode: string; amount: number }>;
         newDate?: string;
         referenceNumber?: string;
         notes?: string;
+        applyInterest?: { amount: number; notes?: string };
+        waiveExcessInterest?: boolean;
       };
     }>,
     reply: FastifyReply,
@@ -348,6 +351,100 @@ export const installmentsController = {
         return sendError(reply, message, 404);
       }
       return sendError(reply, message, 500);
+    }
+  },
+
+  async getSettlementQuote(
+    request: FastifyRequest<{ Params: { scheduleId: string } }>,
+    reply: FastifyReply,
+  ) {
+    try {
+      const quote = await installmentsService.getSettlementQuote(request.params.scheduleId);
+      if (!quote) return sendError(reply, 'Schedule not found', 404);
+      return sendSuccess(reply, quote);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to compute quote';
+      return sendError(reply, message, 500);
+    }
+  },
+
+  async recordFinalSettlement(
+    request: FastifyRequest<{
+      Params: { scheduleId: string };
+      Body: {
+        paymentMode: string;
+        paymentDate?: string;
+        referenceNumber?: string;
+        notes?: string;
+        expectedAmount?: number;
+      };
+    }>,
+    reply: FastifyReply,
+  ) {
+    try {
+      const result = await installmentsService.recordFinalSettlement(
+        request.params.scheduleId,
+        request.body,
+        request.currentUser?.userId ?? '',
+      );
+      return sendSuccess(reply, result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to record settlement';
+      return sendError(reply, message, 400);
+    }
+  },
+
+  async getInterestAccrual(
+    request: FastifyRequest<{ Params: { scheduleId: string } }>,
+    reply: FastifyReply,
+  ) {
+    try {
+      const data = await installmentsService.getInterestAccrual(request.params.scheduleId);
+      if (data === null) return sendError(reply, 'Schedule not found', 404);
+      return sendSuccess(reply, data);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to compute interest accrual';
+      return sendError(reply, message, 500);
+    }
+  },
+
+  async applyOverdueInterest(
+    request: FastifyRequest<{
+      Params: { installmentId: string };
+      Body: { amount: number; notes?: string };
+    }>,
+    reply: FastifyReply,
+  ) {
+    try {
+      const result = await installmentsService.applyOverdueInterest(
+        request.params.installmentId,
+        request.body,
+        request.currentUser?.userId ?? '',
+      );
+      return sendSuccess(reply, result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to apply interest';
+      return sendError(reply, message, 400);
+    }
+  },
+
+  async rollbackInterestApplication(
+    request: FastifyRequest<{
+      Params: { applicationId: string };
+      Body: { reason: string };
+    }>,
+    reply: FastifyReply,
+  ) {
+    try {
+      const result = await installmentsService.rollbackInterestApplication(
+        request.params.applicationId,
+        request.body,
+        request.currentUser?.userId ?? '',
+      );
+      return sendSuccess(reply, result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to rollback interest';
+      return sendError(reply, message, 400);
     }
   },
 };

@@ -75,6 +75,7 @@ export function InstallmentListPage() {
     amount: number;
     number: number;
     dueDate?: string;
+    scheduleId?: string;
   } | null>(null);
 
   // Expanded search result cards (collapsed by default)
@@ -315,6 +316,7 @@ export function InstallmentListPage() {
                                               amount: Number(inst.remainingAmount),
                                               number: inst.installmentNumber,
                                               dueDate: typeof inst.dueDate === 'string' ? inst.dueDate.split('T')[0] : new Date(inst.dueDate).toISOString().split('T')[0],
+                                              scheduleId: schedule.id,
                                             })
                                           }
                                           className={cn(
@@ -369,6 +371,7 @@ export function InstallmentListPage() {
           amountDue={searchPaymentTarget.amount}
           installmentNumber={searchPaymentTarget.number}
           defaultDate={searchPaymentTarget.dueDate}
+          scheduleId={searchPaymentTarget.scheduleId}
           onSuccess={() => setSearchPaymentTarget(null)}
           onClose={() => setSearchPaymentTarget(null)}
         />
@@ -389,6 +392,7 @@ function OverdueTab() {
     id: string;
     amount: number;
     number: number;
+    scheduleId?: string;
   } | null>(null);
 
   const columns: Column<OverdueInstallmentItem>[] = useMemo(
@@ -482,6 +486,7 @@ function OverdueTab() {
                   id: row.id,
                   amount: row.remainingAmount,
                   number: row.installmentNumber,
+                  scheduleId: row.scheduleId,
                 });
               }}
               className={cn(
@@ -545,6 +550,7 @@ function OverdueTab() {
           installmentId={paymentTarget.id}
           amountDue={paymentTarget.amount}
           installmentNumber={paymentTarget.number}
+          scheduleId={paymentTarget.scheduleId}
           onSuccess={() => setPaymentTarget(null)}
           onClose={() => setPaymentTarget(null)}
         />
@@ -583,6 +589,7 @@ function CollectionsTab() {
     id: string;
     amount: number;
     number: number;
+    scheduleId?: string;
   } | null>(null);
 
   const isTodayOnly = dateFrom === today && dateTo === today;
@@ -672,6 +679,7 @@ function CollectionsTab() {
                   id: row.id,
                   amount: Number(row.remainingAmount),
                   number: row.installmentNumber,
+                  scheduleId: (row as any).scheduleId,
                 });
               }}
               className={cn(
@@ -855,6 +863,7 @@ function CollectionsTab() {
           installmentId={paymentTarget.id}
           amountDue={paymentTarget.amount}
           installmentNumber={paymentTarget.number}
+          scheduleId={paymentTarget.scheduleId}
           onSuccess={() => setPaymentTarget(null)}
           onClose={() => setPaymentTarget(null)}
         />
