@@ -13,13 +13,15 @@ export const productsController = {
         status?: string;
         brand?: string;
         search?: string;
+        dateFrom?: string;
+        dateTo?: string;
       };
     }>,
     reply: FastifyReply,
   ) {
     try {
       const { page, pageSize, skip, take } = parsePagination(request.query);
-      const { categoryId, status, brand, search } = request.query;
+      const { categoryId, status, brand, search, dateFrom, dateTo } = request.query;
       const shopId = request.shopFilter!.shopId;
 
       const { products, totalItems } = await productsService.list(shopId, {
@@ -31,6 +33,8 @@ export const productsController = {
         status,
         brand,
         search,
+        dateFrom,
+        dateTo,
       });
 
       return sendPaginated(reply, products, { page, pageSize, totalItems });

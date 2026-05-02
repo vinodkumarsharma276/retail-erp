@@ -161,7 +161,6 @@ export const salesController = {
       if (
         message === 'Sale does not belong to this shop' ||
         message === 'Product cannot be changed when editing a sale' ||
-        message === 'Sale type cannot be changed when editing a sale' ||
         message === 'Guarantor is required for self-finance sales' ||
         message === 'Number of installments is required for self-finance sales' ||
         message === 'Interest rate is required for self-finance sales' ||
@@ -190,6 +189,22 @@ export const salesController = {
       return sendSuccess(reply, schedule);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to fetch installments';
+      return sendError(reply, message, 500);
+    }
+  },
+
+  async getActivity(
+    request: FastifyRequest<{ Params: { id: string } }>,
+    reply: FastifyReply,
+  ) {
+    try {
+      const logs = await salesService.getActivity(request.params.id);
+      if (logs === null) {
+        return sendError(reply, 'Sale not found', 404);
+      }
+      return sendSuccess(reply, logs);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to fetch activity';
       return sendError(reply, message, 500);
     }
   },

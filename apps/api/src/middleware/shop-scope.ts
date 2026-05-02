@@ -1,4 +1,5 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
+import { prisma } from '../config/database.js';
 
 /**
  * Adds shop scoping to the request. Uses the shop from JWT token
@@ -21,5 +22,18 @@ export async function shopScope(request: FastifyRequest, reply: FastifyReply) {
     request.shopFilter = { shopId: headerShopId };
   } else {
     request.shopFilter = { shopId: request.currentUser.shopId };
+  }
+
+  const hasShopAccess = await prisma.userShop.findFirst({
+    where: {
+      userId: request.currentUser.userId,
+      shopId: request.shopFilter.shopId,
+      shop: { isActive: true },
+    },
+    select: { id: true },
+  });
+
+  if (!hasShopAccess) {
+    return reply.status(403).send({ success: false, error: 'You do not have access to this shop' });
   }
 }

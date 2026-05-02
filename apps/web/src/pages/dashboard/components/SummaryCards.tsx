@@ -5,6 +5,7 @@ import {
   Package,
   Banknote,
   Loader2,
+  Receipt,
 } from 'lucide-react';
 import { cn } from '../../../lib/utils';
 import { formatINR } from '@retailerp/shared-utils';
@@ -18,8 +19,8 @@ interface SummaryCardsProps {
 export function SummaryCards({ data, isLoading }: SummaryCardsProps) {
   if (isLoading) {
     return (
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {Array.from({ length: 4 }).map((_, i) => (
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        {Array.from({ length: 5 }).map((_, i) => (
           <SummaryCardSkeleton key={i} />
         ))}
       </div>
@@ -37,7 +38,7 @@ export function SummaryCards({ data, isLoading }: SummaryCardsProps) {
       : 0;
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
       {/* Total Sales This Month */}
       <div className="rounded-xl border bg-card p-5 shadow-sm">
         <div className="flex items-center justify-between mb-3">
@@ -142,6 +143,22 @@ export function SummaryCards({ data, isLoading }: SummaryCardsProps) {
             />
           </div>
         </div>
+      </div>
+
+      {/* Expenses Current FY */}
+      <div className="rounded-xl border bg-card p-5 shadow-sm">
+        <div className="flex items-center justify-between mb-3">
+          <span className="text-sm font-medium text-muted-foreground">
+            Expenses Current FY
+          </span>
+          <div className="rounded-lg bg-rose-100 dark:bg-rose-900/30 p-2">
+            <Receipt className="h-4 w-4 text-rose-600 dark:text-rose-400" />
+          </div>
+        </div>
+        <p className="text-2xl font-bold tracking-tight">
+          {formatINR(data.totalExpensesCurrentFY)}
+        </p>
+        <p className="mt-2 text-sm text-muted-foreground">April to March</p>
       </div>
     </div>
   );

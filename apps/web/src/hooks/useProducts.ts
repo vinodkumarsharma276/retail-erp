@@ -31,6 +31,8 @@ export interface ProductFilters {
   status?: string;
   brand?: string;
   search?: string;
+  dateFrom?: string;
+  dateTo?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -80,6 +82,8 @@ export function useProductsQuery(filters: ProductFilters) {
       if (filters.status) params.set('status', filters.status);
       if (filters.brand) params.set('brand', filters.brand);
       if (filters.search) params.set('search', filters.search);
+      if (filters.dateFrom) params.set('dateFrom', filters.dateFrom);
+      if (filters.dateTo) params.set('dateTo', filters.dateTo);
 
       const { data } = await apiClient.get<PaginatedResponse<Product>>(
         `/products?${params.toString()}`,

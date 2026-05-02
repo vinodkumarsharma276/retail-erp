@@ -55,6 +55,31 @@ function previousMonthRange() {
   return { firstDay, lastDay };
 }
 
+function dateOnlyUtc(year: number, month: number, day: number) {
+  return new Date(Date.UTC(year, month - 1, day));
+}
+
+function todayInIndiaDateOnly() {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+  const value = (type: string) => Number(parts.find((part) => part.type === type)?.value);
+  return dateOnlyUtc(value('year'), value('month'), value('day'));
+}
+
+function currentFinancialYearRange() {
+  const today = todayInIndiaDateOnly();
+  const year = today.getUTCFullYear();
+  const startYear = today.getUTCMonth() >= 3 ? year : year - 1;
+  return {
+    firstDay: dateOnlyUtc(startYear, 4, 1),
+    lastDay: dateOnlyUtc(startYear + 1, 3, 31),
+  };
+}
+
 export const dashboardService = {
   /**
    * Sales Graph Data — daily aggregated sale totals for a date range.
@@ -385,11 +410,8 @@ export const dashboardService = {
   async getSummary(shopId: string) {
     const { firstDay: thisMonthStart, lastDay: thisMonthEnd } = currentMonthRange();
     const { firstDay: lastMonthStart, lastDay: lastMonthEnd } = previousMonthRange();
-
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const todayEnd = new Date(today);
-    todayEnd.setHours(23, 59, 59, 999);
+    const { firstDay: fyStart, lastDay: fyEnd } = currentFinancialYearRange();
+    const today = todayInIndiaDateOnly();
 
     const [
       thisMonthSales,
@@ -398,6 +420,7 @@ export const dashboardService = {
       stockValue,
       todaysExpectedCollections,
       todaysActualCollections,
+      totalExpensesCurrentFY,
     ] = await Promise.all([
       // 1. Total sales this month
       prisma.saleRecord.aggregate({
@@ -462,10 +485,7 @@ export const dashboardService = {
       // 5b. Today's actual collections — payments recorded today
       prisma.installmentPayment.aggregate({
         where: {
-          paymentDate: {
-            gte: today,
-            lte: todayEnd,
-          },
+          paymentDate: today,
           installment: {
             schedule: {
               sale: { shopId },
@@ -474,6 +494,15 @@ export const dashboardService = {
         },
         _sum: { amount: true },
         _count: { id: true },
+      }),
+
+      // 6. Expenses in the current Indian financial year (April-March)
+      prisma.expense.aggregate({
+        where: {
+          shopId,
+          expenseDate: { gte: fyStart, lte: fyEnd },
+        },
+        _sum: { amount: true },
       }),
     ]);
 
@@ -503,6 +532,7 @@ export const dashboardService = {
         collected: Number(todaysActualCollections._sum.amount ?? 0),
         collectedCount: todaysActualCollections._count.id,
       },
+      totalExpensesCurrentFY: Number(totalExpensesCurrentFY._sum.amount ?? 0),
     };
   },
 };

@@ -400,9 +400,7 @@ export const salesService = {
     if (existing.productId !== data.productId) {
       throw new Error('Product cannot be changed when editing a sale');
     }
-    if (existing.saleType !== data.saleType) {
-      throw new Error('Sale type cannot be changed when editing a sale');
-    }
+    const saleTypeChanged = existing.saleType !== data.saleType;
 
     // Validate customer exists
     const customer = await prisma.customer.findUnique({ where: { id: data.customerId } });
@@ -502,6 +500,28 @@ export const salesService = {
       : null;
 
     await prisma.$transaction(async (tx) => {
+      // Snapshot of pre-edit values for audit log
+      const beforeValues = {
+        ledgerNumber: existing.ledgerNumber,
+        customerId: existing.customerId,
+        saleDate: existing.saleDate,
+        saleType: existing.saleType,
+        sellingPrice: Number(existing.sellingPrice),
+        discountAmount: Number(existing.discountAmount ?? 0),
+        gstRate: Number(existing.gstRate ?? 0),
+        downPayment: Number(existing.downPayment ?? 0),
+        paymentMode: existing.paymentMode,
+        promiseDate: existing.promiseDate,
+        interestRate: existing.interestRate !== null ? Number(existing.interestRate) : null,
+        fileCharge: existing.fileCharge !== null ? Number(existing.fileCharge) : null,
+        numInstallments: existing.numInstallments,
+        guarantorId: existing.guarantorId,
+        financeCompanyId: existing.financeCompanyId,
+        financedAmount: existing.financedAmount !== null ? Number(existing.financedAmount) : null,
+        expectedPaymentDate: existing.expectedPaymentDate,
+        notes: existing.notes,
+      };
+
       // 1. Tear down existing installment schedule (if any)
       if (existing.installmentSchedule) {
         const scheduleId = existing.installmentSchedule.id;
@@ -524,6 +544,7 @@ export const salesService = {
           ledgerNumber: data.ledgerNumber,
           customerId: data.customerId,
           saleDate,
+          saleType: data.saleType as any,
           sellingPrice,
           discountAmount,
           netAmount,
@@ -615,6 +636,41 @@ export const salesService = {
           });
         }
       }
+
+      // 6. Audit log entry for the edit
+      const afterValues = {
+        ledgerNumber: data.ledgerNumber,
+        customerId: data.customerId,
+        saleDate,
+        saleType: data.saleType,
+        sellingPrice,
+        discountAmount,
+        gstRate,
+        downPayment,
+        paymentMode: data.paymentMode,
+        promiseDate: data.saleType === 'partial_with_promise' && data.promiseDate
+          ? new Date(data.promiseDate)
+          : null,
+        interestRate: data.saleType === 'self_finance' ? interestRate : null,
+        fileCharge: data.saleType === 'self_finance' ? fileCharge : 0,
+        numInstallments: data.saleType === 'self_finance' ? numInstallments : null,
+        guarantorId: data.saleType === 'self_finance' ? data.guarantorId : null,
+        financeCompanyId: data.saleType === 'company_finance' ? data.financeCompanyId : null,
+        financedAmount,
+        expectedPaymentDate,
+        notes: data.notes ?? null,
+      };
+      await tx.auditLog.create({
+        data: {
+          userId,
+          shopId,
+          entityType: 'sale',
+          entityId: saleId,
+          action: saleTypeChanged ? 'update_sale_type' : 'update',
+          oldValues: beforeValues as any,
+          newValues: afterValues as any,
+        },
+      });
     });
 
     // Return updated full sale
@@ -910,6 +966,25 @@ export const salesService = {
     });
 
     return sale;
+  },
+
+  /**
+   * Get audit/activity log for a sale (most recent first)
+   */
+  async getActivity(saleId: string) {
+    const sale = await prisma.saleRecord.findUnique({
+      where: { id: saleId },
+      select: { id: true },
+    });
+    if (!sale) return null;
+    const logs = await prisma.auditLog.findMany({
+      where: { entityType: 'sale', entityId: saleId },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        user: { select: { id: true, username: true, fullName: true } },
+      },
+    });
+    return logs;
   },
 
   /**

@@ -149,7 +149,13 @@ export const rolesService = {
         isMobileOnly: true,
         lastLoginAt: true,
         customRole: { select: { id: true, code: true, name: true } },
-        userShops: { select: { shop: { select: { id: true, code: true, name: true } } } },
+        userShops: {
+          orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
+          select: {
+            isPrimary: true,
+            shop: { select: { id: true, code: true, name: true } },
+          },
+        },
       },
     });
 

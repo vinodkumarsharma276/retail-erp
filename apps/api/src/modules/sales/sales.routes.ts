@@ -66,6 +66,11 @@ export async function saleRoutes(app: FastifyInstance) {
     preHandler: [...adminAccountant, requirePermission('sales.view_real')],
   }, salesController.getInstallments as any);
 
+  // Get sale activity / audit log (requires sales.view_history — Owner-only by default)
+  app.get('/:id/activity', {
+    preHandler: [...allShopRoles, requirePermission('sales.view_history')],
+  }, salesController.getActivity as any);
+
   // Record finance company payment (requires sales.record_company_finance_payment)
   app.put('/:id/finance-payment', {
     preHandler: [

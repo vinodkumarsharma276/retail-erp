@@ -4,6 +4,7 @@ import { useForm } from 'react-hook-form';
 import { Loader2, Save, ArrowLeft, AlertCircle, Building2, FileText, MapPin, Landmark, FileSignature, Tag } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useCategoryTreeQuery } from '../../hooks/useProducts';
+import { CityInput } from '../../components/CityInput';
 import {
   useDistributorDetailQuery,
   useCreateDistributorMutation,
@@ -529,9 +530,8 @@ export function DistributorFormPage() {
               <label htmlFor="city" className="block text-sm font-medium mb-1.5">
                 City <span className="text-destructive">*</span>
               </label>
-              <input
+              <CityInput
                 id="city"
-                type="text"
                 {...register('city', { required: 'City is required' })}
                 placeholder="e.g. Delhi"
                 className={cn(

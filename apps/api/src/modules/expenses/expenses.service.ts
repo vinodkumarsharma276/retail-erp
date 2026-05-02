@@ -227,13 +227,15 @@ export const expensesService = {
     return {
       byCategory: byCategory.map((cat) => ({
         category: cat.category,
-        totalAmount: cat._sum.amount,
-        totalGst: cat._sum.gstAmount,
+        total: Number(cat._sum.amount ?? 0),
+        totalAmount: Number(cat._sum.amount ?? 0),
+        totalGst: Number(cat._sum.gstAmount ?? 0),
         count: cat._count.id,
       })),
-      totalGstClaimable: gstClaimable._sum.gstAmount,
-      grandTotal: grandTotal._sum.amount,
-      grandTotalGst: grandTotal._sum.gstAmount,
+      totalExpenses: Number(grandTotal._sum.amount ?? 0),
+      totalGstClaimable: Number(gstClaimable._sum.gstAmount ?? 0),
+      grandTotal: Number(grandTotal._sum.amount ?? 0),
+      grandTotalGst: Number(grandTotal._sum.gstAmount ?? 0),
       totalCount: grandTotal._count.id,
     };
   },

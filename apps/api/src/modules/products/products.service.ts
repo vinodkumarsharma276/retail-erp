@@ -11,6 +11,8 @@ export const productsService = {
     status?: string;
     brand?: string;
     search?: string;
+    dateFrom?: string;
+    dateTo?: string;
   }) {
     const where: Prisma.ProductWhereInput = {
       shopId,
@@ -49,6 +51,19 @@ export const productsService = {
       ];
     }
 
+    // Filter by purchase invoice date (date of purchase). Only matches
+    // products that are linked to a Purchase with an invoiceDate in range.
+    if (filters.dateFrom || filters.dateTo) {
+      const invoiceDate: Prisma.DateTimeFilter = {};
+      if (filters.dateFrom) invoiceDate.gte = new Date(filters.dateFrom);
+      if (filters.dateTo) {
+        const to = new Date(filters.dateTo);
+        to.setHours(23, 59, 59, 999);
+        invoiceDate.lte = to;
+      }
+      where.purchase = { is: { invoiceDate } };
+    }
+
     const [products, totalItems] = await Promise.all([
       prisma.product.findMany({
         where,
@@ -58,6 +73,9 @@ export const productsService = {
           },
           distributor: {
             select: { id: true, companyName: true },
+          },
+          purchase: {
+            select: { id: true, invoiceDate: true, invoiceNumber: true },
           },
         },
         orderBy: { createdAt: 'desc' },

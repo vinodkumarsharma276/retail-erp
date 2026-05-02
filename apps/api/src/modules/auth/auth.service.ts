@@ -20,7 +20,12 @@ export const authService = {
     try {
       const user = await prisma.user.findUnique({
         where: { username },
-        include: { userShops: { include: { shop: true } } },
+        include: {
+          userShops: {
+            include: { shop: true },
+            orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
+          },
+        },
       });
 
       if (!user || !user.isActive) return null;
@@ -90,7 +95,16 @@ export const authService = {
           revokedAt: null,
           expiresAt: { gt: new Date() },
         },
-        include: { user: true },
+        include: {
+          user: {
+            include: {
+              userShops: {
+                include: { shop: true },
+                orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
+              },
+            },
+          },
+        },
       });
     } catch (error) {
       throw new Error('Failed to find refresh token');
@@ -135,7 +149,29 @@ export const authService = {
   async getUserWithShops(userId: string) {
     return prisma.user.findUnique({
       where: { id: userId },
-      include: { userShops: { include: { shop: { select: { id: true, name: true, code: true } } } } },
+      include: {
+        userShops: {
+          include: { shop: { select: { id: true, name: true, code: true } } },
+          orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
+        },
+      },
     });
+  },
+
+  async getPreferences(userId: string) {
+    const u = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { preferences: true },
+    });
+    return (u?.preferences as Record<string, unknown> | null) ?? null;
+  },
+
+  async updatePreferences(userId: string, prefs: Record<string, unknown>) {
+    const u = await prisma.user.update({
+      where: { id: userId },
+      data: { preferences: prefs as any },
+      select: { preferences: true },
+    });
+    return (u.preferences as Record<string, unknown> | null) ?? null;
   },
 };

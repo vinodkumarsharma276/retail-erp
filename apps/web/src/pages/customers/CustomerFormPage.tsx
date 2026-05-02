@@ -4,6 +4,7 @@ import { useForm } from 'react-hook-form';
 import { Loader2, Save, ArrowLeft, AlertCircle, Search, X } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useDebounce } from '../../hooks/useDebounce';
+import { CityInput } from '../../components/CityInput';
 import {
   useCustomerDetailQuery,
   useCustomerSearchQuery,
@@ -350,9 +351,8 @@ export function CustomerFormPage() {
               <label htmlFor="city" className="block text-sm font-medium mb-1.5">
                 City
               </label>
-              <input
+              <CityInput
                 id="city"
-                type="text"
                 {...register('city')}
                 placeholder="e.g. Delhi"
                 className={cn(

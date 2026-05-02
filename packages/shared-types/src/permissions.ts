@@ -114,6 +114,7 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
     ['sales.create_company_finance', 'Create company-finance sale'],
     ['sales.edit', 'Edit existing sale'],
     ['sales.delete', 'Delete or cancel sale'],
+    ['sales.view_history', 'View sale modification history'],
     ['sales.change_ledger_number', 'Override auto ledger number'],
     ['sales.section.financials', 'See financials section (net amount, GST)'],
     ['sales.section.profit', 'See Total Earnings / profit section'],
@@ -269,6 +270,11 @@ export const ROLE_ADMIN_PERMISSIONS: string[] = ALL_PERMISSION_KEYS.filter((k) =
   if (k.startsWith('roles.')) return false;
   if (k === 'system.impersonate_user') return false;
   if (k === 'sales.view_sanitized') return false;
+  // Sale modification is locked to Owner by default. Owner can grant these
+  // to Admin (or any other role) at runtime via Settings → Roles & Users.
+  if (k === 'sales.edit') return false;
+  if (k === 'sales.delete') return false;
+  if (k === 'sales.view_history') return false;
   return true;
 });
 

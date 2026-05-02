@@ -6,6 +6,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import { UserRole } from '@retailerp/shared-types';
+import { usePreferencesStore } from '../stores/preferences-store';
 
 export function ProtectedRoute() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -40,6 +41,11 @@ export function ProtectedRoute() {
 
     const store = useAuthStore.getState();
     const perms = (data as any).permissions ?? [];
+
+    // Sync user preferences into the global store + format helpers.
+    usePreferencesStore.getState().setPreferences(
+      ((data.user as any).preferences as any) ?? null,
+    );
 
     if (!store.isAuthenticated) {
       // First hydration after a page load — full login().
@@ -118,9 +124,14 @@ export function ProtectedRoute() {
 }
 
 /**
- * Helper to determine the default landing page for a given role.
+ * Helper to determine the default landing page for a given role. If the
+ * user has set a `defaultLandingPage` preference and the chosen route is
+ * permitted for their role, that takes precedence over the role default.
  */
-export function getDefaultRoute(role: UserRole): string {
+export function getDefaultRoute(role: UserRole, preferred?: string | null): string {
+  if (preferred && preferred.startsWith('/') && preferred !== '/') {
+    return preferred;
+  }
   switch (role) {
     case UserRole.OWNER:
     case UserRole.ADMIN:

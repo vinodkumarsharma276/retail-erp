@@ -11,7 +11,7 @@ import { useDistributorsQuery } from '../../hooks/useDistributors';
 import { DataTable } from '../../components/DataTable';
 import type { Column, PaginationState } from '../../components/DataTable';
 import { StatusBadge } from '../../components/StatusBadge';
-import { formatINR, formatDateIN } from '@retailerp/shared-utils';
+import { formatINR, formatDateIN, getCurrentFinancialYearRange, getLastFinancialYearRange } from '@retailerp/shared-utils';
 import type { Purchase } from '@retailerp/shared-types';
 import { usePermission } from '../../hooks/usePermission';
 
@@ -72,7 +72,7 @@ export function PurchaseListPage() {
   const pagination = purchasesQuery.data?.pagination;
 
   // ------ Clear filters ------
-  const hasFilters = distributorId || paymentStatus || dateFrom !== getDateDaysAgo(90) || dateTo !== getToday();
+  const hasFilters = distributorId || paymentStatus || dateFrom !== getDateDaysAgo(30) || dateTo !== getToday();
   const clearFilters = () => {
     setSearchParams({}, { replace: true });
   };
@@ -270,6 +270,26 @@ export function PurchaseListPage() {
             />
           </div>
         </div>
+
+        <button
+          onClick={() => {
+            const { dateFrom: fyStart, dateTo: fyEnd } = getCurrentFinancialYearRange();
+            updateFilters({ dateFrom: fyStart, dateTo: fyEnd, page: '1' });
+          }}
+          className="rounded-md border px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+        >
+          Current Financial Year
+        </button>
+
+        <button
+          onClick={() => {
+            const { dateFrom: fyStart, dateTo: fyEnd } = getLastFinancialYearRange();
+            updateFilters({ dateFrom: fyStart, dateTo: fyEnd, page: '1' });
+          }}
+          className="rounded-md border px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+        >
+          Last Financial Year
+        </button>
 
         {/* Payment Status */}
         <div className="min-w-[160px]">

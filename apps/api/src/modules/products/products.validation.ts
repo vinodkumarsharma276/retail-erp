@@ -48,6 +48,14 @@ export const productListQuerySchema = z.object({
     .optional(),
   brand: z.string().optional(),
   search: z.string().optional(),
+  dateFrom: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'dateFrom must be YYYY-MM-DD')
+    .optional(),
+  dateTo: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'dateTo must be YYYY-MM-DD')
+    .optional(),
 });
 
 export const globalSearchSchema = z.object({

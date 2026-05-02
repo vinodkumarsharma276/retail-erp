@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useDebounce } from '../../hooks/useDebounce';
+import { CityInput } from '../../components/CityInput';
 import { useProductDetailQuery } from '../../hooks/useProducts';
 import {
   useCustomerSearchQuery,
@@ -36,12 +37,15 @@ import {
   calculateEMI,
   INTEREST_RATES,
   INSTALLMENT_MONTHS,
+  getFinancialYearForDate,
+  formatFinancialYearLabel,
 } from '@retailerp/shared-utils';
 import {
   UserRole,
   SaleType,
   PaymentMode,
 } from '@retailerp/shared-types';
+import { ConfirmDialog } from '../../components/ConfirmDialog';
 import type { Customer, Product } from '@retailerp/shared-types';
 import type { EMICalculationResult } from '@retailerp/shared-types';
 
@@ -436,6 +440,60 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
     setDownPaymentManuallySet(true);
     editPrefilledRef.current = true;
   }, [isEditMode, existingSale, setValue]);
+
+  // -----------------------------------------------------------------------
+  // FY-change warning (edit mode, non-Owner) — pop a confirmation only when
+  // the user has actively changed the sale date away from the prefilled
+  // baseline AND the new date falls in a different Indian financial year.
+  // Owner users skip this gate entirely.
+  // -----------------------------------------------------------------------
+  const watchedSaleDate = watch('saleDate');
+  const baselineSaleDateRef = useRef<string | null>(null);
+
+  // Capture the canonical input value once prefill has set the date.
+  useEffect(() => {
+    if (!isEditMode) return;
+    if (baselineSaleDateRef.current !== null) return;
+    if (!editPrefilledRef.current) return;
+    if (!watchedSaleDate) return;
+    baselineSaleDateRef.current = watchedSaleDate;
+  }, [isEditMode, watchedSaleDate]);
+
+  const [fyWarning, setFyWarning] = useState<
+    { oldFy: number; newFy: number; date: string } | null
+  >(null);
+  const fyAcknowledgedRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (!isEditMode) return;
+    if (userRole === UserRole.OWNER) return;
+    const baseline = baselineSaleDateRef.current;
+    if (!baseline || !watchedSaleDate) return;
+    // Only fire after the user has actually changed the date.
+    if (watchedSaleDate === baseline) return;
+    const oldFy = getFinancialYearForDate(baseline);
+    const newFy = getFinancialYearForDate(watchedSaleDate);
+    if (oldFy === null || newFy === null) return;
+    if (oldFy === newFy) return;
+    if (fyAcknowledgedRef.current.has(watchedSaleDate)) return;
+    setFyWarning({ oldFy, newFy, date: watchedSaleDate });
+  }, [isEditMode, userRole, watchedSaleDate]);
+
+  const handleFyWarningConfirm = () => {
+    if (fyWarning) {
+      fyAcknowledgedRef.current.add(fyWarning.date);
+    }
+    setFyWarning(null);
+  };
+
+  const handleFyWarningCancel = () => {
+    // Revert the date back to the baseline (original FY).
+    const baseline = baselineSaleDateRef.current;
+    if (baseline) {
+      setValue('saleDate', baseline, { shouldDirty: true });
+    }
+    setFyWarning(null);
+  };
 
   // -----------------------------------------------------------------------
   // Computed amounts
@@ -955,7 +1013,6 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
                 active={saleType === SaleType.FULL_PAYMENT}
                 onClick={() => setValue('saleType', SaleType.FULL_PAYMENT)}
                 label="Full Payment"
-                disabled={isEditMode && saleType !== SaleType.FULL_PAYMENT}
               />
             )}
             {/* Partial with Promise */}
@@ -964,7 +1021,6 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
                 active={saleType === SaleType.PARTIAL_WITH_PROMISE}
                 onClick={() => setValue('saleType', SaleType.PARTIAL_WITH_PROMISE)}
                 label="Partial with Promise"
-                disabled={isEditMode && saleType !== SaleType.PARTIAL_WITH_PROMISE}
               />
             )}
             {/* Self Finance */}
@@ -973,7 +1029,6 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
                 active={saleType === SaleType.SELF_FINANCE}
                 onClick={() => setValue('saleType', SaleType.SELF_FINANCE)}
                 label="Self Finance (Installment)"
-                disabled={isEditMode && saleType !== SaleType.SELF_FINANCE}
               />
             )}
             {/* Company Finance */}
@@ -982,10 +1037,16 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
                 active={saleType === SaleType.COMPANY_FINANCE}
                 onClick={() => setValue('saleType', SaleType.COMPANY_FINANCE)}
                 label="Company Finance"
-                disabled={isEditMode && saleType !== SaleType.COMPANY_FINANCE}
               />
             )}
           </div>
+          {isEditMode && (
+            <p className="-mt-3 mb-4 text-xs text-muted-foreground">
+              Changing the sale type will reset payment status, finance details
+              and any installment schedule for this sale. The change will be
+              recorded in the sale's activity log.
+            </p>
+          )}
 
           {/* ---- FULL PAYMENT ---- */}
           {saleType === SaleType.FULL_PAYMENT && (
@@ -1778,8 +1839,7 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
                 </div>
                 <div>
                   <label className="block text-sm font-medium mb-1">City</label>
-                  <input
-                    type="text"
+                  <CityInput
                     value={newCustomer.city}
                     onChange={(e) =>
                       setNewCustomer({ ...newCustomer, city: e.target.value })
@@ -2118,8 +2178,7 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
                       <label className="block text-sm font-medium mb-1">
                         City
                       </label>
-                      <input
-                        type="text"
+                      <CityInput
                         value={newGuarantor.city}
                         onChange={(e) =>
                           setNewGuarantor({ ...newGuarantor, city: e.target.value })
@@ -2432,6 +2491,26 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
           </div>
         )}
       </form>
+
+      {/* FY-change warning — non-Owner users editing a sale into a different FY */}
+      <ConfirmDialog
+        isOpen={fyWarning !== null}
+        title="Financial year change"
+        message={
+          fyWarning
+            ? `You are moving this sale from ${formatFinancialYearLabel(
+                fyWarning.oldFy,
+              )} to ${formatFinancialYearLabel(
+                fyWarning.newFy,
+              )}. This affects financial year reports, GST filings and reconciliation. Are you sure you want to continue?`
+            : ''
+        }
+        confirmText="Yes, change FY"
+        cancelText="Keep original date"
+        variant="danger"
+        onConfirm={handleFyWarningConfirm}
+        onCancel={handleFyWarningCancel}
+      />
     </div>
   );
 }

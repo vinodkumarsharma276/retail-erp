@@ -6,6 +6,7 @@ import {
   Pencil,
   ShoppingCart,
   ChevronDown,
+  Calendar,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useDebounce } from '../../hooks/useDebounce';
@@ -13,7 +14,12 @@ import { useProductsQuery, useCategoryTreeQuery } from '../../hooks/useProducts'
 import { DataTable } from '../../components/DataTable';
 import type { Column, PaginationState } from '../../components/DataTable';
 import { StatusBadge } from '../../components/StatusBadge';
-import { formatINR } from '@retailerp/shared-utils';
+import {
+  formatINR,
+  formatDateIN,
+  getCurrentFinancialYearRange,
+  getLastFinancialYearRange,
+} from '@retailerp/shared-utils';
 import { ProductStatus } from '@retailerp/shared-types';
 import type { Product, ProductCategory } from '@retailerp/shared-types';
 
@@ -29,6 +35,8 @@ export function ProductListPage() {
   const subCategoryId = searchParams.get('subCategoryId') || '';
   const statusFilter = searchParams.get('statusFilter') || '';
   const searchText = searchParams.get('searchText') || '';
+  const dateFrom = searchParams.get('dateFrom') || '';
+  const dateTo = searchParams.get('dateTo') || '';
   const debouncedSearch = useDebounce(searchText, 300);
 
   const updateFilters = (updates: Record<string, string>) => {
@@ -64,13 +72,16 @@ export function ProductListPage() {
     categoryId: activeCategoryId,
     status: statusFilter || undefined,
     search: debouncedSearch.length >= 3 ? debouncedSearch : undefined,
+    dateFrom: dateFrom || undefined,
+    dateTo: dateTo || undefined,
   });
 
   const products = productsQuery.data?.data ?? [];
   const pagination = productsQuery.data?.pagination;
 
   // ------ Clear filters ------
-  const hasFilters = rootCategoryId || statusFilter || searchText;
+  const hasFilters =
+    rootCategoryId || statusFilter || searchText || dateFrom || dateTo;
   const clearFilters = () => {
     setSearchParams({}, { replace: true });
   };
@@ -135,6 +146,19 @@ export function ProductListPage() {
       render: (row) => {
         const distributor = (row as any).distributor as { id: string; companyName: string } | null;
         return distributor?.companyName ?? '-';
+      },
+    },
+    {
+      key: 'purchaseDate',
+      header: 'Date of Purchase',
+      sortable: true,
+      sortAccessor: (row) => {
+        const purchase = (row as any).purchase as { invoiceDate?: string } | null;
+        return purchase?.invoiceDate ? new Date(purchase.invoiceDate).getTime() : 0;
+      },
+      render: (row) => {
+        const purchase = (row as any).purchase as { invoiceDate?: string } | null;
+        return purchase?.invoiceDate ? formatDateIN(purchase.invoiceDate) : '-';
       },
     },
     {
@@ -292,6 +316,68 @@ export function ProductListPage() {
             <ChevronDown className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           </div>
         </div>
+
+        {/* Date of Purchase: From */}
+        <div>
+          <label className="block text-xs font-medium text-muted-foreground mb-1">
+            Purchased From
+          </label>
+          <div className="relative">
+            <Calendar className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => {
+                updateFilters({ dateFrom: e.target.value, page: '1' });
+              }}
+              className={cn(
+                'rounded-md border bg-background pl-9 pr-3 py-2 text-sm',
+                'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+              )}
+            />
+          </div>
+        </div>
+
+        {/* Date of Purchase: To */}
+        <div>
+          <label className="block text-xs font-medium text-muted-foreground mb-1">
+            Purchased To
+          </label>
+          <div className="relative">
+            <Calendar className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <input
+              type="date"
+              value={dateTo}
+              onChange={(e) => {
+                updateFilters({ dateTo: e.target.value, page: '1' });
+              }}
+              className={cn(
+                'rounded-md border bg-background pl-9 pr-3 py-2 text-sm',
+                'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+              )}
+            />
+          </div>
+        </div>
+
+        <button
+          onClick={() => {
+            const { dateFrom: fyStart, dateTo: fyEnd } = getCurrentFinancialYearRange();
+            updateFilters({ dateFrom: fyStart, dateTo: fyEnd, page: '1' });
+          }}
+          className="rounded-md border px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+        >
+          Current Financial Year
+        </button>
+
+        <button
+          onClick={() => {
+            const { dateFrom: fyStart, dateTo: fyEnd } = getLastFinancialYearRange();
+            updateFilters({ dateFrom: fyStart, dateTo: fyEnd, page: '1' });
+          }}
+          className="rounded-md border px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+        >
+          Last Financial Year
+        </button>
 
         {/* Search input */}
         <div className="min-w-[240px] flex-1 max-w-sm">

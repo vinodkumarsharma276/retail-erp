@@ -26,7 +26,7 @@ import {
   type PaidCollectionItem,
 } from '../../hooks/useInstallments';
 import { useDebounce } from '../../hooks/useDebounce';
-import { formatINR, formatDateIN } from '@retailerp/shared-utils';
+import { formatINR, formatDateIN, getCurrentFinancialYearRange, getLastFinancialYearRange } from '@retailerp/shared-utils';
 import { formatInstallmentLabel } from '../../lib/installment-label';
 
 // ---------------------------------------------------------------------------
@@ -537,7 +537,7 @@ function OverdueTab() {
         isLoading={isLoading}
         emptyMessage="No overdue installments. Great job!"
         rowKey={(row) => row.id}
-        defaultSort={{ key: 'dueDate', dir: 'asc' }}
+        defaultSort={{ key: 'dueDate', dir: 'desc' }}
       />
 
       {paymentTarget && (
@@ -751,6 +751,26 @@ function CollectionsTab() {
             className="rounded-md border px-3 py-2 text-sm font-medium hover:bg-muted transition-colors"
           >
             Last 2 Weeks
+          </button>
+          <button
+            onClick={() => {
+              const { dateFrom: fyStart, dateTo: fyEnd } = getCurrentFinancialYearRange();
+              setDateFrom(fyStart);
+              setDateTo(fyEnd);
+            }}
+            className="rounded-md border px-3 py-2 text-sm font-medium hover:bg-muted transition-colors"
+          >
+            Current Financial Year
+          </button>
+          <button
+            onClick={() => {
+              const { dateFrom: fyStart, dateTo: fyEnd } = getLastFinancialYearRange();
+              setDateFrom(fyStart);
+              setDateTo(fyEnd);
+            }}
+            className="rounded-md border px-3 py-2 text-sm font-medium hover:bg-muted transition-colors"
+          >
+            Last Financial Year
           </button>
         </div>
       </div>
@@ -1045,6 +1065,26 @@ function PaidTab() {
           className="rounded-md border px-3 py-2 text-sm font-medium hover:bg-muted transition-colors"
         >
           Last 30 Days
+        </button>
+        <button
+          onClick={() => {
+            const { dateFrom: fyStart, dateTo: fyEnd } = getCurrentFinancialYearRange();
+            setDateFrom(fyStart);
+            setDateTo(fyEnd);
+          }}
+          className="rounded-md border px-3 py-2 text-sm font-medium hover:bg-muted transition-colors"
+        >
+          Current Financial Year
+        </button>
+        <button
+          onClick={() => {
+            const { dateFrom: fyStart, dateTo: fyEnd } = getLastFinancialYearRange();
+            setDateFrom(fyStart);
+            setDateTo(fyEnd);
+          }}
+          className="rounded-md border px-3 py-2 text-sm font-medium hover:bg-muted transition-colors"
+        >
+          Last Financial Year
         </button>
       </div>
 

@@ -33,10 +33,12 @@ import { SettingsPage } from './pages/settings/SettingsPage';
 import { FormBuilderPage } from './pages/settings/FormBuilderPage';
 import { CategoryManagerPage } from './pages/settings/CategoryManagerPage';
 import RolesUsersPage from './pages/settings/RolesUsersPage';
+import PreferencesPage from './pages/preferences/PreferencesPage';
 import { ProtectedRoute, getDefaultRoute } from './routes/ProtectedRoute';
 import { RoleGuard } from './routes/RoleGuard';
 import { PermissionGuard } from './routes/PermissionGuard';
 import { useAuthStore } from './stores/auth-store';
+import { usePreferencesStore } from './stores/preferences-store';
 import { UserRole } from '@retailerp/shared-types';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ToastContainer } from './components/Toast';
@@ -54,6 +56,9 @@ function App() {
       {/* Protected routes — require authentication */}
       <Route element={<ProtectedRoute />}>
         <Route element={<DashboardLayout />}>
+          {/* Available to every authenticated user */}
+          <Route path="/preferences" element={<PreferencesPage />} />
+
           {/* Admin-only routes */}
           <Route element={<RoleGuard allowedRoles={[UserRole.OWNER, UserRole.ADMIN]} />}>
             <Route path="/dashboard" element={<DashboardPage />} />
@@ -171,12 +176,17 @@ function App() {
 function RootRedirect() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const user = useAuthStore((s) => s.user);
+  const preferredLanding = usePreferencesStore(
+    (s) => s.preferences.defaultLandingPage,
+  );
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
   }
 
-  const target = user ? getDefaultRoute(user.role) : '/products';
+  const target = user
+    ? getDefaultRoute(user.role, preferredLanding)
+    : '/products';
   return <Navigate to={target} replace />;
 }
 

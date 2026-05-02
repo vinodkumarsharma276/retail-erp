@@ -19,6 +19,7 @@ import {
   useSaleInstallmentsQuery,
   useRecordFinancePaymentMutation,
   useRecordPendingPaymentMutation,
+  useSaleActivityQuery,
 } from '../../hooks/useSales';
 import { usePermission, useCanCheck } from '../../hooks/usePermission';
 import { StatusBadge } from '../../components/StatusBadge';
@@ -52,6 +53,7 @@ function SaleDetailPageInner() {
   const canDownloadInvoice = can('sales.invoice.download_pdf');
   const canViewInvoice = can('sales.invoice.view');
   const canEditSale = can('sales.edit');
+  const canViewSaleHistory = can('sales.view_history');
 
   const { data: sale, isLoading, isError } = useSaleDetailQuery(id);
 
@@ -60,6 +62,10 @@ function SaleDetailPageInner() {
     canViewSelfFinance && sale?.saleType === SaleType.SELF_FINANCE;
   const { data: installmentData, isLoading: isInstallmentsLoading } =
     useSaleInstallmentsQuery(id, shouldFetchInstallments);
+
+  // Activity / audit log — Owner-only by default (Owner can grant
+  // `sales.view_history` to other roles via Roles & Users).
+  const { data: activityLog } = useSaleActivityQuery(id, canViewSaleHistory);
 
   // Invoice download state
   const [isDownloading, setIsDownloading] = useState(false);
@@ -731,6 +737,45 @@ function SaleDetailPageInner() {
         </div>
       </div>
 
+      {/* Activity Log — Owner-only audit trail of every modification */}
+      {canViewSaleHistory && activityLog && activityLog.length > 0 && (
+        <div className="rounded-lg border bg-card p-4 sm:p-6">
+          <h2 className="text-sm font-semibold mb-4 flex items-center gap-2 text-muted-foreground uppercase tracking-wide">
+            Activity Log
+          </h2>
+          <ol className="relative border-l border-border ml-2">
+            {activityLog.map((entry) => (
+              <li key={entry.id} className="ml-4 pb-4">
+                <div className="absolute -left-1.5 mt-1.5 h-3 w-3 rounded-full bg-primary" />
+                <div className="flex flex-wrap items-baseline gap-2">
+                  <span className="text-sm font-medium">
+                    {entry.action === 'update_sale_type'
+                      ? 'Sale type changed'
+                      : entry.action === 'update'
+                      ? 'Sale edited'
+                      : entry.action}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    by {entry.user?.fullName ?? entry.user?.username ?? 'system'}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {formatDateIN(new Date(entry.createdAt))}{' '}
+                    {new Date(entry.createdAt).toLocaleTimeString('en-IN', {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </span>
+                </div>
+                <SaleActivityDiff
+                  before={entry.oldValues}
+                  after={entry.newValues}
+                />
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+
       {/* Record Payment Dialog */}
       {showPaymentDialog && sale.pendingAmount > 0 && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
@@ -841,6 +886,64 @@ function InfoRow({ label, value }: { label: string; value: string }) {
       <dt className="text-sm font-medium text-muted-foreground">{label}</dt>
       <dd className="mt-0.5 text-sm capitalize">{value}</dd>
     </div>
+  );
+}
+
+// Renders a compact list of changed fields between two snapshots.
+function SaleActivityDiff({
+  before,
+  after,
+}: {
+  before: Record<string, unknown> | null;
+  after: Record<string, unknown> | null;
+}) {
+  if (!before && !after) return null;
+  const keys = new Set<string>([
+    ...Object.keys(before ?? {}),
+    ...Object.keys(after ?? {}),
+  ]);
+  const fmt = (v: unknown) => {
+    if (v === null || v === undefined || v === '') return '—';
+    if (typeof v === 'number') return String(v);
+    if (typeof v === 'string') {
+      // Try to detect ISO date strings
+      const d = new Date(v);
+      if (!Number.isNaN(d.getTime()) && /\d{4}-\d{2}-\d{2}/.test(v)) {
+        return formatDateIN(d);
+      }
+      return v;
+    }
+    if (typeof v === 'boolean') return v ? 'true' : 'false';
+    try {
+      return JSON.stringify(v);
+    } catch {
+      return String(v);
+    }
+  };
+  const changed: Array<{ key: string; before: unknown; after: unknown }> = [];
+  keys.forEach((k) => {
+    const b = before?.[k];
+    const a = after?.[k];
+    if (JSON.stringify(b) !== JSON.stringify(a)) {
+      changed.push({ key: k, before: b, after: a });
+    }
+  });
+  if (changed.length === 0) {
+    return (
+      <p className="mt-1 text-xs text-muted-foreground">No field changes recorded.</p>
+    );
+  }
+  return (
+    <ul className="mt-2 space-y-1 text-xs">
+      {changed.map(({ key, before: b, after: a }) => (
+        <li key={key} className="flex flex-wrap items-baseline gap-1">
+          <span className="font-medium text-muted-foreground">{key}:</span>
+          <span className="line-through text-muted-foreground">{fmt(b)}</span>
+          <span className="text-muted-foreground">→</span>
+          <span className="text-foreground">{fmt(a)}</span>
+        </li>
+      ))}
+    </ul>
   );
 }
 

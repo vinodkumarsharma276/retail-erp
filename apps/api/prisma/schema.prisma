@@ -168,6 +168,7 @@ model User {
   isMobileOnly Boolean   @default(false) @map("is_mobile_only")
   isActive     Boolean   @default(true) @map("is_active")
   lastLoginAt  DateTime? @map("last_login_at") @db.Timestamptz()
+  preferences  Json?     @map("preferences")
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz()
   updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 

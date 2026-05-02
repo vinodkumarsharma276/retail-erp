@@ -22,7 +22,7 @@ import type { Expense } from '../../hooks/useExpenses';
 import { DataTable } from '../../components/DataTable';
 import type { Column, PaginationState } from '../../components/DataTable';
 import { StatusBadge } from '../../components/StatusBadge';
-import { formatINR, formatDateIN } from '@retailerp/shared-utils';
+import { formatINR, formatDateIN, getCurrentFinancialYearRange, getLastFinancialYearRange } from '@retailerp/shared-utils';
 import { ExpenseCategory, UserRole } from '@retailerp/shared-types';
 import { useAuthStore } from '../../stores/auth-store';
 
@@ -372,6 +372,26 @@ export function ExpenseListPage() {
             />
           </div>
         </div>
+
+        <button
+          onClick={() => {
+            const { dateFrom: fyStart, dateTo: fyEnd } = getCurrentFinancialYearRange();
+            updateFilters({ dateFrom: fyStart, dateTo: fyEnd, page: '1' });
+          }}
+          className="rounded-md border px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+        >
+          Current Financial Year
+        </button>
+
+        <button
+          onClick={() => {
+            const { dateFrom: fyStart, dateTo: fyEnd } = getLastFinancialYearRange();
+            updateFilters({ dateFrom: fyStart, dateTo: fyEnd, page: '1' });
+          }}
+          className="rounded-md border px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+        >
+          Last Financial Year
+        </button>
 
         {/* Search */}
         <div className="min-w-[220px]">

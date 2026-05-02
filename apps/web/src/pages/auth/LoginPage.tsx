@@ -1,15 +1,13 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useShopsQuery, useLoginMutation } from '../../hooks/useAuth';
+import { useLoginMutation } from '../../hooks/useAuth';
 import { useAuthStore } from '../../stores/auth-store';
 import { useShopStore } from '../../stores/shop-store';
+import { usePreferencesStore } from '../../stores/preferences-store';
 import { UserRole } from '@retailerp/shared-types';
 // Note: login/setShop called via getState() to avoid re-render loops
-import type { ShopListItem } from '@retailerp/shared-types';
 import {
-  ChevronDown,
   Loader2,
-  Store,
   AlertCircle,
   Eye,
   EyeOff,
@@ -26,13 +24,10 @@ export function LoginPage() {
   // Redirect if already authenticated (user object must exist, not just token)
   useEffect(() => {
     if (isAuthenticated && user) {
-      navigate(getDefaultRoute(user.role), { replace: true });
+      const pref = usePreferencesStore.getState().preferences.defaultLandingPage;
+      navigate(getDefaultRoute(user.role, pref), { replace: true });
     }
   }, [isAuthenticated, user, navigate]);
-
-  // --- Step state ---
-  const [selectedShop, setSelectedShop] = useState<ShopListItem | null>(null);
-  const [shopDropdownOpen, setShopDropdownOpen] = useState(false);
 
   // --- Form state ---
   const [username, setUsername] = useState('');
@@ -40,30 +35,15 @@ export function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
 
   // --- API ---
-  const shopsQuery = useShopsQuery();
   const loginMutation = useLoginMutation();
-
-  // Whether to show the credentials step (after shop selection)
-  const showCredentials = !!selectedShop;
-
-  const handleShopSelect = (shop: ShopListItem) => {
-    setSelectedShop(shop);
-    setShopDropdownOpen(false);
-    // Reset form when switching shops
-    setUsername('');
-    setPassword('');
-    loginMutation.reset();
-  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedShop) return;
 
     loginMutation.mutate(
       {
         username: username.trim(),
         password,
-        shopId: selectedShop.id,
       },
       {
         onSuccess: (data) => {
@@ -93,8 +73,18 @@ export function LoginPage() {
           // Store shop
           useShopStore.getState().setShop(data.shop.id, data.shop.name, data.shop.code);
 
-          // Redirect
-          navigate(getDefaultRoute(data.user.role), { replace: true });
+          // Hydrate user preferences (theme, currency, default landing, etc.)
+          const prefsFromLogin = (data.user as any).preferences ?? null;
+          usePreferencesStore.getState().setPreferences(prefsFromLogin);
+
+          // Redirect — preferred landing page wins over role default
+          navigate(
+            getDefaultRoute(
+              data.user.role,
+              prefsFromLogin?.defaultLandingPage ?? null,
+            ),
+            { replace: true },
+          );
         },
       },
     );
@@ -126,98 +116,7 @@ export function LoginPage() {
         </p>
       </div>
 
-      {/* Step 1: Shop Selector */}
-      <div className="mb-7">
-        <label className="block text-base font-medium mb-2">
-          Select Shop
-        </label>
-        <div className="relative">
-          <button
-            type="button"
-            onClick={() => setShopDropdownOpen(!shopDropdownOpen)}
-            className={cn(
-              'flex w-full items-center justify-between rounded-lg border bg-background px-4 py-3.5 text-base transition-colors',
-              'hover:border-primary/50 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-              shopDropdownOpen && 'border-primary ring-2 ring-ring ring-offset-2',
-            )}
-          >
-            <div className="flex items-center gap-2.5">
-              <Store className="h-5 w-5 shrink-0 text-muted-foreground" />
-              {selectedShop ? (
-                <span className="whitespace-nowrap">
-                  {selectedShop.name}{' '}
-                  <span className="text-muted-foreground">
-                    ({selectedShop.code})
-                  </span>
-                </span>
-              ) : (
-                <span className="text-muted-foreground">Choose a shop...</span>
-              )}
-            </div>
-            <ChevronDown
-              className={cn(
-                'h-5 w-5 text-muted-foreground transition-transform',
-                shopDropdownOpen && 'rotate-180',
-              )}
-            />
-          </button>
-
-          {/* Dropdown */}
-          {shopDropdownOpen && (
-            <div className="absolute z-10 mt-1.5 w-full rounded-lg border bg-card shadow-lg">
-              {shopsQuery.isLoading ? (
-                <div className="flex items-center justify-center py-5">
-                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                  <span className="ml-2 text-base text-muted-foreground">
-                    Loading shops...
-                  </span>
-                </div>
-              ) : shopsQuery.isError ? (
-                <div className="flex items-center gap-2 px-4 py-3.5 text-base text-destructive">
-                  <AlertCircle className="h-5 w-5" />
-                  Failed to load shops
-                </div>
-              ) : shopsQuery.data?.length === 0 ? (
-                <div className="px-4 py-3.5 text-base text-muted-foreground">
-                  No shops available
-                </div>
-              ) : (
-                <ul className="max-h-60 overflow-y-auto py-1.5">
-                  {shopsQuery.data?.map((shop) => (
-                    <li key={shop.id}>
-                      <button
-                        type="button"
-                        onClick={() => handleShopSelect(shop)}
-                        className={cn(
-                          'flex w-full items-center gap-2.5 whitespace-nowrap px-4 py-2.5 text-base transition-colors',
-                          'hover:bg-muted',
-                          selectedShop?.id === shop.id && 'bg-primary/10 text-primary',
-                        )}
-                      >
-                        <Store className="h-4 w-4 shrink-0 text-muted-foreground" />
-                        <span className="truncate">{shop.name}</span>
-                        <span className="shrink-0 text-muted-foreground">
-                          ({shop.code})
-                        </span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Step 2: Username + Password (slides in after shop selection) */}
-      <div
-        className={cn(
-          'overflow-hidden transition-all duration-300 ease-in-out',
-          showCredentials
-            ? 'max-h-[600px] opacity-100'
-            : 'max-h-0 opacity-0',
-        )}
-      >
+      <div>
         <form onSubmit={handleSubmit} className="space-y-5">
           {/* Username */}
           <div>

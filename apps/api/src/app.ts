@@ -25,6 +25,7 @@ import { employeeRoutes } from './modules/employees/employees.routes.js';
 import { notificationRoutes } from './modules/notifications/notifications.routes.js';
 import { rolesRoutes } from './modules/roles/roles.routes.js';
 import { ocrRoutes } from './modules/ocr/ocr.routes.js';
+import { lookupRoutes } from './modules/lookup/lookup.routes.js';
 import { registerInstallmentScheduler } from './jobs/installments-scheduler.js';
 
 function isAllowedDevOrigin(origin: string) {
@@ -105,6 +106,7 @@ export async function buildApp() {
   await app.register(notificationRoutes, { prefix: '/api/v1/notifications' });
   await app.register(rolesRoutes, { prefix: '/api/v1/roles' });
   await app.register(ocrRoutes, { prefix: '/api/v1/ocr' });
+  await app.register(lookupRoutes, { prefix: '/api/v1/lookup' });
 
   // Background jobs (gated by ENABLE_SCHEDULER=true).
   registerInstallmentScheduler(app.log);

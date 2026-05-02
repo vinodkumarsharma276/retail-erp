@@ -1,4 +1,5 @@
 import { UserRole } from './enums';
+import type { UserPreferences } from './preferences.types';
 
 export interface User {
   id: string;
@@ -12,6 +13,7 @@ export interface User {
   lastLoginAt?: string;
   createdAt: string;
   updatedAt: string;
+  preferences?: UserPreferences | null;
 }
 
 export interface UserShop {
@@ -32,7 +34,6 @@ export interface AuthTokenPayload {
 export interface LoginRequest {
   username: string;
   password: string;
-  shopId: string;
 }
 
 export interface LoginResponse {

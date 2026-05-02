@@ -15,6 +15,7 @@ const keys = {
   sales: (filters: SaleFilters) => ['sales', filters] as const,
   saleDetail: (id: string) => ['sales', id] as const,
   saleInstallments: (id: string) => ['sales', id, 'installments'] as const,
+  saleActivity: (id: string) => ['sales', id, 'activity'] as const,
 };
 
 // ---------------------------------------------------------------------------
@@ -82,6 +83,33 @@ export function useSaleInstallmentsQuery(id: string | undefined, enabled = true)
         `/sales/${id}/installments`,
       );
       return data.data!;
+    },
+    enabled: !!id && enabled,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Sale activity / audit log
+// ---------------------------------------------------------------------------
+export interface SaleActivityEntry {
+  id: string;
+  action: string;
+  entityType: string;
+  entityId: string;
+  oldValues: Record<string, unknown> | null;
+  newValues: Record<string, unknown> | null;
+  createdAt: string;
+  user: { id: string; username: string; fullName: string | null } | null;
+}
+
+export function useSaleActivityQuery(id: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: keys.saleActivity(id ?? ''),
+    queryFn: async () => {
+      const { data } = await apiClient.get<ApiResponse<SaleActivityEntry[]>>(
+        `/sales/${id}/activity`,
+      );
+      return data.data ?? [];
     },
     enabled: !!id && enabled,
   });

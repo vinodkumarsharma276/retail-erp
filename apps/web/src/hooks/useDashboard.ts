@@ -58,6 +58,7 @@ export interface DashboardSummary {
     expected: number;
     collected: number;
   };
+  totalExpensesCurrentFY: number;
 }
 
 // ---------------------------------------------------------------------------

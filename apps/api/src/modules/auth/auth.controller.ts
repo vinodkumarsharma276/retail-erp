@@ -13,20 +13,22 @@ export const authController = {
 
   async login(
     request: FastifyRequest<{
-      Body: { username: string; password: string; shopId: string };
+      Body: { username: string; password: string };
     }>,
     reply: FastifyReply,
   ) {
-    const { username, password, shopId } = request.body;
+    const { username, password } = request.body;
 
     const user = await authService.validateCredentials(username, password);
     if (!user) {
       return sendError(reply, 'Invalid username or password', 401);
     }
 
-    const hasAccess = await authService.verifyUserShopAccess(user.id, shopId);
-    if (!hasAccess) {
-      return sendError(reply, 'You do not have access to this shop', 403);
+    const selectedShop =
+      user.userShops.find((us) => us.isPrimary && us.shop.isActive)?.shop ??
+      user.userShops.find((us) => us.shop.isActive)?.shop;
+    if (!selectedShop) {
+      return sendError(reply, 'No active shop is assigned to this user', 403);
     }
 
     const accessToken = request.server.jwt.sign(
@@ -34,7 +36,7 @@ export const authController = {
         userId: user.id,
         username: user.username,
         role: user.role,
-        shopId,
+        shopId: selectedShop.id,
         isMobileOnly: user.isMobileOnly,
       },
       { expiresIn: config.jwt.accessExpiresIn },
@@ -56,11 +58,12 @@ export const authController = {
         role: user.role,
         roleId: (user as any).roleId ?? null,
         isMobileOnly: user.isMobileOnly,
+        preferences: (user as any).preferences ?? null,
       },
       permissions: (user as any).roleId
         ? Array.from(await loadPermissionsForRole((user as any).roleId))
         : [],
-      shop: user.userShops.find((us) => us.shopId === shopId)?.shop,
+      shop: { id: selectedShop.id, name: selectedShop.name, code: selectedShop.code },
     });
   },
 
@@ -80,12 +83,19 @@ export const authController = {
     await authService.revokeRefreshToken(tokenHash);
 
     // Issue new tokens
+    const selectedShop =
+      stored.user.userShops.find((us) => us.isPrimary && us.shop.isActive)?.shop ??
+      stored.user.userShops.find((us) => us.shop.isActive)?.shop;
+    if (!selectedShop) {
+      return sendError(reply, 'No active shop is assigned to this user', 403);
+    }
+
     const accessToken = request.server.jwt.sign(
       {
         userId: stored.user.id,
         username: stored.user.username,
         role: stored.user.role,
-        shopId: stored.userId, // Will be fixed with proper shop tracking
+        shopId: selectedShop.id,
         isMobileOnly: stored.user.isMobileOnly,
       },
       { expiresIn: config.jwt.accessExpiresIn },
@@ -117,6 +127,7 @@ export const authController = {
         role: user.role,
         roleId: (user as any).roleId ?? null,
         isMobileOnly: user.isMobileOnly,
+        preferences: (user as any).preferences ?? null,
       },
       permissions: (user as any).roleId
         ? Array.from(await loadPermissionsForRole((user as any).roleId))
@@ -127,6 +138,28 @@ export const authController = {
         code: us.shop.code,
       })),
     });
+  },
+
+  async getPreferences(request: FastifyRequest, reply: FastifyReply) {
+    if (!request.currentUser) {
+      return sendError(reply, 'Authentication required', 401);
+    }
+    const prefs = await authService.getPreferences(request.currentUser.userId);
+    return sendSuccess(reply, prefs ?? {});
+  },
+
+  async updatePreferences(
+    request: FastifyRequest<{ Body: Record<string, unknown> }>,
+    reply: FastifyReply,
+  ) {
+    if (!request.currentUser) {
+      return sendError(reply, 'Authentication required', 401);
+    }
+    // Merge with existing so partial updates don't wipe other prefs
+    const existing = (await authService.getPreferences(request.currentUser.userId)) ?? {};
+    const next = { ...existing, ...(request.body ?? {}) };
+    const saved = await authService.updatePreferences(request.currentUser.userId, next);
+    return sendSuccess(reply, saved ?? {});
   },
 
   async logout(request: FastifyRequest<{ Body: { refreshToken: string } }>, reply: FastifyReply) {
