@@ -1565,13 +1565,30 @@ export const installmentsService = {
     paymentId: string,
     reason: string,
     userId: string,
+    options?: {
+      /**
+       * Optional discretionary overdue interest the collector wants to add
+       * to the row at the same time as reverting (e.g. when reverting an
+       * old missed payment that has accrued interest since its due date).
+       * Applied INSIDE the same transaction, BEFORE the rollover engine
+       * absorbs the row, so the interest carries through to the future
+       * installments the chain rolls into.
+       */
+      applyInterest?: { amount: number; notes?: string };
+    },
   ) {
     const payment = await prisma.installmentPayment.findUnique({
       where: { id: paymentId },
       include: {
         installment: {
           include: {
-            schedule: { select: { id: true, status: true } },
+            schedule: {
+              select: {
+                id: true,
+                status: true,
+                sale: { select: { shopId: true, interestRate: true } },
+              },
+            },
           },
         },
       },
@@ -1624,6 +1641,87 @@ export const installmentsService = {
           } as Prisma.InputJsonValue,
         },
       });
+
+      // Optionally apply discretionary overdue interest BEFORE the chain
+      // engine absorbs the now-overdue row. This is convenient when
+      // reverting an old payment whose installment has been overdue for
+      // weeks/months — the collector can attach the late-fee in one step.
+      if (options?.applyInterest && options.applyInterest.amount > 0) {
+        const monthlyRate = Number(inst.schedule.sale.interestRate ?? 0);
+        const due = inst.dueDate;
+        const today = new Date();
+        const dueDay = Date.UTC(
+          due.getUTCFullYear(),
+          due.getUTCMonth(),
+          due.getUTCDate(),
+        );
+        const todayDay = Date.UTC(
+          today.getUTCFullYear(),
+          today.getUTCMonth(),
+          today.getUTCDate(),
+        );
+        const daysOverdue = Math.max(
+          0,
+          Math.floor((todayDay - dueDay) / (1000 * 60 * 60 * 24)),
+        );
+        const dailyRate = monthlyRate / 100 / 30;
+
+        const app = await tx.installmentInterestApplication.create({
+          data: {
+            installmentId: inst.id,
+            scheduleId: inst.schedule.id,
+            daysOverdue,
+            dailyRate,
+            baseAmount: newRemaining,
+            appliedAmount: options.applyInterest.amount,
+            appliedBy: userId,
+            notes: options.applyInterest.notes ?? null,
+          },
+        });
+        await tx.installment.update({
+          where: { id: inst.id },
+          data: {
+            amountDue: { increment: options.applyInterest.amount },
+            remainingAmount: { increment: options.applyInterest.amount },
+          },
+        });
+        await tx.installmentRollLog.create({
+          data: {
+            scheduleId: inst.schedule.id,
+            installmentId: inst.id,
+            eventType: 'interest_applied',
+            eventDate: new Date(),
+            actorUserId: userId,
+            displayMessage:
+              `Overdue interest of ₹${options.applyInterest.amount.toLocaleString('en-IN')} applied to installment ${instLabel} (${daysOverdue} days overdue) along with revert.` +
+              (options.applyInterest.notes ? ` Note: ${options.applyInterest.notes}` : ''),
+            metadata: {
+              applicationId: app.id,
+              amount: options.applyInterest.amount,
+              daysOverdue,
+              dailyRate,
+              baseAmount: newRemaining,
+              appliedAlongsideRevert: true,
+            } as Prisma.InputJsonValue,
+          },
+        });
+        await tx.auditLog.create({
+          data: {
+            userId,
+            shopId: inst.schedule.sale.shopId,
+            entityType: 'installment',
+            entityId: inst.id,
+            action: 'interest_applied',
+            oldValues: { remainingAmount: newRemaining } as any,
+            newValues: {
+              applicationId: app.id,
+              appliedAmount: options.applyInterest.amount,
+              daysOverdue,
+              appliedAlongsideRevert: true,
+            } as any,
+          },
+        });
+      }
 
       // Re-sync schedule totals
       await syncScheduleAndSale(tx, inst.schedule.id);
@@ -2148,6 +2246,268 @@ export const installmentsService = {
     });
 
     return { applicationId, amountReverted: amount };
+  },
+
+  /**
+   * Move a mis-recorded payment from one installment to the correct one.
+   *
+   * This is an atomic operation that:
+   *   1. Removes the payment from the source installment (restoring its balance).
+   *   2. Optionally applies overdue interest on the target installment.
+   *   3. Records the same payment on the target installment.
+   *   4. Runs the rollover engine so the newly-unpaid source row gets
+   *      redistributed correctly if its due date has passed.
+   *
+   * Typical usage: employee recorded payment X against installment #3 but
+   * it was actually the customer paying installment #2 late. Admin calls
+   * this with paymentId=<#3's payment>, targetInstallmentId=<#2's id>,
+   * paymentDate=<original payment date>.
+   */
+  async movePayment(
+    paymentId: string,
+    targetInstallmentId: string,
+    reason: string,
+    userId: string,
+    options?: {
+      /** Override payment date (YYYY-MM-DD). Defaults to the original payment date. */
+      paymentDate?: string;
+      /** Optional overdue interest to apply on the target installment before posting the payment. */
+      applyInterestOnTarget?: { amount: number; notes?: string };
+    },
+  ) {
+    const payment = await prisma.installmentPayment.findUnique({
+      where: { id: paymentId },
+      include: {
+        installment: {
+          include: {
+            schedule: {
+              select: {
+                id: true,
+                status: true,
+                sale: { select: { shopId: true, interestRate: true } },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!payment) throw new Error('Payment not found');
+
+    const sourceInst = payment.installment;
+    const scheduleId = sourceInst.schedule.id;
+    const amountToMove = Number(payment.amount);
+
+    if (sourceInst.id === targetInstallmentId) {
+      throw new Error('Source and target installment must be different');
+    }
+
+    const targetInst = await prisma.installment.findUnique({
+      where: { id: targetInstallmentId },
+      include: {
+        schedule: {
+          select: {
+            id: true,
+            sale: { select: { shopId: true, interestRate: true } },
+          },
+        },
+      },
+    });
+
+    if (!targetInst) throw new Error('Target installment not found');
+    if (targetInst.schedule.id !== scheduleId) {
+      throw new Error('Target installment belongs to a different schedule');
+    }
+    if (targetInst.status === 'paid') {
+      throw new Error('Target installment is already fully paid');
+    }
+    if (targetInst.isRescheduled && targetInst.status === 'rescheduled') {
+      throw new Error('Target installment has been rescheduled');
+    }
+
+    const sourceLabel =
+      sourceInst.parentInstallmentNumber != null && sourceInst.subSequence != null
+        ? `#${sourceInst.parentInstallmentNumber}.${sourceInst.subSequence}`
+        : `#${sourceInst.installmentNumber}`;
+    const targetLabel =
+      targetInst.parentInstallmentNumber != null && (targetInst as any).subSequence != null
+        ? `#${targetInst.parentInstallmentNumber}.${(targetInst as any).subSequence}`
+        : `#${targetInst.installmentNumber}`;
+
+    const result = await prisma.$transaction(async (tx) => {
+      // ── Step A: Remove payment from source, restore its balance ─────────
+      await tx.installmentPayment.delete({ where: { id: paymentId } });
+
+      const newSourcePaid = Math.max(0, Number(sourceInst.amountPaid) - amountToMove);
+      const newSourceRemaining = Number(sourceInst.amountDue) - newSourcePaid;
+      const newSourceStatus =
+        newSourcePaid <= 0
+          ? new Date(sourceInst.dueDate) < new Date()
+            ? 'overdue'
+            : 'upcoming'
+          : 'partially_paid';
+
+      await tx.installment.update({
+        where: { id: sourceInst.id },
+        data: {
+          amountPaid: newSourcePaid,
+          remainingAmount: newSourceRemaining,
+          status: newSourceStatus,
+        },
+      });
+
+      await tx.installmentRollLog.create({
+        data: {
+          scheduleId,
+          installmentId: sourceInst.id,
+          eventType: 'payment_moved',
+          eventDate: new Date(),
+          actorUserId: userId,
+          displayMessage: `Payment of ₹${amountToMove.toLocaleString('en-IN')} moved from installment ${sourceLabel} → ${targetLabel}. Reason: ${reason}`,
+          metadata: {
+            paymentId,
+            amount: amountToMove,
+            sourceInstallmentId: sourceInst.id,
+            targetInstallmentId,
+            reason,
+          } as Prisma.InputJsonValue,
+        },
+      });
+
+      // ── Step B: Optional overdue interest on target ──────────────────────
+      let targetRemainingWithInterest = Number(targetInst.remainingAmount);
+
+      if (options?.applyInterestOnTarget && options.applyInterestOnTarget.amount > 0) {
+        const monthlyRate = Number(targetInst.schedule.sale.interestRate ?? 0);
+        const due = targetInst.dueDate;
+        const today = new Date();
+        const dueDay = Date.UTC(due.getUTCFullYear(), due.getUTCMonth(), due.getUTCDate());
+        const todayDay = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
+        const daysOverdue = Math.max(0, Math.floor((todayDay - dueDay) / (1000 * 60 * 60 * 24)));
+        const dailyRate = monthlyRate / 100 / 30;
+
+        const app = await tx.installmentInterestApplication.create({
+          data: {
+            installmentId: targetInst.id,
+            scheduleId,
+            daysOverdue,
+            dailyRate,
+            baseAmount: targetRemainingWithInterest,
+            appliedAmount: options.applyInterestOnTarget.amount,
+            appliedBy: userId,
+            notes: options.applyInterestOnTarget.notes ?? null,
+          },
+        });
+
+        await tx.installment.update({
+          where: { id: targetInst.id },
+          data: {
+            amountDue: { increment: options.applyInterestOnTarget.amount },
+            remainingAmount: { increment: options.applyInterestOnTarget.amount },
+          },
+        });
+        targetRemainingWithInterest += options.applyInterestOnTarget.amount;
+
+        await tx.installmentRollLog.create({
+          data: {
+            scheduleId,
+            installmentId: targetInst.id,
+            eventType: 'interest_applied',
+            eventDate: new Date(),
+            actorUserId: userId,
+            displayMessage:
+              `Overdue interest of ₹${options.applyInterestOnTarget.amount.toLocaleString('en-IN')} applied to installment ${targetLabel} (${daysOverdue} days overdue) as part of payment correction.` +
+              (options.applyInterestOnTarget.notes
+                ? ` Note: ${options.applyInterestOnTarget.notes}`
+                : ''),
+            metadata: {
+              applicationId: app.id,
+              amount: options.applyInterestOnTarget.amount,
+              daysOverdue,
+              dailyRate,
+              baseAmount: Number(targetInst.remainingAmount),
+              appliedAlongsideMove: true,
+            } as Prisma.InputJsonValue,
+          },
+        });
+      }
+
+      // ── Step C: Record payment on target ─────────────────────────────────
+      const paidOnDate = options?.paymentDate
+        ? new Date(options.paymentDate)
+        : new Date(payment.paymentDate);
+
+      const newTargetPaid = Number(targetInst.amountPaid) + amountToMove;
+      const newTargetRemaining = Math.max(0, targetRemainingWithInterest - amountToMove);
+      const newTargetStatus = newTargetRemaining <= 0 ? 'paid' : 'partially_paid';
+
+      await tx.installment.update({
+        where: { id: targetInst.id },
+        data: {
+          amountPaid: newTargetPaid,
+          remainingAmount: newTargetRemaining,
+          status: newTargetStatus,
+        },
+      });
+
+      await tx.installmentPayment.create({
+        data: {
+          installmentId: targetInst.id,
+          amount: amountToMove,
+          paymentMode: payment.paymentMode,
+          paymentDate: paidOnDate,
+          referenceNumber: payment.referenceNumber,
+          notes: payment.notes,
+          collectedBy: userId,
+        },
+      });
+
+      await tx.installmentRollLog.create({
+        data: {
+          scheduleId,
+          installmentId: targetInst.id,
+          eventType: 'payment_moved',
+          eventDate: new Date(),
+          actorUserId: userId,
+          displayMessage: `Payment of ₹${amountToMove.toLocaleString('en-IN')} received from correction of mis-recorded ${sourceLabel} and applied to ${targetLabel}. Paid on: ${paidOnDate.toISOString().split('T')[0]}.`,
+          metadata: {
+            paymentId,
+            amount: amountToMove,
+            sourceInstallmentId: sourceInst.id,
+            targetInstallmentId,
+            paymentDate: paidOnDate.toISOString(),
+            reason,
+          } as Prisma.InputJsonValue,
+        },
+      });
+
+      // ── Step D: Distribute any excess over the target's due amount ────────
+      const excess = amountToMove - targetRemainingWithInterest;
+      if (excess > 0) {
+        await distributeOverpayment(tx, targetInst.id, scheduleId, excess, userId, false);
+      }
+
+      // ── Step E: Re-run rollover so the newly-unpaid source row is absorbed
+      //           correctly if its due date has passed ─────────────────────
+      await tx.installmentSchedule.update({
+        where: { id: scheduleId },
+        data: { lastRolloverDate: null },
+      });
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      await ensureRolledForToday(tx, today, { scheduleId });
+
+      // ── Step F: Re-sync schedule totals ──────────────────────────────────
+      await syncScheduleAndSale(tx, scheduleId);
+
+      return {
+        sourceInstallmentId: sourceInst.id,
+        targetInstallmentId,
+        amountMoved: amountToMove,
+      };
+    });
+
+    return result;
   },
 };
 

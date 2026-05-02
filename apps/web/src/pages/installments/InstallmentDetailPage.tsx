@@ -17,7 +17,7 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { useScheduleDetailQuery, useRevertPaymentMutation } from '../../hooks/useInstallments';
+import { useScheduleDetailQuery, useRevertPaymentMutation, useMovePaymentMutation } from '../../hooks/useInstallments';
 import { StatusBadge } from '../../components/StatusBadge';
 import { PaymentTimeline } from '../../components/PaymentTimeline';
 import { RecordPaymentDialog } from '../../components/RecordPaymentDialog';
@@ -47,9 +47,31 @@ export function InstallmentDetailPage() {
     paymentId: string;
     amount: number;
     installmentLabel: string;
+    installmentId: string;
+    /** Original payment date (YYYY-MM-DD) — pre-filled in the move-payment flow. */
+    originalPaymentDate: string | null;
+    /** Installment due date — used to compute days-overdue suggestion. */
+    dueDate: string | null;
+    /**
+     * Remaining balance the row will have AFTER the revert. Drives the
+     * suggested overdue-interest calculation (interest is on what's owed,
+     * not on what was originally due).
+     */
+    expectedRemainingAfterRevert: number;
   } | null>(null);
   const [revertReason, setRevertReason] = useState('');
+  const [revertApplyInterest, setRevertApplyInterest] = useState(false);
+  const [revertInterestAmount, setRevertInterestAmount] = useState<string>('');
+  const [revertInterestNotes, setRevertInterestNotes] = useState('');
+  // "Fix mis-record" mode inside the revert dialog
+  const [revertMoveEnabled, setRevertMoveEnabled] = useState(false);
+  const [revertMoveTargetId, setRevertMoveTargetId] = useState('');
+  const [revertMovePaymentDate, setRevertMovePaymentDate] = useState('');
+  const [revertMoveInterestEnabled, setRevertMoveInterestEnabled] = useState(false);
+  const [revertMoveInterestAmount, setRevertMoveInterestAmount] = useState<string>('');
+  const [revertMoveInterestNotes, setRevertMoveInterestNotes] = useState('');
   const revertMutation = useRevertPaymentMutation();
+  const moveMutation = useMovePaymentMutation();
 
   // Toggle to show/hide rescheduled (superseded) rows
   const [showRescheduled, setShowRescheduled] = useState(false);
@@ -428,6 +450,23 @@ export function InstallmentDetailPage() {
                                 paymentId: lastPayment.id,
                                 amount: Number(lastPayment.amount),
                                 installmentLabel: formatInstallmentLabel(inst),
+                                installmentId: inst.id,
+                                originalPaymentDate: lastPayment.paymentDate
+                                  ? typeof lastPayment.paymentDate === 'string'
+                                    ? lastPayment.paymentDate.split('T')[0]
+                                    : new Date(lastPayment.paymentDate).toISOString().split('T')[0]
+                                  : null,
+                                dueDate: inst.dueDate
+                                  ? typeof inst.dueDate === 'string'
+                                    ? inst.dueDate.split('T')[0]
+                                    : new Date(inst.dueDate).toISOString().split('T')[0]
+                                  : null,
+                                expectedRemainingAfterRevert:
+                                  Number(inst.amountDue) -
+                                  Math.max(
+                                    0,
+                                    Number(inst.amountPaid) - Number(lastPayment.amount),
+                                  ),
                               })
                             }
                             title="Undo last payment"
@@ -497,13 +536,46 @@ export function InstallmentDetailPage() {
       )}
 
       {/* Revert payment confirmation dialog */}
-      {revertTarget && (
+      {revertTarget && (() => {
+        // Compute suggested overdue interest if the row's due date has passed.
+        // Mirrors the server formula: monthlyRate% / 30 / day, on the
+        // expected post-revert remaining balance.
+        const monthlyRate = Number(sale?.interestRate ?? 0);
+        let daysOverdue = 0;
+        if (revertTarget.dueDate) {
+          const due = new Date(revertTarget.dueDate);
+          const today = new Date();
+          const dueDay = Date.UTC(due.getFullYear(), due.getMonth(), due.getDate());
+          const todayDay = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate());
+          daysOverdue = Math.max(
+            0,
+            Math.floor((todayDay - dueDay) / (1000 * 60 * 60 * 24)),
+          );
+        }
+        const dailyRate = monthlyRate / 100 / 30;
+        const suggestedInterest = Math.round(
+          revertTarget.expectedRemainingAfterRevert * dailyRate * daysOverdue * 100,
+        ) / 100;
+        const closeRevert = () => {
+          setRevertTarget(null);
+          setRevertReason('');
+          setRevertApplyInterest(false);
+          setRevertInterestAmount('');
+          setRevertInterestNotes('');
+          setRevertMoveEnabled(false);
+          setRevertMoveTargetId('');
+          setRevertMovePaymentDate('');
+          setRevertMoveInterestEnabled(false);
+          setRevertMoveInterestAmount('');
+          setRevertMoveInterestNotes('');
+        };
+        return (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/50" onClick={() => { setRevertTarget(null); setRevertReason(''); }} />
-          <div className="relative z-10 w-full max-w-md rounded-lg border bg-card p-6 shadow-xl mx-4">
+          <div className="absolute inset-0 bg-black/50" onClick={closeRevert} />
+          <div className="relative z-10 w-full max-w-md rounded-lg border bg-card p-6 shadow-xl mx-4 max-h-[90vh] overflow-y-auto scrollbar-auto">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-medium text-red-600">Revert Payment</h3>
-              <button onClick={() => { setRevertTarget(null); setRevertReason(''); }} className="rounded-md p-1 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+              <button onClick={closeRevert} className="rounded-md p-1 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
                 <X className="h-5 w-5" />
               </button>
             </div>
@@ -525,32 +597,311 @@ export function InstallmentDetailPage() {
                 )}
               />
             </div>
+
+            {/* Optional: apply overdue interest at the same time */}
+            {daysOverdue > 0 && suggestedInterest > 0 && (
+              <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-900/40 p-3 space-y-2">
+                <div>
+                  <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">
+                    Overdue interest available
+                  </p>
+                  <p className="text-xs text-amber-800 dark:text-amber-300">
+                    {daysOverdue} days overdue · suggested {formatINR(suggestedInterest)}{' '}
+                    on remaining {formatINR(revertTarget.expectedRemainingAfterRevert)}
+                  </p>
+                </div>
+                <label className="flex items-start gap-2 text-xs text-amber-900 dark:text-amber-200 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={revertApplyInterest}
+                    onChange={(e) => {
+                      setRevertApplyInterest(e.target.checked);
+                      if (e.target.checked && !revertInterestAmount) {
+                        setRevertInterestAmount(String(suggestedInterest));
+                      }
+                    }}
+                    className="mt-0.5 rounded border-amber-300"
+                  />
+                  <span>
+                    Apply overdue interest along with this revert. The interest
+                    will be added to the installment before it gets absorbed
+                    into future installments.
+                  </span>
+                </label>
+                {revertApplyInterest && (
+                  <div className="space-y-1.5 pl-6">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={revertInterestAmount}
+                        onChange={(e) => setRevertInterestAmount(e.target.value)}
+                        placeholder={String(suggestedInterest)}
+                        className="flex-1 min-w-0 rounded-md border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setRevertInterestAmount(String(suggestedInterest))}
+                        className="shrink-0 text-xs text-primary hover:underline"
+                      >
+                        use
+                      </button>
+                    </div>
+                    <input
+                      type="text"
+                      value={revertInterestNotes}
+                      onChange={(e) => setRevertInterestNotes(e.target.value)}
+                      placeholder="Note (optional)"
+                      className="w-full rounded-md border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── Fix Mis-record section ─────────────────────────────── */}
+            {(() => {
+              // Build dropdown options: unpaid installments in the same schedule,
+              // excluding the current source row and already-paid/rescheduled rows.
+              const moveTargetOptions = installments.filter(
+                (i: any) =>
+                  i.id !== revertTarget.installmentId &&
+                  i.status !== 'paid' &&
+                  i.status !== 'rescheduled',
+              );
+
+              // Compute suggested interest on the selected target installment
+              let targetSuggestedInterest = 0;
+              if (revertMoveEnabled && revertMoveTargetId) {
+                const targetInst = installments.find((i: any) => i.id === revertMoveTargetId);
+                if (targetInst?.dueDate) {
+                  const due = new Date(targetInst.dueDate);
+                  const today = new Date();
+                  const dueDay = Date.UTC(due.getFullYear(), due.getMonth(), due.getDate());
+                  const todayDay = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate());
+                  const targetDaysOverdue = Math.max(0, Math.floor((todayDay - dueDay) / (1000 * 60 * 60 * 24)));
+                  const dailyRate = Number(sale?.interestRate ?? 0) / 100 / 30;
+                  targetSuggestedInterest =
+                    Math.round(Number(targetInst.remainingAmount) * dailyRate * targetDaysOverdue * 100) / 100;
+                }
+              }
+
+              return (
+                <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 dark:bg-blue-900/20 dark:border-blue-900/40 p-3 space-y-3">
+                  <label className="flex items-start gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={revertMoveEnabled}
+                      onChange={(e) => {
+                        setRevertMoveEnabled(e.target.checked);
+                        if (e.target.checked) {
+                          // Pre-fill payment date with the original payment date
+                          setRevertMovePaymentDate(revertTarget.originalPaymentDate ?? '');
+                        } else {
+                          setRevertMoveTargetId('');
+                          setRevertMovePaymentDate('');
+                          setRevertMoveInterestEnabled(false);
+                          setRevertMoveInterestAmount('');
+                          setRevertMoveInterestNotes('');
+                        }
+                      }}
+                      className="mt-0.5 rounded border-blue-300"
+                    />
+                    <div>
+                      <p className="text-sm font-semibold text-blue-900 dark:text-blue-200">
+                        Fix mis-recorded payment
+                      </p>
+                      <p className="text-xs text-blue-700 dark:text-blue-300">
+                        Move this payment to the correct installment instead of just reverting it.
+                      </p>
+                    </div>
+                  </label>
+
+                  {revertMoveEnabled && (
+                    <div className="space-y-3 pl-6">
+                      {/* Target installment selector */}
+                      <div>
+                        <label className="block text-xs font-medium text-blue-800 dark:text-blue-300 mb-1">
+                          Move payment to installment <span className="text-destructive">*</span>
+                        </label>
+                        <select
+                          value={revertMoveTargetId}
+                          onChange={(e) => {
+                            setRevertMoveTargetId(e.target.value);
+                            setRevertMoveInterestEnabled(false);
+                            setRevertMoveInterestAmount('');
+                          }}
+                          className="w-full rounded-md border bg-background px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+                        >
+                          <option value="">— Select installment —</option>
+                          {moveTargetOptions.map((i: any) => (
+                            <option key={i.id} value={i.id}>
+                              {formatInstallmentLabel(i)} · Due {formatDateIN(i.dueDate)} · Remaining {formatINR(i.remainingAmount)}
+                            </option>
+                          ))}
+                        </select>
+                        {moveTargetOptions.length === 0 && (
+                          <p className="text-xs text-muted-foreground mt-1">No eligible target installments found.</p>
+                        )}
+                      </div>
+
+                      {/* Payment date override */}
+                      <div>
+                        <label className="block text-xs font-medium text-blue-800 dark:text-blue-300 mb-1">
+                          Payment date (when customer actually paid)
+                        </label>
+                        <input
+                          type="date"
+                          value={revertMovePaymentDate}
+                          onChange={(e) => setRevertMovePaymentDate(e.target.value)}
+                          className="rounded-md border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+                        />
+                        {revertTarget.originalPaymentDate && (
+                          <button
+                            type="button"
+                            onClick={() => setRevertMovePaymentDate(revertTarget.originalPaymentDate!)}
+                            className="ml-2 text-xs text-primary hover:underline"
+                          >
+                            use original ({revertTarget.originalPaymentDate})
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Optional interest on target */}
+                      {revertMoveTargetId && targetSuggestedInterest > 0 && (
+                        <div className="rounded-md border border-amber-200 bg-amber-50 dark:bg-amber-900/20 p-2 space-y-1.5">
+                          <label className="flex items-start gap-2 text-xs text-amber-900 dark:text-amber-200 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={revertMoveInterestEnabled}
+                              onChange={(e) => {
+                                setRevertMoveInterestEnabled(e.target.checked);
+                                if (e.target.checked && !revertMoveInterestAmount) {
+                                  setRevertMoveInterestAmount(String(targetSuggestedInterest));
+                                }
+                              }}
+                              className="mt-0.5 rounded border-amber-300"
+                            />
+                            <span>
+                              Apply overdue interest on target installment · suggested {formatINR(targetSuggestedInterest)}
+                            </span>
+                          </label>
+                          {revertMoveInterestEnabled && (
+                            <div className="space-y-1 pl-5">
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  value={revertMoveInterestAmount}
+                                  onChange={(e) => setRevertMoveInterestAmount(e.target.value)}
+                                  placeholder={String(targetSuggestedInterest)}
+                                  className="flex-1 rounded-md border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => setRevertMoveInterestAmount(String(targetSuggestedInterest))}
+                                  className="shrink-0 text-xs text-primary hover:underline"
+                                >
+                                  use
+                                </button>
+                              </div>
+                              <input
+                                type="text"
+                                value={revertMoveInterestNotes}
+                                onChange={(e) => setRevertMoveInterestNotes(e.target.value)}
+                                placeholder="Note (optional)"
+                                className="w-full rounded-md border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+                              />
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
             <div className="flex justify-end gap-3">
-              <button onClick={() => { setRevertTarget(null); setRevertReason(''); }} className="rounded-md border px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-muted transition-colors">Cancel</button>
-              <button
-                disabled={!revertReason.trim() || revertMutation.isPending}
-                onClick={() => {
-                  revertMutation.mutate(
-                    { paymentId: revertTarget.paymentId, reason: revertReason.trim() },
-                    { onSuccess: () => { setRevertTarget(null); setRevertReason(''); } },
-                  );
-                }}
-                className={cn(
-                  'flex items-center gap-2 rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white',
-                  'hover:bg-red-700 transition-colors',
-                  'disabled:opacity-50 disabled:cursor-not-allowed',
-                )}
-              >
-                {revertMutation.isPending ? (
-                  <><Loader2 className="h-4 w-4 animate-spin" /> Reverting...</>
-                ) : (
-                  <><Undo2 className="h-4 w-4" /> Confirm Revert</>
-                )}
-              </button>
+              <button onClick={closeRevert} className="rounded-md border px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-muted transition-colors">Cancel</button>
+              {revertMoveEnabled ? (
+                // ── Move payment button ──────────────────────────────────────
+                <button
+                  disabled={
+                    !revertReason.trim() ||
+                    !revertMoveTargetId ||
+                    moveMutation.isPending
+                  }
+                  onClick={() => {
+                    const interestPayload =
+                      revertMoveInterestEnabled && Number(revertMoveInterestAmount) > 0
+                        ? {
+                            amount: Number(revertMoveInterestAmount),
+                            notes: revertMoveInterestNotes.trim() || undefined,
+                          }
+                        : undefined;
+                    moveMutation.mutate(
+                      {
+                        paymentId: revertTarget.paymentId,
+                        targetInstallmentId: revertMoveTargetId,
+                        reason: revertReason.trim(),
+                        paymentDate: revertMovePaymentDate || undefined,
+                        applyInterestOnTarget: interestPayload,
+                      },
+                      { onSuccess: closeRevert },
+                    );
+                  }}
+                  className={cn(
+                    'flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white',
+                    'hover:bg-blue-700 transition-colors',
+                    'disabled:opacity-50 disabled:cursor-not-allowed',
+                  )}
+                >
+                  {moveMutation.isPending ? (
+                    <><Loader2 className="h-4 w-4 animate-spin" /> Moving...</>
+                  ) : (
+                    <><Undo2 className="h-4 w-4" /> Move Payment</>
+                  )}
+                </button>
+              ) : (
+                // ── Standard revert button ───────────────────────────────────
+                <button
+                  disabled={!revertReason.trim() || revertMutation.isPending}
+                  onClick={() => {
+                    const interestPayload =
+                      revertApplyInterest && Number(revertInterestAmount) > 0
+                        ? {
+                            amount: Number(revertInterestAmount),
+                            notes: revertInterestNotes.trim() || undefined,
+                          }
+                        : undefined;
+                    revertMutation.mutate(
+                      {
+                        paymentId: revertTarget.paymentId,
+                        reason: revertReason.trim(),
+                        applyInterest: interestPayload,
+                      },
+                      { onSuccess: closeRevert },
+                    );
+                  }}
+                  className={cn(
+                    'flex items-center gap-2 rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white',
+                    'hover:bg-red-700 transition-colors',
+                    'disabled:opacity-50 disabled:cursor-not-allowed',
+                  )}
+                >
+                  {revertMutation.isPending ? (
+                    <><Loader2 className="h-4 w-4 animate-spin" /> Reverting...</>
+                  ) : (
+                    <><Undo2 className="h-4 w-4" /> Confirm Revert</>
+                  )}
+                </button>
+              )}
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
     </div>
   );
 }

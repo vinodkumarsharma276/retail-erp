@@ -413,13 +413,15 @@ export function useRevertPaymentMutation() {
     mutationFn: async ({
       paymentId,
       reason,
+      applyInterest,
     }: {
       paymentId: string;
       reason: string;
+      applyInterest?: { amount: number; notes?: string };
     }) => {
       const { data } = await apiClient.post(
         `/installments/payments/${paymentId}/revert`,
-        { reason },
+        { reason, applyInterest },
       );
       return data.data;
     },
@@ -572,6 +574,40 @@ export function useRollbackInterestApplicationMutation() {
       const { data } = await apiClient.post<ApiResponse<unknown>>(
         `/installments/interest-applications/${applicationId}/rollback`,
         { reason },
+      );
+      return data.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['installments'] });
+      queryClient.invalidateQueries({ queryKey: ['sales'] });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Move (fix mis-recorded) payment — atomically re-attribute a payment from
+// the wrong installment to the correct one.
+// ---------------------------------------------------------------------------
+export function useMovePaymentMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      paymentId,
+      targetInstallmentId,
+      reason,
+      paymentDate,
+      applyInterestOnTarget,
+    }: {
+      paymentId: string;
+      targetInstallmentId: string;
+      reason: string;
+      paymentDate?: string;
+      applyInterestOnTarget?: { amount: number; notes?: string };
+    }) => {
+      const { data } = await apiClient.post<ApiResponse<unknown>>(
+        `/installments/payments/${paymentId}/move`,
+        { targetInstallmentId, reason, paymentDate, applyInterestOnTarget },
       );
       return data.data;
     },

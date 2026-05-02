@@ -334,7 +334,10 @@ export const installmentsController = {
   async revertPayment(
     request: FastifyRequest<{
       Params: { paymentId: string };
-      Body: { reason: string };
+      Body: {
+        reason: string;
+        applyInterest?: { amount: number; notes?: string };
+      };
     }>,
     reply: FastifyReply,
   ) {
@@ -343,6 +346,7 @@ export const installmentsController = {
         request.params.paymentId,
         request.body.reason,
         request.currentUser?.userId ?? '',
+        { applyInterest: request.body.applyInterest },
       );
       return sendSuccess(reply, result);
     } catch (error) {
@@ -444,6 +448,39 @@ export const installmentsController = {
       return sendSuccess(reply, result);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to rollback interest';
+      return sendError(reply, message, 400);
+    }
+  },
+
+  async movePayment(
+    request: FastifyRequest<{
+      Params: { paymentId: string };
+      Body: {
+        targetInstallmentId: string;
+        reason: string;
+        paymentDate?: string;
+        applyInterestOnTarget?: { amount: number; notes?: string };
+      };
+    }>,
+    reply: FastifyReply,
+  ) {
+    try {
+      const result = await installmentsService.movePayment(
+        request.params.paymentId,
+        request.body.targetInstallmentId,
+        request.body.reason,
+        request.currentUser?.userId ?? '',
+        {
+          paymentDate: request.body.paymentDate,
+          applyInterestOnTarget: request.body.applyInterestOnTarget,
+        },
+      );
+      return sendSuccess(reply, result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to move payment';
+      if (message === 'Payment not found' || message === 'Target installment not found') {
+        return sendError(reply, message, 404);
+      }
       return sendError(reply, message, 400);
     }
   },

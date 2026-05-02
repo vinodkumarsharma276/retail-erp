@@ -484,72 +484,114 @@ export async function distributeOverpayment(
   let remaining = excess;
   let waivedInterestTotal = 0;
 
-  for (const t of targets) {
-    if (remaining <= 0) break;
+  if (waiveInterest) {
+    // Greedy waiver path — close future installments early, waiving their
+    // baked-in interest share, until the excess is exhausted.
+    for (const t of targets) {
+      if (remaining <= 0) break;
+      if (
+        interestShare > 0 &&
+        remaining >= Math.min(noInterestEmi, t.remainingAmount) &&
+        t.remainingAmount > 0
+      ) {
+        const closingCost = Math.min(noInterestEmi, t.remainingAmount);
+        const interestPortionPresent = Math.min(interestShare, t.remainingAmount);
+        const reductionToAmountDue = round2(closingCost + interestPortionPresent);
+        const cappedReduction = Math.min(reductionToAmountDue, t.remainingAmount);
+        const interestWaived = round2(cappedReduction - closingCost);
 
-    // Greedy waiver path — only when employee opted in.
-    if (
-      waiveInterest &&
-      interestShare > 0 &&
-      remaining >= Math.min(noInterestEmi, t.remainingAmount) &&
-      t.remainingAmount > 0
-    ) {
-      const closingCost = Math.min(noInterestEmi, t.remainingAmount);
-      const interestPortionPresent = Math.min(interestShare, t.remainingAmount);
-      const reductionToAmountDue = round2(closingCost + interestPortionPresent);
-      const cappedReduction = Math.min(reductionToAmountDue, t.remainingAmount);
-      const interestWaived = round2(cappedReduction - closingCost);
+        await tx.installment.update({
+          where: { id: t.id },
+          data: {
+            amountDue: { decrement: cappedReduction },
+            amountPaid: { increment: closingCost },
+            remainingAmount: { decrement: cappedReduction },
+            status: 'paid' as any,
+          },
+        });
 
+        remaining = round2(remaining - closingCost);
+        waivedInterestTotal = round2(waivedInterestTotal + interestWaived);
+        targetDeltas.push({
+          id: t.id,
+          delta: closingCost,
+          installmentNumber: t.installmentNumber,
+          paidOff: true,
+          interestWaived,
+          closedEarly: true,
+        });
+        continue;
+      }
+      // Not enough to close this one fully → fall through to partial.
+      const delta = Math.min(remaining, t.remainingAmount);
+      if (delta <= 0) break;
+      const willBePaidOff = round2(t.remainingAmount - delta) <= 0;
       await tx.installment.update({
         where: { id: t.id },
         data: {
-          amountDue: { decrement: cappedReduction },
-          amountPaid: { increment: closingCost },
-          remainingAmount: { decrement: cappedReduction },
-          status: 'paid' as any,
+          amountDue: { decrement: delta },
+          remainingAmount: { decrement: delta },
+          status: willBePaidOff ? ('paid' as any) : (t.status as any),
         },
       });
-
-      remaining = round2(remaining - closingCost);
-      waivedInterestTotal = round2(waivedInterestTotal + interestWaived);
+      remaining = round2(remaining - delta);
       targetDeltas.push({
         id: t.id,
-        delta: closingCost,
+        delta,
         installmentNumber: t.installmentNumber,
-        paidOff: true,
-        interestWaived,
-        closedEarly: true,
+        paidOff: willBePaidOff,
+        interestWaived: 0,
+        closedEarly: false,
       });
-      continue;
     }
+  } else {
+    // Default / no-waiver path: legacy equal-split behavior. Each future
+    // installment receives the same delta (rounded), with the residue
+    // landing on the last target. Mirrors the parent-chain redistribution
+    // in R3/R4 so the customer experience is consistent.
+    const perTarget = round2(remaining / targets.length);
+    const distributed = round2(perTarget * targets.length);
+    let residue = round2(remaining - distributed);
+    let leftoverFromCap = 0;
 
-    // Default / no-waiver path: legacy behavior — just decrement amountDue
-    // and remainingAmount by the available excess. Customer still owes the
-    // baked-in interest on these installments; they just owe less principal.
-    const delta = Math.min(remaining, t.remainingAmount);
-    if (delta <= 0) break;
-    const newRemaining = round2(t.remainingAmount - delta);
-    const newAmountPaid = round2(t.amountPaid); // unchanged
-    const willBePaidOff = newRemaining <= 0;
-    await tx.installment.update({
-      where: { id: t.id },
-      data: {
-        amountDue: { decrement: delta },
-        remainingAmount: { decrement: delta },
-        status: willBePaidOff ? ('paid' as any) : (t.status as any),
-      },
-    });
-    remaining = round2(remaining - delta);
-    targetDeltas.push({
-      id: t.id,
-      delta,
-      installmentNumber: t.installmentNumber,
-      paidOff: willBePaidOff,
-      interestWaived: 0,
-      closedEarly: false,
-    });
-    if (remaining <= 0) break;
-    void newAmountPaid; // declared for symmetry with prior version
+    for (let i = 0; i < targets.length; i++) {
+      const t = targets[i];
+      const isLast = i === targets.length - 1;
+      const nominal = isLast
+        ? round2(perTarget + residue + leftoverFromCap)
+        : round2(perTarget + leftoverFromCap);
+      leftoverFromCap = 0;
+      // Cap delta at this target's remainingAmount; carry the rest into
+      // the next iteration so total distribution stays exact.
+      let delta = nominal;
+      if (delta > t.remainingAmount) {
+        leftoverFromCap = round2(delta - t.remainingAmount);
+        delta = t.remainingAmount;
+        if (isLast) residue = 0; // already absorbed below
+      }
+      if (delta <= 0) {
+        if (!isLast) continue;
+        break;
+      }
+      const willBePaidOff = round2(t.remainingAmount - delta) <= 0;
+      await tx.installment.update({
+        where: { id: t.id },
+        data: {
+          amountDue: { decrement: delta },
+          remainingAmount: { decrement: delta },
+          status: willBePaidOff ? ('paid' as any) : (t.status as any),
+        },
+      });
+      targetDeltas.push({
+        id: t.id,
+        delta,
+        installmentNumber: t.installmentNumber,
+        paidOff: willBePaidOff,
+        interestWaived: 0,
+        closedEarly: false,
+      });
+    }
+    remaining = leftoverFromCap;
   }
 
   // Any cash the customer paid beyond what was actually distributed remains

@@ -176,3 +176,30 @@ export const applyInterestSchema = z.object({
 export const rollbackInterestSchema = z.object({
   reason: z.string().min(1, 'Reason is required'),
 });
+
+/**
+ * Body for `POST /installments/payments/:paymentId/move`.
+ * Moves a mis-recorded payment from one installment to the correct one,
+ * atomically in a single transaction.
+ */
+export const movePaymentSchema = z.object({
+  /** The installment this payment should actually belong to. */
+  targetInstallmentId: z.string().uuid('Target installment ID must be a valid UUID'),
+  /** Human-readable reason for the correction. */
+  reason: z.string().min(1, 'Reason is required'),
+  /**
+   * Override the payment date (YYYY-MM-DD). Defaults to the original
+   * payment's date. Useful when re-attributing late payments.
+   */
+  paymentDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be in YYYY-MM-DD format')
+    .optional(),
+  /** Optional overdue interest to apply on the target installment alongside the move. */
+  applyInterestOnTarget: z
+    .object({
+      amount: z.number().positive('Interest amount must be positive'),
+      notes: z.string().optional(),
+    })
+    .optional(),
+});
