@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft,
   Loader2,
@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useDebounce } from '../../hooks/useDebounce';
-import { useProductSearchQuery } from '../../hooks/useProducts';
+import { useProductSearchQuery, useProductDetailQuery } from '../../hooks/useProducts';
 import { useShopsQuery } from '../../hooks/useAuth';
 import { useInitiateTransferMutation } from '../../hooks/useTransfers';
 import { useShopStore } from '../../stores/shop-store';
@@ -41,11 +41,16 @@ function inferGstRate(product: Product | null): number {
 
 export function TransferCreatePage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const prefilledProductId = searchParams.get('productId') ?? undefined;
   const currentShopId = useShopStore((s) => s.currentShopId);
 
   // -----------------------------------------------------------------------
-  // Product search state
+  // Pre-fill product from URL param
   // -----------------------------------------------------------------------
+  const prefilledProductQuery = useProductDetailQuery(prefilledProductId);
+
+  // Product search state
   const [productSearchText, setProductSearchText] = useState('');
   const debouncedProductSearch = useDebounce(productSearchText, 300);
   const productSearchQuery = useProductSearchQuery(debouncedProductSearch);
@@ -54,6 +59,13 @@ export function TransferCreatePage() {
   );
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [showProductDropdown, setShowProductDropdown] = useState(false);
+
+  // When the prefilled product loads, auto-select it
+  useEffect(() => {
+    if (prefilledProductQuery.data && !selectedProduct) {
+      setSelectedProduct(prefilledProductQuery.data);
+    }
+  }, [prefilledProductQuery.data, selectedProduct]);
 
   // -----------------------------------------------------------------------
   // Destination shop
@@ -71,6 +83,41 @@ export function TransferCreatePage() {
   const [gstAmount, setGstAmount] = useState('');
   const [invoiceNumber, setInvoiceNumber] = useState('');
   const [notes, setNotes] = useState('');
+
+  /**
+   * Apply default Transfer Price + GST Amount based on the chosen product.
+   *
+   * - Transfer Price = Dealer Price (purchase price) + ₹1 — the "internal
+   *   transfer" convention so the receiving shop's DP is just barely above
+   *   what we paid, keeping margins visible without inflating cost.
+   * - GST Amount = inclusive GST on transfer price using the rate inferred
+   *   from the product's purchase invoice (defaults to 18%).
+   */
+  const applyProductDefaults = (product: Product) => {
+    const dp = Number(product.purchasePrice) || 0;
+    const tPrice = dp + 1;
+    setTransferPrice(tPrice ? tPrice.toFixed(2) : '');
+
+    const rate = inferGstRate(product);
+    const gst =
+      rate > 0
+        ? Math.round((tPrice * rate) / (100 + rate) * 100) / 100
+        : 0;
+    setGstAmount(gst ? gst.toFixed(2) : '');
+
+    // Invoice number is auto-generated server-side
+    setInvoiceNumber('');
+  };
+
+  // When the prefilled product loads (or selectedProduct changes through any
+  // path), apply defaults automatically. This handles both the URL ?productId
+  // entry and direct selection from the search dropdown.
+  useEffect(() => {
+    if (selectedProduct) {
+      applyProductDefaults(selectedProduct);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedProduct?.id]);
 
   // -----------------------------------------------------------------------
   // Mutation
@@ -233,22 +280,11 @@ export function TransferCreatePage() {
                             setSelectedProduct(product);
                             setProductSearchText('');
                             setShowProductDropdown(false);
-
-                            // Auto-populate Transfer Price = DP + 1
-                            const dp = Number(product.purchasePrice) || 0;
-                            const tPrice = dp + 1;
-                            setTransferPrice(tPrice ? tPrice.toFixed(2) : '');
-
-                            // Auto-populate GST Amount (GST-inclusive on transfer price)
-                            const rate = inferGstRate(product);
-                            const gst =
-                              rate > 0
-                                ? Math.round((tPrice * rate) / (100 + rate) * 100) / 100
-                                : 0;
-                            setGstAmount(gst ? gst.toFixed(2) : '');
-
-                            // Invoice number is auto-generated on the server
-                            setInvoiceNumber('');
+                            // Defaults (transfer price + GST + invoice) are
+                            // applied by the useEffect that watches
+                            // selectedProduct.id, so the same logic runs
+                            // whether the product comes from the dropdown
+                            // or from a prefilled URL ?productId param.
                           }}
                           className="w-full text-left px-3 py-2.5 hover:bg-muted transition-colors border-b last:border-0"
                         >
@@ -378,28 +414,22 @@ export function TransferCreatePage() {
               </p>
             </div>
 
-            {/* Invoice Number */}
-            <div>
-              <label
-                htmlFor="invoiceNumber"
-                className="block text-sm font-medium mb-1.5"
-              >
+            {/* Invoice Number — auto-generated on the server */}
+            <div className="sm:col-span-2">
+              <label className="block text-sm font-medium mb-1.5">
                 Invoice Number
               </label>
-              <input
-                id="invoiceNumber"
-                type="text"
-                value={invoiceNumber}
-                onChange={(e) => setInvoiceNumber(e.target.value)}
-                placeholder="Auto-generated (e.g. TRF-VE-NE-20260418-0001)"
-                className={cn(
-                  'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
-                  'placeholder:text-muted-foreground',
-                  'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                )}
-              />
+              <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2.5 text-sm">
+                <span className="text-muted-foreground italic">
+                  Auto-generated
+                </span>
+                <span className="font-mono text-xs text-muted-foreground">
+                  TRF-&lt;FROM&gt;-&lt;TO&gt;-YYYYMMDD-NNNN
+                </span>
+              </div>
               <p className="mt-1 text-xs text-muted-foreground">
-                Leave blank to auto-generate.
+                Format: <code className="font-mono">TRF-{'{'}from-shop-code{'}'}-{'{'}to-shop-code{'}'}-{'{'}date{'}'}-{'{'}sequence{'}'}</code>
+                — e.g. <code className="font-mono">TRF-VE-NE-20260503-0007</code>.
               </p>
             </div>
           </div>

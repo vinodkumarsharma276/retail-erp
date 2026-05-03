@@ -14,6 +14,7 @@ import { SaleType } from '@retailerp/shared-types';
 import { handleInvoiceDownload } from '../../lib/invoice-utils';
 import { usePermission, useCanCheck } from '../../hooks/usePermission';
 import { AccessDenied } from '../../routes/RoleGuard';
+import { useShopStore, isAllShops } from '../../stores/shop-store';
 
 const PAGE_SIZE = 20;
 
@@ -145,6 +146,9 @@ function SaleListPageInner() {
   };
 
   // ------ Table columns ------
+  const currentShopId = useShopStore((s) => s.currentShopId);
+  const allShopsMode = isAllShops(currentShopId);
+
   const columns: Column<SaleListItem>[] = [
     {
       key: 'sno',
@@ -155,6 +159,28 @@ function SaleListPageInner() {
           : idx + 1,
       className: 'w-12',
     },
+    // Shop column — only shown in "All Shops" mode so users can tell
+    // which GST entity each row came from. In single-shop mode this is
+    // implicit from the header badge so omitting it keeps the table tight.
+    ...(allShopsMode
+      ? ([
+          {
+            key: 'shop' as keyof SaleListItem,
+            header: 'Shop',
+            sortable: true,
+            sortAccessor: (row: SaleListItem) => row.shop?.code ?? '',
+            render: (row: SaleListItem) =>
+              row.shop ? (
+                <span className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-xs font-medium">
+                  {row.shop.code}
+                </span>
+              ) : (
+                <span className="text-muted-foreground">-</span>
+              ),
+            className: 'w-20',
+          },
+        ] as Column<SaleListItem>[])
+      : []),
     {
       key: 'saleNumber',
       header: 'Sale #',

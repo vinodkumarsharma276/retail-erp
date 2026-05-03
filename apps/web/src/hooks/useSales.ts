@@ -237,6 +237,12 @@ export interface SaleListItem {
   productBrand?: string;
   productModel?: string;
   productSerialNumber?: string;
+  // Shop (always populated by the API; useful in "All Shops" mode)
+  shop?: {
+    id: string;
+    name: string;
+    code: string;
+  };
 }
 
 export interface SaleDetailResponse extends SaleRecord {

@@ -210,7 +210,7 @@ export async function syncScheduleAndSale(
 export async function markOverdueForToday(
   tx: Tx,
   today: Date,
-  scope: { scheduleId?: string; shopId?: string },
+  scope: { scheduleId?: string; shopId?: string; shopIds?: string[] },
 ): Promise<number> {
   const todayDate = toDateOnly(today);
 
@@ -223,6 +223,8 @@ export async function markOverdueForToday(
 
   if (scope.scheduleId) {
     where.scheduleId = scope.scheduleId;
+  } else if (scope.shopIds && scope.shopIds.length > 0) {
+    where.schedule = { status: 'active', sale: { shopId: { in: scope.shopIds } } };
   } else if (scope.shopId) {
     where.schedule = { status: 'active', sale: { shopId: scope.shopId } };
   } else {
@@ -658,12 +660,14 @@ export async function distributeOverpayment(
 export async function applyDailyRollover(
   tx: Tx,
   today: Date,
-  scope: { scheduleId?: string; shopId?: string },
+  scope: { scheduleId?: string; shopId?: string; shopIds?: string[] },
 ): Promise<{ redistributions: number }> {
   const todayDate = toDateOnly(today);
 
   const scheduleWhere: Prisma.InstallmentScheduleWhereInput = { status: 'active' };
   if (scope.scheduleId) scheduleWhere.id = scope.scheduleId;
+  else if (scope.shopIds && scope.shopIds.length > 0)
+    scheduleWhere.sale = { shopId: { in: scope.shopIds } };
   else if (scope.shopId) scheduleWhere.sale = { shopId: scope.shopId };
 
   const schedules = await tx.installmentSchedule.findMany({
@@ -890,7 +894,7 @@ export async function applyPartialWithPromise(
 export async function ensureRolledForToday(
   tx: Tx,
   today: Date,
-  scope: { scheduleId?: string; shopId?: string },
+  scope: { scheduleId?: string; shopId?: string; shopIds?: string[] },
 ): Promise<{ redistributions: number; markedOverdue: number }> {
   const { redistributions } = await applyDailyRollover(tx, today, scope);
   const markedOverdue = await markOverdueForToday(tx, today, scope);

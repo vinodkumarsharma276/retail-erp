@@ -19,8 +19,9 @@ import {
 import type { Transfer } from '../../hooks/useTransfers';
 import { DataTable } from '../../components/DataTable';
 import type { Column, PaginationState } from '../../components/DataTable';
+import { DateInput } from '../../components/DateInput';
 import { StatusBadge } from '../../components/StatusBadge';
-import { formatINR, formatDateIN } from '@retailerp/shared-utils';
+import { formatINR, formatDateIN, getCurrentFinancialYearRange, getLastFinancialYearRange } from '@retailerp/shared-utils';
 import { useAuthStore } from '../../stores/auth-store';
 import { useShopStore } from '../../stores/shop-store';
 import { UserRole } from '@retailerp/shared-types';
@@ -282,20 +283,11 @@ export function TransferListPage() {
               <label className="block text-xs font-medium text-muted-foreground mb-1">
                 From
               </label>
-              <div className="relative">
-                <Calendar className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <input
-                  type="date"
-                  value={dateFrom}
-                  onChange={(e) => {
-                    updateFilters({ dateFrom: e.target.value, page: '1' });
-                  }}
-                  className={cn(
-                    'rounded-md border bg-background pl-9 pr-3 py-2 text-sm',
-                    'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                  )}
-                />
-              </div>
+              <DateInput
+                value={dateFrom}
+                onChange={(v) => updateFilters({ dateFrom: v, page: '1' })}
+                className="w-40"
+              />
             </div>
 
             {/* Date to */}
@@ -303,21 +295,33 @@ export function TransferListPage() {
               <label className="block text-xs font-medium text-muted-foreground mb-1">
                 To
               </label>
-              <div className="relative">
-                <Calendar className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <input
-                  type="date"
-                  value={dateTo}
-                  onChange={(e) => {
-                    updateFilters({ dateTo: e.target.value, page: '1' });
-                  }}
-                  className={cn(
-                    'rounded-md border bg-background pl-9 pr-3 py-2 text-sm',
-                    'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                  )}
-                />
-              </div>
+              <DateInput
+                value={dateTo}
+                onChange={(v) => updateFilters({ dateTo: v, page: '1' })}
+                className="w-40"
+              />
             </div>
+
+            {/* Quick FY filters */}
+            <button
+              onClick={() => {
+                const { dateFrom: fyStart, dateTo: fyEnd } = getCurrentFinancialYearRange();
+                updateFilters({ dateFrom: fyStart, dateTo: fyEnd, page: '1' });
+              }}
+              className="rounded-md border px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+            >
+              Current Financial Year
+            </button>
+
+            <button
+              onClick={() => {
+                const { dateFrom: fyStart, dateTo: fyEnd } = getLastFinancialYearRange();
+                updateFilters({ dateFrom: fyStart, dateTo: fyEnd, page: '1' });
+              }}
+              className="rounded-md border px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+            >
+              Last Financial Year
+            </button>
 
             {/* Clear filters */}
             {hasFilters && (

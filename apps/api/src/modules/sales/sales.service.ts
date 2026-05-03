@@ -705,42 +705,56 @@ export const salesService = {
    * List sales — CRITICAL RBAC:
    * - 'others' role: query from sale_records_sanitized (never expose real data)
    * - 'admin'/'accountant': query from sale_records with full details
+   *
+   * The `scope` argument supports two modes:
+   *  - single shop: `{ shopId: string }` (default)
+   *  - all shops the user has access to: `{ shopId, shopIds: string[] }`
+   *    — used when the user picks "All Shops" in the header (gated by
+   *    the `shops.view_all` permission in the middleware).
    */
-  async list(shopId: string, userRole: string, filters: {
-    skip: number;
-    take: number;
-    page: number;
-    pageSize: number;
-    dateFrom?: string;
-    dateTo?: string;
-    saleType?: string;
-    customerSearch?: string;
-    maxProfitPct?: number;
-    minProfitPct?: number;
-  }) {
+  async list(
+    scope: { shopId: string; shopIds?: string[] },
+    userRole: string,
+    filters: {
+      skip: number;
+      take: number;
+      page: number;
+      pageSize: number;
+      dateFrom?: string;
+      dateTo?: string;
+      saleType?: string;
+      customerSearch?: string;
+      maxProfitPct?: number;
+      minProfitPct?: number;
+    },
+  ) {
     // Role-based data isolation: "others" see sanitized data ONLY
     if (userRole === 'others') {
-      return salesService.listSanitized(shopId, filters);
+      return salesService.listSanitized(scope, filters);
     }
 
-    return salesService.listReal(shopId, filters);
+    return salesService.listReal(scope, filters);
   },
 
-  async listReal(shopId: string, filters: {
-    skip: number;
-    take: number;
-    page: number;
-    pageSize: number;
-    dateFrom?: string;
-    dateTo?: string;
-    saleType?: string;
-    customerSearch?: string;
-    maxProfitPct?: number;
-    minProfitPct?: number;
-  }) {
-    const where: Prisma.SaleRecordWhereInput = {
-      shopId,
-    };
+  async listReal(
+    scope: { shopId: string; shopIds?: string[] },
+    filters: {
+      skip: number;
+      take: number;
+      page: number;
+      pageSize: number;
+      dateFrom?: string;
+      dateTo?: string;
+      saleType?: string;
+      customerSearch?: string;
+      maxProfitPct?: number;
+      minProfitPct?: number;
+    },
+  ) {
+    const where: Prisma.SaleRecordWhereInput =
+      scope.shopIds && scope.shopIds.length > 0
+        ? { shopId: { in: scope.shopIds } }
+        : { shopId: scope.shopId };
 
     if (filters.saleType) {
       where.saleType = filters.saleType as any;
@@ -865,19 +879,23 @@ export const salesService = {
     return { sales, totalItems };
   },
 
-  async listSanitized(shopId: string, filters: {
-    skip: number;
-    take: number;
-    page: number;
-    pageSize: number;
-    dateFrom?: string;
-    dateTo?: string;
-    saleType?: string;
-    customerSearch?: string;
-  }) {
-    const where: Prisma.SaleRecordSanitizedWhereInput = {
-      shopId,
-    };
+  async listSanitized(
+    scope: { shopId: string; shopIds?: string[] },
+    filters: {
+      skip: number;
+      take: number;
+      page: number;
+      pageSize: number;
+      dateFrom?: string;
+      dateTo?: string;
+      saleType?: string;
+      customerSearch?: string;
+    },
+  ) {
+    const where: Prisma.SaleRecordSanitizedWhereInput =
+      scope.shopIds && scope.shopIds.length > 0
+        ? { shopId: { in: scope.shopIds } }
+        : { shopId: scope.shopId };
 
     // saleType filter is ignored for sanitized — always full_payment
     // But we still apply date and customer filters

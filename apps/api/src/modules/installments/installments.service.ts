@@ -3,13 +3,32 @@ import type { Prisma } from '@prisma/client';
 import { ensureRolledForToday, applyPartialWithPromise, syncScheduleAndSale, distributeOverpayment } from './installments.rules.js';
 import { computeSettlementQuote, computeAccruedInterest } from '@retailerp/shared-utils';
 
+/**
+ * Scope object passed to read endpoints. `shopId` is always set (the user's
+ * currently-active shop). When `shopIds` is also set we are in "All Shops"
+ * mode: the read should fan out across every accessible shop.
+ */
+type ReadScope = { shopId: string; shopIds?: string[] };
+
+/**
+ * Builds the `sale.shopId` Prisma filter fragment for a read scope. In
+ * single-shop mode returns `{ shopId: 'x' }`; in all-shops mode returns
+ * `{ shopId: { in: [...] } }`.
+ */
+function saleScopeFilter(scope: ReadScope): Prisma.SaleRecordWhereInput {
+  if (scope.shopIds && scope.shopIds.length > 0) {
+    return { shopId: { in: scope.shopIds } };
+  }
+  return { shopId: scope.shopId };
+}
+
 export const installmentsService = {
   /**
-   * List installment schedules for a shop, with optional status filter.
-   * Shop-scoped via sale.shopId.
+   * List installment schedules for a shop (or all shops in All-Shops mode),
+   * with optional status filter.
    */
   async listSchedules(
-    shopId: string,
+    scope: ReadScope,
     filters: {
       skip: number;
       take: number;
@@ -19,7 +38,7 @@ export const installmentsService = {
     },
   ) {
     const where: Prisma.InstallmentScheduleWhereInput = {
-      sale: { shopId },
+      sale: saleScopeFilter(scope),
     };
 
     if (filters.status) {
@@ -100,17 +119,20 @@ export const installmentsService = {
   },
 
   /**
-   * Get all overdue installments for a shop.
+   * Get all overdue installments for a shop (or all shops in All-Shops mode).
    * Overdue = dueDate < today AND status NOT in [paid, rescheduled].
    */
-  async getOverdue(shopId: string) {
+  async getOverdue(scope: ReadScope) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
     // Lazy rollover — apply Rule C (absorb stale chains) and mark due_today
     // so the list reflects today's real state before we query it.
     await prisma.$transaction(async (tx) => {
-      await ensureRolledForToday(tx, today, { shopId });
+      await ensureRolledForToday(tx, today, {
+        shopId: scope.shopId,
+        shopIds: scope.shopIds,
+      });
     });
 
     const overdueInstallments = await prisma.installment.findMany({
@@ -120,7 +142,7 @@ export const installmentsService = {
         isRescheduled: false,
         remainingAmount: { gt: 0 },
         schedule: {
-          sale: { shopId },
+          sale: saleScopeFilter(scope),
           status: 'active',
         },
       },
@@ -152,6 +174,9 @@ export const installmentsService = {
                     modelNumber: true,
                     category: { select: { id: true, name: true } },
                   },
+                },
+                shop: {
+                  select: { id: true, name: true, code: true },
                 },
               },
             },
@@ -186,17 +211,18 @@ export const installmentsService = {
         productName: product?.modelNumber ?? '',
         productBrand: product?.brand ?? '',
         saleId: sale?.id ?? '',
+        shop: (sale as any)?.shop ?? null,
       };
     });
   },
 
   /**
-   * Get all installments due on a specific date for a shop.
-   * This is THE daily collection list — the core feature for employees.
-   * Optionally filter by assigned employee.
+   * Get all installments due on a specific date for a shop (or all shops in
+   * All-Shops mode). This is THE daily collection list — the core feature
+   * for employees. Optionally filter by assigned employee.
    */
   async getCollectionsForDate(
-    shopId: string,
+    scope: ReadScope,
     date: string,
     employeeId?: string,
   ) {
@@ -209,7 +235,10 @@ export const installmentsService = {
     // Lazy rollover only when querying today (historical dates are immutable history).
     if (targetDate.getTime() === today.getTime()) {
       await prisma.$transaction(async (tx) => {
-        await ensureRolledForToday(tx, today, { shopId });
+        await ensureRolledForToday(tx, today, {
+          shopId: scope.shopId,
+          shopIds: scope.shopIds,
+        });
       });
     }
 
@@ -220,7 +249,7 @@ export const installmentsService = {
       isRescheduled: false,
       remainingAmount: { gt: 0 },
       schedule: {
-        sale: { shopId },
+        sale: saleScopeFilter(scope),
         status: 'active',
       },
     };
@@ -283,6 +312,9 @@ export const installmentsService = {
                     phone: true,
                   },
                 },
+                shop: {
+                  select: { id: true, name: true, code: true },
+                },
               },
             },
             collectionAssigns: {
@@ -329,7 +361,7 @@ export const installmentsService = {
         status: 'rescheduled',
         isRescheduled: true,
         schedule: {
-          sale: { shopId },
+          sale: saleScopeFilter(scope),
           status: 'active',
         },
       },
@@ -367,7 +399,7 @@ export const installmentsService = {
    * who actually paid (on or around their due date) over a period.
    */
   async getPaidCollectionsForDateRange(
-    shopId: string,
+    scope: ReadScope,
     dateFrom: string,
     dateTo: string,
   ) {
@@ -381,7 +413,7 @@ export const installmentsService = {
         dueDate: { gte: fromDate, lte: toDate },
         amountPaid: { gt: 0 },
         schedule: {
-          sale: { shopId },
+          sale: saleScopeFilter(scope),
         },
       },
       include: {
@@ -414,6 +446,9 @@ export const installmentsService = {
                     serialNumber: true,
                   },
                 },
+                shop: {
+                  select: { id: true, name: true, code: true },
+                },
               },
             },
           },
@@ -435,12 +470,12 @@ export const installmentsService = {
   },
 
   /**
-   * Get all installments due within a date range for a shop.
-   * Used to show pending collections for a period (e.g., last 2 weeks to today).
-   * Optionally filter by assigned employee.
+   * Get all installments due within a date range for a shop (or all shops
+   * in All-Shops mode). Used to show pending collections for a period
+   * (e.g., last 2 weeks to today). Optionally filter by assigned employee.
    */
   async getCollectionsForDateRange(
-    shopId: string,
+    scope: ReadScope,
     dateFrom: string,
     dateTo: string,
     employeeId?: string,
@@ -456,7 +491,10 @@ export const installmentsService = {
     // Lazy rollover if the range includes today.
     if (toDate.getTime() >= today.getTime()) {
       await prisma.$transaction(async (tx) => {
-        await ensureRolledForToday(tx, today, { shopId });
+        await ensureRolledForToday(tx, today, {
+          shopId: scope.shopId,
+          shopIds: scope.shopIds,
+        });
       });
     }
 
@@ -466,7 +504,7 @@ export const installmentsService = {
       isRescheduled: false,
       remainingAmount: { gt: 0 },
       schedule: {
-        sale: { shopId },
+        sale: saleScopeFilter(scope),
         status: 'active',
       },
     };
@@ -528,6 +566,9 @@ export const installmentsService = {
                     phone: true,
                   },
                 },
+                shop: {
+                  select: { id: true, name: true, code: true },
+                },
               },
             },
             collectionAssigns: {
@@ -570,7 +611,7 @@ export const installmentsService = {
         status: 'rescheduled',
         isRescheduled: true,
         schedule: {
-          sale: { shopId },
+          sale: saleScopeFilter(scope),
           status: 'active',
         },
       },
@@ -1323,12 +1364,13 @@ export const installmentsService = {
    * Search installment schedules by ledger number, sale number, customer phone, or customer name.
    * Used for quick lookup when a customer walks in to pay.
    */
-  async searchSchedules(shopId: string, query: string, filterBy: string) {
+  async searchSchedules(scope: ReadScope, query: string, filterBy: string) {
     const searchTerm = query.trim();
     if (!searchTerm) return [];
 
     // Build sale filter based on search type
-    let saleFilter: any = { shopId };
+    const baseShopFilter: Prisma.SaleRecordWhereInput = saleScopeFilter(scope);
+    const saleFilter: Prisma.SaleRecordWhereInput = { ...baseShopFilter };
 
     switch (filterBy) {
       case 'ledger_number':
@@ -2943,6 +2985,7 @@ function flattenCollections(collections: any[]) {
       productName: product?.modelNumber ?? '',
       productBrand: product?.brand ?? '',
       saleId: sale?.id ?? '',
+      shop: sale?.shop ?? null,
     };
   });
 }
@@ -2991,6 +3034,7 @@ function flattenPaidCollections(collections: any[]) {
       saleId: sale?.id ?? '',
       saleNumber: sale?.saleNumber ?? '',
       ledgerNumber: sale?.ledgerNumber ?? '',
+      shop: sale?.shop ?? null,
     };
   });
 }

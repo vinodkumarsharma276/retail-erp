@@ -7,6 +7,7 @@ import { DataTable } from '../../components/DataTable';
 import type { Column, PaginationState } from '../../components/DataTable';
 import { formatDateIN, formatPhone } from '@retailerp/shared-utils';
 import type { Customer } from '@retailerp/shared-types';
+import { useShopStore, isAllShops } from '../../stores/shop-store';
 
 const PAGE_SIZE = 20;
 
@@ -50,6 +51,8 @@ export function CustomerListPage() {
   };
 
   // ------ Table columns ------
+  const allShopsMode = isAllShops(useShopStore((s) => s.currentShopId));
+
   const columns: Column<Customer>[] = [
     {
       key: 'sno',
@@ -60,6 +63,27 @@ export function CustomerListPage() {
           : idx + 1,
       className: 'w-16',
     },
+    // Shop column — only in "All Shops" mode so the user can tell which
+    // GST entity each customer belongs to.
+    ...(allShopsMode
+      ? ([
+          {
+            key: 'shop' as keyof Customer,
+            header: 'Shop',
+            sortable: true,
+            sortAccessor: (row: Customer) => row.shop?.code ?? '',
+            render: (row: Customer) =>
+              row.shop ? (
+                <span className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-xs font-medium">
+                  {row.shop.code}
+                </span>
+              ) : (
+                <span className="text-muted-foreground">-</span>
+              ),
+            className: 'w-20',
+          },
+        ] as Column<Customer>[])
+      : []),
     {
       key: 'customerCode',
       header: 'Customer Code',
@@ -159,16 +183,31 @@ export function CustomerListPage() {
       {/* Page header */}
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-semibold">Customers</h1>
-        <Link
-          to="/customers/new"
-          className={cn(
-            'flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground',
-            'hover:bg-primary/90 transition-colors',
-          )}
-        >
-          <Plus className="h-4 w-4" />
-          Add Customer
-        </Link>
+        {allShopsMode ? (
+          <button
+            type="button"
+            disabled
+            title="Switch to a single shop to add a customer"
+            className={cn(
+              'flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground',
+              'opacity-50 cursor-not-allowed',
+            )}
+          >
+            <Plus className="h-4 w-4" />
+            Add Customer
+          </button>
+        ) : (
+          <Link
+            to="/customers/new"
+            className={cn(
+              'flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground',
+              'hover:bg-primary/90 transition-colors',
+            )}
+          >
+            <Plus className="h-4 w-4" />
+            Add Customer
+          </Link>
+        )}
       </div>
 
       {/* Filters row */}

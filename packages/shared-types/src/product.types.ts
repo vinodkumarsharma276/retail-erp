@@ -58,6 +58,11 @@ export interface Product {
     totalAmount?: number;
     discountAmount?: number;
   } | null;
+  shop?: {
+    id: string;
+    name: string;
+    code: string;
+  } | null;
 }
 
 export interface ProductAuditTrailEntry {

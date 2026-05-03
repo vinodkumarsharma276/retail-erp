@@ -13,8 +13,11 @@ export const bankController = {
     reply: FastifyReply,
   ) {
     try {
-      const shopId = request.shopFilter!.shopId;
-      const accounts = await bankService.listAccounts(shopId);
+      const { shopId, shopIds, allShops } = request.shopFilter!;
+      const accounts = await bankService.listAccounts({
+        shopId,
+        shopIds: allShops ? shopIds : undefined,
+      });
       return sendSuccess(reply, accounts);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to fetch bank accounts';
@@ -169,8 +172,11 @@ export const bankController = {
     reply: FastifyReply,
   ) {
     try {
-      const shopId = request.shopFilter!.shopId;
-      const transactions = await bankService.getUnmatched(shopId);
+      const { shopId, shopIds, allShops } = request.shopFilter!;
+      const transactions = await bankService.getUnmatched({
+        shopId,
+        shopIds: allShops ? shopIds : undefined,
+      });
       return sendSuccess(reply, transactions);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to fetch unmatched transactions';

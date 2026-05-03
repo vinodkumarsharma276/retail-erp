@@ -20,18 +20,21 @@ export const expensesController = {
     try {
       const { page, pageSize, skip, take } = parsePagination(request.query);
       const { category, dateFrom, dateTo, search } = request.query;
-      const shopId = request.shopFilter!.shopId;
+      const { shopId, shopIds, allShops } = request.shopFilter!;
 
-      const { expenses, totalItems } = await expensesService.list(shopId, {
-        page,
-        pageSize,
-        skip,
-        take,
-        category,
-        dateFrom,
-        dateTo,
-        search,
-      });
+      const { expenses, totalItems } = await expensesService.list(
+        { shopId, shopIds: allShops ? shopIds : undefined },
+        {
+          page,
+          pageSize,
+          skip,
+          take,
+          category,
+          dateFrom,
+          dateTo,
+          search,
+        },
+      );
 
       return sendPaginated(reply, expenses, { page, pageSize, totalItems });
     } catch (error) {
@@ -139,10 +142,14 @@ export const expensesController = {
     reply: FastifyReply,
   ) {
     try {
-      const shopId = request.shopFilter!.shopId;
+      const { shopId, shopIds, allShops } = request.shopFilter!;
       const { dateFrom, dateTo } = request.query;
 
-      const summary = await expensesService.getSummary(shopId, dateFrom, dateTo);
+      const summary = await expensesService.getSummary(
+        { shopId, shopIds: allShops ? shopIds : undefined },
+        dateFrom,
+        dateTo,
+      );
       return sendSuccess(reply, summary);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to fetch expense summary';

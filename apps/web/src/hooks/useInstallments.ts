@@ -63,6 +63,7 @@ export interface OverdueInstallmentItem {
   productName: string;
   productBrand: string;
   saleId: string;
+  shop?: { id: string; name: string; code: string } | null;
 }
 
 export interface CollectionItem {
@@ -84,6 +85,7 @@ export interface CollectionItem {
   productName: string;
   productBrand: string;
   saleId: string;
+  shop?: { id: string; name: string; code: string } | null;
 }
 
 export interface ScheduleDetailResponse {

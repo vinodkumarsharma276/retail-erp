@@ -5,6 +5,7 @@ import {
   Bell,
   ChevronDown,
   Store,
+  Globe,
   Loader2,
   Check,
   Menu,
@@ -14,8 +15,9 @@ import {
   Sliders,
 } from 'lucide-react';
 import { useAuthStore } from '../../stores/auth-store';
-import { useShopStore } from '../../stores/shop-store';
+import { useShopStore, ALL_SHOPS_SENTINEL, isAllShops } from '../../stores/shop-store';
 import { useSidebarStore } from '../../stores/sidebar-store';
+import { useToastStore } from '../../stores/toast-store';
 import { useNavigate } from 'react-router-dom';
 import { useMeQuery, useLogoutMutation, useSwitchShopMutation } from '../../hooks/useAuth';
 import { useUpdatePreferencesMutation } from '../../hooks/usePreferences';
@@ -35,6 +37,7 @@ export function Header() {
   const currentShopId = useShopStore((s) => s.currentShopId);
   const setShop = useShopStore((s) => s.setShop);
   const loginStore = useAuthStore((s) => s.login);
+  const addToast = useToastStore((s) => s.addToast);
   const navigate = useNavigate();
 
   const openSidebar = useSidebarStore((s) => s.open);
@@ -126,24 +129,96 @@ export function Header() {
       return;
     }
 
-    switchShopMutation.mutate(shopId, {
-      onSuccess: (data) => {
-        // Update token — the switch-shop endpoint returns a new accessToken
+    const targetShop = availableShops.find((s) => s.id === shopId);
+
+    switchShopMutation.mutate(shopId, {      onSuccess: (data) => {
+        // Update token — the switch-shop endpoint returns a new accessToken.
+        // We update localStorage directly so the api-client interceptor
+        // picks it up on the very next request, and call loginStore so the
+        // in-memory auth state stays in sync. We pass the existing
+        // permissions Set as an array so they aren't wiped — the
+        // background /auth/me refetch (triggered by invalidateQueries
+        // below) will refresh them, but in the meantime guards/sidebar
+        // keep working.
         const refreshToken = localStorage.getItem('refreshToken') ?? '';
         if (user) {
-          loginStore(user, data.accessToken, refreshToken);
+          const currentPerms = Array.from(useAuthStore.getState().permissions);
+          loginStore(user, data.accessToken, refreshToken, currentPerms);
         }
         localStorage.setItem('accessToken', data.accessToken);
 
-        // Update shop
+        // Update shop in store + localStorage (the api-client interceptor
+        // reads X-Shop-Id from localStorage on every request).
         setShop(data.shop.id, data.shop.name, data.shop.code);
 
-        // Clear query cache so data re-fetches for the new shop
-        queryClient.invalidateQueries();
+        // Reset every query in the cache. resetQueries() is the right tool
+        // here (vs. invalidateQueries / removeQueries):
+        //   - removeQueries  → drops cached data but does NOT refetch
+        //                      active observers, so pages with
+        //                      placeholderData / keepPreviousData just
+        //                      keep showing stale data until a manual
+        //                      refresh.
+        //   - invalidateQueries → marks stale; observers refetch but
+        //                      cached data is shown in the meantime,
+        //                      causing a flash of the previous shop's
+        //                      data on Products / Sales / Installments.
+        //   - resetQueries  → cancels in-flight fetches, drops cached
+        //                      data, AND immediately refetches every
+        //                      active observer with the new X-Shop-Id
+        //                      header. This is the "switch shops, see
+        //                      new data instantly" behaviour we want.
+        queryClient.resetQueries();
+
+        addToast({
+          type: 'success',
+          message: `Switched to ${data.shop.name}`,
+        });
 
         setShopDropdownOpen(false);
       },
+      onError: (err: unknown) => {
+        const status = (err as { response?: { status?: number } })?.response?.status;
+        const apiMsg =
+          (err as { response?: { data?: { error?: string; message?: string } } })
+            ?.response?.data?.error ??
+          (err as { response?: { data?: { error?: string; message?: string } } })
+            ?.response?.data?.message;
+        const message =
+          status === 403
+            ? `You don't have access to ${targetShop?.name ?? 'that shop'}.`
+            : apiMsg ?? 'Failed to switch shop. Please try again.';
+        addToast({ type: 'error', message });
+        setShopDropdownOpen(false);
+      },
     });
+  };
+
+  /**
+   * Switch to "All Shops" mode. Unlike single-shop switching this is a
+   * purely client-side change — no token rotation needed because:
+   *
+   *   - Every read endpoint already authenticates via JWT, and the
+   *     `shopScope` middleware reads the `X-Shop-Id` header (which we
+   *     send as the sentinel `'all'` from the api-client when
+   *     currentShopId === 'all'). The middleware itself enforces the
+   *     `shops.view_all` permission server-side, so a malicious client
+   *     can't escalate just by setting the header.
+   *   - Write endpoints in All-Shops mode are gated by the UI (see
+   *     ProductListPage / sale-creation flows). They aren't disabled
+   *     server-side because they continue to use the JWT's bound
+   *     shopId; sending writes while in All Shops mode would still
+   *     write to the user's primary shop, which is confusing UX —
+   *     hence the UI-level guard.
+   */
+  const handleAllShopsSelect = () => {
+    if (isAllShops(currentShopId)) {
+      setShopDropdownOpen(false);
+      return;
+    }
+    setShop(ALL_SHOPS_SENTINEL, 'All Shops', 'ALL');
+    queryClient.resetQueries();
+    addToast({ type: 'success', message: 'Switched to All Shops view' });
+    setShopDropdownOpen(false);
   };
 
   return (
@@ -170,9 +245,13 @@ export function Header() {
                   'hover:bg-primary/15',
                 )}
               >
-                <Store className="h-3.5 w-3.5 shrink-0" />
+                {isAllShops(currentShopId) ? (
+                  <Globe className="h-3.5 w-3.5 shrink-0" />
+                ) : (
+                  <Store className="h-3.5 w-3.5 shrink-0" />
+                )}
                 <span className="whitespace-nowrap">{shopName}</span>
-                {shopCode && (
+                {shopCode && !isAllShops(currentShopId) && (
                   <span className="whitespace-nowrap text-primary/70">({shopCode})</span>
                 )}
                 <ChevronDown
@@ -189,6 +268,32 @@ export function Header() {
                     Switch Shop
                   </div>
                   <ul className="py-1">
+                    {/* All Shops — read-only aggregated view, gated by
+                        the `shops.view_all` permission. Shown above
+                        individual shops so it's easy to find. */}
+                    {can('shops.view_all') && (
+                      <li>
+                        <button
+                          onClick={handleAllShopsSelect}
+                          className={cn(
+                            'flex w-full items-center gap-2 whitespace-nowrap px-3 py-2 text-sm transition-colors border-b',
+                            'hover:bg-muted',
+                            isAllShops(currentShopId) && 'bg-primary/5',
+                          )}
+                        >
+                          {isAllShops(currentShopId) ? (
+                            <Check className="h-3.5 w-3.5 shrink-0 text-primary" />
+                          ) : (
+                            <div className="h-3.5 w-3.5 shrink-0" />
+                          )}
+                          <Globe className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                          <span className="whitespace-nowrap font-medium">All Shops</span>
+                          <span className="whitespace-nowrap text-muted-foreground text-xs">
+                            (read-only)
+                          </span>
+                        </button>
+                      </li>
+                    )}
                     {availableShops.map((shop) => (
                       <li key={shop.id}>
                         <button

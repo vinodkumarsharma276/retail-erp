@@ -15,6 +15,7 @@ export interface BankAccount {
   currentBalance: number;
   createdAt: string;
   updatedAt: string;
+  shop?: { id: string; name: string; code: string } | null;
 }
 
 export interface BankTransaction {

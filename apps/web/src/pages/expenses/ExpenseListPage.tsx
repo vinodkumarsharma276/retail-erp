@@ -20,11 +20,13 @@ import {
 } from '../../hooks/useExpenses';
 import type { Expense } from '../../hooks/useExpenses';
 import { DataTable } from '../../components/DataTable';
+import { DateInput } from '../../components/DateInput';
 import type { Column, PaginationState } from '../../components/DataTable';
 import { StatusBadge } from '../../components/StatusBadge';
 import { formatINR, formatDateIN, getCurrentFinancialYearRange, getLastFinancialYearRange } from '@retailerp/shared-utils';
 import { ExpenseCategory, UserRole } from '@retailerp/shared-types';
 import { useAuthStore } from '../../stores/auth-store';
+import { useShopStore, isAllShops } from '../../stores/shop-store';
 
 const PAGE_SIZE = 20;
 
@@ -125,6 +127,8 @@ export function ExpenseListPage() {
   };
 
   // ------ Table columns ------
+  const allShopsMode = isAllShops(useShopStore((s) => s.currentShopId));
+
   const columns: Column<Expense>[] = [
     {
       key: 'sno',
@@ -135,6 +139,24 @@ export function ExpenseListPage() {
           : idx + 1,
       className: 'w-16',
     },
+    // Shop column — only visible in "All Shops" mode.
+    ...(allShopsMode
+      ? ([
+          {
+            key: 'shop' as keyof Expense,
+            header: 'Shop',
+            render: (row: Expense) =>
+              row.shop ? (
+                <span className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-xs font-medium">
+                  {row.shop.code}
+                </span>
+              ) : (
+                <span className="text-muted-foreground">-</span>
+              ),
+            className: 'w-20',
+          },
+        ] as Column<Expense>[])
+      : []),
     {
       key: 'date',
       header: 'Date',
@@ -243,16 +265,31 @@ export function ExpenseListPage() {
       {/* Page header */}
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-semibold">Expenses</h1>
-        <Link
-          to="/expenses/new"
-          className={cn(
-            'flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground',
-            'hover:bg-primary/90 transition-colors',
-          )}
-        >
-          <Plus className="h-4 w-4" />
-          Add Expense
-        </Link>
+        {allShopsMode ? (
+          <button
+            type="button"
+            disabled
+            title="Switch to a single shop to add an expense"
+            className={cn(
+              'flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground',
+              'opacity-50 cursor-not-allowed',
+            )}
+          >
+            <Plus className="h-4 w-4" />
+            Add Expense
+          </button>
+        ) : (
+          <Link
+            to="/expenses/new"
+            className={cn(
+              'flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground',
+              'hover:bg-primary/90 transition-colors',
+            )}
+          >
+            <Plus className="h-4 w-4" />
+            Add Expense
+          </Link>
+        )}
       </div>
 
       {/* Summary cards */}
@@ -336,20 +373,11 @@ export function ExpenseListPage() {
           <label className="block text-xs font-medium text-muted-foreground mb-1">
             From
           </label>
-          <div className="relative">
-            <Calendar className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <input
-              type="date"
-              value={dateFrom}
-              onChange={(e) => {
-                updateFilters({ dateFrom: e.target.value, page: '1' });
-              }}
-              className={cn(
-                'rounded-md border bg-background pl-9 pr-3 py-2 text-sm',
-                'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-              )}
-            />
-          </div>
+          <DateInput
+            value={dateFrom}
+            onChange={(v) => updateFilters({ dateFrom: v, page: '1' })}
+            className="w-40"
+          />
         </div>
 
         {/* Date to */}
@@ -357,20 +385,11 @@ export function ExpenseListPage() {
           <label className="block text-xs font-medium text-muted-foreground mb-1">
             To
           </label>
-          <div className="relative">
-            <Calendar className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <input
-              type="date"
-              value={dateTo}
-              onChange={(e) => {
-                updateFilters({ dateTo: e.target.value, page: '1' });
-              }}
-              className={cn(
-                'rounded-md border bg-background pl-9 pr-3 py-2 text-sm',
-                'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-              )}
-            />
-          </div>
+          <DateInput
+            value={dateTo}
+            onChange={(v) => updateFilters({ dateTo: v, page: '1' })}
+            className="w-40"
+          />
         </div>
 
         <button

@@ -3,6 +3,27 @@ import type { Prisma } from '@prisma/client';
 import { computeNetProfit, computeNetProfitPct } from '../sales/sales.service.js';
 
 /**
+ * Scope for read endpoints. `shopId` is always set; `shopIds` is set when
+ * the user picks "All Shops" in the header (gated by `shops.view_all`).
+ */
+type ReadScope = { shopId: string; shopIds?: string[] };
+
+/**
+ * Returns the Prisma `shopId` filter fragment for a scope:
+ *   single shop  →  string
+ *   all shops    →  { in: string[] }
+ *
+ * Cast to the shared type so it works for SaleRecord, Product, Expense,
+ * etc. — every shop-scoped table has the same column shape.
+ */
+function shopIdFilter(scope: ReadScope): string | { in: string[] } {
+  if (scope.shopIds && scope.shopIds.length > 0) {
+    return { in: scope.shopIds };
+  }
+  return scope.shopId;
+}
+
+/**
  * Helper: generate an array of date strings (YYYY-MM-DD) between two dates, inclusive.
  */
 function getDateRange(from: Date, to: Date): string[] {
@@ -87,7 +108,7 @@ export const dashboardService = {
    * Returns array of { date, totalAmount, count } with zero-fill for missing days.
    */
   async getSalesGraph(
-    shopId: string,
+    scope: ReadScope,
     dateFrom?: string,
     dateTo?: string,
   ) {
@@ -99,7 +120,7 @@ export const dashboardService = {
     const salesByDate = await prisma.saleRecord.groupBy({
       by: ['saleDate'],
       where: {
-        shopId,
+        shopId: shopIdFilter(scope) as any,
         saleDate: {
           gte: from,
           lte: to,
@@ -141,7 +162,7 @@ export const dashboardService = {
    * Top N Products Sold — products with highest sale count in a date range.
    */
   async getTopProducts(
-    shopId: string,
+    scope: ReadScope,
     dateFrom?: string,
     dateTo?: string,
     limit = 10,
@@ -154,7 +175,7 @@ export const dashboardService = {
     const salesByProduct = await prisma.saleRecord.groupBy({
       by: ['productId'],
       where: {
-        shopId,
+        shopId: shopIdFilter(scope) as any,
         saleDate: {
           gte: from,
           lte: to,
@@ -213,7 +234,7 @@ export const dashboardService = {
    * Groups by product (brand + model) for comparison.
    */
   async getYoYComparison(
-    shopId: string,
+    scope: ReadScope,
     dateFrom?: string,
     dateTo?: string,
   ) {
@@ -232,7 +253,7 @@ export const dashboardService = {
       prisma.saleRecord.groupBy({
         by: ['productId'],
         where: {
-          shopId,
+          shopId: shopIdFilter(scope) as any,
           saleDate: { gte: from, lte: to },
         },
         _count: { id: true },
@@ -242,7 +263,7 @@ export const dashboardService = {
       prisma.saleRecord.groupBy({
         by: ['productId'],
         where: {
-          shopId,
+          shopId: shopIdFilter(scope) as any,
           saleDate: { gte: lastYearFrom, lte: lastYearTo },
         },
         _count: { id: true },
@@ -303,7 +324,7 @@ export const dashboardService = {
    * Joins through schedule -> sale -> customer + product.
    */
   async getOverdueInstallments(
-    shopId: string,
+    scope: ReadScope,
     dateFrom?: string,
     dateTo?: string,
   ) {
@@ -337,7 +358,7 @@ export const dashboardService = {
         status: { notIn: ['paid', 'rescheduled'] },
         isRescheduled: false,
         schedule: {
-          sale: { shopId },
+          sale: { shopId: shopIdFilter(scope) as any },
           status: 'active',
         },
       },
@@ -408,11 +429,12 @@ export const dashboardService = {
    * Summary Metrics — key numbers for dashboard header cards.
    * Uses Promise.all for parallel execution of independent queries.
    */
-  async getSummary(shopId: string) {
+  async getSummary(scope: ReadScope) {
     const { firstDay: thisMonthStart, lastDay: thisMonthEnd } = currentMonthRange();
     const { firstDay: lastMonthStart, lastDay: lastMonthEnd } = previousMonthRange();
     const { firstDay: fyStart, lastDay: fyEnd } = currentFinancialYearRange();
     const today = todayInIndiaDateOnly();
+    const shopFilter = shopIdFilter(scope) as any;
 
     const [
       thisMonthSales,
@@ -426,7 +448,7 @@ export const dashboardService = {
       // 1. Total sales this month
       prisma.saleRecord.aggregate({
         where: {
-          shopId,
+          shopId: shopFilter,
           saleDate: { gte: thisMonthStart, lte: thisMonthEnd },
         },
         _sum: { totalAmount: true },
@@ -436,7 +458,7 @@ export const dashboardService = {
       // 2. Total sales last month (for percent change)
       prisma.saleRecord.aggregate({
         where: {
-          shopId,
+          shopId: shopFilter,
           saleDate: { gte: lastMonthStart, lte: lastMonthEnd },
         },
         _sum: { totalAmount: true },
@@ -450,7 +472,7 @@ export const dashboardService = {
           status: { notIn: ['paid', 'rescheduled'] },
           isRescheduled: false,
           schedule: {
-            sale: { shopId },
+            sale: { shopId: shopFilter },
             status: 'active',
           },
         },
@@ -461,7 +483,7 @@ export const dashboardService = {
       // 4. Stock value — sum of sellingPrice for all in_stock products
       prisma.product.aggregate({
         where: {
-          shopId,
+          shopId: shopFilter,
           status: 'in_stock',
         },
         _sum: { sellingPrice: true },
@@ -475,7 +497,7 @@ export const dashboardService = {
           status: { notIn: ['paid', 'rescheduled'] },
           isRescheduled: false,
           schedule: {
-            sale: { shopId },
+            sale: { shopId: shopFilter },
             status: 'active',
           },
         },
@@ -489,7 +511,7 @@ export const dashboardService = {
           paymentDate: today,
           installment: {
             schedule: {
-              sale: { shopId },
+              sale: { shopId: shopFilter },
             },
           },
         },
@@ -500,7 +522,7 @@ export const dashboardService = {
       // 6. Expenses in the current Indian financial year (April-March)
       prisma.expense.aggregate({
         where: {
-          shopId,
+          shopId: shopFilter,
           expenseDate: { gte: fyStart, lte: fyEnd },
         },
         _sum: { amount: true },
@@ -544,10 +566,10 @@ export const dashboardService = {
    * render a single number without a follow-up call.
    */
   async getLowMarginSales(
-    shopId: string,
+    scope: ReadScope,
     args: { threshold: number; dateFrom?: string; dateTo?: string },
   ) {
-    const where: Prisma.SaleRecordWhereInput = { shopId };
+    const where: Prisma.SaleRecordWhereInput = { shopId: shopIdFilter(scope) as any };
     if (args.dateFrom || args.dateTo) {
       where.saleDate = {};
       if (args.dateFrom) (where.saleDate as Prisma.DateTimeFilter).gte = new Date(args.dateFrom);

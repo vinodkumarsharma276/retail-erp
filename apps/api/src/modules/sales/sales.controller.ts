@@ -22,7 +22,11 @@ export const salesController = {
     try {
       const { page, pageSize, skip, take } = parsePagination(request.query);
       const { dateFrom, dateTo, saleType, customerSearch, maxProfitPct, minProfitPct } = request.query;
-      const shopId = request.shopFilter!.shopId;
+      // shopFilter is set by the shopScope middleware. When `allShops`
+      // is true (user picked "All Shops" in the header and has the
+      // `shops.view_all` permission) we forward `shopIds` so the service
+      // queries across every accessible shop.
+      const { shopId, shopIds, allShops } = request.shopFilter!;
       const userRole = request.currentUser!.role;
 
       const parsePct = (v?: string) => {
@@ -31,18 +35,22 @@ export const salesController = {
         return Number.isFinite(n) ? n : undefined;
       };
 
-      const { sales, totalItems } = await salesService.list(shopId, userRole, {
-        page,
-        pageSize,
-        skip,
-        take,
-        dateFrom,
-        dateTo,
-        saleType,
-        customerSearch,
-        maxProfitPct: parsePct(maxProfitPct),
-        minProfitPct: parsePct(minProfitPct),
-      });
+      const { sales, totalItems } = await salesService.list(
+        { shopId, shopIds: allShops ? shopIds : undefined },
+        userRole,
+        {
+          page,
+          pageSize,
+          skip,
+          take,
+          dateFrom,
+          dateTo,
+          saleType,
+          customerSearch,
+          maxProfitPct: parsePct(maxProfitPct),
+          minProfitPct: parsePct(minProfitPct),
+        },
+      );
 
       return sendPaginated(reply, sales, { page, pageSize, totalItems });
     } catch (error) {

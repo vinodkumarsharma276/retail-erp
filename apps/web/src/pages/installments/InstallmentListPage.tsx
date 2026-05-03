@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { DataTable, type Column } from '../../components/DataTable';
+import { DateInput } from '../../components/DateInput';
 import { StatusBadge } from '../../components/StatusBadge';
 import { RecordPaymentDialog } from '../../components/RecordPaymentDialog';
 import {
@@ -28,6 +29,7 @@ import {
 import { useDebounce } from '../../hooks/useDebounce';
 import { formatINR, formatDateIN, getCurrentFinancialYearRange, getLastFinancialYearRange } from '@retailerp/shared-utils';
 import { formatInstallmentLabel } from '../../lib/installment-label';
+import { useShopStore, isAllShops } from '../../stores/shop-store';
 
 // ---------------------------------------------------------------------------
 // Search filter options
@@ -386,6 +388,7 @@ export function InstallmentListPage() {
 function OverdueTab() {
   const navigate = useNavigate();
   const { data: overdueItems, isLoading, isError } = useOverdueInstallmentsQuery();
+  const allShopsMode = isAllShops(useShopStore((s) => s.currentShopId));
 
   // Payment dialog state
   const [paymentTarget, setPaymentTarget] = useState<{
@@ -397,6 +400,25 @@ function OverdueTab() {
 
   const columns: Column<OverdueInstallmentItem>[] = useMemo(
     () => [
+      ...(allShopsMode
+        ? ([
+            {
+              key: 'shop' as keyof OverdueInstallmentItem,
+              header: 'Shop',
+              sortable: true,
+              sortAccessor: (row: OverdueInstallmentItem) => row.shop?.code ?? '',
+              render: (row: OverdueInstallmentItem) =>
+                row.shop ? (
+                  <span className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-xs font-medium">
+                    {row.shop.code}
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">-</span>
+                ),
+              className: 'w-20',
+            },
+          ] as Column<OverdueInstallmentItem>[])
+        : []),
       {
         key: 'customer',
         header: 'Customer',
@@ -514,7 +536,7 @@ function OverdueTab() {
         ),
       },
     ],
-    [navigate],
+    [navigate, allShopsMode],
   );
 
   if (isLoading) {
@@ -577,6 +599,7 @@ function getDateDaysAgo(days: number): string {
 function CollectionsTab() {
   const navigate = useNavigate();
   const today = toLocalDateStr(new Date());
+  const allShopsMode = isAllShops(useShopStore((s) => s.currentShopId));
 
   const [dateFrom, setDateFrom] = useState(today);
   const [dateTo, setDateTo] = useState(today);
@@ -596,6 +619,25 @@ function CollectionsTab() {
 
   const collectionColumns: Column<CollectionItem>[] = useMemo(
     () => [
+      ...(allShopsMode
+        ? ([
+            {
+              key: 'shop' as keyof CollectionItem,
+              header: 'Shop',
+              sortable: true,
+              sortAccessor: (row: CollectionItem) => row.shop?.code ?? '',
+              render: (row: CollectionItem) =>
+                row.shop ? (
+                  <span className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-xs font-medium">
+                    {row.shop.code}
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">-</span>
+                ),
+              className: 'w-20',
+            },
+          ] as Column<CollectionItem>[])
+        : []),
       {
         key: 'dueDate',
         header: 'Due Date',
@@ -707,7 +749,7 @@ function CollectionsTab() {
         ),
       },
     ],
-    [navigate, today],
+    [navigate, today, allShopsMode],
   );
 
   return (
@@ -718,26 +760,18 @@ function CollectionsTab() {
           <Calendar className="h-4 w-4 text-muted-foreground" />
           <label className="text-sm font-medium">From:</label>
         </div>
-        <input
-          type="date"
+        <DateInput
           value={dateFrom}
-          onChange={(e) => setDateFrom(e.target.value)}
-          className={cn(
-            'rounded-md border bg-background px-3 py-2 text-sm',
-            'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-          )}
+          onChange={(v) => setDateFrom(v)}
+          className="w-40"
         />
         <div className="flex items-center gap-2">
           <label className="text-sm font-medium">To:</label>
         </div>
-        <input
-          type="date"
+        <DateInput
           value={dateTo}
-          onChange={(e) => setDateTo(e.target.value)}
-          className={cn(
-            'rounded-md border bg-background px-3 py-2 text-sm',
-            'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-          )}
+          onChange={(v) => setDateTo(v)}
+          className="w-40"
         />
         <div className="flex items-center gap-2">
           {!isTodayOnly && (
@@ -878,6 +912,7 @@ function CollectionsTab() {
 function PaidTab() {
   const navigate = useNavigate();
   const today = toLocalDateStr(new Date());
+  const allShopsMode = isAllShops(useShopStore((s) => s.currentShopId));
 
   const [dateFrom, setDateFrom] = useState(getDateDaysAgo(14));
   const [dateTo, setDateTo] = useState(today);
@@ -894,6 +929,25 @@ function PaidTab() {
 
   const columns: Column<PaidCollectionItem>[] = useMemo(
     () => [
+      ...(allShopsMode
+        ? ([
+            {
+              key: 'shop' as keyof PaidCollectionItem,
+              header: 'Shop',
+              sortable: true,
+              sortAccessor: (row: PaidCollectionItem) => row.shop?.code ?? '',
+              render: (row: PaidCollectionItem) =>
+                row.shop ? (
+                  <span className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-xs font-medium">
+                    {row.shop.code}
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">-</span>
+                ),
+              className: 'w-20',
+            },
+          ] as Column<PaidCollectionItem>[])
+        : []),
       {
         key: 'dueDate',
         header: 'Due Date',
@@ -1018,7 +1072,7 @@ function PaidTab() {
         ),
       },
     ],
-    [navigate],
+    [navigate, allShopsMode],
   );
 
   return (
@@ -1029,24 +1083,16 @@ function PaidTab() {
           <Calendar className="h-4 w-4 text-muted-foreground" />
           <label className="text-sm font-medium">From:</label>
         </div>
-        <input
-          type="date"
+        <DateInput
           value={dateFrom}
-          onChange={(e) => setDateFrom(e.target.value)}
-          className={cn(
-            'rounded-md border bg-background px-3 py-2 text-sm',
-            'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-          )}
+          onChange={(v) => setDateFrom(v)}
+          className="w-40"
         />
         <label className="text-sm font-medium">To:</label>
-        <input
-          type="date"
+        <DateInput
           value={dateTo}
-          onChange={(e) => setDateTo(e.target.value)}
-          className={cn(
-            'rounded-md border bg-background px-3 py-2 text-sm',
-            'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-          )}
+          onChange={(v) => setDateTo(v)}
+          className="w-40"
         />
         <button
           onClick={() => {

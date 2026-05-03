@@ -22,14 +22,27 @@ export const purchasesController = {
       const { page, pageSize, skip, take } = parsePagination(request.query);
       const { distributorId, dateFrom, dateTo, paymentStatus, allShops } = request.query;
 
-      // If allShops=true, user is admin, and distributorId is provided, skip shop scoping
-      const skipShopScope =
+      // Two ways to get a cross-shop view:
+      //   1. Legacy: ?allShops=true with distributorId on the Distributor
+      //      Detail page (admin-only escape hatch — lets the page show a
+      //      distributor's full purchase history across every shop).
+      //   2. Header-driven: middleware sets shopFilter.allShops=true when
+      //      the user has the `shops.view_all` permission and picks
+      //      "All Shops" in the dropdown.
+      const legacyAllShops =
         allShops === 'true' &&
         request.currentUser?.role === 'admin' &&
         !!distributorId;
-      const shopId = skipShopScope ? null : request.shopFilter!.shopId;
 
-      const { purchases, totalItems } = await purchasesService.list(shopId, {
+      const { shopId, shopIds, allShops: scopeAllShops } = request.shopFilter!;
+
+      const scope = legacyAllShops
+        ? { shopId: null }
+        : scopeAllShops
+          ? { shopId, shopIds }
+          : { shopId };
+
+      const { purchases, totalItems } = await purchasesService.list(scope, {
         page,
         pageSize,
         skip,

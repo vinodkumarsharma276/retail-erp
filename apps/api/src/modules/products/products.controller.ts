@@ -22,20 +22,23 @@ export const productsController = {
     try {
       const { page, pageSize, skip, take } = parsePagination(request.query);
       const { categoryId, status, brand, search, dateFrom, dateTo } = request.query;
-      const shopId = request.shopFilter!.shopId;
+      const { shopId, shopIds, allShops } = request.shopFilter!;
 
-      const { products, totalItems } = await productsService.list(shopId, {
-        page,
-        pageSize,
-        skip,
-        take,
-        categoryId,
-        status,
-        brand,
-        search,
-        dateFrom,
-        dateTo,
-      });
+      const { products, totalItems } = await productsService.list(
+        { shopId, shopIds: allShops ? shopIds : undefined },
+        {
+          page,
+          pageSize,
+          skip,
+          take,
+          categoryId,
+          status,
+          brand,
+          search,
+          dateFrom,
+          dateTo,
+        },
+      );
 
       return sendPaginated(reply, products, { page, pageSize, totalItems });
     } catch (error) {
@@ -51,14 +54,17 @@ export const productsController = {
     reply: FastifyReply,
   ) {
     try {
-      const shopId = request.shopFilter!.shopId;
+      const { shopId, shopIds, allShops } = request.shopFilter!;
       const { query } = request.query;
 
       if (!query || query.length < 3) {
         return sendError(reply, 'Search query must be at least 3 characters', 400);
       }
 
-      const products = await productsService.globalSearch(shopId, query);
+      const products = await productsService.globalSearch(
+        { shopId, shopIds: allShops ? shopIds : undefined },
+        query,
+      );
       return sendSuccess(reply, products);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to search products';

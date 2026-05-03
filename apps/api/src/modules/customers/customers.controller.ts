@@ -17,15 +17,18 @@ export const customersController = {
     try {
       const { page, pageSize, skip, take } = parsePagination(request.query);
       const { search } = request.query;
-      const shopId = request.shopFilter!.shopId;
+      const { shopId, shopIds, allShops } = request.shopFilter!;
 
-      const { customers, totalItems } = await customersService.list(shopId, {
-        page,
-        pageSize,
-        skip,
-        take,
-        search,
-      });
+      const { customers, totalItems } = await customersService.list(
+        { shopId, shopIds: allShops ? shopIds : undefined },
+        {
+          page,
+          pageSize,
+          skip,
+          take,
+          search,
+        },
+      );
 
       return sendPaginated(reply, customers, { page, pageSize, totalItems });
     } catch (error) {

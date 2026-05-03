@@ -2,21 +2,37 @@ import { prisma } from '../../config/database.js';
 import type { Prisma } from '@prisma/client';
 
 export const purchasesService = {
-  async list(shopId: string | null, filters: {
-    skip: number;
-    take: number;
-    page: number;
-    pageSize: number;
-    distributorId?: string;
-    dateFrom?: string;
-    dateTo?: string;
-    paymentStatus?: string;
-  }) {
+  /**
+   * List purchases.
+   *
+   * `scope` supports three modes:
+   *  - single shop: `{ shopId: 'x' }` (default)
+   *  - all user-accessible shops: `{ shopId, shopIds: [...] }` — set when
+   *    the user picks "All Shops" in the header dropdown (gated by
+   *    `shops.view_all` in the middleware).
+   *  - completely unscoped: `{ shopId: null }` — legacy escape hatch used
+   *    by the Distributor Detail page when an admin opens a distributor's
+   *    full purchase history across every shop.
+   */
+  async list(
+    scope: { shopId: string | null; shopIds?: string[] },
+    filters: {
+      skip: number;
+      take: number;
+      page: number;
+      pageSize: number;
+      distributorId?: string;
+      dateFrom?: string;
+      dateTo?: string;
+      paymentStatus?: string;
+    },
+  ) {
     const where: Prisma.PurchaseWhereInput = {};
 
-    // Only apply shop scoping when shopId is provided
-    if (shopId) {
-      where.shopId = shopId;
+    if (scope.shopIds && scope.shopIds.length > 0) {
+      where.shopId = { in: scope.shopIds };
+    } else if (scope.shopId) {
+      where.shopId = scope.shopId;
     }
 
     if (filters.distributorId) {

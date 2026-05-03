@@ -24,6 +24,7 @@ import type {
   BankTransactionFilters,
 } from '../../hooks/useBank';
 import { DataTable } from '../../components/DataTable';
+import { DateInput } from '../../components/DateInput';
 import type { Column, PaginationState } from '../../components/DataTable';
 import { StatusBadge } from '../../components/StatusBadge';
 import { UploadStatementDialog } from '../../components/UploadStatementDialog';
@@ -31,6 +32,7 @@ import { ReconciliationPanel } from '../../components/ReconciliationPanel';
 import { formatINR, formatDateIN } from '@retailerp/shared-utils';
 import { ReconciliationStatus, UserRole } from '@retailerp/shared-types';
 import { useAuthStore } from '../../stores/auth-store';
+import { useShopStore, isAllShops } from '../../stores/shop-store';
 
 const PAGE_SIZE = 20;
 
@@ -46,6 +48,7 @@ function maskAccountNumber(accountNumber: string): string {
 export function BankPage() {
   const user = useAuthStore((s) => s.user);
   const isAdmin = user?.role === UserRole.OWNER || user?.role === UserRole.ADMIN;
+  const allShopsMode = isAllShops(useShopStore((s) => s.currentShopId));
 
   const accountsQuery = useBankAccountsQuery();
   const accounts = accountsQuery.data ?? [];
@@ -79,16 +82,31 @@ export function BankPage() {
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-semibold">Bank Statements</h1>
         {isAdmin && (
-          <button
-            onClick={() => setShowCreateAccountDialog(true)}
-            className={cn(
-              'flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground',
-              'hover:bg-primary/90 transition-colors',
-            )}
-          >
-            <Plus className="h-4 w-4" />
-            Add Bank Account
-          </button>
+          allShopsMode ? (
+            <button
+              type="button"
+              disabled
+              title="Switch to a single shop to add a bank account"
+              className={cn(
+                'flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground',
+                'opacity-50 cursor-not-allowed',
+              )}
+            >
+              <Plus className="h-4 w-4" />
+              Add Account
+            </button>
+          ) : (
+            <button
+              onClick={() => setShowCreateAccountDialog(true)}
+              className={cn(
+                'flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground',
+                'hover:bg-primary/90 transition-colors',
+              )}
+            >
+              <Plus className="h-4 w-4" />
+              Add Bank Account
+            </button>
+          )
         )}
       </div>
 
@@ -126,13 +144,18 @@ export function BankPage() {
                 key={account.id}
                 onClick={() => setActiveAccountIndex(idx)}
                 className={cn(
-                  'px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-colors',
+                  'px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 transition-colors flex items-center gap-2',
                   idx === activeAccountIndex
                     ? 'border-primary text-primary'
                     : 'border-transparent text-muted-foreground hover:text-foreground hover:border-muted-foreground/30',
                 )}
               >
-                {account.bankName} ({maskAccountNumber(account.accountNumber)})
+                {allShopsMode && account.shop && (
+                  <span className="inline-flex items-center rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide">
+                    {account.shop.code}
+                  </span>
+                )}
+                <span>{account.bankName} ({maskAccountNumber(account.accountNumber)})</span>
               </button>
             ))}
           </div>
@@ -380,21 +403,14 @@ function AccountTabContent({
           <label className="block text-xs font-medium text-muted-foreground mb-1">
             From
           </label>
-          <div className="relative">
-            <Calendar className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <input
-              type="date"
-              value={dateFrom}
-              onChange={(e) => {
-                setDateFrom(e.target.value);
-                setPage(1);
-              }}
-              className={cn(
-                'rounded-md border bg-background pl-9 pr-3 py-2 text-sm',
-                'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-              )}
-            />
-          </div>
+          <DateInput
+            value={dateFrom}
+            onChange={(v) => {
+              setDateFrom(v);
+              setPage(1);
+            }}
+            className="w-40"
+          />
         </div>
 
         {/* Date to */}
@@ -402,21 +418,14 @@ function AccountTabContent({
           <label className="block text-xs font-medium text-muted-foreground mb-1">
             To
           </label>
-          <div className="relative">
-            <Calendar className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <input
-              type="date"
-              value={dateTo}
-              onChange={(e) => {
-                setDateTo(e.target.value);
-                setPage(1);
-              }}
-              className={cn(
-                'rounded-md border bg-background pl-9 pr-3 py-2 text-sm',
-                'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-              )}
-            />
-          </div>
+          <DateInput
+            value={dateTo}
+            onChange={(v) => {
+              setDateTo(v);
+              setPage(1);
+            }}
+            className="w-40"
+          />
         </div>
 
         {/* Reconciliation Status */}

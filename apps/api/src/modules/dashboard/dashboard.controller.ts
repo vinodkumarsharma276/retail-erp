@@ -13,10 +13,14 @@ export const dashboardController = {
     reply: FastifyReply,
   ) {
     try {
-      const shopId = request.shopFilter!.shopId;
+      const { shopId, shopIds, allShops } = request.shopFilter!;
       const { dateFrom, dateTo } = request.query;
 
-      const data = await dashboardService.getSalesGraph(shopId, dateFrom, dateTo);
+      const data = await dashboardService.getSalesGraph(
+        { shopId, shopIds: allShops ? shopIds : undefined },
+        dateFrom,
+        dateTo,
+      );
       return sendSuccess(reply, data);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to fetch sales graph data';
@@ -35,11 +39,16 @@ export const dashboardController = {
     reply: FastifyReply,
   ) {
     try {
-      const shopId = request.shopFilter!.shopId;
+      const { shopId, shopIds, allShops } = request.shopFilter!;
       const { dateFrom, dateTo, limit } = request.query;
       const parsedLimit = limit ? Math.min(Math.max(1, parseInt(limit, 10)), 50) : 10;
 
-      const data = await dashboardService.getTopProducts(shopId, dateFrom, dateTo, parsedLimit);
+      const data = await dashboardService.getTopProducts(
+        { shopId, shopIds: allShops ? shopIds : undefined },
+        dateFrom,
+        dateTo,
+        parsedLimit,
+      );
       return sendSuccess(reply, data);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to fetch top products';
@@ -57,10 +66,14 @@ export const dashboardController = {
     reply: FastifyReply,
   ) {
     try {
-      const shopId = request.shopFilter!.shopId;
+      const { shopId, shopIds, allShops } = request.shopFilter!;
       const { dateFrom, dateTo } = request.query;
 
-      const data = await dashboardService.getYoYComparison(shopId, dateFrom, dateTo);
+      const data = await dashboardService.getYoYComparison(
+        { shopId, shopIds: allShops ? shopIds : undefined },
+        dateFrom,
+        dateTo,
+      );
       return sendSuccess(reply, data);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to fetch year-over-year comparison';
@@ -78,10 +91,14 @@ export const dashboardController = {
     reply: FastifyReply,
   ) {
     try {
-      const shopId = request.shopFilter!.shopId;
+      const { shopId, shopIds, allShops } = request.shopFilter!;
       const { dateFrom, dateTo } = request.query;
 
-      const data = await dashboardService.getOverdueInstallments(shopId, dateFrom, dateTo);
+      const data = await dashboardService.getOverdueInstallments(
+        { shopId, shopIds: allShops ? shopIds : undefined },
+        dateFrom,
+        dateTo,
+      );
       return sendSuccess(reply, data);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to fetch overdue installments';
@@ -94,9 +111,12 @@ export const dashboardController = {
     reply: FastifyReply,
   ) {
     try {
-      const shopId = request.shopFilter!.shopId;
+      const { shopId, shopIds, allShops } = request.shopFilter!;
 
-      const data = await dashboardService.getSummary(shopId);
+      const data = await dashboardService.getSummary({
+        shopId,
+        shopIds: allShops ? shopIds : undefined,
+      });
       return sendSuccess(reply, data);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to fetch dashboard summary';
@@ -111,13 +131,16 @@ export const dashboardController = {
     reply: FastifyReply,
   ) {
     try {
-      const shopId = request.shopFilter!.shopId;
+      const { shopId, shopIds, allShops } = request.shopFilter!;
       const threshold = Number(request.query.threshold ?? '5');
-      const data = await dashboardService.getLowMarginSales(shopId, {
-        threshold: Number.isFinite(threshold) ? threshold : 5,
-        dateFrom: request.query.dateFrom,
-        dateTo: request.query.dateTo,
-      });
+      const data = await dashboardService.getLowMarginSales(
+        { shopId, shopIds: allShops ? shopIds : undefined },
+        {
+          threshold: Number.isFinite(threshold) ? threshold : 5,
+          dateFrom: request.query.dateFrom,
+          dateTo: request.query.dateTo,
+        },
+      );
       return sendSuccess(reply, data);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to fetch low-margin sales';

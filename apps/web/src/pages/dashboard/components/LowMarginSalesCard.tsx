@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { TrendingDown, ExternalLink, ChevronDown } from 'lucide-react';
 import { useLowMarginSalesQuery } from '../../../hooks/useDashboard';
+import { DateInput } from '../../../components/DateInput';
 import {
   formatINR,
   getCurrentFinancialYearRange,
@@ -122,18 +123,16 @@ export function LowMarginSalesCard() {
 
       {state.rangeMode === 'custom' && (
         <div className="flex items-center gap-2 mb-3">
-          <input
-            type="date"
+          <DateInput
             value={state.dateFrom}
-            onChange={(e) => setState((s) => ({ ...s, dateFrom: e.target.value }))}
-            className="rounded-md border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+            onChange={(v) => setState((s) => ({ ...s, dateFrom: v }))}
+            className="w-36"
           />
           <span className="text-xs text-muted-foreground">to</span>
-          <input
-            type="date"
+          <DateInput
             value={state.dateTo}
-            onChange={(e) => setState((s) => ({ ...s, dateTo: e.target.value }))}
-            className="rounded-md border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+            onChange={(v) => setState((s) => ({ ...s, dateTo: v }))}
+            className="w-36"
           />
         </div>
       )}

@@ -21,12 +21,17 @@ export const transfersController = {
     try {
       const { page, pageSize, skip, take } = parsePagination(request.query);
       const { fromShopId, toShopId, status, dateFrom, dateTo } = request.query;
+      // Shop-scope: list only transfers involving the currently active shop
+      // (either as source or destination). The shopScope middleware has
+      // already validated that the user has access to this shop.
+      const shopId = request.shopFilter!.shopId;
 
       const { transfers, totalItems } = await transfersService.list({
         page,
         pageSize,
         skip,
         take,
+        shopId,
         fromShopId,
         toShopId,
         status,

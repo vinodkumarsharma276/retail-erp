@@ -3,16 +3,25 @@ import type { Prisma } from '@prisma/client';
 import { generateCustomerCode } from '../../utils/id-generator.js';
 
 export const customersService = {
-  async list(shopId: string, filters: {
-    skip: number;
-    take: number;
-    page: number;
-    pageSize: number;
-    search?: string;
-  }) {
-    const where: Prisma.CustomerWhereInput = {
-      shopId,
-    };
+  /**
+   * List customers for a shop (or all shops in All-Shops mode).
+   * `scope.shopIds` is set when the user picks "All Shops" in the
+   * header (gated by the `shops.view_all` permission).
+   */
+  async list(
+    scope: { shopId: string; shopIds?: string[] },
+    filters: {
+      skip: number;
+      take: number;
+      page: number;
+      pageSize: number;
+      search?: string;
+    },
+  ) {
+    const where: Prisma.CustomerWhereInput =
+      scope.shopIds && scope.shopIds.length > 0
+        ? { shopId: { in: scope.shopIds } }
+        : { shopId: scope.shopId };
 
     if (filters.search) {
       where.OR = [
@@ -31,6 +40,9 @@ export const customersService = {
           },
           creator: {
             select: { id: true, username: true, fullName: true },
+          },
+          shop: {
+            select: { id: true, name: true, code: true },
           },
         },
         orderBy: { createdAt: 'desc' },

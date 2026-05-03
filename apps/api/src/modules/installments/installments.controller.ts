@@ -17,15 +17,18 @@ export const installmentsController = {
     try {
       const { page, pageSize, skip, take } = parsePagination(request.query);
       const { status } = request.query;
-      const shopId = request.shopFilter!.shopId;
+      const { shopId, shopIds, allShops } = request.shopFilter!;
 
-      const { schedules, totalItems } = await installmentsService.listSchedules(shopId, {
-        page,
-        pageSize,
-        skip,
-        take,
-        status,
-      });
+      const { schedules, totalItems } = await installmentsService.listSchedules(
+        { shopId, shopIds: allShops ? shopIds : undefined },
+        {
+          page,
+          pageSize,
+          skip,
+          take,
+          status,
+        },
+      );
 
       return sendPaginated(reply, schedules, { page, pageSize, totalItems });
     } catch (error) {
@@ -39,8 +42,11 @@ export const installmentsController = {
     reply: FastifyReply,
   ) {
     try {
-      const shopId = request.shopFilter!.shopId;
-      const overdue = await installmentsService.getOverdue(shopId);
+      const { shopId, shopIds, allShops } = request.shopFilter!;
+      const overdue = await installmentsService.getOverdue({
+        shopId,
+        shopIds: allShops ? shopIds : undefined,
+      });
       return sendSuccess(reply, overdue);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to fetch overdue installments';
@@ -55,7 +61,7 @@ export const installmentsController = {
     reply: FastifyReply,
   ) {
     try {
-      const shopId = request.shopFilter!.shopId;
+      const { shopId, shopIds, allShops } = request.shopFilter!;
       const { employeeId } = request.query;
 
       // For employees, auto-filter to their own assignments
@@ -66,7 +72,7 @@ export const installmentsController = {
 
       const today = new Date().toISOString().split('T')[0];
       const result = await installmentsService.getCollectionsForDate(
-        shopId,
+        { shopId, shopIds: allShops ? shopIds : undefined },
         today,
         effectiveEmployeeId,
       );
@@ -86,7 +92,7 @@ export const installmentsController = {
     reply: FastifyReply,
   ) {
     try {
-      const shopId = request.shopFilter!.shopId;
+      const { shopId, shopIds, allShops } = request.shopFilter!;
       const { date } = request.params;
       const { employeeId } = request.query;
 
@@ -102,7 +108,7 @@ export const installmentsController = {
           : employeeId;
 
       const result = await installmentsService.getCollectionsForDate(
-        shopId,
+        { shopId, shopIds: allShops ? shopIds : undefined },
         date,
         effectiveEmployeeId,
       );
@@ -121,7 +127,7 @@ export const installmentsController = {
     reply: FastifyReply,
   ) {
     try {
-      const shopId = request.shopFilter!.shopId;
+      const { shopId, shopIds, allShops } = request.shopFilter!;
       const today = new Date().toISOString().split('T')[0];
       const twoWeeksAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
@@ -136,7 +142,10 @@ export const installmentsController = {
           : employeeId;
 
       const result = await installmentsService.getCollectionsForDateRange(
-        shopId, dateFrom, dateTo, effectiveEmployeeId,
+        { shopId, shopIds: allShops ? shopIds : undefined },
+        dateFrom,
+        dateTo,
+        effectiveEmployeeId,
       );
       return sendSuccess(reply, result);
     } catch (error) {
@@ -152,7 +161,7 @@ export const installmentsController = {
     reply: FastifyReply,
   ) {
     try {
-      const shopId = request.shopFilter!.shopId;
+      const { shopId, shopIds, allShops } = request.shopFilter!;
       const today = new Date().toISOString().split('T')[0];
       const twoWeeksAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000)
         .toISOString()
@@ -162,7 +171,7 @@ export const installmentsController = {
       const dateTo = request.query.dateTo || today;
 
       const result = await installmentsService.getPaidCollectionsForDateRange(
-        shopId,
+        { shopId, shopIds: allShops ? shopIds : undefined },
         dateFrom,
         dateTo,
       );
@@ -181,11 +190,15 @@ export const installmentsController = {
     reply: FastifyReply,
   ) {
     try {
-      const shopId = request.shopFilter!.shopId;
+      const { shopId, shopIds, allShops } = request.shopFilter!;
       const query = request.query.q || '';
       const filterBy = request.query.filterBy || 'all';
 
-      const results = await installmentsService.searchSchedules(shopId, query, filterBy);
+      const results = await installmentsService.searchSchedules(
+        { shopId, shopIds: allShops ? shopIds : undefined },
+        query,
+        filterBy,
+      );
       return sendSuccess(reply, results);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Search failed';

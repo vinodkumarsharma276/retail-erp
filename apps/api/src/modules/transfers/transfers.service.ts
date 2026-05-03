@@ -116,13 +116,24 @@ async function getOrCreateShopCustomer(
 export const transfersService = {
   /**
    * List transfers with pagination and filters.
-   * NOT shop-scoped — admins/accountants see all transfers across shops.
+   *
+   * Shop-scoped: when `shopId` is provided (always, in practice — injected
+   * from `request.shopFilter`) only transfers where the active shop is
+   * either the source OR the destination are returned. This matches the
+   * mental model of viewing one shop at a time — you see what's leaving
+   * the shop and what's coming into it. Owners/admins can switch shops
+   * via the header dropdown to see another shop's transfer book.
+   *
+   * Explicit `fromShopId` / `toShopId` filters (from the query string) are
+   * applied on top of the shop scope as additional narrowing, e.g. if the
+   * UI ever wants to show only outgoing-from-this-shop transfers.
    */
   async list(filters: {
     skip: number;
     take: number;
     page: number;
     pageSize: number;
+    shopId?: string;
     fromShopId?: string;
     toShopId?: string;
     status?: string;
@@ -130,6 +141,13 @@ export const transfersService = {
     dateTo?: string;
   }) {
     const where: Prisma.InterShopTransferWhereInput = {};
+
+    if (filters.shopId) {
+      where.OR = [
+        { fromShopId: filters.shopId },
+        { toShopId: filters.shopId },
+      ];
+    }
 
     if (filters.fromShopId) {
       where.fromShopId = filters.fromShopId;
@@ -410,6 +428,34 @@ export const transfersService = {
         userId,
       );
 
+      // 3c. Create a Purchase record on the destination shop's books that
+      //     represents this transfer-as-purchase. Without this the new
+      //     Product would have `purchaseId = null` and the destination
+      //     shop's Products list would render a blank "Date of Purchase".
+      //     The transfer itself is the supporting document, so we reuse
+      //     the transfer invoice number.
+      const receivedDate = new Date();
+      const transferInvoiceNumber =
+        transfer.invoiceNumber ?? `TRF-${transfer.id.slice(0, 8)}`;
+      const destPurchase = await tx.purchase.create({
+        data: {
+          shopId: transfer.toShopId,
+          distributorId: sourceShopDistributor.id,
+          invoiceNumber: transferInvoiceNumber,
+          invoiceDate: receivedDate,
+          totalAmount: transferPrice,
+          gstAmount: transferGstAmount,
+          discountAmount: 0,
+          netAmount,
+          amountPaid: 0,
+          paymentStatus: 'pending',
+          notes:
+            `Inter-shop transfer received from ${transfer.fromShop.name} ` +
+            `(${transfer.fromShop.code}). Transfer ID: ${transfer.id}.`,
+          createdBy: userId,
+        },
+      });
+
       // 4. Clone into destination shop as a fresh in-stock product.
       const destProduct = await tx.product.create({
         data: {
@@ -424,7 +470,7 @@ export const transfersService = {
           color: sourceProduct.color,
           weightKg: sourceProduct.weightKg,
           distributorId: sourceShopDistributor.id,
-          purchaseId: null,
+          purchaseId: destPurchase.id,
           status: 'in_stock',
           dynamicAttributes: sourceProduct.dynamicAttributes as any,
           warrantyMonths: sourceProduct.warrantyMonths,

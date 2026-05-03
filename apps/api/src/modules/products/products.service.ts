@@ -2,21 +2,34 @@ import { prisma } from '../../config/database.js';
 import type { Prisma } from '@prisma/client';
 
 export const productsService = {
-  async list(shopId: string, filters: {
-    skip: number;
-    take: number;
-    page: number;
-    pageSize: number;
-    categoryId?: string;
-    status?: string;
-    brand?: string;
-    search?: string;
-    dateFrom?: string;
-    dateTo?: string;
-  }) {
-    const where: Prisma.ProductWhereInput = {
-      shopId,
-    };
+  /**
+   * List products with pagination/filters.
+   *
+   * `scope` supports two modes:
+   *  - single shop: `{ shopId: string }` (default)
+   *  - all shops the user has access to: `{ shopId, shopIds: string[] }`
+   *    — used when the user picks "All Shops" in the header (gated by
+   *    the `shops.view_all` permission in the middleware).
+   */
+  async list(
+    scope: { shopId: string; shopIds?: string[] },
+    filters: {
+      skip: number;
+      take: number;
+      page: number;
+      pageSize: number;
+      categoryId?: string;
+      status?: string;
+      brand?: string;
+      search?: string;
+      dateFrom?: string;
+      dateTo?: string;
+    },
+  ) {
+    const where: Prisma.ProductWhereInput =
+      scope.shopIds && scope.shopIds.length > 0
+        ? { shopId: { in: scope.shopIds } }
+        : { shopId: scope.shopId };
 
     if (filters.categoryId) {
       // Check if this is a root category (has children) — if so, filter by all child IDs
@@ -77,6 +90,9 @@ export const productsService = {
           purchase: {
             select: { id: true, invoiceDate: true, invoiceNumber: true },
           },
+          shop: {
+            select: { id: true, name: true, code: true },
+          },
         },
         orderBy: { createdAt: 'desc' },
         skip: filters.skip,
@@ -88,10 +104,15 @@ export const productsService = {
     return { products, totalItems };
   },
 
-  async globalSearch(shopId: string, query: string) {
+  async globalSearch(
+    scope: { shopId: string; shopIds?: string[] },
+    query: string,
+  ) {
     const products = await prisma.product.findMany({
       where: {
-        shopId,
+        ...(scope.shopIds && scope.shopIds.length > 0
+          ? { shopId: { in: scope.shopIds } }
+          : { shopId: scope.shopId }),
         OR: [
           { modelNumber: { contains: query, mode: 'insensitive' } },
           { brand: { contains: query, mode: 'insensitive' } },
@@ -104,6 +125,9 @@ export const productsService = {
         },
         purchase: {
           select: { id: true, invoiceDate: true, gstAmount: true, totalAmount: true, discountAmount: true },
+        },
+        shop: {
+          select: { id: true, name: true, code: true },
         },
       },
       orderBy: { createdAt: 'desc' },

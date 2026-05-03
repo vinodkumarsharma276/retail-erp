@@ -5,14 +5,17 @@ import {
   X,
   Pencil,
   ShoppingCart,
+  ArrowRightLeft,
   ChevronDown,
   Calendar,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useDebounce } from '../../hooks/useDebounce';
 import { useProductsQuery, useCategoryTreeQuery } from '../../hooks/useProducts';
+import { useShopStore, isAllShops } from '../../stores/shop-store';
 import { DataTable } from '../../components/DataTable';
 import type { Column, PaginationState } from '../../components/DataTable';
+import { DateInput } from '../../components/DateInput';
 import { StatusBadge } from '../../components/StatusBadge';
 import {
   formatINR,
@@ -53,8 +56,13 @@ export function ProductListPage() {
     }, { replace: true });
   };
 
-  // Categories
+  // ------ Categories ------
   const { data: categoryTree } = useCategoryTreeQuery();
+  // "All Shops" mode is read-only — we hide write actions (Sell, Transfer)
+  // because they would silently use the user's primary shop, which is
+  // confusing. The user must pick a specific shop first.
+  const currentShopId = useShopStore((s) => s.currentShopId);
+  const allShopsMode = isAllShops(currentShopId);
   const rootCategories = categoryTree ?? [];
   const subCategories: ProductCategory[] = useMemo(() => {
     if (!rootCategoryId || !categoryTree) return [];
@@ -110,6 +118,30 @@ export function ProductListPage() {
           : idx + 1,
       className: 'w-16',
     },
+    // Shop column — only shown in "All Shops" mode so users can tell which
+    // GST entity each product belongs to. Hidden in single-shop mode since
+    // the shop is implied by the header badge.
+    ...(allShopsMode
+      ? ([
+          {
+            key: 'shop' as keyof Product,
+            header: 'Shop',
+            sortable: true,
+            sortAccessor: (row: Product) => (row as any).shop?.code ?? '',
+            render: (row: Product) => {
+              const s = (row as any).shop as { code: string } | null | undefined;
+              return s ? (
+                <span className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-xs font-medium">
+                  {s.code}
+                </span>
+              ) : (
+                <span className="text-muted-foreground">-</span>
+              );
+            },
+            className: 'w-20',
+          },
+        ] as Column<Product>[])
+      : []),
     {
       key: 'brand',
       header: 'Brand',
@@ -206,16 +238,36 @@ export function ProductListPage() {
             <Pencil className="h-4 w-4" />
           </button>
           {row.status === ProductStatus.IN_STOCK && (
-            <button
-              onClick={() => navigate(`/sales/new?productId=${row.id}`)}
-              className="rounded-md px-2.5 py-1 text-xs font-medium text-green-700 dark:text-green-400 bg-green-100 dark:bg-green-900/30 hover:bg-green-200 dark:hover:bg-green-900/50 transition-colors"
-              title="Sell this product"
-            >
-              <span className="flex items-center gap-1">
-                <ShoppingCart className="h-3 w-3" />
-                Sell
-              </span>
-            </button>
+            <>
+              <button
+                onClick={() => navigate(`/sales/new?productId=${row.id}`)}
+                disabled={allShopsMode}
+                className={cn(
+                  'rounded-md px-2.5 py-1 text-xs font-medium text-green-700 dark:text-green-400 bg-green-100 dark:bg-green-900/30 hover:bg-green-200 dark:hover:bg-green-900/50 transition-colors',
+                  'disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-green-100 dark:disabled:hover:bg-green-900/30',
+                )}
+                title={allShopsMode ? 'Switch to a single shop to record a sale' : 'Sell this product'}
+              >
+                <span className="flex items-center gap-1">
+                  <ShoppingCart className="h-3 w-3" />
+                  Sell
+                </span>
+              </button>
+              <button
+                onClick={() => navigate(`/transfers/new?productId=${row.id}`)}
+                disabled={allShopsMode}
+                className={cn(
+                  'rounded-md px-2.5 py-1 text-xs font-medium text-blue-700 dark:text-blue-400 bg-blue-100 dark:bg-blue-900/30 hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors',
+                  'disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-blue-100 dark:disabled:hover:bg-blue-900/30',
+                )}
+                title={allShopsMode ? 'Switch to a single shop to initiate a transfer' : 'Transfer this product'}
+              >
+                <span className="flex items-center gap-1">
+                  <ArrowRightLeft className="h-3 w-3" />
+                  Transfer
+                </span>
+              </button>
+            </>
           )}
         </div>
       ),
@@ -322,20 +374,11 @@ export function ProductListPage() {
           <label className="block text-xs font-medium text-muted-foreground mb-1">
             Purchased From
           </label>
-          <div className="relative">
-            <Calendar className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <input
-              type="date"
-              value={dateFrom}
-              onChange={(e) => {
-                updateFilters({ dateFrom: e.target.value, page: '1' });
-              }}
-              className={cn(
-                'rounded-md border bg-background pl-9 pr-3 py-2 text-sm',
-                'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-              )}
-            />
-          </div>
+          <DateInput
+            value={dateFrom}
+            onChange={(v) => updateFilters({ dateFrom: v, page: '1' })}
+            className="w-40"
+          />
         </div>
 
         {/* Date of Purchase: To */}
@@ -343,20 +386,11 @@ export function ProductListPage() {
           <label className="block text-xs font-medium text-muted-foreground mb-1">
             Purchased To
           </label>
-          <div className="relative">
-            <Calendar className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <input
-              type="date"
-              value={dateTo}
-              onChange={(e) => {
-                updateFilters({ dateTo: e.target.value, page: '1' });
-              }}
-              className={cn(
-                'rounded-md border bg-background pl-9 pr-3 py-2 text-sm',
-                'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-              )}
-            />
-          </div>
+          <DateInput
+            value={dateTo}
+            onChange={(v) => updateFilters({ dateTo: v, page: '1' })}
+            className="w-40"
+          />
         </div>
 
         <button

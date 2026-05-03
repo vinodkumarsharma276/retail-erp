@@ -210,6 +210,7 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
     ['shops.edit', 'Edit shop details'],
     ['shops.deactivate', 'Deactivate shop'],
     ['shops.view_bank_details', 'See shop bank details'],
+    ['shops.view_all', 'View aggregated data across all shops at once'],
   ]),
 
   g('settings', 'Settings & Builders', [
