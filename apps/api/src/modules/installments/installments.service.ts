@@ -1575,6 +1575,15 @@ export const installmentsService = {
        * installments the chain rolls into.
        */
       applyInterest?: { amount: number; notes?: string };
+      /**
+       * When true, each consecutive paid primary installment AFTER the
+       * reverted one has its payment shifted back one slot.
+       * Example: undo #4 → #5's payment moves to #4, #6's payment moves
+       * to #5, until a gap (unpaid / non-primary) is encountered.
+       * The final installment in the chain becomes unpaid and is absorbed
+       * by the rollover engine as usual.
+       */
+      cascade?: boolean;
     },
   ) {
     const payment = await prisma.installmentPayment.findUnique({
@@ -1723,6 +1732,94 @@ export const installmentsService = {
         });
       }
 
+      // ── Cascade: shift subsequent consecutive paid primaries back one ────
+      // Walk N+1, N+2, … while each is a paid primary with at least one
+      // payment record. Move the last payment of N+k to N+k-1 and mark
+      // N+k-1 paid (N+k will be left unpaid and absorbed by rollover).
+      const cascadedInstallments: Array<{ from: number; to: number; amount: number; paymentDate: Date }> = [];
+
+      if (options?.cascade && inst.installmentNumber != null) {
+        let prevInstallment = await tx.installment.findUnique({ where: { id: inst.id } });
+        let currentNumber = inst.installmentNumber + 1;
+
+        while (true) {
+          const nextInst = await tx.installment.findFirst({
+            where: {
+              scheduleId: inst.schedule.id,
+              installmentNumber: currentNumber,
+              parentInstallmentNumber: null,
+              isRescheduled: false,
+              isClosed: false,
+              status: 'paid',
+            },
+            include: {
+              payments: {
+                orderBy: { paymentDate: 'desc' },
+                take: 1,
+              },
+            },
+          });
+
+          if (!nextInst || !nextInst.payments.length || !prevInstallment) break;
+
+          const shiftPayment = nextInst.payments[0];
+          const shiftAmount = Number(shiftPayment.amount);
+
+          // Re-link the payment to the previous installment
+          await tx.installmentPayment.update({
+            where: { id: shiftPayment.id },
+            data: { installmentId: prevInstallment.id },
+          });
+
+          // Mark the previous installment as paid
+          await tx.installment.update({
+            where: { id: prevInstallment.id },
+            data: {
+              amountPaid: shiftAmount,
+              remainingAmount: Math.max(0, Number(prevInstallment.amountDue) - shiftAmount),
+              status: 'paid',
+            },
+          });
+
+          const prevLabel = prevInstallment.parentInstallmentNumber != null && prevInstallment.subSequence != null
+            ? `#${prevInstallment.parentInstallmentNumber}.${prevInstallment.subSequence}`
+            : `#${prevInstallment.installmentNumber}`;
+          const nextLabel = `#${nextInst.installmentNumber}`;
+
+          await tx.installmentRollLog.create({
+            data: {
+              scheduleId: inst.schedule.id,
+              installmentId: prevInstallment.id,
+              eventType: 'payment_moved',
+              eventDate: new Date(),
+              actorUserId: userId,
+              displayMessage: `Payment of ₹${shiftAmount.toLocaleString('en-IN')} shifted from installment ${nextLabel} to ${prevLabel} (cascade revert).`,
+              metadata: { fromInstallmentId: nextInst.id, toInstallmentId: prevInstallment.id, amount: shiftAmount, cascade: true } as Prisma.InputJsonValue,
+            },
+          });
+
+          cascadedInstallments.push({ from: currentNumber, to: currentNumber - 1, amount: shiftAmount, paymentDate: shiftPayment.paymentDate });
+
+          // Now mark nextInst as unpaid — it will be absorbed by rollover below
+          const nextDueDate = new Date(nextInst.dueDate);
+          const todayCheck = new Date();
+          todayCheck.setHours(0, 0, 0, 0);
+          const nextStatus = nextDueDate < todayCheck ? 'overdue' : 'upcoming';
+
+          await tx.installment.update({
+            where: { id: nextInst.id },
+            data: {
+              amountPaid: 0,
+              remainingAmount: Number(nextInst.amountDue),
+              status: nextStatus,
+            },
+          });
+
+          prevInstallment = await tx.installment.findUnique({ where: { id: nextInst.id } });
+          currentNumber += 1;
+        }
+      }
+
       // Re-sync schedule totals
       await syncScheduleAndSale(tx, inst.schedule.id);
 
@@ -1740,7 +1837,7 @@ export const installmentsService = {
       today.setHours(0, 0, 0, 0);
       await ensureRolledForToday(tx, today, { scheduleId: inst.schedule.id });
 
-      return { installmentId: inst.id, amountReverted: amountToRevert };
+      return { installmentId: inst.id, amountReverted: amountToRevert, cascadedInstallments };
     });
 
     return result;
@@ -2504,6 +2601,309 @@ export const installmentsService = {
         sourceInstallmentId: sourceInst.id,
         targetInstallmentId,
         amountMoved: amountToMove,
+      };
+    });
+
+    return result;
+  },
+
+  /**
+   * Correct a payment that was recorded with the wrong (higher) amount.
+   *
+   * Example: employee recorded ₹5,000 but customer actually paid ₹3,000.
+   * The ₹2,000 shortfall is spread equally across upcoming installments.
+   * If no upcoming installments remain, a new installment is created due today.
+   *
+   * Optional discretionary interest on the shortfall (from installment's due
+   * date to today) may be applied and included in the distributed amount.
+   */
+  async correctPayment(
+    paymentId: string,
+    correctAmount: number,
+    reason: string,
+    userId: string,
+    options?: {
+      applyInterest?: { amount: number; notes?: string };
+    },
+  ) {
+    const r2 = (n: number) => Math.round(n * 100) / 100;
+
+    const payment = await prisma.installmentPayment.findUnique({
+      where: { id: paymentId },
+      include: {
+        installment: {
+          include: {
+            schedule: {
+              select: {
+                id: true,
+                sale: { select: { shopId: true, interestRate: true } },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!payment) throw new Error('Payment not found');
+
+    const inst = payment.installment;
+    const scheduleId = inst.schedule.id;
+    const originalAmount = r2(Number(payment.amount));
+
+    if (correctAmount >= originalAmount) {
+      throw new Error(
+        'Correct amount must be less than the recorded amount. To add more payment, use the regular Pay flow.',
+      );
+    }
+
+    const shortfall = r2(originalAmount - correctAmount);
+
+    const instLabel =
+      inst.parentInstallmentNumber != null && inst.subSequence != null
+        ? `#${inst.parentInstallmentNumber}.${inst.subSequence}`
+        : `#${inst.installmentNumber}`;
+
+    const result = await prisma.$transaction(async (tx) => {
+      // ── Step A: Optional interest on the shortfall ───────────────────────
+      // Interest accrues from the installment's original due date to today
+      // (since the missing money has been owed since then). This is logged
+      // as a separate interest_applied event and included in the distributed
+      // amount so upcoming installments absorb both the principal shortfall
+      // and the penalty in one go.
+      let totalToDistribute = shortfall;
+
+      if (options?.applyInterest && options.applyInterest.amount > 0) {
+        totalToDistribute = r2(totalToDistribute + options.applyInterest.amount);
+
+        const monthlyRate = Number(inst.schedule.sale.interestRate ?? 0);
+        const due = inst.dueDate;
+        const today = new Date();
+        const dueDay = Date.UTC(due.getUTCFullYear(), due.getUTCMonth(), due.getUTCDate());
+        const todayDay = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
+        const daysOverdue = Math.max(0, Math.floor((todayDay - dueDay) / (1000 * 60 * 60 * 24)));
+        const dailyRate = monthlyRate / 100 / 30;
+
+        const app = await tx.installmentInterestApplication.create({
+          data: {
+            installmentId: inst.id,
+            scheduleId,
+            daysOverdue,
+            dailyRate,
+            baseAmount: shortfall,
+            appliedAmount: options.applyInterest.amount,
+            appliedBy: userId,
+            notes: options.applyInterest.notes ?? null,
+          },
+        });
+
+        await tx.installmentRollLog.create({
+          data: {
+            scheduleId,
+            installmentId: inst.id,
+            eventType: 'interest_applied',
+            eventDate: new Date(),
+            actorUserId: userId,
+            displayMessage:
+              `Interest of ₹${options.applyInterest.amount.toLocaleString('en-IN')} applied on shortfall of ` +
+              `₹${shortfall.toLocaleString('en-IN')} for installment ${instLabel} (${daysOverdue} days from due date). ` +
+              `Distributed to upcoming installments.` +
+              (options.applyInterest.notes ? ` Note: ${options.applyInterest.notes}` : ''),
+            metadata: {
+              applicationId: app.id,
+              amount: options.applyInterest.amount,
+              daysOverdue,
+              dailyRate,
+              baseAmount: shortfall,
+              appliedAlongsideCorrection: true,
+            } as Prisma.InputJsonValue,
+          },
+        });
+      }
+
+      // ── Step B: Correct the payment record ───────────────────────────────
+      await tx.installmentPayment.update({
+        where: { id: paymentId },
+        data: { amount: correctAmount },
+      });
+
+      // ── Step C & D: Update source installment + distribute if needed ──────
+      // Two distinct cases:
+      //   Partial  (correctAmount < amountDue): the shortfall stays on THIS
+      //     installment (status = partially_paid). Any interest on the shortfall
+      //     is added to amountDue here, not distributed forward.
+      //   Full/over (correctAmount >= amountDue): installment is still fully
+      //     settled; distribute totalToDistribute to future rows as before.
+      const amountDue = r2(Number(inst.amountDue));
+      const isPartialCorrection = correctAmount < amountDue;
+
+      let distributionMessage = '';
+      let affectedCount = 0;
+
+      if (isPartialCorrection) {
+        // Interest on the shortfall (if applied) bumps THIS installment's
+        // amountDue — not future rows.
+        const interestOnShortfall = r2(options?.applyInterest?.amount ?? 0);
+        const newAmountDue = r2(amountDue + interestOnShortfall);
+        const newRemainingAmount = r2(newAmountDue - correctAmount);
+
+        await tx.installment.update({
+          where: { id: inst.id },
+          data: {
+            amountPaid: correctAmount,
+            amountDue: newAmountDue,
+            remainingAmount: newRemainingAmount,
+            status: 'partially_paid',
+          },
+        });
+
+        distributionMessage = `Shortfall of ₹${newRemainingAmount.toLocaleString('en-IN')} remains on installment ${instLabel}.`;
+        affectedCount = 0;
+      } else {
+        // Fully paid — distribute totalToDistribute to future rows.
+        await tx.installment.update({
+          where: { id: inst.id },
+          data: {
+            amountPaid: correctAmount,
+            remainingAmount: 0,
+            status: 'paid',
+          },
+        });
+
+        // ── Step D: Distribute totalToDistribute to upcoming installments ───
+        // Includes overdue rows with remaining balance (not yet absorbed/paid).
+        const upcomingRows = await tx.installment.findMany({
+          where: {
+            scheduleId,
+            id: { not: inst.id },
+            status: { in: ['upcoming', 'due_today', 'overdue'] },
+            remainingAmount: { gt: 0 },
+            isRescheduled: false,
+            isClosed: false,
+          },
+          orderBy: { installmentNumber: 'asc' },
+        });
+
+        if (upcomingRows.length === 0) {
+          // No upcoming installments — create a new one due today
+          const maxResult = await tx.installment.aggregate({
+            where: { scheduleId },
+            _max: { installmentNumber: true },
+          });
+          const maxNum = maxResult._max.installmentNumber ?? 0;
+          const dueToday = new Date();
+          dueToday.setHours(0, 0, 0, 0);
+
+          await tx.installment.create({
+            data: {
+              scheduleId,
+              installmentNumber: maxNum + 1,
+              dueDate: dueToday,
+              amountDue: totalToDistribute,
+              amountPaid: 0,
+              remainingAmount: totalToDistribute,
+              status: 'due_today',
+              notes: `Created due to payment correction on installment ${instLabel}. Shortfall: ₹${shortfall.toLocaleString('en-IN')}`,
+            },
+          });
+
+          distributionMessage = `Shortfall of ₹${totalToDistribute.toLocaleString('en-IN')} placed in a new installment #${maxNum + 1} (due today).`;
+          affectedCount = 0;
+        } else {
+          // Equal split across upcoming installments (last row absorbs rounding)
+          const n = upcomingRows.length;
+          const perRow = r2(totalToDistribute / n);
+          let distributed = 0;
+
+          for (let i = 0; i < n; i++) {
+            const row = upcomingRows[i];
+            const delta = i === n - 1 ? r2(totalToDistribute - distributed) : perRow;
+            distributed = r2(distributed + delta);
+
+            await tx.installment.update({
+              where: { id: row.id },
+              data: {
+                amountDue: { increment: delta },
+                remainingAmount: { increment: delta },
+              },
+            });
+
+            const rowLabel =
+              row.parentInstallmentNumber != null && row.subSequence != null
+                ? `#${row.parentInstallmentNumber}.${row.subSequence}`
+                : `#${row.installmentNumber}`;
+
+            const newAmountDue = r2(Number(row.amountDue) + delta);
+
+            await tx.installmentRollLog.create({
+              data: {
+                scheduleId,
+                installmentId: row.id,
+                eventType: 'payment_corrected',
+                eventDate: new Date(),
+                actorUserId: userId,
+                displayMessage: `Installment ${rowLabel} amount due updated: ₹${Number(row.amountDue).toLocaleString('en-IN')} → ₹${newAmountDue.toLocaleString('en-IN')} (+₹${delta.toLocaleString('en-IN')} shortfall from correction on installment ${instLabel}).`,
+                metadata: {
+                  sourceInstallmentId: inst.id,
+                  delta,
+                  totalShortfall: shortfall,
+                  totalToDistribute,
+                  reason,
+                } as Prisma.InputJsonValue,
+              },
+            });
+          }
+
+          distributionMessage = `Shortfall of ₹${totalToDistribute.toLocaleString('en-IN')} split across ${n} upcoming installments (+₹${perRow.toLocaleString('en-IN')} each).`;
+          affectedCount = n;
+        }
+      }
+
+      // ── Step E: Log the correction on the source installment ─────────────
+      await tx.installmentRollLog.create({
+        data: {
+          scheduleId,
+          installmentId: inst.id,
+          eventType: 'payment_corrected',
+          eventDate: new Date(),
+          actorUserId: userId,
+          displayMessage:
+            `Payment on installment ${instLabel} corrected from ₹${originalAmount.toLocaleString('en-IN')} ` +
+            `to ₹${correctAmount.toLocaleString('en-IN')}. Shortfall: ₹${shortfall.toLocaleString('en-IN')}. ` +
+            `${distributionMessage} Reason: ${reason}`,
+          metadata: {
+            paymentId,
+            originalAmount,
+            correctAmount,
+            shortfall,
+            totalToDistribute,
+            affectedInstallments: affectedCount,
+            reason,
+          } as Prisma.InputJsonValue,
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          userId,
+          shopId: inst.schedule.sale.shopId,
+          entityType: 'installment',
+          entityId: inst.id,
+          action: 'payment_corrected',
+          oldValues: { amountPaid: originalAmount } as any,
+          newValues: { amountPaid: correctAmount, shortfall, totalToDistribute } as any,
+        },
+      });
+
+      // ── Step F: Sync schedule totals ─────────────────────────────────────
+      await syncScheduleAndSale(tx, scheduleId);
+
+      return {
+        installmentId: inst.id,
+        originalAmount,
+        correctAmount,
+        shortfall,
+        totalDistributed: totalToDistribute,
+        affectedInstallments: affectedCount,
       };
     });
 

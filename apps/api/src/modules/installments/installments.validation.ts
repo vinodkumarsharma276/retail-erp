@@ -178,6 +178,26 @@ export const rollbackInterestSchema = z.object({
 });
 
 /**
+ * Body for `POST /installments/payments/:paymentId/correct`.
+ * Corrects a payment that was recorded with the wrong amount (usually higher
+ * than what the customer actually paid). The shortfall is distributed equally
+ * across upcoming installments; a new installment is created if none remain.
+ */
+export const correctPaymentSchema = z.object({
+  /** The amount the customer actually paid (must be > 0 and < recorded amount). */
+  correctAmount: z.number().positive('Correct amount must be positive'),
+  /** Human-readable reason for the correction. */
+  reason: z.string().min(1, 'Reason is required'),
+  /** Optional overdue interest on the shortfall to distribute alongside the correction. */
+  applyInterest: z
+    .object({
+      amount: z.number().positive('Interest amount must be positive'),
+      notes: z.string().optional(),
+    })
+    .optional(),
+});
+
+/**
  * Body for `POST /installments/payments/:paymentId/move`.
  * Moves a mis-recorded payment from one installment to the correct one,
  * atomically in a single transaction.

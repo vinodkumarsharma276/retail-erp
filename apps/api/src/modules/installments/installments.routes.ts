@@ -12,6 +12,7 @@ import {
   applyInterestSchema,
   rollbackInterestSchema,
   movePaymentSchema,
+  correctPaymentSchema,
 } from './installments.validation.js';
 import { UserRole } from '@retailerp/shared-types';
 
@@ -99,6 +100,11 @@ export async function installmentRoutes(app: FastifyInstance) {
   app.post('/payments/:paymentId/move', {
     preHandler: [...adminAccountantShopScoped, validate(movePaymentSchema)],
   }, installmentsController.movePayment as any);
+
+  // Correct a payment recorded with the wrong (higher) amount (admin, accountant)
+  app.post('/payments/:paymentId/correct', {
+    preHandler: [...adminAccountantShopScoped, validate(correctPaymentSchema)],
+  }, installmentsController.correctPayment as any);
 
   // ---- Final settlement (early closure) ----------------------------------
   app.get(

@@ -414,14 +414,16 @@ export function useRevertPaymentMutation() {
       paymentId,
       reason,
       applyInterest,
+      cascade,
     }: {
       paymentId: string;
       reason: string;
       applyInterest?: { amount: number; notes?: string };
+      cascade?: boolean;
     }) => {
       const { data } = await apiClient.post(
         `/installments/payments/${paymentId}/revert`,
-        { reason, applyInterest },
+        { reason, applyInterest, cascade },
       );
       return data.data;
     },
@@ -585,7 +587,36 @@ export function useRollbackInterestApplicationMutation() {
 }
 
 // ---------------------------------------------------------------------------
-// Move (fix mis-recorded) payment — atomically re-attribute a payment from
+// Correct a payment recorded with the wrong (higher) amount.
+// Shortfall is distributed equally to upcoming installments.
+// ---------------------------------------------------------------------------
+export function useCorrectPaymentMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      paymentId,
+      correctAmount,
+      reason,
+      applyInterest,
+    }: {
+      paymentId: string;
+      correctAmount: number;
+      reason: string;
+      applyInterest?: { amount: number; notes?: string };
+    }) => {
+      const { data } = await apiClient.post<ApiResponse<unknown>>(
+        `/installments/payments/${paymentId}/correct`,
+        { correctAmount, reason, applyInterest },
+      );
+      return data.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['installments'] });
+      queryClient.invalidateQueries({ queryKey: ['sales'] });
+    },
+  });
+}
 // the wrong installment to the correct one.
 // ---------------------------------------------------------------------------
 export function useMovePaymentMutation() {

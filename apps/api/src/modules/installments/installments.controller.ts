@@ -337,6 +337,7 @@ export const installmentsController = {
       Body: {
         reason: string;
         applyInterest?: { amount: number; notes?: string };
+        cascade?: boolean;
       };
     }>,
     reply: FastifyReply,
@@ -346,7 +347,7 @@ export const installmentsController = {
         request.params.paymentId,
         request.body.reason,
         request.currentUser?.userId ?? '',
-        { applyInterest: request.body.applyInterest },
+        { applyInterest: request.body.applyInterest, cascade: request.body.cascade },
       );
       return sendSuccess(reply, result);
     } catch (error) {
@@ -479,6 +480,35 @@ export const installmentsController = {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to move payment';
       if (message === 'Payment not found' || message === 'Target installment not found') {
+        return sendError(reply, message, 404);
+      }
+      return sendError(reply, message, 400);
+    }
+  },
+
+  async correctPayment(
+    request: FastifyRequest<{
+      Params: { paymentId: string };
+      Body: {
+        correctAmount: number;
+        reason: string;
+        applyInterest?: { amount: number; notes?: string };
+      };
+    }>,
+    reply: FastifyReply,
+  ) {
+    try {
+      const result = await installmentsService.correctPayment(
+        request.params.paymentId,
+        request.body.correctAmount,
+        request.body.reason,
+        request.currentUser?.userId ?? '',
+        { applyInterest: request.body.applyInterest },
+      );
+      return sendSuccess(reply, result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to correct payment';
+      if (message === 'Payment not found') {
         return sendError(reply, message, 404);
       }
       return sendError(reply, message, 400);
