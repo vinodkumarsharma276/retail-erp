@@ -2,25 +2,97 @@ import type { FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../config/database';
 
 /**
- * In-memory cache: roleId → Set<permissionKey>. Refreshed when a Role's
- * permissions are mutated through the API (call `invalidatePermissionCache`).
+ * Two in-memory caches:
+ *   - `roleCache` maps `roleId → Set<permissionKey>` (just the role's grants).
+ *     Still useful for the Roles UI which displays a role's base permissions.
+ *   - `userCache` maps `userId → Set<permissionKey>` of EFFECTIVE permissions
+ *     for that user (`role ∪ user.grants ∖ user.denies`). This is the set
+ *     consulted by `requirePermission` / `requireAnyPermission`.
+ *
+ * Both caches are invalidated when permissions change. Role mutations clear
+ * every userCache entry (cheap; the user list is small in this product).
  */
-const cache = new Map<string, Set<string>>();
+const roleCache = new Map<string, Set<string>>();
+const userCache = new Map<string, Set<string>>();
 
-export function invalidatePermissionCache(roleId?: string) {
-  if (roleId) cache.delete(roleId);
-  else cache.clear();
+/**
+ * Invalidate cached permissions.
+ *  - `invalidatePermissionCache()` — clear everything (safe default).
+ *  - `invalidatePermissionCache({ roleId })` — clear that role's row AND all
+ *    user caches (since users in that role just changed effective perms).
+ *  - `invalidatePermissionCache({ userId })` — clear just one user's row,
+ *    used after editing per-user overrides or re-assigning their role.
+ */
+export function invalidatePermissionCache(target?: { roleId?: string; userId?: string }) {
+  if (!target) {
+    roleCache.clear();
+    userCache.clear();
+    return;
+  }
+  if (target.roleId) {
+    roleCache.delete(target.roleId);
+    // Conservative: a role permission change can affect any user in that
+    // role. We don't track userId→roleId in the cache, so wipe all users.
+    userCache.clear();
+  }
+  if (target.userId) {
+    userCache.delete(target.userId);
+  }
 }
 
+/**
+ * Returns the raw set of permission keys granted to a role. Does NOT apply
+ * any per-user overrides — use `loadEffectivePermissionsForUser` for that.
+ */
 export async function loadPermissionsForRole(roleId: string): Promise<Set<string>> {
-  const hit = cache.get(roleId);
+  const hit = roleCache.get(roleId);
   if (hit) return hit;
   const rows = await prisma.rolePermission.findMany({
     where: { roleId },
     select: { permission: { select: { key: true } } },
   });
   const set = new Set(rows.map((r) => r.permission.key));
-  cache.set(roleId, set);
+  roleCache.set(roleId, set);
+  return set;
+}
+
+/**
+ * Returns the EFFECTIVE permission set for a user. Layers per-user grants
+ * and denies on top of the role's permissions:
+ *   `effective = (rolePerms ∪ userGrants) ∖ userDenies`.
+ *
+ * Cached per user; invalidated on role / override changes.
+ */
+export async function loadEffectivePermissionsForUser(userId: string): Promise<Set<string>> {
+  const hit = userCache.get(userId);
+  if (hit) return hit;
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      roleId: true,
+      permissionOverrides: {
+        select: {
+          effect: true,
+          permission: { select: { key: true } },
+        },
+      },
+    },
+  });
+
+  const set = new Set<string>();
+  if (user?.roleId) {
+    const rolePerms = await loadPermissionsForRole(user.roleId);
+    rolePerms.forEach((k) => set.add(k));
+  }
+  for (const override of user?.permissionOverrides ?? []) {
+    if (override.effect === 'grant') set.add(override.permission.key);
+  }
+  for (const override of user?.permissionOverrides ?? []) {
+    if (override.effect === 'deny') set.delete(override.permission.key);
+  }
+
+  userCache.set(userId, set);
   return set;
 }
 
@@ -28,27 +100,16 @@ async function ensurePermissionsLoaded(request: FastifyRequest): Promise<Set<str
   if (!request.currentUser) return new Set();
   if (request.currentUser.permissions) return request.currentUser.permissions;
 
-  // Look up the user's roleId fresh — token doesn't carry it.
-  const user = await prisma.user.findUnique({
-    where: { id: request.currentUser.userId },
-    select: { roleId: true },
-  });
-  request.currentUser.roleId = user?.roleId ?? null;
-
-  if (!user?.roleId) {
-    request.currentUser.permissions = new Set();
-    return request.currentUser.permissions;
-  }
-
-  const perms = await loadPermissionsForRole(user.roleId);
+  const perms = await loadEffectivePermissionsForUser(request.currentUser.userId);
   request.currentUser.permissions = perms;
   return perms;
 }
 
 /**
- * Fastify preHandler that requires the current user's role to grant the given
- * permission key. Owner and admin who have it via their role pass; users with
- * no `roleId` (legacy) fall through and are denied — they should be migrated.
+ * Fastify preHandler that requires the current user's effective permission
+ * set to grant the given key. Owner bypasses (Owner has every catalog perm
+ * by default; per-user denies on Owner are still respected since this
+ * resolver consults the same set).
  */
 export function requirePermission(key: string) {
   return async (request: FastifyRequest, reply: FastifyReply) => {

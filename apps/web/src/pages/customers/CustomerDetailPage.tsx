@@ -5,10 +5,12 @@ import { useCustomerDetailQuery, useCustomerSalesQuery } from '../../hooks/useCu
 import { StatusBadge } from '../../components/StatusBadge';
 import { CustomerReliabilityCard } from '../../components/CustomerReliabilityCard';
 import { formatINR, formatDateIN, formatPhone, formatAadhaar } from '@retailerp/shared-utils';
+import { usePermission } from '../../hooks/usePermission';
 
 export function CustomerDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const canSeeZone = usePermission('view.customer.address.zone');
 
   const { data: customer, isLoading, isError } = useCustomerDetailQuery(id);
   const { data: sales, isLoading: isSalesLoading } = useCustomerSalesQuery(id);
@@ -117,6 +119,27 @@ export function CustomerDetailPage() {
                   <dt className="text-sm font-medium text-muted-foreground">Address</dt>
                   <dd className="mt-0.5 text-sm">{fullAddress}</dd>
                 </div>
+              )}
+              {/* Zone — visibility gated by `view.customer.address.zone`. */}
+              {canSeeZone && (
+                <InfoRow label="Zone" value={customer.zone || '—'} />
+              )}
+              {/* B2B fields — only render the Type when business; that pattern
+                  also surfaces business name + GSTIN that are needed on the
+                  invoice for input-credit reporting. */}
+              <InfoRow
+                label="Customer Type"
+                value={customer.customerType === 'business' ? 'Business (B2B)' : 'Individual'}
+              />
+              {customer.customerType === 'business' && (
+                <>
+                  {customer.businessName && (
+                    <InfoRow label="Business Name" value={customer.businessName} />
+                  )}
+                  {customer.gstNumber && (
+                    <InfoRow label="GSTIN" value={customer.gstNumber} />
+                  )}
+                </>
               )}
               <InfoRow label="Created" value={formatDateIN(customer.createdAt)} />
             </dl>

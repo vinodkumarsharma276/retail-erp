@@ -8,16 +8,21 @@ import type { Column, PaginationState } from '../../components/DataTable';
 import { formatDateIN, formatPhone } from '@retailerp/shared-utils';
 import type { Customer } from '@retailerp/shared-types';
 import { useShopStore, isAllShops } from '../../stores/shop-store';
+import { usePermission } from '../../hooks/usePermission';
 
 const PAGE_SIZE = 20;
+
+const ZONE_OPTIONS = ['East', 'West', 'North', 'South'] as const;
 
 export function CustomerListPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const canSeeZone = usePermission('view.customer.address.zone');
 
   // ------ Filters state (URL search params) ------
   const page = Number(searchParams.get('page')) || 1;
   const searchText = searchParams.get('search') || '';
+  const zoneFilter = searchParams.get('zone') || '';
   const debouncedSearch = useDebounce(searchText, 300);
 
   const updateFilters = (updates: Record<string, string>) => {
@@ -39,13 +44,14 @@ export function CustomerListPage() {
     page,
     pageSize: PAGE_SIZE,
     search: debouncedSearch.length >= 2 ? debouncedSearch : undefined,
+    zone: zoneFilter || undefined,
   });
 
   const customers = customersQuery.data?.data ?? [];
   const pagination = customersQuery.data?.pagination;
 
   // ------ Clear filters ------
-  const hasFilters = !!searchText;
+  const hasFilters = !!searchText || !!zoneFilter;
   const clearFilters = () => {
     setSearchParams({}, { replace: true });
   };
@@ -125,6 +131,25 @@ export function CustomerListPage() {
       header: 'City',
       render: (row) => row.city || '-',
     },
+    ...(canSeeZone
+      ? ([
+          {
+            key: 'zone' as keyof Customer,
+            header: 'Zone',
+            sortable: true,
+            sortAccessor: (row: Customer) => row.zone ?? '',
+            render: (row: Customer) =>
+              row.zone ? (
+                <span className="inline-flex items-center rounded-full bg-blue-100 dark:bg-blue-900/30 px-2 py-0.5 text-xs font-medium text-blue-700 dark:text-blue-400">
+                  {row.zone}
+                </span>
+              ) : (
+                <span className="text-muted-foreground">-</span>
+              ),
+            className: 'w-24',
+          },
+        ] as Column<Customer>[])
+      : []),
     {
       key: 'guarantor',
       header: 'Guarantor',
@@ -244,6 +269,28 @@ export function CustomerListPage() {
             )}
           </div>
         </div>
+
+        {/* Zone filter — only when permitted to see zones */}
+        {canSeeZone && (
+          <div className="min-w-[140px]">
+            <label className="block text-xs font-medium text-muted-foreground mb-1">
+              Zone
+            </label>
+            <select
+              value={zoneFilter}
+              onChange={(e) => updateFilters({ zone: e.target.value, page: '1' })}
+              className={cn(
+                'w-full appearance-none rounded-md border bg-background px-3 py-2 text-sm',
+                'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+              )}
+            >
+              <option value="">All Zones</option>
+              {ZONE_OPTIONS.map((z) => (
+                <option key={z} value={z}>{z}</option>
+              ))}
+            </select>
+          </div>
+        )}
 
         {/* Clear filters */}
         {hasFilters && (

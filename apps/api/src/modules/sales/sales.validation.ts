@@ -51,6 +51,8 @@ export const saleListQuerySchema = z.object({
   maxProfitPct: z.string().optional(),
   /** Filter sales whose net-profit % is at least this value (inclusive). */
   minProfitPct: z.string().optional(),
+  /** Filter by approval state (pending / approved). */
+  approvalStatus: z.enum(['pending', 'approved']).optional(),
 });
 
 export const recordFinancePaymentSchema = z.object({

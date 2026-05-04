@@ -60,9 +60,12 @@ export interface OverdueInstallmentItem {
   customerName: string;
   customerPhone: string;
   customerAddress?: string;
+  customerZone?: string | null;
   productName: string;
   productBrand: string;
   saleId: string;
+  saleNumber?: string;
+  ledgerNumber?: string;
   shop?: { id: string; name: string; code: string } | null;
 }
 
@@ -82,9 +85,12 @@ export interface CollectionItem {
   customerName: string;
   customerPhone: string;
   customerAddress?: string;
+  customerZone?: string | null;
   productName: string;
   productBrand: string;
   saleId: string;
+  saleNumber?: string;
+  ledgerNumber?: string;
   shop?: { id: string; name: string; code: string } | null;
 }
 
@@ -166,12 +172,15 @@ export function useInstallmentSchedulesQuery(filters: ScheduleFilters) {
 // ---------------------------------------------------------------------------
 // Overdue installments
 // ---------------------------------------------------------------------------
-export function useOverdueInstallmentsQuery() {
+export function useOverdueInstallmentsQuery(zone?: string) {
   return useQuery({
-    queryKey: keys.overdue(),
+    queryKey: [...keys.overdue(), zone ?? null],
     queryFn: async () => {
+      const params = new URLSearchParams();
+      if (zone) params.set('zone', zone);
+      const qs = params.toString();
       const { data } = await apiClient.get<ApiResponse<OverdueInstallmentItem[]>>(
-        '/installments/overdue',
+        `/installments/overdue${qs ? '?' + qs : ''}`,
       );
       return data.data ?? [];
     },
@@ -212,12 +221,14 @@ export function useCollectionsQuery(date: string) {
 // ---------------------------------------------------------------------------
 // Collections for a date range
 // ---------------------------------------------------------------------------
-export function useCollectionsRangeQuery(dateFrom: string, dateTo: string) {
+export function useCollectionsRangeQuery(dateFrom: string, dateTo: string, zone?: string) {
   return useQuery({
-    queryKey: ['installments', 'collections-range', dateFrom, dateTo],
+    queryKey: ['installments', 'collections-range', dateFrom, dateTo, zone ?? null],
     queryFn: async () => {
+      const params = new URLSearchParams({ dateFrom, dateTo });
+      if (zone) params.set('zone', zone);
       const { data } = await apiClient.get<ApiResponse<{ collections: CollectionItem[]; rescheduledNotes: any[] }>>(
-        `/installments/collections/range?dateFrom=${dateFrom}&dateTo=${dateTo}`,
+        `/installments/collections/range?${params.toString()}`,
       );
       return data.data ?? { collections: [], rescheduledNotes: [] };
     },
@@ -237,12 +248,14 @@ export interface PaidCollectionItem extends CollectionItem {
   ledgerNumber: string;
 }
 
-export function usePaidCollectionsRangeQuery(dateFrom: string, dateTo: string) {
+export function usePaidCollectionsRangeQuery(dateFrom: string, dateTo: string, zone?: string) {
   return useQuery({
-    queryKey: ['installments', 'paid-range', dateFrom, dateTo],
+    queryKey: ['installments', 'paid-range', dateFrom, dateTo, zone ?? null],
     queryFn: async () => {
+      const params = new URLSearchParams({ dateFrom, dateTo });
+      if (zone) params.set('zone', zone);
       const { data } = await apiClient.get<ApiResponse<{ collections: PaidCollectionItem[] }>>(
-        `/installments/collections/paid-range?dateFrom=${dateFrom}&dateTo=${dateTo}`,
+        `/installments/collections/paid-range?${params.toString()}`,
       );
       return data.data?.collections ?? [];
     },

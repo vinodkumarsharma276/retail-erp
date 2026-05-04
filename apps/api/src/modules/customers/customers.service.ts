@@ -16,6 +16,7 @@ export const customersService = {
       page: number;
       pageSize: number;
       search?: string;
+      zone?: string;
     },
   ) {
     const where: Prisma.CustomerWhereInput =
@@ -29,6 +30,10 @@ export const customersService = {
         { phone: { contains: filters.search, mode: 'insensitive' } },
         { customerCode: { contains: filters.search, mode: 'insensitive' } },
       ];
+    }
+
+    if (filters.zone) {
+      where.zone = filters.zone;
     }
 
     const [customers, totalItems] = await Promise.all([
@@ -117,6 +122,10 @@ export const customersService = {
     city?: string | null;
     state?: string | null;
     pincode?: string | null;
+    zone?: string | null;
+    customerType?: 'individual' | 'business';
+    businessName?: string | null;
+    gstNumber?: string | null;
     isGuarantor?: boolean;
     guarantorId?: string | null;
     dynamicAttributes?: Record<string, unknown>;
@@ -154,6 +163,10 @@ export const customersService = {
         city: data.city ?? null,
         state: data.state ?? null,
         pincode: data.pincode ?? null,
+        zone: data.zone ?? null,
+        customerType: (data.customerType ?? 'individual') as any,
+        businessName: data.businessName ?? null,
+        gstNumber: data.gstNumber ?? null,
         isGuarantor: data.isGuarantor ?? false,
         guarantorId: data.guarantorId ?? null,
         dynamicAttributes: (data.dynamicAttributes ?? {}) as any,
@@ -186,6 +199,10 @@ export const customersService = {
     city?: string | null;
     state?: string | null;
     pincode?: string | null;
+    zone?: string | null;
+    customerType?: 'individual' | 'business';
+    businessName?: string | null;
+    gstNumber?: string | null;
     isGuarantor?: boolean;
     guarantorId?: string | null;
     dynamicAttributes?: Record<string, unknown>;
@@ -216,6 +233,10 @@ export const customersService = {
     if (data.city !== undefined) updateData.city = data.city;
     if (data.state !== undefined) updateData.state = data.state;
     if (data.pincode !== undefined) updateData.pincode = data.pincode;
+    if (data.zone !== undefined) updateData.zone = data.zone;
+    if (data.customerType !== undefined) updateData.customerType = data.customerType;
+    if (data.businessName !== undefined) updateData.businessName = data.businessName;
+    if (data.gstNumber !== undefined) updateData.gstNumber = data.gstNumber;
     if (data.isGuarantor !== undefined) updateData.isGuarantor = data.isGuarantor;
     if (data.guarantorId !== undefined) updateData.guarantorId = data.guarantorId;
     if (data.dynamicAttributes !== undefined) {

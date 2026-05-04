@@ -32,6 +32,8 @@ export interface SaleFilters {
   maxProfitPct?: number;
   /** Filter to sales whose net-profit % is at least this value (inclusive). */
   minProfitPct?: number;
+  /** Filter by approval state. Used by the "Approve" view. */
+  approvalStatus?: 'pending' | 'approved';
 }
 
 // ---------------------------------------------------------------------------
@@ -51,6 +53,7 @@ export function useSalesQuery(filters: SaleFilters) {
       if (filters.customerSearch) params.set('customerSearch', filters.customerSearch);
       if (filters.maxProfitPct !== undefined) params.set('maxProfitPct', String(filters.maxProfitPct));
       if (filters.minProfitPct !== undefined) params.set('minProfitPct', String(filters.minProfitPct));
+      if (filters.approvalStatus) params.set('approvalStatus', filters.approvalStatus);
 
       const { data } = await apiClient.get<PaginatedResponse<SaleListItem>>(
         `/sales?${params.toString()}`,
@@ -58,6 +61,44 @@ export function useSalesQuery(filters: SaleFilters) {
       return data;
     },
     placeholderData: keepPreviousData,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Pending-approval count — drives the badge subscript on the "Approve" button.
+// Returns 0 in single-shop mode if there's nothing pending in this shop.
+// ---------------------------------------------------------------------------
+export function usePendingApprovalCountQuery(enabled = true) {
+  return useQuery({
+    queryKey: ['sales', 'pending-approval-count'],
+    queryFn: async () => {
+      const { data } = await apiClient.get<ApiResponse<{ count: number }>>(
+        '/sales/pending-approval/count',
+      );
+      return data.data?.count ?? 0;
+    },
+    enabled,
+    refetchInterval: 60_000, // poll every minute so the badge stays fresh
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Approve a pending sale — flips approvalStatus to 'approved' and stamps
+// the approver/approvedAt fields.
+// ---------------------------------------------------------------------------
+export function useApproveSaleMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (saleId: string) => {
+      const { data } = await apiClient.post<ApiResponse<SaleRecord>>(
+        `/sales/${saleId}/approve`,
+      );
+      return data.data!;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['sales'] });
+    },
   });
 }
 
@@ -229,6 +270,9 @@ export interface SaleListItem {
   pendingAmount: number;
   financePaymentStatus?: string;
   completedAt?: string | null;
+  approvalStatus?: 'pending' | 'approved';
+  approvedById?: string | null;
+  approvedAt?: string | null;
   createdBy: string;
   // Joined data
   customerName?: string;

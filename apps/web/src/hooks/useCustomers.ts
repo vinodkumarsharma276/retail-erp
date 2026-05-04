@@ -23,6 +23,7 @@ export interface CustomerFilters {
   page?: number;
   pageSize?: number;
   search?: string;
+  zone?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -36,6 +37,7 @@ export function useCustomersQuery(filters: CustomerFilters) {
       if (filters.page) params.set('page', String(filters.page));
       if (filters.pageSize) params.set('pageSize', String(filters.pageSize));
       if (filters.search) params.set('search', filters.search);
+      if (filters.zone) params.set('zone', filters.zone);
 
       const { data } = await apiClient.get<PaginatedResponse<Customer>>(
         `/customers?${params.toString()}`,

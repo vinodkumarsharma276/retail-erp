@@ -38,15 +38,15 @@ export const installmentsController = {
   },
 
   async getOverdue(
-    request: FastifyRequest,
+    request: FastifyRequest<{ Querystring: { zone?: string } }>,
     reply: FastifyReply,
   ) {
     try {
       const { shopId, shopIds, allShops } = request.shopFilter!;
-      const overdue = await installmentsService.getOverdue({
-        shopId,
-        shopIds: allShops ? shopIds : undefined,
-      });
+      const overdue = await installmentsService.getOverdue(
+        { shopId, shopIds: allShops ? shopIds : undefined },
+        { zone: request.query.zone || undefined },
+      );
       return sendSuccess(reply, overdue);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to fetch overdue installments';
@@ -56,7 +56,7 @@ export const installmentsController = {
 
   async getCollectionsToday(
     request: FastifyRequest<{
-      Querystring: { employeeId?: string };
+      Querystring: { employeeId?: string; zone?: string };
     }>,
     reply: FastifyReply,
   ) {
@@ -75,6 +75,7 @@ export const installmentsController = {
         { shopId, shopIds: allShops ? shopIds : undefined },
         today,
         effectiveEmployeeId,
+        { zone: request.query.zone || undefined },
       );
 
       return sendSuccess(reply, result);
@@ -87,7 +88,7 @@ export const installmentsController = {
   async getCollectionsForDate(
     request: FastifyRequest<{
       Params: { date: string };
-      Querystring: { employeeId?: string };
+      Querystring: { employeeId?: string; zone?: string };
     }>,
     reply: FastifyReply,
   ) {
@@ -111,6 +112,7 @@ export const installmentsController = {
         { shopId, shopIds: allShops ? shopIds : undefined },
         date,
         effectiveEmployeeId,
+        { zone: request.query.zone || undefined },
       );
 
       return sendSuccess(reply, result);
@@ -122,7 +124,7 @@ export const installmentsController = {
 
   async getCollectionsForDateRange(
     request: FastifyRequest<{
-      Querystring: { dateFrom?: string; dateTo?: string; employeeId?: string };
+      Querystring: { dateFrom?: string; dateTo?: string; employeeId?: string; zone?: string };
     }>,
     reply: FastifyReply,
   ) {
@@ -146,6 +148,7 @@ export const installmentsController = {
         dateFrom,
         dateTo,
         effectiveEmployeeId,
+        { zone: request.query.zone || undefined },
       );
       return sendSuccess(reply, result);
     } catch (error) {
@@ -156,7 +159,7 @@ export const installmentsController = {
 
   async getPaidCollectionsForDateRange(
     request: FastifyRequest<{
-      Querystring: { dateFrom?: string; dateTo?: string };
+      Querystring: { dateFrom?: string; dateTo?: string; zone?: string };
     }>,
     reply: FastifyReply,
   ) {
@@ -174,6 +177,7 @@ export const installmentsController = {
         { shopId, shopIds: allShops ? shopIds : undefined },
         dateFrom,
         dateTo,
+        { zone: request.query.zone || undefined },
       );
       return sendSuccess(reply, result);
     } catch (error) {

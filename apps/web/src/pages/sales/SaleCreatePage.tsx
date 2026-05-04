@@ -110,6 +110,10 @@ interface NewCustomerFormValues {
   city: string;
   state: string;
   pincode: string;
+  zone: string;
+  customerType: 'individual' | 'business';
+  businessName: string;
+  gstNumber: string;
 }
 
 const emptyNewCustomer: NewCustomerFormValues = {
@@ -121,6 +125,10 @@ const emptyNewCustomer: NewCustomerFormValues = {
   city: '',
   state: '',
   pincode: '',
+  zone: '',
+  customerType: 'individual',
+  businessName: '',
+  gstNumber: '',
 };
 
 interface NewGuarantorFormValues {
@@ -642,7 +650,19 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
       city: newCustomer.city.trim() || undefined,
       state: newCustomer.state || undefined,
       pincode: newCustomer.pincode.trim() || undefined,
+      customerType: newCustomer.customerType,
+      businessName:
+        newCustomer.customerType === 'business' && newCustomer.businessName.trim()
+          ? newCustomer.businessName.trim()
+          : null,
+      gstNumber:
+        newCustomer.customerType === 'business' && newCustomer.gstNumber.trim()
+          ? newCustomer.gstNumber.trim().toUpperCase()
+          : null,
     };
+    if (can('view.customer.address.zone')) {
+      payload.zone = newCustomer.zone || null;
+    }
 
     createCustomerMutation.mutate(payload, {
       onSuccess: (data) => {
@@ -1888,6 +1908,102 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
                     )}
                   />
                 </div>
+
+                {/* Zone — gated by view.customer.address.zone */}
+                {can('view.customer.address.zone') && (
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Zone</label>
+                    <select
+                      value={newCustomer.zone}
+                      onChange={(e) =>
+                        setNewCustomer({ ...newCustomer, zone: e.target.value })
+                      }
+                      className={cn(
+                        'w-full appearance-none rounded-md border bg-background px-3 py-2 text-sm',
+                        'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                      )}
+                    >
+                      <option value="">Select Zone...</option>
+                      <option value="East">East</option>
+                      <option value="West">West</option>
+                      <option value="North">North</option>
+                      <option value="South">South</option>
+                    </select>
+                  </div>
+                )}
+
+                {/* B2B fields — toggle plus business name + GSTIN. Shown on
+                    invoices for business customers (used by GST input
+                    credit reporting). */}
+                <div>
+                  <label className="block text-sm font-medium mb-1">
+                    Customer Type
+                  </label>
+                  <select
+                    value={newCustomer.customerType}
+                    onChange={(e) =>
+                      setNewCustomer({
+                        ...newCustomer,
+                        customerType: e.target.value as 'individual' | 'business',
+                      })
+                    }
+                    className={cn(
+                      'w-full appearance-none rounded-md border bg-background px-3 py-2 text-sm',
+                      'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                    )}
+                  >
+                    <option value="individual">Individual</option>
+                    <option value="business">Business (B2B)</option>
+                  </select>
+                </div>
+
+                {newCustomer.customerType === 'business' && (
+                  <>
+                    <div className="sm:col-span-2">
+                      <label className="block text-sm font-medium mb-1">
+                        Business Name <span className="text-destructive">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={newCustomer.businessName}
+                        onChange={(e) =>
+                          setNewCustomer({
+                            ...newCustomer,
+                            businessName: e.target.value,
+                          })
+                        }
+                        placeholder="e.g. Acme Distributors Pvt Ltd"
+                        className={cn(
+                          'w-full rounded-md border bg-background px-3 py-2 text-sm',
+                          'placeholder:text-muted-foreground',
+                          'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                        )}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">
+                        GSTIN <span className="text-destructive">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        maxLength={15}
+                        value={newCustomer.gstNumber}
+                        onChange={(e) =>
+                          setNewCustomer({
+                            ...newCustomer,
+                            gstNumber: e.target.value.toUpperCase(),
+                          })
+                        }
+                        placeholder="15-char GSTIN"
+                        className={cn(
+                          'w-full rounded-md border bg-background px-3 py-2 text-sm uppercase',
+                          'placeholder:text-muted-foreground',
+                          'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                        )}
+                      />
+                    </div>
+                  </>
+                )}
               </div>
               <button
                 type="button"
@@ -1895,6 +2011,8 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
                 disabled={
                   !newCustomer.name.trim() ||
                   !newCustomer.phone.trim() ||
+                  (newCustomer.customerType === 'business' &&
+                    (!newCustomer.businessName.trim() || !newCustomer.gstNumber.trim())) ||
                   createCustomerMutation.isPending
                 }
                 className={cn(

@@ -118,13 +118,33 @@ const customerFields: FieldSeed[] = [
     sectionName: 'Address',
     isVisible: true,
   },
+  {
+    // Zone — geographic zone within the shop's serving area. Per-shop
+    // dropdown values; today the same 4 cardinal directions are used
+    // across all shops. The UI gates this field with the
+    // `view.customer.address.zone` permission (Owner & Admin always have
+    // it). Drives the Installment list zone filter.
+    fieldName: 'zone',
+    fieldLabel: 'Zone',
+    fieldType: 'select',
+    isRequired: false,
+    options: [
+      { label: 'East', value: 'East' },
+      { label: 'West', value: 'West' },
+      { label: 'North', value: 'North' },
+      { label: 'South', value: 'South' },
+    ],
+    displayOrder: 9,
+    sectionName: 'Address',
+    isVisible: true,
+  },
   // Section: Identity
   {
     fieldName: 'photoIdUrl',
     fieldLabel: 'Photo ID',
     fieldType: 'file',
     isRequired: false,
-    displayOrder: 9,
+    displayOrder: 10,
     sectionName: 'Identity',
     isVisible: true,
   },

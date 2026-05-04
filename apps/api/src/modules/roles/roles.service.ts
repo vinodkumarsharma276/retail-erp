@@ -1,5 +1,5 @@
 import { prisma } from '../../config/database.js';
-import { invalidatePermissionCache } from '../../middleware/permissions.js';
+import { invalidatePermissionCache, loadPermissionsForRole } from '../../middleware/permissions.js';
 import { PERMISSION_GROUPS } from '@retailerp/shared-types';
 import bcrypt from 'bcryptjs';
 import crypto from 'node:crypto';
@@ -85,7 +85,7 @@ export const rolesService = {
     const userCount = await prisma.user.count({ where: { roleId: id } });
     if (userCount > 0) throw new Error(`Role is assigned to ${userCount} user(s)`);
     await prisma.role.delete({ where: { id } });
-    invalidatePermissionCache(id);
+    invalidatePermissionCache({ roleId: id });
   },
 
   async setRolePermissions(roleId: string, permissionKeys: string[]) {
@@ -101,7 +101,7 @@ export const rolesService = {
         skipDuplicates: true,
       }),
     ]);
-    invalidatePermissionCache(roleId);
+    invalidatePermissionCache({ roleId });
     return perms.map((p) => p.key);
   },
 
@@ -184,13 +184,16 @@ export const rolesService = {
         legacyRole = role.code as typeof legacyRole;
       }
     }
-    return prisma.user.update({
+    const updated = await prisma.user.update({
       where: { id: userId },
       data: {
         roleId,
         ...(legacyRole ? { role: legacyRole } : {}),
       },
     });
+    // The user's effective permissions just changed — drop their cached set.
+    invalidatePermissionCache({ userId });
+    return updated;
   },
 
   async resetPassword(userId: string, newPasswordOverride?: string) {
@@ -210,5 +213,105 @@ export const rolesService = {
       data: { revokedAt: new Date() },
     });
     return { newPassword };
+  },
+
+  /**
+   * Returns the user's permission picture for the override editor:
+   *   - `rolePermissions`: keys granted by the user's role (read-only baseline)
+   *   - `grants`: keys force-allowed via per-user override
+   *   - `denies`: keys force-revoked via per-user override
+   *   - `effective`: the resulting set the system actually checks
+   */
+  async getUserPermissions(userId: string) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        roleId: true,
+        customRole: { select: { id: true, code: true, name: true } },
+        permissionOverrides: {
+          select: {
+            effect: true,
+            permission: { select: { key: true } },
+          },
+        },
+      },
+    });
+    if (!user) throw new Error('User not found');
+
+    const rolePermissions = user.roleId
+      ? Array.from(await loadPermissionsForRole(user.roleId))
+      : [];
+    const grants = user.permissionOverrides
+      .filter((o) => o.effect === 'grant')
+      .map((o) => o.permission.key);
+    const denies = user.permissionOverrides
+      .filter((o) => o.effect === 'deny')
+      .map((o) => o.permission.key);
+
+    const effective = new Set(rolePermissions);
+    grants.forEach((k) => effective.add(k));
+    denies.forEach((k) => effective.delete(k));
+
+    return {
+      userId: user.id,
+      role: user.customRole,
+      rolePermissions,
+      grants,
+      denies,
+      effective: Array.from(effective),
+    };
+  },
+
+  /**
+   * Replace ALL of a user's permission overrides in one call. `grants` and
+   * `denies` are arrays of permission keys; anything not listed in either
+   * array is removed (so the user goes back to inheriting from the role).
+   * A key cannot appear in both arrays — `deny` would always win, but we
+   * reject up front to avoid confusing UI state.
+   */
+  async setUserPermissionOverrides(
+    userId: string,
+    grants: string[],
+    denies: string[],
+    actorId: string,
+  ) {
+    const conflict = grants.find((k) => denies.includes(k));
+    if (conflict) {
+      throw new Error(`Permission '${conflict}' cannot be both granted and denied`);
+    }
+
+    // Resolve keys → ids; ignore unknown keys (catalog can drift between
+    // releases). The unique constraint is (userId, permissionId) so we
+    // wipe-and-recreate inside a transaction for simplicity.
+    const allKeys = Array.from(new Set([...grants, ...denies]));
+    const perms = allKeys.length
+      ? await prisma.permission.findMany({
+          where: { key: { in: allKeys } },
+          select: { id: true, key: true },
+        })
+      : [];
+    const idByKey = new Map(perms.map((p) => [p.key, p.id]));
+
+    const rows = [
+      ...grants
+        .map((k) => idByKey.get(k))
+        .filter((id): id is string => Boolean(id))
+        .map((id) => ({ userId, permissionId: id, effect: 'grant' as const, createdBy: actorId })),
+      ...denies
+        .map((k) => idByKey.get(k))
+        .filter((id): id is string => Boolean(id))
+        .map((id) => ({ userId, permissionId: id, effect: 'deny' as const, createdBy: actorId })),
+    ];
+
+    await prisma.$transaction([
+      prisma.userPermission.deleteMany({ where: { userId } }),
+      ...(rows.length
+        ? [prisma.userPermission.createMany({ data: rows, skipDuplicates: true })]
+        : []),
+    ]);
+
+    invalidatePermissionCache({ userId });
+    return rolesService.getUserPermissions(userId);
   },
 };

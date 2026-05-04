@@ -88,4 +88,16 @@ export async function saleRoutes(app: FastifyInstance) {
       validate(recordPendingPaymentSchema),
     ],
   }, salesController.recordPendingPayment as any);
+
+  // Pending-approval count — used by the badge on the "Approve" button
+  // in the Sale list. Anyone with sales.list can see it (count is 0
+  // for users who can't approve; the button itself is gated client-side).
+  app.get('/pending-approval/count', {
+    preHandler: [...allShopRoles, requirePermission('sales.list')],
+  }, salesController.getPendingApprovalCount as any);
+
+  // Approve a pending sale (requires sales.approve)
+  app.post('/:id/approve', {
+    preHandler: [...adminAccountantShopScoped, requirePermission('sales.approve')],
+  }, salesController.approveSale as any);
 }

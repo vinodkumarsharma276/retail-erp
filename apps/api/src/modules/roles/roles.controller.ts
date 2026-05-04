@@ -108,4 +108,41 @@ export const rolesController = {
       return sendError(reply, (e as Error).message, 400);
     }
   },
+
+  async getUserPermissions(
+    request: FastifyRequest<{ Params: { userId: string } }>,
+    reply: FastifyReply,
+  ) {
+    try {
+      const result = await rolesService.getUserPermissions(request.params.userId);
+      return sendSuccess(reply, result);
+    } catch (e) {
+      const message = (e as Error).message;
+      if (message === 'User not found') return sendError(reply, message, 404);
+      return sendError(reply, message, 500);
+    }
+  },
+
+  async setUserPermissions(
+    request: FastifyRequest<{
+      Params: { userId: string };
+      Body: { grants?: string[]; denies?: string[] };
+    }>,
+    reply: FastifyReply,
+  ) {
+    try {
+      if (!request.currentUser) {
+        return sendError(reply, 'Authentication required', 401);
+      }
+      const result = await rolesService.setUserPermissionOverrides(
+        request.params.userId,
+        request.body.grants ?? [],
+        request.body.denies ?? [],
+        request.currentUser.userId,
+      );
+      return sendSuccess(reply, result);
+    } catch (e) {
+      return sendError(reply, (e as Error).message, 400);
+    }
+  },
 };

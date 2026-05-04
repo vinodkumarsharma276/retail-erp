@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Shield, Users, Plus, Save, Trash2, Copy, Search, X, Eye, EyeOff, RefreshCw, Check, ChevronRight, ChevronDown, ListChecks, Store } from 'lucide-react';
+import { Shield, Users, Plus, Save, Trash2, Copy, Search, X, Eye, EyeOff, RefreshCw, Check, ChevronRight, ChevronDown, ListChecks, Store, ShieldCheck, ShieldAlert, ShieldOff, KeyRound } from 'lucide-react';
 import { rolesApi, type RoleSummary, type UserSummary } from '../../api/roles-api';
 import type { PermissionGroup } from '@retailerp/shared-types';
 import { useToastStore } from '../../stores/toast-store';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
+import { usePermission } from '../../hooks/usePermission';
 
 type Tab = 'roles' | 'users';
 
@@ -502,10 +503,13 @@ function UsersPanel() {
   const usersQ = useQuery({ queryKey: ['rbac', 'users'], queryFn: rolesApi.listUsers });
   const rolesQ = useQuery({ queryKey: ['rbac', 'roles'], queryFn: rolesApi.listRoles });
   const shopsQ = useQuery({ queryKey: ['rbac', 'shops'], queryFn: rolesApi.listShops });
+  const catalogQ = useQuery({ queryKey: ['rbac', 'catalog'], queryFn: rolesApi.catalog });
+  const canEditUserPerms = usePermission('users.edit_permissions');
   const [search, setSearch] = useState('');
   const [revealed, setRevealed] = useState<Set<string>>(new Set());
   const [resetTarget, setResetTarget] = useState<UserSummary | null>(null);
   const [shopTarget, setShopTarget] = useState<UserSummary | null>(null);
+  const [permsTarget, setPermsTarget] = useState<UserSummary | null>(null);
   const [draftShopIds, setDraftShopIds] = useState<Set<string>>(new Set());
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -665,20 +669,32 @@ function UsersPanel() {
                     </button>
                   </td>
                   <td className="px-3 py-2">
-                    <select
-                      value={u.roleId ?? ''}
-                      onChange={(e) =>
-                        assignMut.mutate({ userId: u.id, roleId: e.target.value || null })
-                      }
-                      className="rounded-md border bg-background px-2 py-1 text-sm"
-                    >
-                      <option value="">— Legacy ({u.role}) —</option>
-                      {rolesQ.data?.map((r) => (
-                        <option key={r.id} value={r.id}>
-                          {r.name}
-                        </option>
-                      ))}
-                    </select>
+                    <div className="flex items-center gap-2">
+                      <select
+                        value={u.roleId ?? ''}
+                        onChange={(e) =>
+                          assignMut.mutate({ userId: u.id, roleId: e.target.value || null })
+                        }
+                        className="rounded-md border bg-background px-2 py-1 text-sm"
+                      >
+                        <option value="">— Legacy ({u.role}) —</option>
+                        {rolesQ.data?.map((r) => (
+                          <option key={r.id} value={r.id}>
+                            {r.name}
+                          </option>
+                        ))}
+                      </select>
+                      {canEditUserPerms && (
+                        <button
+                          type="button"
+                          onClick={() => setPermsTarget(u)}
+                          title="Override permissions for this user"
+                          className="rounded-md border px-1.5 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+                        >
+                          <KeyRound className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
                   </td>
                   <td className="px-3 py-2">
                     <div className="flex items-center gap-1.5">
@@ -926,6 +942,292 @@ function UsersPanel() {
           </div>
         </div>
       )}
+
+      {permsTarget && catalogQ.data && (
+        <UserPermissionsDialog
+          user={permsTarget}
+          catalog={catalogQ.data}
+          onClose={() => setPermsTarget(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Per-user Permissions Dialog
+// ---------------------------------------------------------------------------
+// Three-state per permission:
+//   - inherit: respect what the role grants
+//   - grant:   force-allow regardless of role
+//   - deny:    force-revoke regardless of role
+// ---------------------------------------------------------------------------
+
+type OverrideState = 'inherit' | 'grant' | 'deny';
+
+function UserPermissionsDialog({
+  user,
+  catalog,
+  onClose,
+}: {
+  user: UserSummary;
+  catalog: PermissionGroup[];
+  onClose: () => void;
+}) {
+  const qc = useQueryClient();
+  const toast = useToastStore((s) => s.addToast);
+  const permsQ = useQuery({
+    queryKey: ['rbac', 'user-perms', user.id],
+    queryFn: () => rolesApi.getUserPermissions(user.id),
+  });
+
+  // Local draft state — keyed by permission key, value is the override.
+  const [drafts, setDrafts] = useState<Map<string, OverrideState>>(new Map());
+  const [moduleFilter, setModuleFilter] = useState<string>('all');
+  const [search, setSearch] = useState('');
+
+  useEffect(() => {
+    if (!permsQ.data) return;
+    const next = new Map<string, OverrideState>();
+    permsQ.data.grants.forEach((k) => next.set(k, 'grant'));
+    permsQ.data.denies.forEach((k) => next.set(k, 'deny'));
+    setDrafts(next);
+  }, [permsQ.data]);
+
+  const saveMut = useMutation({
+    mutationFn: (payload: { grants: string[]; denies: string[] }) =>
+      rolesApi.setUserPermissions(user.id, payload.grants, payload.denies),
+    onSuccess: () => {
+      toast({ type: 'success', message: 'Permission overrides saved' });
+      qc.invalidateQueries({ queryKey: ['rbac', 'user-perms', user.id] });
+      onClose();
+    },
+    onError: (e: any) =>
+      toast({ type: 'error', message: e?.response?.data?.error ?? 'Save failed' }),
+  });
+
+  const setOverride = (key: string, state: OverrideState) => {
+    setDrafts((prev) => {
+      const next = new Map(prev);
+      if (state === 'inherit') next.delete(key);
+      else next.set(key, state);
+      return next;
+    });
+  };
+
+  const handleSave = () => {
+    const grants: string[] = [];
+    const denies: string[] = [];
+    drafts.forEach((state, key) => {
+      if (state === 'grant') grants.push(key);
+      else if (state === 'deny') denies.push(key);
+    });
+    saveMut.mutate({ grants, denies });
+  };
+
+  const rolePermSet = useMemo(
+    () => new Set(permsQ.data?.rolePermissions ?? []),
+    [permsQ.data],
+  );
+
+  const filteredGroups = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return catalog
+      .filter((g) => moduleFilter === 'all' || g.module === moduleFilter)
+      .map((g) => ({
+        ...g,
+        permissions: g.permissions.filter(
+          (p) =>
+            !q ||
+            p.key.toLowerCase().includes(q) ||
+            (p.description ?? '').toLowerCase().includes(q),
+        ),
+      }))
+      .filter((g) => g.permissions.length > 0);
+  }, [catalog, moduleFilter, search]);
+
+  const draftCount = drafts.size;
+  const grantCount = Array.from(drafts.values()).filter((s) => s === 'grant').length;
+  const denyCount = Array.from(drafts.values()).filter((s) => s === 'deny').length;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <div className="flex max-h-[90vh] w-full max-w-4xl flex-col rounded-lg border bg-card shadow-xl">
+        <header className="flex items-start justify-between border-b p-4">
+          <div>
+            <h3 className="text-lg font-semibold">Permission overrides — {user.fullName}</h3>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Layered on top of role <strong>{permsQ.data?.role?.name ?? user.role}</strong>.
+              {' '}<span className="text-emerald-700">{grantCount} grant{grantCount === 1 ? '' : 's'}</span>,{' '}
+              <span className="text-red-700">{denyCount} deny{denyCount === 1 ? '' : 's'}</span>
+              {draftCount === 0 && ' — user fully inherits role.'}
+            </p>
+          </div>
+          <button onClick={onClose} className="rounded p-1 hover:bg-accent">
+            <X className="h-4 w-4" />
+          </button>
+        </header>
+
+        {/* Filters */}
+        <div className="flex flex-wrap items-center gap-3 border-b p-3">
+          <div className="relative">
+            <Search className="absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search permission key or description…"
+              className="w-72 rounded-md border bg-background py-1.5 pl-8 pr-2 text-sm"
+            />
+          </div>
+          <select
+            value={moduleFilter}
+            onChange={(e) => setModuleFilter(e.target.value)}
+            className="rounded-md border bg-background px-2 py-1.5 text-sm"
+          >
+            <option value="all">All modules</option>
+            {catalog.map((g) => (
+              <option key={g.module} value={g.module}>{g.label}</option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={() => setDrafts(new Map())}
+            disabled={draftCount === 0}
+            className="ml-auto rounded-md border px-3 py-1.5 text-xs font-medium hover:bg-accent disabled:opacity-50"
+          >
+            Reset all to inherit
+          </button>
+        </div>
+
+        {/* Permission rows */}
+        <div className="flex-1 overflow-y-auto p-3">
+          {permsQ.isLoading ? (
+            <p className="py-8 text-center text-sm text-muted-foreground">Loading…</p>
+          ) : (
+            <div className="space-y-4">
+              {filteredGroups.map((g) => (
+                <section key={g.module} className="rounded-md border">
+                  <header className="flex items-center justify-between border-b bg-muted/30 px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    <span>{g.label}</span>
+                    <span>{g.permissions.length}</span>
+                  </header>
+                  <ul className="divide-y">
+                    {g.permissions.map((p) => {
+                      const inheritedFromRole = rolePermSet.has(p.key);
+                      const draftState = drafts.get(p.key) ?? 'inherit';
+                      const effective =
+                        draftState === 'grant'
+                          ? true
+                          : draftState === 'deny'
+                            ? false
+                            : inheritedFromRole;
+                      return (
+                        <li key={p.key} className="flex items-center gap-3 px-3 py-2 text-sm">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <code className="rounded bg-muted px-1.5 py-0.5 text-xs">{p.key}</code>
+                              <span
+                                className={`text-xs ${
+                                  effective ? 'text-emerald-700' : 'text-muted-foreground'
+                                }`}
+                              >
+                                {effective ? 'Allowed' : 'Blocked'}
+                              </span>
+                            </div>
+                            {p.description && (
+                              <p className="mt-0.5 text-xs text-muted-foreground">{p.description}</p>
+                            )}
+                          </div>
+                          <div className="inline-flex shrink-0 rounded-md border bg-background p-0.5 text-xs">
+                            <button
+                              type="button"
+                              onClick={() => setOverride(p.key, 'inherit')}
+                              title={`Inherit from role (${inheritedFromRole ? 'allowed' : 'blocked'})`}
+                              className={`flex items-center gap-1 rounded px-2 py-1 ${
+                                draftState === 'inherit'
+                                  ? 'bg-primary text-primary-foreground'
+                                  : 'text-muted-foreground hover:bg-accent'
+                              }`}
+                            >
+                              <ShieldOff className="h-3 w-3" />
+                              Inherit
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setOverride(p.key, 'grant')}
+                              title="Force-allow for this user"
+                              className={`flex items-center gap-1 rounded px-2 py-1 ${
+                                draftState === 'grant'
+                                  ? 'bg-emerald-600 text-white'
+                                  : 'text-muted-foreground hover:bg-accent'
+                              }`}
+                            >
+                              <ShieldCheck className="h-3 w-3" />
+                              Grant
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setOverride(p.key, 'deny')}
+                              title="Force-revoke for this user"
+                              className={`flex items-center gap-1 rounded px-2 py-1 ${
+                                draftState === 'deny'
+                                  ? 'bg-red-600 text-white'
+                                  : 'text-muted-foreground hover:bg-accent'
+                              }`}
+                            >
+                              <ShieldAlert className="h-3 w-3" />
+                              Deny
+                            </button>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </section>
+              ))}
+              {filteredGroups.length === 0 && (
+                <p className="py-8 text-center text-sm text-muted-foreground">
+                  No permissions match the current filter.
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+
+        <footer className="flex items-center justify-between border-t bg-muted/20 p-3">
+          <p className="text-xs text-muted-foreground">
+            Effective set is{' '}
+            <strong>
+              {permsQ.data
+                ? new Set([
+                    ...permsQ.data.rolePermissions.filter((k) => drafts.get(k) !== 'deny'),
+                    ...Array.from(drafts.entries())
+                      .filter(([, v]) => v === 'grant')
+                      .map(([k]) => k),
+                  ]).size
+                : 0}
+            </strong>{' '}
+            permissions.
+          </p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-md border px-3 py-1.5 text-sm font-medium hover:bg-accent"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={saveMut.isPending}
+              className="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            >
+              {saveMut.isPending ? 'Saving…' : 'Save overrides'}
+            </button>
+          </div>
+        </footer>
+      </div>
     </div>
   );
 }

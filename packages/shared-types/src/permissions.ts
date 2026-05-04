@@ -99,6 +99,9 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
     ['customers.view_phone', 'See customer phone'],
     ['customers.view_guarantor_chain', 'See guarantor chain'],
     ['customers.view_purchase_history', 'See customer purchase history'],
+    // Address Zone — exposed both for view (filter) and edit on the customer form.
+    // Naming intentionally kept as the user requested (`view.customer.address.zone`).
+    ['view.customer.address.zone', 'See & edit Customer Address Zone'],
   ]),
 
   g('sales', 'Sales', [
@@ -127,6 +130,10 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
     ['sales.record_company_finance_payment', 'Mark NBFC payment received'],
     ['sales.mark_partial_settled', 'Settle partial-with-promise balance'],
     ['sales.export', 'Export sales'],
+    // Approval workflow — sales created by users without this permission
+    // start with approvalStatus = 'pending'; users WITH this permission can
+    // approve them and have their own sales auto-approved on creation.
+    ['sales.approve', 'Approve pending sales'],
   ]),
 
   g('installments', 'Installments', [
@@ -198,6 +205,10 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
     ['users.reset_password', 'Reset user password'],
     ['users.change_role', 'Change user role'],
     ['users.assign_to_shops', 'Assign user to shops'],
+    // Per-user permission overrides (grant/deny on top of role).
+    // Owner-only by default; lets one user be granted or denied an
+    // individual permission without cloning their role.
+    ['users.edit_permissions', 'Override permissions for a specific user'],
     ['roles.list', 'See role list'],
     ['roles.create', 'Create custom role'],
     ['roles.edit_permissions', 'Edit role permissions'],
@@ -279,6 +290,12 @@ export const ROLE_ADMIN_PERMISSIONS: string[] = ALL_PERMISSION_KEYS.filter((k) =
   if (k === 'sales.edit') return false;
   if (k === 'sales.delete') return false;
   if (k === 'sales.view_history') return false;
+  // Sale approval is Owner-only by default — Owner explicitly grants this
+  // to whichever account should monitor/approve other users' sales.
+  if (k === 'sales.approve') return false;
+  // Per-user permission overrides are Owner-only. Otherwise an Admin could
+  // bootstrap themselves around any policy by editing their own overrides.
+  if (k === 'users.edit_permissions') return false;
   return true;
 });
 

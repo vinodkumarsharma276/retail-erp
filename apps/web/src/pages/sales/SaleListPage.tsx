@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Search, X, ChevronDown, Download, Loader2, ScanLine } from 'lucide-react';
+import { Search, X, ChevronDown, Download, Loader2, ScanLine, ShieldCheck, CheckCircle2 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useDebounce } from '../../hooks/useDebounce';
-import { useSalesQuery } from '../../hooks/useSales';
+import { useSalesQuery, usePendingApprovalCountQuery, useApproveSaleMutation } from '../../hooks/useSales';
 import type { SaleListItem } from '../../hooks/useSales';
 import { DataTable } from '../../components/DataTable';
 import type { Column, PaginationState } from '../../components/DataTable';
@@ -56,12 +56,20 @@ function SaleListPageInner() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const can = useCanCheck();
+  const canApprove = can('sales.approve');
 
   // ------ Filters state (URL search params) ------
   const page = Number(searchParams.get('page')) || 1;
   const customerSearch = searchParams.get('customerSearch') || '';
   const debouncedCustomerSearch = useDebounce(customerSearch, 300);
   const saleType = searchParams.get('saleType') || '';
+  // Approval filter — when 'pending' the list is restricted to sales
+  // awaiting approval (the list view used by the "Approve" button).
+  const approvalFilterRaw = searchParams.get('approvalStatus') || '';
+  const approvalFilter: 'pending' | 'approved' | undefined =
+    approvalFilterRaw === 'pending' || approvalFilterRaw === 'approved'
+      ? (approvalFilterRaw as 'pending' | 'approved')
+      : undefined;
   const defaultDateFrom = getLastMonthStart();
   const defaultDateTo = getLastMonthEnd();
   const dateFrom = searchParams.get('dateFrom') || defaultDateFrom;
@@ -99,10 +107,17 @@ function SaleListPageInner() {
     dateFrom: isSearching ? undefined : dateFrom || undefined,
     dateTo: isSearching ? undefined : dateTo || undefined,
     maxProfitPct,
+    approvalStatus: approvalFilter,
   });
 
   const sales = salesQuery.data?.data ?? [];
   const pagination = salesQuery.data?.pagination;
+
+  // Pending-approval count for the badge subscript on the "Approve" button.
+  // Only fetched if the user can approve (otherwise the button is hidden).
+  const pendingCountQuery = usePendingApprovalCountQuery(canApprove);
+  const pendingCount = pendingCountQuery.data ?? 0;
+  const approveMutation = useApproveSaleMutation();
 
   // ------ Clear filters ------
   const hasFilters =
@@ -110,7 +125,8 @@ function SaleListPageInner() {
     !!saleType ||
     dateFrom !== defaultDateFrom ||
     dateTo !== defaultDateTo ||
-    maxProfitPct !== undefined;
+    maxProfitPct !== undefined ||
+    !!approvalFilter;
   const clearFilters = () => {
     setSearchParams({}, { replace: true });
   };
@@ -295,6 +311,50 @@ function SaleListPageInner() {
         const creator = (row as any).creator;
         return (
           <span className="text-xs text-muted-foreground">{creator?.fullName || creator?.username || '-'}</span>
+        );
+      },
+    },
+    // Approval status — shown as a small badge. Approvers (who have
+    // `sales.approve`) get an inline "Approve" button on pending rows so
+    // they can clear them without opening the detail page.
+    {
+      key: 'approvalStatus' as keyof SaleListItem,
+      header: 'Approval',
+      sortable: true,
+      sortAccessor: (row) => row.approvalStatus ?? 'approved',
+      render: (row) => {
+        const status = row.approvalStatus ?? 'approved';
+        if (status === 'pending') {
+          return (
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center rounded-full bg-amber-100 dark:bg-amber-900/30 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-400">
+                Pending
+              </span>
+              {canApprove && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    approveMutation.mutate(row.id);
+                  }}
+                  disabled={approveMutation.isPending}
+                  title="Approve this sale"
+                  className={cn(
+                    'flex items-center gap-1 rounded-md bg-green-600 px-2 py-1 text-xs font-medium text-white',
+                    'hover:bg-green-700 transition-colors',
+                    'disabled:opacity-50 disabled:cursor-not-allowed',
+                  )}
+                >
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  Approve
+                </button>
+              )}
+            </div>
+          );
+        }
+        return (
+          <span className="inline-flex items-center rounded-full bg-green-100 dark:bg-green-900/30 px-2 py-0.5 text-xs font-medium text-green-700 dark:text-green-400">
+            Approved
+          </span>
         );
       },
     },
@@ -514,6 +574,44 @@ function SaleListPageInner() {
         >
           Last Financial Year
         </button>
+
+        {/* Approve button — gated by `sales.approve` permission. The badge
+            subscript shows the count of sales currently pending approval
+            (scoped to the caller's accessible shops). Clicking the button
+            applies the approval filter so the user sees only pending sales. */}
+        {canApprove && (
+          <button
+            type="button"
+            onClick={() =>
+              updateFilters({
+                approvalStatus: approvalFilter === 'pending' ? '' : 'pending',
+                page: '1',
+              })
+            }
+            className={cn(
+              'relative rounded-md border px-3 py-2 text-sm font-medium transition-colors',
+              approvalFilter === 'pending'
+                ? 'bg-amber-100 border-amber-300 text-amber-700 dark:bg-amber-900/30 dark:border-amber-700 dark:text-amber-300'
+                : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+            )}
+            title="Show sales pending approval"
+          >
+            <span className="flex items-center gap-1.5">
+              <ShieldCheck className="h-4 w-4" />
+              Approve
+            </span>
+            {pendingCount > 0 && (
+              <span
+                className={cn(
+                  'absolute -top-2 -right-2 inline-flex min-w-[1.25rem] h-5 items-center justify-center rounded-full px-1.5',
+                  'bg-red-600 text-[10px] font-semibold text-white shadow',
+                )}
+              >
+                {pendingCount > 99 ? '99+' : pendingCount}
+              </span>
+            )}
+          </button>
+        )}
 
         {/* Clear filters */}
         {hasFilters && (

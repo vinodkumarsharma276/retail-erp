@@ -2,6 +2,7 @@ import type { FastifyRequest, FastifyReply } from 'fastify';
 import { salesService } from './sales.service.js';
 import { sendSuccess, sendError, sendPaginated } from '../../utils/response.js';
 import { parsePagination } from '../../utils/pagination.js';
+import { getCurrentUserPermissions } from '../../middleware/permissions.js';
 
 export const salesController = {
   async list(
@@ -15,13 +16,14 @@ export const salesController = {
         customerSearch?: string;
         maxProfitPct?: string;
         minProfitPct?: string;
+        approvalStatus?: 'pending' | 'approved';
       };
     }>,
     reply: FastifyReply,
   ) {
     try {
       const { page, pageSize, skip, take } = parsePagination(request.query);
-      const { dateFrom, dateTo, saleType, customerSearch, maxProfitPct, minProfitPct } = request.query;
+      const { dateFrom, dateTo, saleType, customerSearch, maxProfitPct, minProfitPct, approvalStatus } = request.query;
       // shopFilter is set by the shopScope middleware. When `allShops`
       // is true (user picked "All Shops" in the header and has the
       // `shops.view_all` permission) we forward `shopIds` so the service
@@ -49,6 +51,7 @@ export const salesController = {
           customerSearch,
           maxProfitPct: parsePct(maxProfitPct),
           minProfitPct: parsePct(minProfitPct),
+          approvalStatus,
         },
       );
 
@@ -90,7 +93,13 @@ export const salesController = {
       const shopId = request.shopFilter!.shopId;
       const userId = request.currentUser!.userId;
 
-      const sale = await salesService.create(shopId, request.body, userId);
+      // Sales created by users with `sales.approve` are auto-approved;
+      // others land in 'pending' awaiting review.
+      const perms = await getCurrentUserPermissions(request);
+      const autoApprove =
+        request.currentUser?.role === 'owner' || perms.includes('sales.approve');
+
+      const sale = await salesService.create(shopId, request.body, userId, { autoApprove });
       return sendSuccess(reply, sale, 201);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to create sale';
@@ -295,6 +304,40 @@ export const salesController = {
       return sendSuccess(reply, companies);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to fetch finance companies';
+      return sendError(reply, message, 500);
+    }
+  },
+
+  async getPendingApprovalCount(
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ) {
+    try {
+      const { shopId, shopIds, allShops } = request.shopFilter!;
+      const count = await salesService.getPendingApprovalCount({
+        shopId,
+        shopIds: allShops ? shopIds : undefined,
+      });
+      return sendSuccess(reply, { count });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to fetch pending count';
+      return sendError(reply, message, 500);
+    }
+  },
+
+  async approveSale(
+    request: FastifyRequest<{ Params: { id: string } }>,
+    reply: FastifyReply,
+  ) {
+    try {
+      const userId = request.currentUser!.userId;
+      const updated = await salesService.approveSale(request.params.id, userId);
+      return sendSuccess(reply, updated);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to approve sale';
+      if (message === 'Sale not found') {
+        return sendError(reply, message, 404);
+      }
       return sendError(reply, message, 500);
     }
   },

@@ -30,6 +30,35 @@ import { useDebounce } from '../../hooks/useDebounce';
 import { formatINR, formatDateIN, getCurrentFinancialYearRange, getLastFinancialYearRange } from '@retailerp/shared-utils';
 import { formatInstallmentLabel } from '../../lib/installment-label';
 import { useShopStore, isAllShops } from '../../stores/shop-store';
+import { usePermission } from '../../hooks/usePermission';
+
+const ZONE_OPTIONS = ['East', 'West', 'North', 'South'] as const;
+
+/**
+ * Inline Zone <select> shared by the 3 installment tabs. Only renders when
+ * the caller has the `view.customer.address.zone` permission. The empty
+ * value means "all zones" — no filter applied.
+ */
+function ZoneFilter({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <div className="flex items-center gap-2">
+      <label className="text-sm font-medium">Zone:</label>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className={cn(
+          'appearance-none rounded-md border bg-background px-3 py-2 pr-8 text-sm',
+          'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+        )}
+      >
+        <option value="">All Zones</option>
+        {ZONE_OPTIONS.map((z) => (
+          <option key={z} value={z}>{z}</option>
+        ))}
+      </select>
+    </div>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Search filter options
@@ -387,8 +416,10 @@ export function InstallmentListPage() {
 // ---------------------------------------------------------------------------
 function OverdueTab() {
   const navigate = useNavigate();
-  const { data: overdueItems, isLoading, isError } = useOverdueInstallmentsQuery();
   const allShopsMode = isAllShops(useShopStore((s) => s.currentShopId));
+  const canSeeZone = usePermission('view.customer.address.zone');
+  const [zoneFilter, setZoneFilter] = useState('');
+  const { data: overdueItems, isLoading, isError } = useOverdueInstallmentsQuery(zoneFilter || undefined);
 
   // Payment dialog state
   const [paymentTarget, setPaymentTarget] = useState<{
@@ -419,6 +450,16 @@ function OverdueTab() {
             },
           ] as Column<OverdueInstallmentItem>[])
         : []),
+      {
+        key: 'ledger' as keyof OverdueInstallmentItem,
+        header: 'Ledger',
+        sortable: true,
+        sortAccessor: (row) => row.ledgerNumber ?? '',
+        render: (row) => (
+          <span className="font-mono text-xs">{row.ledgerNumber || '-'}</span>
+        ),
+        className: 'w-24',
+      },
       {
         key: 'customer',
         header: 'Customer',
@@ -557,7 +598,12 @@ function OverdueTab() {
   }
 
   return (
-    <>
+    <div>
+      {canSeeZone && (
+        <div className="flex flex-wrap items-center gap-3 mb-6">
+          <ZoneFilter value={zoneFilter} onChange={setZoneFilter} />
+        </div>
+      )}
       <DataTable<OverdueInstallmentItem>
         columns={columns}
         data={overdueItems ?? []}
@@ -577,7 +623,7 @@ function OverdueTab() {
           onClose={() => setPaymentTarget(null)}
         />
       )}
-    </>
+    </div>
   );
 }
 
@@ -600,11 +646,13 @@ function CollectionsTab() {
   const navigate = useNavigate();
   const today = toLocalDateStr(new Date());
   const allShopsMode = isAllShops(useShopStore((s) => s.currentShopId));
+  const canSeeZone = usePermission('view.customer.address.zone');
 
   const [dateFrom, setDateFrom] = useState(today);
   const [dateTo, setDateTo] = useState(today);
+  const [zoneFilter, setZoneFilter] = useState('');
 
-  const { data: rangeData, isLoading, isError } = useCollectionsRangeQuery(dateFrom, dateTo);
+  const { data: rangeData, isLoading, isError } = useCollectionsRangeQuery(dateFrom, dateTo, zoneFilter || undefined);
   const collections = rangeData?.collections ?? [];
 
   // Payment dialog state
@@ -638,6 +686,16 @@ function CollectionsTab() {
             },
           ] as Column<CollectionItem>[])
         : []),
+      {
+        key: 'ledger' as keyof CollectionItem,
+        header: 'Ledger',
+        sortable: true,
+        sortAccessor: (row) => row.ledgerNumber ?? '',
+        render: (row) => (
+          <span className="font-mono text-xs">{row.ledgerNumber || '-'}</span>
+        ),
+        className: 'w-24',
+      },
       {
         key: 'dueDate',
         header: 'Due Date',
@@ -814,6 +872,7 @@ function CollectionsTab() {
           >
             Last Financial Year
           </button>
+          {canSeeZone && <ZoneFilter value={zoneFilter} onChange={setZoneFilter} />}
         </div>
       </div>
 
@@ -913,11 +972,13 @@ function PaidTab() {
   const navigate = useNavigate();
   const today = toLocalDateStr(new Date());
   const allShopsMode = isAllShops(useShopStore((s) => s.currentShopId));
+  const canSeeZone = usePermission('view.customer.address.zone');
 
   const [dateFrom, setDateFrom] = useState(getDateDaysAgo(14));
   const [dateTo, setDateTo] = useState(today);
+  const [zoneFilter, setZoneFilter] = useState('');
 
-  const { data, isLoading, isError } = usePaidCollectionsRangeQuery(dateFrom, dateTo);
+  const { data, isLoading, isError } = usePaidCollectionsRangeQuery(dateFrom, dateTo, zoneFilter || undefined);
   const rows = data ?? [];
 
   const totalCollected = rows.reduce(
@@ -948,6 +1009,16 @@ function PaidTab() {
             },
           ] as Column<PaidCollectionItem>[])
         : []),
+      {
+        key: 'ledger' as keyof PaidCollectionItem,
+        header: 'Ledger',
+        sortable: true,
+        sortAccessor: (row) => row.ledgerNumber ?? '',
+        render: (row) => (
+          <span className="font-mono text-xs">{row.ledgerNumber || '-'}</span>
+        ),
+        className: 'w-24',
+      },
       {
         key: 'dueDate',
         header: 'Due Date',
@@ -1141,6 +1212,7 @@ function PaidTab() {
         >
           Last Financial Year
         </button>
+        {canSeeZone && <ZoneFilter value={zoneFilter} onChange={setZoneFilter} />}
       </div>
 
       {/* Loading */}

@@ -10,13 +10,14 @@ export const customersController = {
         page?: string;
         pageSize?: string;
         search?: string;
+        zone?: string;
       };
     }>,
     reply: FastifyReply,
   ) {
     try {
       const { page, pageSize, skip, take } = parsePagination(request.query);
-      const { search } = request.query;
+      const { search, zone } = request.query;
       const { shopId, shopIds, allShops } = request.shopFilter!;
 
       const { customers, totalItems } = await customersService.list(
@@ -27,6 +28,7 @@ export const customersController = {
           skip,
           take,
           search,
+          zone: zone || undefined,
         },
       );
 
@@ -86,6 +88,10 @@ export const customersController = {
         city?: string | null;
         state?: string | null;
         pincode?: string | null;
+        zone?: string | null;
+        customerType?: 'individual' | 'business';
+        businessName?: string | null;
+        gstNumber?: string | null;
         isGuarantor?: boolean;
         guarantorId?: string | null;
         dynamicAttributes?: Record<string, unknown>;
@@ -121,6 +127,10 @@ export const customersController = {
         city?: string | null;
         state?: string | null;
         pincode?: string | null;
+        zone?: string | null;
+        customerType?: 'individual' | 'business';
+        businessName?: string | null;
+        gstNumber?: string | null;
         isGuarantor?: boolean;
         guarantorId?: string | null;
         dynamicAttributes?: Record<string, unknown>;

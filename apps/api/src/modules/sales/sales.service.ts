@@ -29,7 +29,7 @@ export const salesService = {
     financedAmount?: number | null;
     expectedPaymentDate?: string | null;
     notes?: string | null;
-  }, userId: string) {
+  }, userId: string, options?: { autoApprove?: boolean }) {
     // 1. Validate product exists, is in_stock, belongs to this shop
     const product = await prisma.product.findUnique({
       where: { id: data.productId },
@@ -234,6 +234,11 @@ export const salesService = {
           // Completion — full_payment sales are complete at creation; other
           // types transition to completed when their money flow settles.
           completedAt: data.saleType === 'full_payment' ? new Date() : null,
+          // Approval — sales created by users with `sales.approve` are
+          // auto-approved; others land in 'pending' until reviewed.
+          approvalStatus: options?.autoApprove ? 'approved' : 'pending' as any,
+          approvedById: options?.autoApprove ? userId : null,
+          approvedAt: options?.autoApprove ? new Date() : null,
           // Metadata
           notes: data.notes ?? null,
           createdBy: userId,
@@ -726,6 +731,7 @@ export const salesService = {
       customerSearch?: string;
       maxProfitPct?: number;
       minProfitPct?: number;
+      approvalStatus?: 'pending' | 'approved';
     },
   ) {
     // Role-based data isolation: "others" see sanitized data ONLY
@@ -749,6 +755,7 @@ export const salesService = {
       customerSearch?: string;
       maxProfitPct?: number;
       minProfitPct?: number;
+      approvalStatus?: 'pending' | 'approved';
     },
   ) {
     const where: Prisma.SaleRecordWhereInput =
@@ -758,6 +765,10 @@ export const salesService = {
 
     if (filters.saleType) {
       where.saleType = filters.saleType as any;
+    }
+
+    if (filters.approvalStatus) {
+      where.approvalStatus = filters.approvalStatus as any;
     }
 
     if (filters.dateFrom || filters.dateTo) {
@@ -1208,6 +1219,38 @@ export const salesService = {
     return prisma.financeCompany.findMany({
       where: { isActive: true },
       orderBy: { name: 'asc' },
+    });
+  },
+
+  /**
+   * Count of sales currently awaiting approval. Drives the badge subscript
+   * shown on the "Approve" button in the Sale list page. Scoped to the
+   * caller's accessible shops (single-shop or All-Shops mode).
+   */
+  async getPendingApprovalCount(scope: { shopId: string; shopIds?: string[] }) {
+    const where: Prisma.SaleRecordWhereInput =
+      scope.shopIds && scope.shopIds.length > 0
+        ? { shopId: { in: scope.shopIds }, approvalStatus: 'pending' as any }
+        : { shopId: scope.shopId, approvalStatus: 'pending' as any };
+    return prisma.saleRecord.count({ where });
+  },
+
+  /**
+   * Approve a sale (manual review by Owner / a user with `sales.approve`).
+   * Idempotent — already-approved sales are returned unchanged.
+   */
+  async approveSale(saleId: string, approverId: string) {
+    const sale = await prisma.saleRecord.findUnique({ where: { id: saleId } });
+    if (!sale) throw new Error('Sale not found');
+    if (sale.approvalStatus === 'approved') return sale;
+
+    return prisma.saleRecord.update({
+      where: { id: saleId },
+      data: {
+        approvalStatus: 'approved' as any,
+        approvedById: approverId,
+        approvedAt: new Date(),
+      },
     });
   },
 };

@@ -122,7 +122,7 @@ export const installmentsService = {
    * Get all overdue installments for a shop (or all shops in All-Shops mode).
    * Overdue = dueDate < today AND status NOT in [paid, rescheduled].
    */
-  async getOverdue(scope: ReadScope) {
+  async getOverdue(scope: ReadScope, opts?: { zone?: string }) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
@@ -135,6 +135,12 @@ export const installmentsService = {
       });
     });
 
+    // Optional zone filter — narrows by Customer.zone via the Sale relation.
+    const saleWhere: Prisma.SaleRecordWhereInput = saleScopeFilter(scope);
+    if (opts?.zone) {
+      saleWhere.customer = { zone: opts.zone };
+    }
+
     const overdueInstallments = await prisma.installment.findMany({
       where: {
         dueDate: { lt: today },
@@ -142,7 +148,7 @@ export const installmentsService = {
         isRescheduled: false,
         remainingAmount: { gt: 0 },
         schedule: {
-          sale: saleScopeFilter(scope),
+          sale: saleWhere,
           status: 'active',
         },
       },
@@ -156,6 +162,7 @@ export const installmentsService = {
               select: {
                 id: true,
                 saleNumber: true,
+                ledgerNumber: true,
                 saleDate: true,
                 customer: {
                   select: {
@@ -165,6 +172,7 @@ export const installmentsService = {
                     customerCode: true,
                     addressLine1: true,
                     city: true,
+                    zone: true,
                   },
                 },
                 product: {
@@ -208,9 +216,12 @@ export const installmentsService = {
         customerName: customer?.name ?? '',
         customerPhone: customer?.phone ?? '',
         customerAddress: [customer?.addressLine1, customer?.city].filter(Boolean).join(', ') || undefined,
+        customerZone: customer?.zone ?? null,
         productName: product?.modelNumber ?? '',
         productBrand: product?.brand ?? '',
         saleId: sale?.id ?? '',
+        saleNumber: (sale as any)?.saleNumber ?? '',
+        ledgerNumber: (sale as any)?.ledgerNumber ?? '',
         shop: (sale as any)?.shop ?? null,
       };
     });
@@ -225,6 +236,7 @@ export const installmentsService = {
     scope: ReadScope,
     date: string,
     employeeId?: string,
+    opts?: { zone?: string },
   ) {
     const targetDate = new Date(date);
     targetDate.setHours(0, 0, 0, 0);
@@ -242,6 +254,12 @@ export const installmentsService = {
       });
     }
 
+    // Optional zone narrowing via Customer.zone
+    const saleWhere: Prisma.SaleRecordWhereInput = saleScopeFilter(scope);
+    if (opts?.zone) {
+      saleWhere.customer = { zone: opts.zone };
+    }
+
     // Build the base where clause
     const where: Prisma.InstallmentWhereInput = {
       dueDate: targetDate,
@@ -249,7 +267,7 @@ export const installmentsService = {
       isRescheduled: false,
       remainingAmount: { gt: 0 },
       schedule: {
-        sale: saleScopeFilter(scope),
+        sale: saleWhere,
         status: 'active',
       },
     };
@@ -294,6 +312,7 @@ export const installmentsService = {
                     addressLine2: true,
                     city: true,
                     pincode: true,
+                    zone: true,
                   },
                 },
                 product: {
@@ -402,18 +421,24 @@ export const installmentsService = {
     scope: ReadScope,
     dateFrom: string,
     dateTo: string,
+    opts?: { zone?: string },
   ) {
     const fromDate = new Date(dateFrom);
     fromDate.setHours(0, 0, 0, 0);
     const toDate = new Date(dateTo);
     toDate.setHours(23, 59, 59, 999);
 
+    const saleWhere: Prisma.SaleRecordWhereInput = saleScopeFilter(scope);
+    if (opts?.zone) {
+      saleWhere.customer = { zone: opts.zone };
+    }
+
     const collections = await prisma.installment.findMany({
       where: {
         dueDate: { gte: fromDate, lte: toDate },
         amountPaid: { gt: 0 },
         schedule: {
-          sale: saleScopeFilter(scope),
+          sale: saleWhere,
         },
       },
       include: {
@@ -436,6 +461,7 @@ export const installmentsService = {
                     addressLine2: true,
                     city: true,
                     pincode: true,
+                    zone: true,
                   },
                 },
                 product: {
@@ -479,6 +505,7 @@ export const installmentsService = {
     dateFrom: string,
     dateTo: string,
     employeeId?: string,
+    opts?: { zone?: string },
   ) {
     const fromDate = new Date(dateFrom);
     fromDate.setHours(0, 0, 0, 0);
@@ -498,13 +525,18 @@ export const installmentsService = {
       });
     }
 
+    const saleWhere: Prisma.SaleRecordWhereInput = saleScopeFilter(scope);
+    if (opts?.zone) {
+      saleWhere.customer = { zone: opts.zone };
+    }
+
     const where: Prisma.InstallmentWhereInput = {
       dueDate: { gte: fromDate, lte: toDate },
       status: { notIn: ['paid', 'rescheduled'] },
       isRescheduled: false,
       remainingAmount: { gt: 0 },
       schedule: {
-        sale: saleScopeFilter(scope),
+        sale: saleWhere,
         status: 'active',
       },
     };
@@ -548,6 +580,7 @@ export const installmentsService = {
                     addressLine2: true,
                     city: true,
                     pincode: true,
+                    zone: true,
                   },
                 },
                 product: {
@@ -2982,9 +3015,12 @@ function flattenCollections(collections: any[]) {
       customerName: customer?.name ?? '',
       customerPhone: customer?.phone ?? '',
       customerAddress: [customer?.addressLine1, customer?.city].filter(Boolean).join(', ') || undefined,
+      customerZone: customer?.zone ?? null,
       productName: product?.modelNumber ?? '',
       productBrand: product?.brand ?? '',
       saleId: sale?.id ?? '',
+      saleNumber: sale?.saleNumber ?? '',
+      ledgerNumber: sale?.ledgerNumber ?? '',
       shop: sale?.shop ?? null,
     };
   });
@@ -3029,6 +3065,7 @@ function flattenPaidCollections(collections: any[]) {
       customerName: customer?.name ?? '',
       customerPhone: customer?.phone ?? '',
       customerAddress: [customer?.addressLine1, customer?.city].filter(Boolean).join(', ') || undefined,
+      customerZone: customer?.zone ?? null,
       productName: product?.modelNumber ?? '',
       productBrand: product?.brand ?? '',
       saleId: sale?.id ?? '',

@@ -59,4 +59,25 @@ export const rolesApi = {
     unwrap<{ newPassword: string }>(
       apiClient.post(`/roles/users/${userId}/reset-password`, password ? { password } : {}),
     ),
+
+  // Per-user permission overrides (Owner-only by default).
+  getUserPermissions: (userId: string) =>
+    unwrap<UserPermissionsResponse>(apiClient.get(`/roles/users/${userId}/permissions`)),
+  setUserPermissions: (userId: string, grants: string[], denies: string[]) =>
+    unwrap<UserPermissionsResponse>(
+      apiClient.put(`/roles/users/${userId}/permissions`, { grants, denies }),
+    ),
 };
+
+export interface UserPermissionsResponse {
+  userId: string;
+  role: { id: string; code: string; name: string } | null;
+  /** Keys granted by the user's role (read-only baseline). */
+  rolePermissions: string[];
+  /** Keys force-allowed by per-user override. */
+  grants: string[];
+  /** Keys force-revoked by per-user override. */
+  denies: string[];
+  /** Resolved set the system actually checks. */
+  effective: string[];
+}

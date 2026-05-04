@@ -1,6 +1,6 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../config/database.js';
-import { loadPermissionsForRole } from './permissions.js';
+import { loadEffectivePermissionsForUser } from './permissions.js';
 
 /**
  * Sentinel value the frontend sends in the `X-Shop-Id` header when the
@@ -36,16 +36,9 @@ export async function shopScope(request: FastifyRequest, reply: FastifyReply) {
   if (headerShopId === ALL_SHOPS_SENTINEL && canSwitchShops) {
     // Owner has every permission via the catalog; cheap fast path.
     let allowed = request.currentUser.role === 'owner';
-    if (!allowed && request.currentUser.roleId == null) {
-      // Fetch roleId once; the JWT doesn't carry it.
-      const u = await prisma.user.findUnique({
-        where: { id: request.currentUser.userId },
-        select: { roleId: true },
-      });
-      request.currentUser.roleId = u?.roleId ?? null;
-    }
-    if (!allowed && request.currentUser.roleId) {
-      const perms = await loadPermissionsForRole(request.currentUser.roleId);
+    if (!allowed) {
+      // Effective permissions also pick up any per-user grants/denies.
+      const perms = await loadEffectivePermissionsForUser(request.currentUser.userId);
       allowed = perms.has('shops.view_all');
     }
 

@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import { authService } from './auth.service.js';
 import { sendSuccess, sendError } from '../../utils/response.js';
 import { config } from '../../config/index.js';
-import { loadPermissionsForRole } from '../../middleware/permissions.js';
+import { loadEffectivePermissionsForUser } from '../../middleware/permissions.js';
 
 export const authController = {
   async listShops(_request: FastifyRequest, reply: FastifyReply) {
@@ -60,9 +60,7 @@ export const authController = {
         isMobileOnly: user.isMobileOnly,
         preferences: (user as any).preferences ?? null,
       },
-      permissions: (user as any).roleId
-        ? Array.from(await loadPermissionsForRole((user as any).roleId))
-        : [],
+      permissions: Array.from(await loadEffectivePermissionsForUser(user.id)),
       shop: { id: selectedShop.id, name: selectedShop.name, code: selectedShop.code },
     });
   },
@@ -129,9 +127,7 @@ export const authController = {
         isMobileOnly: user.isMobileOnly,
         preferences: (user as any).preferences ?? null,
       },
-      permissions: (user as any).roleId
-        ? Array.from(await loadPermissionsForRole((user as any).roleId))
-        : [],
+      permissions: Array.from(await loadEffectivePermissionsForUser(user.id)),
       shops: user.userShops.map((us: any) => ({
         id: us.shop.id,
         name: us.shop.name,

@@ -99,6 +99,25 @@ enum BankTxnType {
   debit
 }
 
+enum CustomerType {
+  individual
+  business
+}
+
+enum SaleApprovalStatus {
+  pending
+  approved
+}
+
+/// Per-user override on a permission key. Layered on top of the role's
+/// permissions: `effective = (rolePerms ∪ user.grants) ∖ user.denies`.
+/// Use `grant` to allow ONE user something their role doesn't grant; use
+/// `deny` to take a permission away from ONE user that their role does grant.
+enum UserPermissionEffect {
+  grant
+  deny
+}
+
 enum ReconciliationStatus {
   unmatched
   matched
@@ -176,8 +195,11 @@ model User {
   customRole            Role?                  @relation(fields: [roleId], references: [id])
   userShops             UserShop[]
   refreshTokens         RefreshToken[]
+  permissionOverrides   UserPermission[]       @relation("UserPermissionOwner")
+  permissionsAuthored   UserPermission[]       @relation("UserPermissionCreator")
   createdProducts       Product[]              @relation("ProductCreator")
   createdSales          SaleRecord[]           @relation("SaleCreator")
+  approvedSales         SaleRecord[]           @relation("SaleApprover")
   createdSalesSanitized SaleRecordSanitized[]  @relation("SanitizedSaleCreator")
   createdPurchases      Purchase[]             @relation("PurchaseCreator")
   createdCustomers      Customer[]             @relation("CustomerCreator")
@@ -231,6 +253,7 @@ model Permission {
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz()
 
   rolePermissions RolePermission[]
+  userPermissions UserPermission[]
 
   @@index([module])
   @@map("permissions")
@@ -249,6 +272,29 @@ model RolePermission {
   @@index([roleId])
   @@index([permissionId])
   @@map("role_permissions")
+}
+
+/// Per-user permission override. One row per (user, permission). Effect is
+/// either `grant` (force-on) or `deny` (force-off) regardless of what the
+/// user's role allows. Used to handle exceptions like "all accountants
+/// can approve sales except this one user".
+model UserPermission {
+  id           String                @id @default(uuid())
+  userId       String                @map("user_id")
+  permissionId String                @map("permission_id")
+  effect       UserPermissionEffect
+  createdBy    String?               @map("created_by")
+  createdAt    DateTime              @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt    DateTime              @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  user       User       @relation("UserPermissionOwner", fields: [userId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  creator    User?      @relation("UserPermissionCreator", fields: [createdBy], references: [id])
+
+  @@unique([userId, permissionId])
+  @@index([userId])
+  @@index([permissionId])
+  @@map("user_permissions")
 }
 
 model UserShop {
@@ -526,6 +572,17 @@ model Customer {
   city              String?  @db.VarChar(100)
   state             String?  @db.VarChar(100)
   pincode           String?  @db.VarChar(6)
+  /// Geographic zone within the shop's serving area (East / West / North / South).
+  /// Per-shop dropdown values; today the same 4 cardinal directions are used
+  /// across all shops. Drives the Installment list zone filter.
+  zone              String?  @db.VarChar(20)
+  /// Distinguishes B2B (`business`) customers — invoices for them include
+  /// the business name and GSTIN — from regular individuals.
+  customerType      CustomerType @default(individual) @map("customer_type")
+  /// Legal business name (B2B). Null for individual customers.
+  businessName      String?  @map("business_name") @db.VarChar(200)
+  /// 15-character GSTIN for B2B customers. Shown on invoices.
+  gstNumber         String?  @map("gst_number") @db.VarChar(15)
   photoIdUrl        String?  @map("photo_id_url") @db.VarChar(500)
   isGuarantor       Boolean  @default(false) @map("is_guarantor")
   guarantorId       String?  @map("guarantor_id")
@@ -550,6 +607,7 @@ model Customer {
   @@index([shopId])
   @@index([guarantorId])
   @@index([aadhaarNumber])
+  @@index([zone])
   @@map("customers")
 }
 
@@ -621,6 +679,13 @@ model SaleRecord {
   /// Timestamp when the sale was fully settled (installments all paid, or full-payment at creation).
   /// Null means still active/pending.
   completedAt                 DateTime?            @map("completed_at") @db.Timestamptz()
+  // Approval workflow — sales created by users without `sales.approve` are
+  // saved as `pending` and visible to approvers (Owner, or anyone granted
+  // the permission). Default is `approved` so existing rows + sales created
+  // by approvers themselves do not block business flows.
+  approvalStatus              SaleApprovalStatus   @default(approved) @map("approval_status")
+  approvedById                String?              @map("approved_by_id")
+  approvedAt                  DateTime?            @map("approved_at") @db.Timestamptz()
   // Metadata
   notes                       String?              @db.Text
   createdBy                   String               @map("created_by")
@@ -633,6 +698,7 @@ model SaleRecord {
   guarantor        Customer?         @relation("SaleGuarantor", fields: [guarantorId], references: [id])
   financeCompany   FinanceCompany?   @relation(fields: [financeCompanyId], references: [id])
   creator          User              @relation("SaleCreator", fields: [createdBy], references: [id])
+  approver         User?             @relation("SaleApprover", fields: [approvedById], references: [id])
   installmentSchedule InstallmentSchedule?
 
   @@index([shopId])
@@ -646,6 +712,7 @@ model SaleRecord {
   @@index([guarantorId])
   @@index([createdBy])
   @@index([completedAt])
+  @@index([approvalStatus])
   @@map("sale_records")
 }
 

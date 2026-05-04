@@ -10,6 +10,14 @@ export interface Customer {
   city?: string;
   state?: string;
   pincode?: string;
+  /** Geographic zone within the shop's serving area (East/West/North/South). */
+  zone?: string | null;
+  /** `individual` (default) or `business` (B2B — invoice shows business name + GSTIN). */
+  customerType?: 'individual' | 'business';
+  /** Legal business name; only populated for B2B customers. */
+  businessName?: string | null;
+  /** 15-character GSTIN; only populated for B2B customers. */
+  gstNumber?: string | null;
   photoIdUrl?: string;
   isGuarantor: boolean;
   guarantorId?: string;

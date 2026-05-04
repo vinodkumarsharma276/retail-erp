@@ -41,6 +41,10 @@ export interface SaleRecord {
   financeReferenceNumber?: string;
   // Completion
   completedAt?: string | null;
+  // Approval workflow
+  approvalStatus?: 'pending' | 'approved';
+  approvedById?: string | null;
+  approvedAt?: string | null;
   // Metadata
   notes?: string;
   createdBy: string;

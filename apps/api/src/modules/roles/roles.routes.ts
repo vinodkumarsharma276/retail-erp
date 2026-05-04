@@ -51,4 +51,14 @@ export async function rolesRoutes(app: FastifyInstance) {
   app.post('/users/:userId/reset-password', {
     preHandler: [authenticate, requirePermission('users.reset_password')],
   }, rolesController.resetPassword as any);
+
+  // Per-user permission overrides — Owner-only by default (gated by
+  // the new `users.edit_permissions` key).
+  app.get('/users/:userId/permissions', {
+    preHandler: [authenticate, requirePermission('users.edit_permissions')],
+  }, rolesController.getUserPermissions as any);
+
+  app.put('/users/:userId/permissions', {
+    preHandler: [authenticate, requirePermission('users.edit_permissions')],
+  }, rolesController.setUserPermissions as any);
 }
