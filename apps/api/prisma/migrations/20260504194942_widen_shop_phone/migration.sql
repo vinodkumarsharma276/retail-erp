@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "shops" ALTER COLUMN "phone" SET DATA TYPE VARCHAR(200);

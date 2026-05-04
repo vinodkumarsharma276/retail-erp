@@ -61,13 +61,17 @@ export const customersService = {
   },
 
   async search(query: string) {
-    // Search across ALL shops — for sale form customer lookup (find repeat customers)
+    // Search across ALL shops — for sale form customer lookup (find repeat
+    // customers). Matches any of: phone, name, customer code, OR a ledger
+    // number from one of the customer's past sales (Ledger # is the manual
+    // office-register number staff usually remember best).
     const customers = await prisma.customer.findMany({
       where: {
         OR: [
           { phone: { contains: query, mode: 'insensitive' } },
           { name: { contains: query, mode: 'insensitive' } },
           { customerCode: { contains: query, mode: 'insensitive' } },
+          { saleRecords: { some: { ledgerNumber: { contains: query, mode: 'insensitive' } } } },
         ],
       },
       include: {

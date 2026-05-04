@@ -13,6 +13,7 @@ import {
   Pencil,
 } from 'lucide-react';
 import { handleInvoiceDownload } from '../../lib/invoice-utils';
+import { InvoiceConfirmDialog } from '../../components/InvoiceConfirmDialog';
 import { cn } from '../../lib/utils';
 import {
   useSaleDetailQuery,
@@ -68,19 +69,17 @@ function SaleDetailPageInner() {
   // `sales.view_history` to other roles via Roles & Users).
   const { data: activityLog } = useSaleActivityQuery(id, canViewSaleHistory);
 
-  // Invoice download state
+  // Invoice download state — opens the confirm-and-edit dialog so the
+  // user can verify shop / B2B fields before generating the PDF.
+  void handleInvoiceDownload;
   const [isDownloading, setIsDownloading] = useState(false);
+  const [showInvoiceDialog, setShowInvoiceDialog] = useState(false);
 
-  const onDownloadInvoice = async () => {
+  const onDownloadInvoice = () => {
     if (!id) return;
-    setIsDownloading(true);
-    try {
-      await handleInvoiceDownload(id);
-    } catch (err) {
-      console.error('Invoice download failed:', err);
-    } finally {
-      setIsDownloading(false);
-    }
+    void isDownloading;
+    void setIsDownloading;
+    setShowInvoiceDialog(true);
   };
 
   // Record pending payment dialog state
@@ -883,6 +882,14 @@ function SaleDetailPageInner() {
           installmentNumber={installmentPaymentTarget.number}
           onSuccess={() => setInstallmentPaymentTarget(null)}
           onClose={() => setInstallmentPaymentTarget(null)}
+        />
+      )}
+
+      {/* Confirm-and-edit invoice dialog */}
+      {showInvoiceDialog && id && (
+        <InvoiceConfirmDialog
+          saleId={id}
+          onClose={() => setShowInvoiceDialog(false)}
         />
       )}
     </div>

@@ -12,6 +12,7 @@ import { CompletionBadge } from '../../components/CompletionBadge';
 import { formatINR, formatDateIN, getCurrentFinancialYearRange, getLastFinancialYearRange } from '@retailerp/shared-utils';
 import { SaleType } from '@retailerp/shared-types';
 import { handleInvoiceDownload } from '../../lib/invoice-utils';
+import { InvoiceConfirmDialog } from '../../components/InvoiceConfirmDialog';
 import { usePermission, useCanCheck } from '../../hooks/usePermission';
 import { AccessDenied } from '../../routes/RoleGuard';
 import { useShopStore, isAllShops } from '../../stores/shop-store';
@@ -150,15 +151,15 @@ function SaleListPageInner() {
   };
 
   // ------ Download invoice handler ------
-  const onDownloadInvoice = async (saleId: string) => {
-    setDownloadingId(saleId);
-    try {
-      await handleInvoiceDownload(saleId);
-    } catch (err) {
-      console.error('Invoice download failed:', err);
-    } finally {
-      setDownloadingId(null);
-    }
+  // Opens the confirm-and-edit dialog so the user can verify shop +
+  // (B2B) customer details before the PDF is generated. The legacy
+  // direct-download helper is retained for reference and is also used
+  // by the dialog under the hood.
+  void handleInvoiceDownload;
+  const [invoiceTargetId, setInvoiceTargetId] = useState<string | null>(null);
+  const onDownloadInvoice = (saleId: string) => {
+    void downloadingId;
+    setInvoiceTargetId(saleId);
   };
 
   // ------ Table columns ------
@@ -641,6 +642,13 @@ function SaleListPageInner() {
         emptyMessage="No sales found matching your filters."
         rowKey={(row) => row.id}
       />
+
+      {invoiceTargetId && (
+        <InvoiceConfirmDialog
+          saleId={invoiceTargetId}
+          onClose={() => setInvoiceTargetId(null)}
+        />
+      )}
     </div>
   );
 }

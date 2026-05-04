@@ -127,9 +127,11 @@
     @apply text-lg;
   }
 
-  /* Right-align numeric inputs (prices, quantities, EMIs) and use tabular figures */
+  /* Numeric inputs (prices, quantities, EMIs) — left-aligned to match the
+     rest of the app and avoid the "value flies to the right edge" pattern.
+     Tabular figures keep digit columns from jumping in dense forms. */
   .density-compact input[type='number'] {
-    @apply text-right;
+    @apply text-left;
     font-variant-numeric: tabular-nums;
   }
 }

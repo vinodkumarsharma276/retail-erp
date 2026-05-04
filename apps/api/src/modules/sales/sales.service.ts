@@ -179,8 +179,18 @@ export const salesService = {
       ? (data.expectedPaymentDate ? new Date(data.expectedPaymentDate) : (() => { const d = new Date(); d.setDate(d.getDate() + 1); return d; })())
       : null;
 
-    // 5-9. Create everything in a transaction
-    const result = await prisma.$transaction(async (tx) => {
+    // 5-9. Create everything in a transaction. Wrapped in a retry loop to
+    // survive the rare race where two concurrent sale-creates compute the
+    // same `saleNumber` from `findFirst` before either has committed —
+    // Postgres' default Read Committed isolation does not lock unread rows.
+    // On P2002 (`sale_number` unique conflict) we re-read and try again
+    // up to a small bound; any other error bubbles up unchanged.
+    let result: Awaited<ReturnType<typeof prisma.saleRecord.create>> | null = null;
+    let attempt = 0;
+    const MAX_ATTEMPTS = 5;
+    while (result === null) {
+      try {
+        result = await prisma.$transaction(async (tx) => {
       // Re-generate sale number inside the transaction to prevent race conditions
       const txLastSale = await tx.saleRecord.findFirst({
         where: { saleNumber: { startsWith: `SALE-${shopCode}-` } },
@@ -318,6 +328,21 @@ export const salesService = {
 
       return saleRecord;
     });
+      } catch (e: any) {
+        // Retry only on the specific sale_number unique conflict; everything
+        // else is a real error. The unique target may come back as either
+        // an array of column names or a string depending on Prisma version.
+        const target = e?.meta?.target;
+        const conflictsOnSaleNumber =
+          (Array.isArray(target) && target.includes('sale_number')) ||
+          (typeof target === 'string' && target.includes('sale_number'));
+        if (e?.code === 'P2002' && conflictsOnSaleNumber && attempt < MAX_ATTEMPTS) {
+          attempt++;
+          continue;
+        }
+        throw e;
+      }
+    }
 
     // 10. Return the created sale with all relations
     const fullSale = await prisma.saleRecord.findUnique({
@@ -1023,6 +1048,9 @@ export const salesService = {
             city: true,
             state: true,
             pincode: true,
+            customerType: true,
+            businessName: true,
+            gstNumber: true,
           },
         },
         guarantor: {

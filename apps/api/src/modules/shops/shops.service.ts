@@ -30,6 +30,33 @@ export const shopsService = {
     return shop;
   },
 
+  /**
+   * Lean shop record exposed to non-admin users — only the fields the
+   * frontend invoice/PDF actually needs (no bank details, no user list).
+   * The Admin-only `getById` retains everything for the Roles & Users UI.
+   */
+  async getPublicById(id: string) {
+    return prisma.shop.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        name: true,
+        code: true,
+        gstNumber: true,
+        panNumber: true,
+        addressLine1: true,
+        addressLine2: true,
+        city: true,
+        state: true,
+        pincode: true,
+        phone: true,
+        email: true,
+        logoUrl: true,
+        isActive: true,
+      },
+    });
+  },
+
   async update(id: string, data: {
     name?: string;
     gstNumber?: string;

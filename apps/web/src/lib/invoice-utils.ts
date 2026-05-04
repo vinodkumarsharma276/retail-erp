@@ -82,10 +82,13 @@ export async function handleInvoiceDownload(saleId: string): Promise<void> {
     saleNumber: sale.saleNumber,
     ledgerNumber: sale.ledgerNumber,
     saleDate: formatDateIN(sale.saleDate),
-    // Customer
+    // Customer (with B2B fields when present)
     customerName: sale.customer?.name || '',
     customerPhone: sale.customer?.phone || '',
     customerAddress: buildCustomerAddress(sale.customer as any),
+    customerIsBusiness: sale.customer?.customerType === 'business',
+    customerBusinessName: sale.customer?.businessName ?? null,
+    customerGstin: sale.customer?.gstNumber ?? null,
     // Product
     productBrand: sale.product?.brand || '',
     productModel: sale.product?.modelNumber || '',
@@ -105,4 +108,61 @@ export async function handleInvoiceDownload(saleId: string): Promise<void> {
   // Dynamic import to keep bundle small for non-invoice pages
   const { downloadInvoicePDF } = await import('../components/InvoicePDF');
   await downloadInvoicePDF(invoiceData);
+}
+
+/**
+ * Two-phase invoice flow used by the "preview & confirm" dialog:
+ *
+ * 1. `buildInvoiceData(saleId)` — fetch sale + shop and compose the
+ *    fully-resolved `InvoiceData` payload, ready for editing in the
+ *    confirmation dialog.
+ * 2. `downloadInvoiceFromData(data)` — render the (possibly edited)
+ *    payload into a PDF and trigger the browser download.
+ */
+export async function buildInvoiceData(saleId: string): Promise<InvoiceData> {
+  const saleRes = await apiClient.get<ApiResponse<SaleDetailResponse>>(
+    `/sales/${saleId}`,
+  );
+  const sale = saleRes.data.data!;
+
+  const shopId = sale.shopId;
+  let shop: Shop | null = null;
+  try {
+    const shopRes = await apiClient.get<ApiResponse<Shop>>(`/shops/${shopId}`);
+    shop = shopRes.data.data!;
+  } catch {
+    shop = null;
+  }
+
+  return {
+    shopName: shop?.name || (sale as any).shop?.name || '',
+    shopAddress: shop ? buildShopAddress(shop) : '',
+    shopGstin: shop?.gstNumber || '',
+    shopPhone: shop?.phone || '',
+    shopState: shop?.state || '',
+    saleNumber: sale.saleNumber,
+    ledgerNumber: sale.ledgerNumber,
+    saleDate: formatDateIN(sale.saleDate),
+    customerName: sale.customer?.name || '',
+    customerPhone: sale.customer?.phone || '',
+    customerAddress: buildCustomerAddress(sale.customer as any),
+    customerIsBusiness: sale.customer?.customerType === 'business',
+    customerBusinessName: sale.customer?.businessName ?? null,
+    customerGstin: sale.customer?.gstNumber ?? null,
+    productBrand: sale.product?.brand || '',
+    productModel: sale.product?.modelNumber || '',
+    productSerial: sale.product?.serialNumber || undefined,
+    productCategory: (sale.product as any)?.category?.name || undefined,
+    hsnCode: (sale.product as any)?.category?.hsnCode || undefined,
+    sellingPrice: Number(sale.sellingPrice) || 0,
+    gstRate: Number(sale.gstRate) || 0,
+    gstType: parseGstType(sale.notes),
+    paymentMode: sale.paymentMode,
+    paymentBreakdown: sale.paymentBreakdown ?? null,
+  };
+}
+
+export async function downloadInvoiceFromData(data: InvoiceData): Promise<void> {
+  const { downloadInvoicePDF } = await import('../components/InvoicePDF');
+  await downloadInvoicePDF(data);
 }

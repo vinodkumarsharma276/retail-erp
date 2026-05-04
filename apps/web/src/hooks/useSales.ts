@@ -297,7 +297,14 @@ export interface SaleDetailResponse extends SaleRecord {
     phone: string;
     altPhone?: string;
     aadhaarNumber?: string;
+    addressLine1?: string;
+    addressLine2?: string;
     city?: string;
+    state?: string;
+    pincode?: string;
+    customerType?: 'individual' | 'business';
+    businessName?: string | null;
+    gstNumber?: string | null;
   };
   product?: {
     id: string;

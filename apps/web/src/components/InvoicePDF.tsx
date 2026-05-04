@@ -26,6 +26,12 @@ export interface InvoiceData {
   customerName: string;
   customerPhone: string;
   customerAddress?: string;
+  /** True for B2B customers — switches the bill-to label and shows business name + GSTIN. */
+  customerIsBusiness?: boolean;
+  /** B2B legal business name (shown above customerName for business customers). */
+  customerBusinessName?: string | null;
+  /** B2B GSTIN to print on the invoice (input credit reporting). */
+  customerGstin?: string | null;
   // Product
   productBrand: string;
   productModel: string;
@@ -448,13 +454,27 @@ export function InvoicePDF({ data }: { data: InvoiceData }) {
             </View>
           </View>
 
-          {/* Customer section */}
+          {/* Customer section — for B2B, show business name as the
+              primary line and the contact person + GSTIN below; for
+              individuals, show just the name + phone + address. */}
           <View style={styles.customerSection}>
-            <Text style={styles.sectionTitle}>Bill To</Text>
-            <Text style={styles.customerName}>{data.customerName}</Text>
+            <Text style={styles.sectionTitle}>
+              {data.customerIsBusiness ? 'Bill To (B2B)' : 'Bill To'}
+            </Text>
+            {data.customerIsBusiness && data.customerBusinessName ? (
+              <>
+                <Text style={styles.customerName}>{data.customerBusinessName}</Text>
+                <Text style={styles.customerDetail}>Contact: {data.customerName}</Text>
+              </>
+            ) : (
+              <Text style={styles.customerName}>{data.customerName}</Text>
+            )}
             <Text style={styles.customerDetail}>Phone: {data.customerPhone}</Text>
             {data.customerAddress && (
               <Text style={styles.customerDetail}>{data.customerAddress}</Text>
+            )}
+            {data.customerIsBusiness && data.customerGstin && (
+              <Text style={styles.customerDetail}>GSTIN: {data.customerGstin}</Text>
             )}
           </View>
 

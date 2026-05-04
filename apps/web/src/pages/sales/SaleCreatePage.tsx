@@ -2048,7 +2048,7 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
                     setShowCustomerDropdown(true);
                   }}
                   onFocus={() => setShowCustomerDropdown(true)}
-                  placeholder="Search by phone or name (min 2 chars)..."
+                  placeholder="Search by phone, name, customer code or ledger # (min 2 chars)..."
                   className={cn(
                     'w-full rounded-md border bg-background pl-9 pr-8 py-2.5 text-sm',
                     'placeholder:text-muted-foreground',
@@ -2846,13 +2846,21 @@ function GstSelector({
   // SP is GST-inclusive — extract GST via reverse calculation
   const gstAmount = gstPercent > 0 ? Math.round(sellingPrice * gstPercent / (100 + gstPercent)) : 0;
 
+  // Lay GST Type alongside the percent + amount on a single row so the
+  // right-hand area beside Selling Price is used productively. CGST+SGST
+  // splits the amount cell into two so the user sees each half.
   return (
-    <div className="sm:col-span-2 lg:col-span-3 space-y-3">
+    <div className="sm:col-span-2 lg:col-span-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
       {/* GST Type radio */}
       <div>
-        <label className="block text-sm font-medium mb-1.5">GST Type <span className="text-xs text-muted-foreground font-normal">(included in Selling Price)</span></label>
-        <div className="flex flex-wrap gap-4">
-          <label className="flex items-center gap-2 cursor-pointer">
+        <label className="block text-sm font-medium mb-1.5">
+          GST Type{' '}
+          <span className="text-xs text-muted-foreground font-normal">
+            (incl. in SP)
+          </span>
+        </label>
+        <div className="flex flex-wrap items-center gap-3 rounded-md border bg-background px-3 py-2.5 text-sm">
+          <label className="flex items-center gap-1.5 cursor-pointer">
             <input
               type="radio"
               name="saleGstType"
@@ -2860,9 +2868,9 @@ function GstSelector({
               onChange={() => onGstTypeChange('GST')}
               className="h-4 w-4 text-primary"
             />
-            <span className="text-sm">GST</span>
+            <span>GST</span>
           </label>
-          <label className="flex items-center gap-2 cursor-pointer">
+          <label className="flex items-center gap-1.5 cursor-pointer">
             <input
               type="radio"
               name="saleGstType"
@@ -2870,9 +2878,9 @@ function GstSelector({
               onChange={() => onGstTypeChange('CGST_SGST')}
               className="h-4 w-4 text-primary"
             />
-            <span className="text-sm">CGST + SGST</span>
+            <span>C+S</span>
           </label>
-          <label className="flex items-center gap-2 cursor-pointer">
+          <label className="flex items-center gap-1.5 cursor-pointer">
             <input
               type="radio"
               name="saleGstType"
@@ -2880,85 +2888,81 @@ function GstSelector({
               onChange={() => onGstTypeChange('IGST')}
               className="h-4 w-4 text-primary"
             />
-            <span className="text-sm">IGST</span>
+            <span>IGST</span>
           </label>
         </div>
       </div>
 
-      {/* GST % dropdown + computed amount */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        {gstType === 'CGST_SGST' ? (
-          <>
-            <div>
-              <label className="block text-sm font-medium mb-1.5">
-                Total GST %
-              </label>
-              <div className="relative">
-                <select
-                  value={gstPercent}
-                  onChange={(e) => onGstPercentChange(Number(e.target.value))}
-                  className={cn(
-                    'w-full appearance-none rounded-md border bg-background px-3 py-2.5 pr-8 text-sm',
-                    'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                  )}
-                >
-                  {GST_SLABS.map((slab) => (
-                    <option key={slab} value={slab}>
-                      {slab}% total &rarr; {slab / 2}% each
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              </div>
+      {/* % + computed amount(s) — laid out on the same row as GST Type */}
+      {gstType === 'CGST_SGST' ? (
+        <>
+          <div>
+            <label className="block text-sm font-medium mb-1.5">Total GST %</label>
+            <div className="relative">
+              <select
+                value={gstPercent}
+                onChange={(e) => onGstPercentChange(Number(e.target.value))}
+                className={cn(
+                  'w-full appearance-none rounded-md border bg-background px-3 py-2.5 pr-8 text-sm',
+                  'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                )}
+              >
+                {GST_SLABS.map((slab) => (
+                  <option key={slab} value={slab}>
+                    {slab}% total &rarr; {slab / 2}% each
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             </div>
-            <div>
-              <label className="block text-sm font-medium mb-1.5">CGST (included)</label>
-              <div className="rounded-md border bg-muted/50 px-3 py-2.5 text-sm font-medium">
-                {gstPercent / 2}% = {formatINR(Math.round(gstAmount / 2))}
-              </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1.5">CGST (included)</label>
+            <div className="rounded-md border bg-muted/50 px-3 py-2.5 text-sm font-medium">
+              {gstPercent / 2}% = {formatINR(Math.round(gstAmount / 2))}
             </div>
-            <div>
-              <label className="block text-sm font-medium mb-1.5">SGST (included)</label>
-              <div className="rounded-md border bg-muted/50 px-3 py-2.5 text-sm font-medium">
-                {gstPercent / 2}% = {formatINR(Math.round(gstAmount / 2))}
-              </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1.5">SGST (included)</label>
+            <div className="rounded-md border bg-muted/50 px-3 py-2.5 text-sm font-medium">
+              {gstPercent / 2}% = {formatINR(Math.round(gstAmount / 2))}
             </div>
-          </>
-        ) : (
-          <>
-            <div>
-              <label className="block text-sm font-medium mb-1.5">
-                {gstType === 'IGST' ? 'IGST %' : 'GST %'}
-              </label>
-              <div className="relative">
-                <select
-                  value={gstPercent}
-                  onChange={(e) => onGstPercentChange(Number(e.target.value))}
-                  className={cn(
-                    'w-full appearance-none rounded-md border bg-background px-3 py-2.5 pr-8 text-sm',
-                    'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                  )}
-                >
-                  {GST_SLABS.map((slab) => (
-                    <option key={slab} value={slab}>
-                      {slab}%
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              </div>
+          </div>
+        </>
+      ) : (
+        <>
+          <div>
+            <label className="block text-sm font-medium mb-1.5">
+              {gstType === 'IGST' ? 'IGST %' : 'GST %'}
+            </label>
+            <div className="relative">
+              <select
+                value={gstPercent}
+                onChange={(e) => onGstPercentChange(Number(e.target.value))}
+                className={cn(
+                  'w-full appearance-none rounded-md border bg-background px-3 py-2.5 pr-8 text-sm',
+                  'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                )}
+              >
+                {GST_SLABS.map((slab) => (
+                  <option key={slab} value={slab}>
+                    {slab}%
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             </div>
-            <div>
-              <label className="block text-sm font-medium mb-1.5">
-                {gstType === 'IGST' ? 'IGST (included)' : 'GST (included)'}
-              </label>
-              <div className="rounded-md border bg-muted/50 px-3 py-2.5 text-sm font-medium">
-                {formatINR(gstAmount)}
-              </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1.5">
+              {gstType === 'IGST' ? 'IGST (included)' : 'GST (included)'}
+            </label>
+            <div className="rounded-md border bg-muted/50 px-3 py-2.5 text-sm font-medium">
+              {formatINR(gstAmount)}
             </div>
-          </>
-        )}
-      </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

@@ -18,7 +18,13 @@ export const shopsController = {
     reply: FastifyReply,
   ) {
     try {
-      const shop = await shopsService.getById(request.params.id);
+      // Admins (and Owner) get the full record including userShops + bank;
+      // every other authenticated user gets the lean public projection.
+      const isAdmin =
+        request.currentUser?.role === 'owner' || request.currentUser?.role === 'admin';
+      const shop = isAdmin
+        ? await shopsService.getById(request.params.id)
+        : await shopsService.getPublicById(request.params.id);
       if (!shop) {
         return sendError(reply, 'Shop not found', 404);
       }

@@ -140,7 +140,7 @@ model Shop {
   city              String   @db.VarChar(100)
   state             String   @db.VarChar(100)
   pincode           String   @db.VarChar(6)
-  phone             String   @db.VarChar(15)
+  phone             String   @db.VarChar(200)
   email             String?  @db.VarChar(255)
   bankName          String?  @map("bank_name") @db.VarChar(200)
   bankAccountNumber String?  @map("bank_account_number") @db.VarChar(20)
