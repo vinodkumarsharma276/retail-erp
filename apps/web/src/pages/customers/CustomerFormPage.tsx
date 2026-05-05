@@ -54,7 +54,7 @@ const defaultValues: CustomerFormValues = {
 // Per-shop zones — today identical across shops; the field is also
 // surfaced via the DB-driven form_definitions so this list could be
 // pulled from there in the future.
-const ZONE_OPTIONS = ['East', 'West', 'North', 'South'] as const;
+const ZONE_OPTIONS = ['East', 'West', 'North', 'South', 'Delhi', 'Ghaziabad', 'Noida'] as const;
 
 // ---------------------------------------------------------------------------
 // INDIAN STATES list for dropdown

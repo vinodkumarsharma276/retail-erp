@@ -12,7 +12,7 @@ import { usePermission } from '../../hooks/usePermission';
 
 const PAGE_SIZE = 20;
 
-const ZONE_OPTIONS = ['East', 'West', 'North', 'South'] as const;
+const ZONE_OPTIONS = ['East', 'West', 'North', 'South', 'Delhi', 'Ghaziabad', 'Noida'] as const;
 
 export function CustomerListPage() {
   const navigate = useNavigate();

@@ -1928,6 +1928,9 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
                       <option value="West">West</option>
                       <option value="North">North</option>
                       <option value="South">South</option>
+                      <option value="Delhi">Delhi</option>
+                      <option value="Ghaziabad">Ghaziabad</option>
+                      <option value="Noida">Noida</option>
                     </select>
                   </div>
                 )}

@@ -32,7 +32,7 @@ import { formatInstallmentLabel } from '../../lib/installment-label';
 import { useShopStore, isAllShops } from '../../stores/shop-store';
 import { usePermission } from '../../hooks/usePermission';
 
-const ZONE_OPTIONS = ['East', 'West', 'North', 'South'] as const;
+const ZONE_OPTIONS = ['East', 'West', 'North', 'South', 'Delhi', 'Ghaziabad', 'Noida'] as const;
 
 /**
  * Inline Zone <select> shared by the 3 installment tabs. Only renders when

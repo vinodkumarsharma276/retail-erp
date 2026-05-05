@@ -8,7 +8,7 @@
  */
 import { PrismaClient } from '@prisma/client';
 
-const ZONES = ['East', 'West', 'North', 'South'] as const;
+const ZONES = ['East', 'West', 'North', 'South', 'Delhi', 'Ghaziabad', 'Noida'] as const;
 
 async function ensureCustomerZoneFormField(prisma: PrismaClient) {
   const customerForm = await prisma.formDefinition.findFirst({

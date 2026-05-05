@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-const ZONE_VALUES = ['East', 'West', 'North', 'South'] as const;
+const ZONE_VALUES = ['East', 'West', 'North', 'South', 'Delhi', 'Ghaziabad', 'Noida'] as const;
 
 const zoneSchema = z
   .preprocess((v) => (v === '' ? null : v), z.enum(ZONE_VALUES).nullable())
