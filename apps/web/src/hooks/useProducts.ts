@@ -64,7 +64,10 @@ export function useCategoryAttributesQuery(categoryId: string | undefined) {
       return data.data!;
     },
     enabled: !!categoryId,
-    staleTime: 30 * 60 * 1000,
+    // Short stale window — admins occasionally edit category attributes
+    // (add/remove fields, change required) and changes should appear on
+    // next page mount without waiting half an hour.
+    staleTime: 60 * 1000,
   });
 }
 

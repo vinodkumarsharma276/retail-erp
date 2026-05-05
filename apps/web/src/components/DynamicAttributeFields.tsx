@@ -64,8 +64,18 @@ export function DynamicAttributeFields({
 
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      {attributes
-        .sort((a, b) => a.displayOrder - b.displayOrder)
+      {/* Defensive de-duplication by attributeName — protects the form from
+          ever rendering two inputs for the same logical field if upstream
+          data (legacy DB rows, stale TanStack Query cache, etc.) ever
+          returns duplicates. The first occurrence wins after sorting by
+          displayOrder. */}
+      {Array.from(
+        new Map(
+          [...attributes]
+            .sort((a, b) => a.displayOrder - b.displayOrder)
+            .map((attr) => [attr.attributeName, attr] as const),
+        ).values(),
+      )
         .map((attr) => {
           const fieldName = `${fieldPrefix}.${attr.attributeName}`;
           // Resolve error by walking the fieldPrefix path (e.g. 'items.0.dynamicAttributes' -> errors.items[0].dynamicAttributes)

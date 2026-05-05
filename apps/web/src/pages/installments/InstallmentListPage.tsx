@@ -60,6 +60,52 @@ function ZoneFilter({ value, onChange }: { value: string; onChange: (v: string) 
   );
 }
 
+/**
+ * Compact "Total Due" chip shown beside the filter controls on every
+ * installment tab. Same look across tabs so users instantly recognize it.
+ * Use `count` to show "(n items)" subscript; pass `label` to override the
+ * leading text (e.g. "Total Collected" on the Paid tab).
+ */
+function TotalDueChip({
+  amount,
+  count,
+  label = 'Total Due',
+  variant = 'red',
+}: {
+  amount: number;
+  count?: number;
+  label?: string;
+  variant?: 'red' | 'amber' | 'green';
+}) {
+  const palette =
+    variant === 'green'
+      ? 'border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
+      : variant === 'amber'
+        ? 'border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
+        : 'border-red-300 bg-red-50 text-red-800 dark:border-red-700 dark:bg-red-900/30 dark:text-red-300';
+  return (
+    <div
+      className={cn(
+        'ml-auto inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium',
+        palette,
+      )}
+      title={`${label}${count !== undefined ? ` across ${count} item${count === 1 ? '' : 's'}` : ''}`}
+    >
+      <span className="text-xs uppercase tracking-wider opacity-75">
+        {label}
+      </span>
+      <span className="text-base font-semibold tabular-nums">
+        {formatINR(amount)}
+      </span>
+      {count !== undefined && (
+        <span className="text-xs opacity-75">
+          ({count} item{count === 1 ? '' : 's'})
+        </span>
+      )}
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Search filter options
 // ---------------------------------------------------------------------------
@@ -224,28 +270,54 @@ export function InstallmentListPage() {
           {/* Search results */}
           {searchResults && searchResults.length > 0 && (
             <>
-              <div className="mb-3 flex items-center justify-between text-sm text-muted-foreground">
+              <div className="mb-3 flex items-center justify-between gap-3 text-sm text-muted-foreground">
                 <p>
                   {searchResults.length} result{searchResults.length === 1 ? '' : 's'} found
                 </p>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setExpandedScheduleIds(new Set(searchResults.map((s: any) => s.id)))
-                    }
-                    className="text-xs text-primary hover:underline"
-                  >
-                    Expand all
-                  </button>
-                  <span>|</span>
-                  <button
-                    type="button"
-                    onClick={() => setExpandedScheduleIds(new Set())}
-                    className="text-xs text-primary hover:underline"
-                  >
-                    Collapse all
-                  </button>
+                <div className="flex items-center gap-3">
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setExpandedScheduleIds(new Set(searchResults.map((s: any) => s.id)))
+                      }
+                      className="text-xs text-primary hover:underline"
+                    >
+                      Expand all
+                    </button>
+                    <span>|</span>
+                    <button
+                      type="button"
+                      onClick={() => setExpandedScheduleIds(new Set())}
+                      className="text-xs text-primary hover:underline"
+                    >
+                      Collapse all
+                    </button>
+                  </div>
+                  {/* Total Due across every pending installment of every
+                      matched schedule. Same look as the chip on the other
+                      tabs so users recognise it instantly. */}
+                  <TotalDueChip
+                    amount={searchResults.reduce(
+                      (sum: number, sch: any) =>
+                        sum +
+                        ((sch.installments ?? []) as Array<{ remainingAmount: unknown }>).reduce(
+                          (s2, i) => s2 + Number(i.remainingAmount ?? 0),
+                          0,
+                        ),
+                      0,
+                    )}
+                    count={searchResults.reduce(
+                      (n: number, sch: any) =>
+                        n +
+                        ((sch.installments ?? []) as Array<{ remainingAmount: unknown }>).filter(
+                          (i) => Number(i.remainingAmount ?? 0) > 0,
+                        ).length,
+                      0,
+                    )}
+                    label="Total Due"
+                    variant="red"
+                  />
                 </div>
               </div>
 
@@ -599,11 +671,18 @@ function OverdueTab() {
 
   return (
     <div>
-      {canSeeZone && (
-        <div className="flex flex-wrap items-center gap-3 mb-6">
-          <ZoneFilter value={zoneFilter} onChange={setZoneFilter} />
-        </div>
-      )}
+      <div className="mb-6 flex flex-wrap items-center gap-3">
+        {canSeeZone && <ZoneFilter value={zoneFilter} onChange={setZoneFilter} />}
+        <TotalDueChip
+          amount={(overdueItems ?? []).reduce(
+            (sum, r) => sum + Number(r.remainingAmount ?? 0),
+            0,
+          )}
+          count={(overdueItems ?? []).length}
+          label="Total Overdue"
+          variant="red"
+        />
+      </div>
       <DataTable<OverdueInstallmentItem>
         columns={columns}
         data={overdueItems ?? []}
@@ -873,6 +952,15 @@ function CollectionsTab() {
             Last Financial Year
           </button>
           {canSeeZone && <ZoneFilter value={zoneFilter} onChange={setZoneFilter} />}
+          <TotalDueChip
+            amount={collections.reduce(
+              (sum: number, c: CollectionItem) => sum + Number(c.remainingAmount ?? 0),
+              0,
+            )}
+            count={collections.length}
+            label="Total Due"
+            variant="amber"
+          />
         </div>
       </div>
 
@@ -919,27 +1007,7 @@ function CollectionsTab() {
       {/* Collection table */}
       {!isLoading && !isError && collections.length > 0 && (
         <div className="space-y-4">
-          {/* Summary bar */}
-          <div className="rounded-lg border bg-card p-4 flex flex-wrap items-center gap-6">
-            <div>
-              <p className="text-xs text-muted-foreground uppercase tracking-wider">
-                Total Collections
-              </p>
-              <p className="text-lg font-semibold">{collections.length}</p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground uppercase tracking-wider">
-                Total Amount Due
-              </p>
-              <p className="text-lg font-semibold">
-                {formatINR(
-                  collections.reduce((sum: number, c: CollectionItem) => sum + Number(c.remainingAmount), 0),
-                )}
-              </p>
-            </div>
-          </div>
-
-          {/* Table */}
+          {/* Table — totals are surfaced in the TotalDueChip at the top */}
           <DataTable<CollectionItem>
             columns={collectionColumns}
             data={collections}
@@ -1213,6 +1281,12 @@ function PaidTab() {
           Last Financial Year
         </button>
         {canSeeZone && <ZoneFilter value={zoneFilter} onChange={setZoneFilter} />}
+        <TotalDueChip
+          amount={totalCollected}
+          count={rows.length}
+          label="Total Collected"
+          variant="green"
+        />
       </div>
 
       {/* Loading */}
@@ -1247,14 +1321,9 @@ function PaidTab() {
       {/* Table */}
       {!isLoading && !isError && rows.length > 0 && (
         <div className="space-y-4">
-          {/* Summary bar */}
+          {/* Compact paid/partial breakdown — grand total + count are
+              already in the TotalDueChip at the top. */}
           <div className="rounded-lg border bg-card p-4 flex flex-wrap items-center gap-6">
-            <div>
-              <p className="text-xs text-muted-foreground uppercase tracking-wider">
-                Installments
-              </p>
-              <p className="text-lg font-semibold">{rows.length}</p>
-            </div>
             <div>
               <p className="text-xs text-muted-foreground uppercase tracking-wider">
                 Fully Paid
@@ -1270,12 +1339,6 @@ function PaidTab() {
               <p className="text-lg font-semibold text-amber-600">
                 {partialCount}
               </p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground uppercase tracking-wider">
-                Total Collected
-              </p>
-              <p className="text-lg font-semibold">{formatINR(totalCollected)}</p>
             </div>
           </div>
 
