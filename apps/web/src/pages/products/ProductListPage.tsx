@@ -426,7 +426,7 @@ export function ProductListPage() {
               onChange={(e) => {
                 updateFilters({ searchText: e.target.value, page: '1' });
               }}
-              placeholder="Brand, model, or serial (min 3 chars)..."
+              placeholder="Brand, model, serial, or IMEI (min 3 chars)..."
               className={cn(
                 'w-full rounded-md border bg-background pl-9 pr-8 py-2 text-sm',
                 'placeholder:text-muted-foreground',

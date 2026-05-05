@@ -187,17 +187,23 @@ async function seedCategoryAttributes(prisma: PrismaClient, categories: ProductC
     'iron': ['Philips', 'Bajaj', 'Morphy Richards', 'Havells', 'Usha'],
   };
 
-  // Other category-specific attributes (displayOrder will be shifted by +1 to make room for brand at 0)
+  // Other category-specific attributes (displayOrder will be shifted by +1 to make room for brand at 0).
+  // For multi_text fields, `options` holds the validation rules
+  // (pattern / minItems / maxItems) since multi_text doesn't carry a list
+  // of dropdown choices. The seed loop below routes these into the
+  // dedicated `validationRules` column on insert.
   const attrMap: Record<string, { attributeName: string; attributeLabel: string; attributeType: string; isRequired: boolean; options?: unknown }[]> = {
     'smartphone': [
-      { attributeName: 'imei', attributeLabel: 'IMEI Number', attributeType: 'text', isRequired: true },
-      { attributeName: 'imei2', attributeLabel: 'IMEI 2', attributeType: 'text', isRequired: false },
+      // Multi-IMEI: most modern smartphones carry 2 IMEIs (dual-SIM); some
+      // hybrid eSIM phones go up to 3. Stored as `string[]` in
+      // dynamicAttributes.imeiNumbers, validated as 15-digit numeric.
+      { attributeName: 'imeiNumbers', attributeLabel: 'IMEI Number', attributeType: 'multi_text', isRequired: true, options: { pattern: '^\\d{15}$', patternMessage: 'IMEI must be 15 digits', minItems: 1, maxItems: 3 } },
       { attributeName: 'ram', attributeLabel: 'RAM (GB)', attributeType: 'select', isRequired: true, options: ['4', '6', '8', '12', '16'] },
       { attributeName: 'storage', attributeLabel: 'Storage (GB)', attributeType: 'select', isRequired: true, options: ['64', '128', '256', '512'] },
       { attributeName: 'os', attributeLabel: 'Operating System', attributeType: 'select', isRequired: false, options: ['Android', 'iOS'] },
     ],
     'feature-phone': [
-      { attributeName: 'imei', attributeLabel: 'IMEI Number', attributeType: 'text', isRequired: true },
+      { attributeName: 'imeiNumbers', attributeLabel: 'IMEI Number', attributeType: 'multi_text', isRequired: true, options: { pattern: '^\\d{15}$', patternMessage: 'IMEI must be 15 digits', minItems: 1, maxItems: 3 } },
     ],
     'split-ac': [
       { attributeName: 'tonnage', attributeLabel: 'Tonnage', attributeType: 'select', isRequired: true, options: ['1', '1.5', '2'] },
@@ -288,10 +294,20 @@ async function seedCategoryAttributes(prisma: PrismaClient, categories: ProductC
 
     for (let i = 0; i < attrs.length; i++) {
       const attr = attrs[i];
+      // For multi_text the `options` payload above is actually the
+      // validation rules object — store it in the right column.
+      const isMultiText = attr.attributeType === 'multi_text';
+      const optionsValue = isMultiText ? undefined : attr.options;
+      const validationRulesValue = isMultiText ? attr.options : undefined;
       await prisma.categoryAttribute.upsert({
         where: { categoryId_attributeName: { categoryId: cat.id, attributeName: attr.attributeName } },
         update: {
           displayOrder: i + 1,
+          attributeType: attr.attributeType as any,
+          isRequired: attr.isRequired,
+          options: optionsValue ? (optionsValue as any) : undefined,
+          validationRules: validationRulesValue ? (validationRulesValue as any) : undefined,
+          isActive: true,
         },
         create: {
           categoryId: cat.id,
@@ -299,7 +315,8 @@ async function seedCategoryAttributes(prisma: PrismaClient, categories: ProductC
           attributeLabel: attr.attributeLabel,
           attributeType: attr.attributeType as any,
           isRequired: attr.isRequired,
-          options: attr.options ? attr.options : undefined,
+          options: optionsValue ? (optionsValue as any) : undefined,
+          validationRules: validationRulesValue ? (validationRulesValue as any) : undefined,
           displayOrder: i + 1,
         },
       });

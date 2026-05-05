@@ -212,6 +212,40 @@ export function InvoiceConfirmDialog({
                 )}
               </div>
             </section>
+
+            {/* Product (read-only) — surfaces IMEI / serial so the user can
+                spot mistakes before printing. Not editable here because the
+                product is the source of truth and a separate page handles
+                product corrections. */}
+            <section>
+              <h4 className="mb-2 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+                Product
+              </h4>
+              <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm">
+                <p className="font-medium">
+                  {data.productBrand} {data.productModel}
+                </p>
+                {data.productSerial && (
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    Serial: <span className="font-mono">{data.productSerial}</span>
+                  </p>
+                )}
+                {data.productImeis && data.productImeis.length > 0 && (
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    IMEI:{' '}
+                    <span className="font-mono">
+                      {data.productImeis.join(' / ')}
+                    </span>
+                  </p>
+                )}
+                {data.productCategory && (
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    Category: {data.productCategory}
+                    {data.hsnCode && ` (HSN ${data.hsnCode})`}
+                  </p>
+                )}
+              </div>
+            </section>
           </div>
         )}
 

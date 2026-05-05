@@ -78,6 +78,8 @@ export enum FormFieldType {
   FILE = 'file',
   HIDDEN = 'hidden',
   AUTOCOMPLETE = 'autocomplete',
+  /** List of free-text values (e.g. multiple IMEI numbers). */
+  MULTI_TEXT = 'multi_text',
 }
 
 export enum BankTxnType {

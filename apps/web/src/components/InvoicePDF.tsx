@@ -38,6 +38,8 @@ export interface InvoiceData {
   productSerial?: string;
   productCategory?: string;
   hsnCode?: string;
+  /** IMEI number(s) for mobile sales — printed below the model line. */
+  productImeis?: string[];
   // Pricing (SP is GST-inclusive)
   sellingPrice: number;
   gstRate: number;
@@ -509,6 +511,14 @@ export function InvoicePDF({ data }: { data: InvoiceData }) {
               {data.productSerial && (
                 <Text style={styles.cellTextSmall}>
                   Serial: {data.productSerial}
+                </Text>
+              )}
+              {data.productImeis && data.productImeis.length > 0 && (
+                <Text style={styles.cellTextSmall}>
+                  IMEI:{' '}
+                  {data.productImeis
+                    .filter((v) => v && v.trim().length > 0)
+                    .join(' / ')}
                 </Text>
               )}
               {data.productCategory && (

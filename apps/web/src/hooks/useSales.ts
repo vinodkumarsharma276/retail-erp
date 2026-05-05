@@ -315,6 +315,7 @@ export interface SaleDetailResponse extends SaleRecord {
     sellingPrice: number;
     mrp: number;
     purchasePrice: number;
+    dynamicAttributes?: Record<string, unknown> | null;
   };
   guarantor?: {
     id: string;

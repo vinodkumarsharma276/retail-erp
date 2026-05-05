@@ -221,19 +221,47 @@ export function ProductDetailPage() {
                 Category-Specific Details
               </h2>
               <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                {dynamicEntries.map(([key, value]) => (
-                  <InfoRow
-                    key={key}
-                    label={formatAttributeLabel(key)}
-                    value={
-                      typeof value === 'boolean'
-                        ? value
-                          ? 'Yes'
-                          : 'No'
-                        : String(value ?? '-')
-                    }
-                  />
-                ))}
+                {dynamicEntries.map(([key, value]) => {
+                  // Arrays of strings (e.g. IMEI numbers) get rendered as
+                  // a vertical list of monospace chips so each entry is
+                  // easy to read and copy.
+                  if (Array.isArray(value)) {
+                    return (
+                      <div key={key}>
+                        <dt className="text-sm font-medium text-muted-foreground">
+                          {formatAttributeLabel(key)}
+                        </dt>
+                        <dd className="mt-1 flex flex-col gap-1">
+                          {value.length === 0 ? (
+                            <span className="text-sm">-</span>
+                          ) : (
+                            value.map((entry, idx) => (
+                              <span
+                                key={`${key}-${idx}`}
+                                className="inline-flex w-fit items-center rounded-md border bg-muted/50 px-2 py-0.5 font-mono text-xs"
+                              >
+                                {String(entry ?? '')}
+                              </span>
+                            ))
+                          )}
+                        </dd>
+                      </div>
+                    );
+                  }
+                  return (
+                    <InfoRow
+                      key={key}
+                      label={formatAttributeLabel(key)}
+                      value={
+                        typeof value === 'boolean'
+                          ? value
+                            ? 'Yes'
+                            : 'No'
+                          : String(value ?? '-')
+                      }
+                    />
+                  );
+                })}
               </dl>
             </div>
           )}

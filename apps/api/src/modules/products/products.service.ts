@@ -57,11 +57,24 @@ export const productsService = {
     }
 
     if (filters.search) {
-      where.OR = [
+      const orClauses: Prisma.ProductWhereInput[] = [
         { modelNumber: { contains: filters.search, mode: 'insensitive' } },
         { brand: { contains: filters.search, mode: 'insensitive' } },
         { serialNumber: { contains: filters.search, mode: 'insensitive' } },
       ];
+      // IMEI search — when the query looks like a full IMEI (15 digits),
+      // also match products whose `dynamicAttributes.imeiNumbers` array
+      // contains that exact value. Used so staff can find a phone in
+      // stock by typing/scanning the IMEI off the box.
+      if (/^\d{15}$/.test(filters.search)) {
+        orClauses.push({
+          dynamicAttributes: {
+            path: ['imeiNumbers'],
+            array_contains: filters.search,
+          } as any,
+        });
+      }
+      where.OR = orClauses;
     }
 
     // Filter by purchase invoice date (date of purchase). Only matches
@@ -108,16 +121,27 @@ export const productsService = {
     scope: { shopId: string; shopIds?: string[] },
     query: string,
   ) {
+    const orClauses: Prisma.ProductWhereInput[] = [
+      { modelNumber: { contains: query, mode: 'insensitive' } },
+      { brand: { contains: query, mode: 'insensitive' } },
+      { serialNumber: { contains: query, mode: 'insensitive' } },
+    ];
+    // Match on a stored IMEI when the query is a full 15-digit value.
+    if (/^\d{15}$/.test(query)) {
+      orClauses.push({
+        dynamicAttributes: {
+          path: ['imeiNumbers'],
+          array_contains: query,
+        } as any,
+      });
+    }
+
     const products = await prisma.product.findMany({
       where: {
         ...(scope.shopIds && scope.shopIds.length > 0
           ? { shopId: { in: scope.shopIds } }
           : { shopId: scope.shopId }),
-        OR: [
-          { modelNumber: { contains: query, mode: 'insensitive' } },
-          { brand: { contains: query, mode: 'insensitive' } },
-          { serialNumber: { contains: query, mode: 'insensitive' } },
-        ],
+        OR: orClauses,
       },
       include: {
         category: {

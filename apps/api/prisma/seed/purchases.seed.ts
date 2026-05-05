@@ -208,6 +208,25 @@ export async function seedPurchases(
         const serialNumber = `${shop.code}-SN-${pad(serialN, 7)}`;
         const barcode = `BC${shop.code}${pad(serialN, 9)}`;
 
+        // Mobile categories carry one IMEI per SIM slot. Most modern
+        // smartphones are dual-SIM (2 IMEIs); feature phones typically
+        // have 1 — but some Indian feature phones are also dual-SIM, so
+        // we randomly seed 1 or 2.
+        let dynamicAttrs: Record<string, unknown> = {};
+        if (cat.slug === 'smartphone' || cat.slug === 'feature-phone') {
+          const numImeis = cat.slug === 'smartphone'
+            ? 2
+            : (rand(pSeed + 8) < 0.5 ? 1 : 2);
+          const imeis: string[] = [];
+          for (let k = 0; k < numImeis; k++) {
+            // Deterministic 15-digit IMEI seeded from pSeed so re-runs
+            // produce stable values.
+            const tail = `${(pSeed * 9301 + k * 49297) >>> 0}`.padStart(13, '0').slice(-13);
+            imeis.push(`35${tail}`);
+          }
+          dynamicAttrs = { imeiNumbers: imeis };
+        }
+
         productRows.push({
           id: randomUUID(),
           shopId: shop.id,
@@ -225,7 +244,7 @@ export async function seedPurchases(
           warrantyMonths: [12, 18, 24, 36][Math.floor(rand(pSeed + 7) * 4)],
           barcode,
           createdBy,
-          dynamicAttributes: {},
+          dynamicAttributes: dynamicAttrs,
         });
       }
 

@@ -1034,6 +1034,9 @@ export const salesService = {
             serialNumber: true,
             mrp: true,
             purchasePrice: true,
+            // dynamicAttributes carries category-specific data (e.g.
+            // imeiNumbers for mobile phones) that the invoice prints.
+            dynamicAttributes: true,
             category: { select: { id: true, name: true, slug: true, hsnCode: true } },
           },
         },

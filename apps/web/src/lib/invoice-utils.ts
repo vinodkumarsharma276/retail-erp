@@ -49,6 +49,21 @@ function buildCustomerAddress(customer: {
 }
 
 /**
+ * Pull a normalized list of IMEI numbers out of a product's
+ * `dynamicAttributes` JSON. Tolerates missing / non-array values so the
+ * invoice generator never blows up on legacy data.
+ */
+function extractImeis(dynamicAttributes: unknown): string[] | undefined {
+  if (!dynamicAttributes || typeof dynamicAttributes !== 'object') return undefined;
+  const raw = (dynamicAttributes as Record<string, unknown>).imeiNumbers;
+  if (!Array.isArray(raw)) return undefined;
+  const list = raw
+    .map((v) => (typeof v === 'string' ? v.trim() : String(v ?? '').trim()))
+    .filter((v) => v.length > 0);
+  return list.length > 0 ? list : undefined;
+}
+
+/**
  * Fetch all data needed for the invoice and trigger the PDF download.
  * Fetches both the sale detail and the shop detail in parallel.
  */
@@ -96,6 +111,7 @@ export async function handleInvoiceDownload(saleId: string): Promise<void> {
     productCategory:
       (sale.product as any)?.category?.name || undefined,
     hsnCode: (sale.product as any)?.category?.hsnCode || undefined,
+    productImeis: extractImeis(sale.product?.dynamicAttributes),
     // Pricing — coerce Prisma Decimals to numbers
     sellingPrice: Number(sale.sellingPrice) || 0,
     gstRate: Number(sale.gstRate) || 0,
@@ -154,6 +170,7 @@ export async function buildInvoiceData(saleId: string): Promise<InvoiceData> {
     productSerial: sale.product?.serialNumber || undefined,
     productCategory: (sale.product as any)?.category?.name || undefined,
     hsnCode: (sale.product as any)?.category?.hsnCode || undefined,
+    productImeis: extractImeis(sale.product?.dynamicAttributes),
     sellingPrice: Number(sale.sellingPrice) || 0,
     gstRate: Number(sale.gstRate) || 0,
     gstType: parseGstType(sale.notes),

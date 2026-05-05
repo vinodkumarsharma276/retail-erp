@@ -92,6 +92,10 @@ enum FormFieldType {
   hidden
   readonly
   autocomplete
+  /// List of free-text values (rendered with add/remove rows). Stored as
+  /// `string[]` inside the JSON column. Used e.g. for IMEI numbers on
+  /// mobile phones where a device may carry 1–3 IMEIs.
+  multi_text
 }
 
 enum BankTxnType {
