@@ -18,29 +18,51 @@ import {
 import { useSidebarStore } from '../../stores/sidebar-store';
 import { cn } from '../../lib/utils';
 import { useCanCheck } from '../../hooks/usePermission';
+import { useTenantStore } from '../../stores/tenant-store';
+import { FeatureKey } from '@retailerp/shared-types';
 
-const navItems = [
-  { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, perm: 'nav.dashboard' },
-  { to: '/products', label: 'Products', icon: Package, perm: 'nav.products' },
-  { to: '/distributors', label: 'Distributors', icon: Truck, perm: 'nav.distributors' },
-  { to: '/purchases', label: 'Purchases', icon: Receipt, perm: 'nav.purchases' },
-  { to: '/customers', label: 'Customers', icon: Users, perm: 'nav.customers' },
-  { to: '/sales', label: 'Sales', icon: ShoppingCart, perm: 'nav.sales' },
-  { to: '/installments', label: 'Installments', icon: CalendarClock, perm: 'nav.installments' },
-  { to: '/transfers', label: 'Transfers', icon: ArrowRightLeft, perm: 'nav.transfers' },
-  { to: '/expenses', label: 'Expenses', icon: Wallet, perm: 'nav.expenses' },
-  { to: '/bank', label: 'Bank Statements', icon: Building2, perm: 'nav.bank' },
-  { to: '/employees', label: 'Employees', icon: UserCheck, perm: 'nav.employees' },
-  { to: '/settings', label: 'Settings', icon: Settings, perm: 'nav.settings' },
+/**
+ * Each nav item gates on two independent things:
+ *   - `perm`    — RBAC permission key (per-user, see permissions.ts)
+ *   - `feature` — tenant feature flag (per-plan + per-tenant override,
+ *                 see features.ts). Items without a `feature` are always
+ *                 visible (subject to `perm`).
+ */
+const navItems: Array<{
+  to: string;
+  label: string;
+  icon: typeof LayoutDashboard;
+  perm: string;
+  feature?: string;
+}> = [
+  { to: '/dashboard',    label: 'Dashboard',       icon: LayoutDashboard,  perm: 'nav.dashboard',    feature: FeatureKey.DASHBOARD_ANALYTICS },
+  { to: '/products',     label: 'Products',        icon: Package,          perm: 'nav.products',     feature: FeatureKey.PRODUCTS },
+  { to: '/distributors', label: 'Distributors',    icon: Truck,            perm: 'nav.distributors', feature: FeatureKey.DISTRIBUTORS },
+  { to: '/purchases',    label: 'Purchases',       icon: Receipt,          perm: 'nav.purchases',    feature: FeatureKey.PURCHASES },
+  { to: '/customers',    label: 'Customers',       icon: Users,            perm: 'nav.customers',    feature: FeatureKey.CUSTOMERS },
+  { to: '/sales',        label: 'Sales',           icon: ShoppingCart,     perm: 'nav.sales',        feature: FeatureKey.SALES },
+  { to: '/installments', label: 'Installments',    icon: CalendarClock,    perm: 'nav.installments', feature: FeatureKey.INSTALLMENTS },
+  { to: '/transfers',    label: 'Transfers',       icon: ArrowRightLeft,   perm: 'nav.transfers',    feature: FeatureKey.TRANSFERS },
+  { to: '/expenses',     label: 'Expenses',        icon: Wallet,           perm: 'nav.expenses',     feature: FeatureKey.EXPENSES },
+  { to: '/bank',         label: 'Bank Statements', icon: Building2,        perm: 'nav.bank',         feature: FeatureKey.BANK_RECONCILIATION },
+  { to: '/employees',    label: 'Employees',       icon: UserCheck,        perm: 'nav.employees' },
+  { to: '/settings',     label: 'Settings',        icon: Settings,         perm: 'nav.settings' },
 ];
 
 export function Sidebar() {
   const can = useCanCheck();
+  const featureFlags = useTenantStore((s) => s.features.flags);
   const isOpen = useSidebarStore((s) => s.isOpen);
   const close = useSidebarStore((s) => s.close);
   const location = useLocation();
 
-  const visibleItems = navItems.filter((item) => can(item.perm));
+  const visibleItems = navItems.filter((item) => {
+    if (!can(item.perm)) return false;
+    // Items with a feature key require the flag to be enabled. Items
+    // without a feature (e.g. Employees, Settings) skip this check.
+    if (item.feature && !featureFlags[item.feature]) return false;
+    return true;
+  });
 
   // Close sidebar on route change (mobile)
   useEffect(() => {

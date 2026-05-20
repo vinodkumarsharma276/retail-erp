@@ -20,6 +20,17 @@ export async function shopScope(request: FastifyRequest, reply: FastifyReply) {
   if (!request.currentUser) {
     return reply.status(401).send({ success: false, error: 'Authentication required' });
   }
+  // Tenant context is required for any shop-scoped route. The auth middleware
+  // already verified the JWT's tenantId matches request.tenant.id, but we
+  // double-check here so service code can rely on shopFilter.tenantId being
+  // present without an undefined check.
+  const tenantId = request.tenant?.id ?? request.currentUser.tenantId;
+  if (!tenantId) {
+    return reply.status(400).send({
+      success: false,
+      error: 'No tenant context for shop-scoped request',
+    });
+  }
 
   const headerShopId = request.headers['x-shop-id'] as string | undefined;
   const canSwitchShops =
@@ -32,7 +43,9 @@ export async function shopScope(request: FastifyRequest, reply: FastifyReply) {
   // to switch shops at all, and the user's role grants `shops.view_all`.
   // We resolve the user's accessible shops once and stash both the
   // sentinel "primary" shop (the JWT's shopId, used by legacy modules
-  // that haven't been adapted) and the full `shopIds` array.
+  // that haven't been adapted) and the full `shopIds` array. The
+  // UserShop lookup is constrained to the current tenant so the
+  // aggregate view can never accidentally reach across tenants.
   if (headerShopId === ALL_SHOPS_SENTINEL && canSwitchShops) {
     // Owner has every permission via the catalog; cheap fast path.
     let allowed = request.currentUser.role === 'owner';
@@ -46,7 +59,8 @@ export async function shopScope(request: FastifyRequest, reply: FastifyReply) {
       const userShops = await prisma.userShop.findMany({
         where: {
           userId: request.currentUser.userId,
-          shop: { isActive: true },
+          tenantId,
+          shop: { isActive: true, tenantId },
         },
         select: { shopId: true },
       });
@@ -59,6 +73,7 @@ export async function shopScope(request: FastifyRequest, reply: FastifyReply) {
       }
 
       request.shopFilter = {
+        tenantId,
         shopId: request.currentUser.shopId,
         allShops: true,
         shopIds,
@@ -70,16 +85,17 @@ export async function shopScope(request: FastifyRequest, reply: FastifyReply) {
 
   // ── Normal single-shop mode ─────────────────────────────────────────
   if (headerShopId && canSwitchShops) {
-    request.shopFilter = { shopId: headerShopId };
+    request.shopFilter = { tenantId, shopId: headerShopId };
   } else {
-    request.shopFilter = { shopId: request.currentUser.shopId };
+    request.shopFilter = { tenantId, shopId: request.currentUser.shopId };
   }
 
   const hasShopAccess = await prisma.userShop.findFirst({
     where: {
       userId: request.currentUser.userId,
       shopId: request.shopFilter.shopId,
-      shop: { isActive: true },
+      tenantId,
+      shop: { isActive: true, tenantId },
     },
     select: { id: true },
   });

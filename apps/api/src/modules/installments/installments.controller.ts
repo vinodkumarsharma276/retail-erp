@@ -318,6 +318,67 @@ export const installmentsController = {
     }
   },
 
+  /**
+   * Preview whether a reschedule on the given installment can be safely
+   * undone, and what the consequence will be. Used by the UI to decide if
+   * the Undo button should be shown / enabled and what dialog text to
+   * display.
+   */
+  async previewUndoReschedule(
+    request: FastifyRequest<{ Params: { installmentId: string } }>,
+    reply: FastifyReply,
+  ) {
+    try {
+      const result = await installmentsService.previewUndoReschedule(
+        request.params.installmentId,
+      );
+      return sendSuccess(reply, result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to preview undo';
+      return sendError(reply, message, 500);
+    }
+  },
+
+  /**
+   * Undo a reschedule. The installmentId is either:
+   *   • the reschedule-created sub-row (#N.k), or
+   *   • the source primary row whose remainder was redistributed.
+   * See `installmentsService.undoReschedule` for the full algorithm.
+   */
+  async undoReschedule(
+    request: FastifyRequest<{
+      Params: { installmentId: string };
+      Body: { reason: string };
+    }>,
+    reply: FastifyReply,
+  ) {
+    try {
+      const result = await installmentsService.undoReschedule(
+        request.params.installmentId,
+        request.body.reason,
+        request.currentUser?.userId ?? null,
+      );
+      return sendSuccess(reply, result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to undo reschedule';
+      if (message === 'Installment not found') {
+        return sendError(reply, message, 404);
+      }
+      if (
+        message.startsWith('Cannot undo:') ||
+        message === 'No reschedule found to undo.' ||
+        message === 'Source installment not found' ||
+        message === 'Source installment not found.' ||
+        message === 'Source primary installment not found' ||
+        message === 'Latest redistribute event does not target this installment.' ||
+        message === 'Redistribution log has no targets.'
+      ) {
+        return sendError(reply, message, 400);
+      }
+      return sendError(reply, message, 500);
+    }
+  },
+
   async getRollLog(
     request: FastifyRequest<{ Params: { scheduleId: string } }>,
     reply: FastifyReply,
@@ -371,6 +432,9 @@ export const installmentsController = {
       const message = error instanceof Error ? error.message : 'Failed to revert payment';
       if (message === 'Payment not found') {
         return sendError(reply, message, 404);
+      }
+      if (message.startsWith('Cannot revert:')) {
+        return sendError(reply, message, 400);
       }
       return sendError(reply, message, 500);
     }

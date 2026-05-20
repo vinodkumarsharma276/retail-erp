@@ -19,7 +19,7 @@ import {
   Info,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { useScheduleDetailQuery, useRevertPaymentMutation, useMovePaymentMutation, useCorrectPaymentMutation } from '../../hooks/useInstallments';
+import { useScheduleDetailQuery, useRevertPaymentMutation, useMovePaymentMutation, useCorrectPaymentMutation, useUndoReschedulePreviewQuery, useUndoRescheduleMutation } from '../../hooks/useInstallments';
 import { StatusBadge } from '../../components/StatusBadge';
 import { PaymentTimeline } from '../../components/PaymentTimeline';
 import { RecordPaymentDialog } from '../../components/RecordPaymentDialog';
@@ -93,6 +93,18 @@ export function InstallmentDetailPage() {
   const [modifyInterestAmount, setModifyInterestAmount] = useState('');
   const [modifyInterestNotes, setModifyInterestNotes] = useState('');
   const correctMutation = useCorrectPaymentMutation();
+
+  // Undo reschedule dialog state
+  const [undoRescheduleTarget, setUndoRescheduleTarget] = useState<{
+    installmentId: string;
+    installmentLabel: string;
+  } | null>(null);
+  const [undoRescheduleReason, setUndoRescheduleReason] = useState('');
+  const undoReschedulePreviewQuery = useUndoReschedulePreviewQuery(
+    undoRescheduleTarget?.installmentId,
+    !!undoRescheduleTarget,
+  );
+  const undoRescheduleMutation = useUndoRescheduleMutation();
 
   // Toggle to show/hide rescheduled (superseded) rows
   const [showRescheduled, setShowRescheduled] = useState(false);
@@ -180,6 +192,27 @@ export function InstallmentDetailPage() {
     InstallmentStatus.DUE_TODAY,
     InstallmentStatus.PARTIALLY_PAID,
   ];
+
+  // "Frontline" due date: the latest dueDate among non-rescheduled,
+  // non-paid rows whose dueDate is on or before today. Any row whose
+  // dueDate is strictly earlier than this is a *past* installment whose
+  // obligation has already been absorbed into later installments by the
+  // rollover engine — it must not show the Reschedule button. Future
+  // installments (dueDate > today) remain reschedulable as before.
+  const todayMidnight = new Date();
+  todayMidnight.setHours(0, 0, 0, 0);
+  const frontlineDueTime: number | null = installments.reduce<number | null>(
+    (acc: number | null, i: any) => {
+      if (i.isRescheduled) return acc;
+      if (i.status === InstallmentStatus.PAID) return acc;
+      const d = new Date(i.dueDate);
+      d.setHours(0, 0, 0, 0);
+      if (d.getTime() > todayMidnight.getTime()) return acc;
+      if (acc == null || d.getTime() > acc) return d.getTime();
+      return acc;
+    },
+    null,
+  );
 
   return (
     <div>
@@ -379,10 +412,23 @@ export function InstallmentDetailPage() {
                 const statusActionable = actionableStatuses.includes(inst.status);
                 const isAbsorbed = statusActionable && remNum <= 0;
                 const canPay = statusActionable && (remNum > 0 || manuallyEnabled.has(inst.id));
+                // Reschedule is only valid on the "frontline" row (latest
+                // row with dueDate <= today) and on future upcoming rows.
+                // Past installments whose dueDate has already been
+                // superseded by a later overdue/due-today row are
+                // considered absorbed and must not show the button.
+                const instDueTime = (() => {
+                  const d = new Date(inst.dueDate);
+                  d.setHours(0, 0, 0, 0);
+                  return d.getTime();
+                })();
+                const isPastFrontline =
+                  frontlineDueTime != null && instDueTime < frontlineDueTime;
                 const canReschedule =
-                  inst.status === InstallmentStatus.UPCOMING ||
-                  inst.status === InstallmentStatus.OVERDUE ||
-                  inst.status === InstallmentStatus.DUE_TODAY;
+                  !isPastFrontline &&
+                  (inst.status === InstallmentStatus.UPCOMING ||
+                    inst.status === InstallmentStatus.OVERDUE ||
+                    inst.status === InstallmentStatus.DUE_TODAY);
                 const lastPayment =
                   inst.payments?.length > 0
                     ? inst.payments[inst.payments.length - 1]
@@ -485,6 +531,48 @@ export function InstallmentDetailPage() {
                             Moved to #{inst.rescheduledTo.installmentNumber}
                           </span>
                         )}
+                        {/* Undo Reschedule — visible on:
+                             1) sub-rows created by a reschedule that have no payment yet, OR
+                             2) primary rows fully absorbed into future installments
+                                (status overdue + remaining=0 + paid=0).
+                             The server's preview endpoint enforces actual eligibility. */}
+                        {(() => {
+                          const remNumLocal = Number(inst.remainingAmount);
+                          const paidNumLocal = Number(inst.amountPaid);
+                          const isResubRow =
+                            inst.rescheduledFromId &&
+                            inst.parentInstallmentNumber != null &&
+                            paidNumLocal === 0 &&
+                            !inst.isRescheduled &&
+                            (inst.status === InstallmentStatus.UPCOMING ||
+                              inst.status === InstallmentStatus.DUE_TODAY ||
+                              inst.status === InstallmentStatus.OVERDUE);
+                          const isAbsorbedPrimary =
+                            inst.parentInstallmentNumber == null &&
+                            inst.status === InstallmentStatus.OVERDUE &&
+                            remNumLocal === 0 &&
+                            paidNumLocal === 0;
+                          if (!isResubRow && !isAbsorbedPrimary) return null;
+                          return (
+                            <button
+                              onClick={() => {
+                                setUndoRescheduleTarget({
+                                  installmentId: inst.id,
+                                  installmentLabel: formatInstallmentLabel(inst),
+                                });
+                                setUndoRescheduleReason('');
+                              }}
+                              title="Undo the reschedule that created/affected this row"
+                              className={cn(
+                                'flex items-center gap-1 rounded-md border border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-950/30 px-2 py-1 text-xs font-medium text-red-600 dark:text-red-400',
+                                'hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors',
+                              )}
+                            >
+                              <Undo2 className="h-3 w-3" />
+                              Undo Reschedule
+                            </button>
+                          );
+                        })()}
                         {lastPayment && inst.status !== 'rescheduled' && (
                           <button
                             onClick={() =>
@@ -1368,6 +1456,202 @@ export function InstallmentDetailPage() {
                     <><Pencil className="h-4 w-4" /> Correct Payment</>
                   )}
                 </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ── Undo Reschedule dialog ─────────────────────────────────────── */}
+      {undoRescheduleTarget && (() => {
+        const closeUndoResched = () => {
+          setUndoRescheduleTarget(null);
+          setUndoRescheduleReason('');
+        };
+        const preview = undoReschedulePreviewQuery.data;
+        const isLoading = undoReschedulePreviewQuery.isLoading;
+        const isError = undoReschedulePreviewQuery.isError;
+        const eligible = !!preview && preview.eligible;
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center">
+            <div className="absolute inset-0 bg-black/50" onClick={closeUndoResched} />
+            <div className="relative z-10 w-full max-w-2xl rounded-lg border bg-card p-6 shadow-xl mx-4 max-h-[90vh] overflow-y-auto">
+              {/* Header */}
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className="text-lg font-medium">Undo Reschedule</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Installment {undoRescheduleTarget.installmentLabel}
+                  </p>
+                </div>
+                <button
+                  onClick={closeUndoResched}
+                  className="rounded-md p-1 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              {/* Body */}
+              {isLoading && (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                </div>
+              )}
+
+              {isError && (
+                <div className="rounded-md border border-red-300 bg-red-50 dark:bg-red-950/30 p-4 text-sm text-red-700 dark:text-red-300">
+                  Failed to load undo preview. Please close the dialog and try again.
+                </div>
+              )}
+
+              {preview && preview.eligible === false && (
+                <div className="rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/30 p-4 text-sm text-amber-800 dark:text-amber-200">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+                    <div>
+                      <p className="font-medium mb-1">Undo is not available for this installment.</p>
+                      <p>{preview.reason}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {preview && preview.eligible && preview.branch === 'sub_row' && (
+                <div className="space-y-4">
+                  <div className="rounded-md border bg-muted/30 p-4 text-sm space-y-2">
+                    <p className="font-medium">This will:</p>
+                    <ul className="list-disc pl-5 space-y-1 text-muted-foreground">
+                      <li>
+                        Delete the rescheduled sub-row{' '}
+                        <span className="font-medium text-foreground">{preview.subRowLabel}</span>{' '}
+                        due {formatDateIN(preview.newDueDate)} ({formatINR(preview.amount)}).
+                      </li>
+                      <li>
+                        Restore installment{' '}
+                        <span className="font-medium text-foreground">{preview.sourceLabel}</span>{' '}
+                        (originally due {formatDateIN(preview.sourceDueDate)}) with the full{' '}
+                        {formatINR(preview.amount)} owed again.
+                      </li>
+                      <li>Log the undo action in the activity timeline.</li>
+                    </ul>
+                    {preview.rescheduledBy && preview.rescheduledAt && (
+                      <p className="pt-2 text-xs text-muted-foreground">
+                        Original reschedule by <span className="font-medium">{preview.rescheduledBy}</span>{' '}
+                        on {formatDateIN(preview.rescheduledAt)}.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {preview && preview.eligible && preview.branch === 'redistribute' && (
+                <div className="space-y-4">
+                  <div className="rounded-md border bg-muted/30 p-4 text-sm space-y-2">
+                    <p className="font-medium">This will:</p>
+                    <ul className="list-disc pl-5 space-y-1 text-muted-foreground">
+                      <li>
+                        Restore {formatINR(preview.carryover)} of obligation onto installment{' '}
+                        <span className="font-medium text-foreground">#{preview.restoresPrimaryNumber}</span>.
+                      </li>
+                      <li>
+                        Reverse the redistribution across {preview.targets.length} future installment
+                        {preview.targets.length === 1 ? '' : 's'}:
+                      </li>
+                    </ul>
+                    <div className="mt-2 rounded-md border bg-background overflow-hidden">
+                      <table className="w-full text-xs">
+                        <thead className="bg-muted/40 text-muted-foreground">
+                          <tr>
+                            <th className="px-2 py-1.5 text-left font-medium">EMI</th>
+                            <th className="px-2 py-1.5 text-right font-medium">Current Due</th>
+                            <th className="px-2 py-1.5 text-right font-medium">Decrease</th>
+                            <th className="px-2 py-1.5 text-right font-medium">New Due</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {preview.targets.map((t) => (
+                            <tr key={t.id} className="border-t last:border-0">
+                              <td className="px-2 py-1.5">#{t.installmentNumber}</td>
+                              <td className="px-2 py-1.5 text-right">{formatINR(t.currentAmountDue)}</td>
+                              <td className="px-2 py-1.5 text-right text-amber-600">
+                                −{formatINR(t.delta)}
+                              </td>
+                              <td className="px-2 py-1.5 text-right font-medium">
+                                {formatINR(t.newAmountDue)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    {preview.rescheduledBy && preview.rescheduledAt && (
+                      <p className="pt-2 text-xs text-muted-foreground">
+                        Original reschedule by <span className="font-medium">{preview.rescheduledBy}</span>{' '}
+                        on {formatDateIN(preview.rescheduledAt)} (promised{' '}
+                        {preview.promisedDate ? formatDateIN(preview.promisedDate) : 'n/a'}).
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Reason input — only when eligible */}
+              {eligible && (
+                <div className="mt-4">
+                  <label className="block text-sm font-medium mb-1.5">
+                    Reason <span className="text-red-500">*</span>
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={undoRescheduleReason}
+                    onChange={(e) => setUndoRescheduleReason(e.target.value)}
+                    placeholder="e.g. Reschedule was created by mistake"
+                    className={cn(
+                      'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                      'placeholder:text-muted-foreground',
+                      'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                    )}
+                  />
+                </div>
+              )}
+
+              {/* Footer */}
+              <div className="flex items-center justify-end gap-2 mt-6 pt-4 border-t">
+                <button
+                  onClick={closeUndoResched}
+                  className="rounded-md border bg-background px-4 py-2 text-sm font-medium hover:bg-muted transition-colors"
+                >
+                  Cancel
+                </button>
+                {eligible && (
+                  <button
+                    disabled={
+                      undoRescheduleMutation.isPending ||
+                      !undoRescheduleReason.trim()
+                    }
+                    onClick={() => {
+                      undoRescheduleMutation.mutate(
+                        {
+                          installmentId: undoRescheduleTarget.installmentId,
+                          reason: undoRescheduleReason.trim(),
+                        },
+                        { onSuccess: closeUndoResched },
+                      );
+                    }}
+                    className={cn(
+                      'flex items-center gap-2 rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white',
+                      'hover:bg-red-700 transition-colors',
+                      'disabled:opacity-50 disabled:cursor-not-allowed',
+                    )}
+                  >
+                    {undoRescheduleMutation.isPending ? (
+                      <><Loader2 className="h-4 w-4 animate-spin" /> Undoing...</>
+                    ) : (
+                      <><Undo2 className="h-4 w-4" /> Confirm Undo</>
+                    )}
+                  </button>
+                )}
               </div>
             </div>
           </div>

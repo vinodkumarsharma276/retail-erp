@@ -1,6 +1,7 @@
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useAuthStore, hasStoredToken } from '../stores/auth-store';
 import { useShopStore } from '../stores/shop-store';
+import { useTenantStore } from '../stores/tenant-store';
 import { useMeQuery } from '../hooks/useAuth';
 import { useQueryClient } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
@@ -46,6 +47,15 @@ export function ProtectedRoute() {
     usePreferencesStore.getState().setPreferences(
       ((data.user as any).preferences as any) ?? null,
     );
+
+    // Tenant context + feature flags — refreshed on every /auth/me so a
+    // platform-admin feature toggle takes effect on the user's next
+    // navigation, not after a hard reload.
+    const meTenant = (data as any).tenant;
+    const meFeatures = (data as any).features;
+    if (meTenant && meFeatures) {
+      useTenantStore.getState().setTenant(meTenant, meFeatures);
+    }
 
     if (!store.isAuthenticated) {
       // First hydration after a page load — full login().

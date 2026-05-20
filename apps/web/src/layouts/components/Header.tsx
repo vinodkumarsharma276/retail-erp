@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { useAuthStore } from '../../stores/auth-store';
 import { useShopStore, ALL_SHOPS_SENTINEL, isAllShops } from '../../stores/shop-store';
+import { useTenantStore } from '../../stores/tenant-store';
 import { useSidebarStore } from '../../stores/sidebar-store';
 import { useToastStore } from '../../stores/toast-store';
 import { useNavigate } from 'react-router-dom';
@@ -36,6 +37,7 @@ export function Header() {
   const shopCode = useShopStore((s) => s.currentShopCode);
   const currentShopId = useShopStore((s) => s.currentShopId);
   const setShop = useShopStore((s) => s.setShop);
+  const tenantName = useTenantStore((s) => s.tenantName);
   const loginStore = useAuthStore((s) => s.login);
   const addToast = useToastStore((s) => s.addToast);
   const navigate = useNavigate();
@@ -234,6 +236,19 @@ export function Header() {
           >
             <Menu className="h-5 w-5" />
           </button>
+
+          {/* Tenant chrome — purely informational. Hidden on small screens
+              where the shop badge already carries enough context. */}
+          {tenantName && (
+            <div className="hidden md:flex items-center gap-2 pr-3 mr-1 border-r">
+              <span className="text-xs uppercase tracking-wider text-muted-foreground">
+                Org
+              </span>
+              <span className="text-sm font-medium text-foreground truncate max-w-[12rem]">
+                {tenantName}
+              </span>
+            </div>
+          )}
 
           {/* Shop badge / switcher */}
           {canSwitchShop && availableShops.length > 1 ? (

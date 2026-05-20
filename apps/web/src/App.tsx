@@ -42,8 +42,17 @@ import { usePreferencesStore } from './stores/preferences-store';
 import { UserRole } from '@retailerp/shared-types';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ToastContainer } from './components/Toast';
+import { isPlatformAdminHost } from './lib/host';
+import { PlatformApp } from './PlatformApp';
 
 function App() {
+  // Hostname-based router branch: `admin.*` renders the platform-admin
+  // app; everything else renders the per-tenant app. The decision is made
+  // once per page load (hostname doesn't change without a full reload).
+  if (isPlatformAdminHost()) {
+    return <PlatformApp />;
+  }
+
   return (
     <ErrorBoundary>
     <ToastContainer />

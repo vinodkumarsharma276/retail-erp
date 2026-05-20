@@ -4,10 +4,11 @@ import { prisma } from '../../config/database.js';
 const SALT_ROUNDS = 10;
 
 export const authService = {
-  async listShops() {
+  /** List active shops in a specific tenant — used by the login screen. */
+  async listShops(tenantId: string) {
     try {
       return await prisma.shop.findMany({
-        where: { isActive: true },
+        where: { isActive: true, tenantId },
         select: { id: true, name: true, code: true },
         orderBy: { name: 'asc' },
       });
@@ -16,12 +17,19 @@ export const authService = {
     }
   },
 
-  async validateCredentials(username: string, password: string) {
+  /**
+   * Validate username+password within a specific tenant scope. Username
+   * uniqueness is `(tenantId, username)` post-Phase-1, so a stolen username
+   * from Tenant A cannot authenticate on Tenant B even if the passwords
+   * happen to match.
+   */
+  async validateCredentials(tenantId: string, username: string, password: string) {
     try {
-      const user = await prisma.user.findUnique({
-        where: { username },
+      const user = await prisma.user.findFirst({
+        where: { tenantId, username },
         include: {
           userShops: {
+            where: { tenantId },
             include: { shop: true },
             orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
           },
@@ -39,10 +47,10 @@ export const authService = {
     }
   },
 
-  async verifyUserShopAccess(userId: string, shopId: string) {
+  async verifyUserShopAccess(userId: string, shopId: string, tenantId: string) {
     try {
       const assignment = await prisma.userShop.findFirst({
-        where: { userId, shopId },
+        where: { userId, shopId, tenantId },
       });
       return !!assignment;
     } catch (error) {
@@ -61,11 +69,17 @@ export const authService = {
     }
   },
 
-  async storeRefreshToken(userId: string, tokenHash: string, deviceInfo?: string) {
+  async storeRefreshToken(
+    userId: string,
+    tenantId: string,
+    tokenHash: string,
+    deviceInfo?: string,
+  ) {
     try {
       await prisma.refreshToken.create({
         data: {
           userId,
+          tenantId,
           tokenHash,
           deviceInfo,
           expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
@@ -87,11 +101,17 @@ export const authService = {
     }
   },
 
-  async findValidRefreshToken(tokenHash: string) {
+  /**
+   * Look up a refresh token within a tenant. We scope by tenantId so a
+   * stolen refresh token from Tenant A cannot be used to mint access
+   * tokens on Tenant B.
+   */
+  async findValidRefreshToken(tokenHash: string, tenantId: string) {
     try {
       return await prisma.refreshToken.findFirst({
         where: {
           tokenHash,
+          tenantId,
           revokedAt: null,
           expiresAt: { gt: new Date() },
         },
@@ -99,6 +119,7 @@ export const authService = {
           user: {
             include: {
               userShops: {
+                where: { tenantId },
                 include: { shop: true },
                 orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
               },
@@ -139,18 +160,19 @@ export const authService = {
     });
   },
 
-  async getShopById(shopId: string) {
-    return prisma.shop.findUnique({
-      where: { id: shopId },
+  async getShopById(shopId: string, tenantId: string) {
+    return prisma.shop.findFirst({
+      where: { id: shopId, tenantId },
       select: { id: true, name: true, code: true },
     });
   },
 
-  async getUserWithShops(userId: string) {
-    return prisma.user.findUnique({
-      where: { id: userId },
+  async getUserWithShops(userId: string, tenantId: string) {
+    return prisma.user.findFirst({
+      where: { id: userId, tenantId },
       include: {
         userShops: {
+          where: { tenantId },
           include: { shop: { select: { id: true, name: true, code: true } } },
           orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
         },

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useLoginMutation } from '../../hooks/useAuth';
 import { useAuthStore } from '../../stores/auth-store';
 import { useShopStore } from '../../stores/shop-store';
+import { useTenantStore } from '../../stores/tenant-store';
 import { usePreferencesStore } from '../../stores/preferences-store';
 import { UserRole } from '@retailerp/shared-types';
 // Note: login/setShop called via getState() to avoid re-render loops
@@ -70,6 +71,10 @@ export function LoginPage() {
             (data as any).permissions ?? [],
           );
 
+          // Store tenant context + feature snapshot for header chrome
+          // and useFeature() gates throughout the app.
+          useTenantStore.getState().setTenant(data.tenant, data.features);
+
           // Store shop
           useShopStore.getState().setShop(data.shop.id, data.shop.name, data.shop.code);
 
@@ -111,9 +116,18 @@ export function LoginPage() {
           </div>
           <h1 className="text-4xl font-bold tracking-tight">RetailERP</h1>
         </div>
-        <p className="text-lg text-muted-foreground">
-          Sign in to manage your shop
-        </p>
+        {/* Show the cached tenant name if we've logged in before on this
+            subdomain — gives the user immediate "this is my org" feedback. */}
+        {(() => {
+          const tenantName = useTenantStore.getState().tenantName;
+          return tenantName ? (
+            <p className="text-lg text-muted-foreground">
+              Sign in to <span className="font-medium text-foreground">{tenantName}</span>
+            </p>
+          ) : (
+            <p className="text-lg text-muted-foreground">Sign in to manage your shop</p>
+          );
+        })()}
       </div>
 
       <div>

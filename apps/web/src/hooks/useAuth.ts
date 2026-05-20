@@ -6,6 +6,8 @@ import type {
   ShopListItem,
   ApiResponse,
   User,
+  AuthTenantContext,
+  TenantFeatureSnapshot,
 } from '@retailerp/shared-types';
 
 // GET /api/v1/auth/shops — public, no auth needed
@@ -50,7 +52,13 @@ export function useMeQuery(enabled = true) {
     queryKey: ['auth', 'me'],
     queryFn: async () => {
       const { data } = await apiClient.get<
-        ApiResponse<{ user: User; shops: ShopListItem[]; permissions: string[] }>
+        ApiResponse<{
+          user: User;
+          shops: ShopListItem[];
+          permissions: string[];
+          tenant: AuthTenantContext;
+          features: TenantFeatureSnapshot;
+        }>
       >('/auth/me');
       return data.data!;
     },

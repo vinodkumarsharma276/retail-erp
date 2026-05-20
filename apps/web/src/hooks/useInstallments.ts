@@ -311,8 +311,10 @@ export interface RollLogEvent {
     | 'chain_closed_manual'
     | 'schedule_completed'
     | 'rescheduled'
+    | 'reschedule_undone'
     | 'redistributed'
     | 'payment_reverted'
+    | 'payment_moved'
     | 'early_collection_scheduled'
     | 'note_added';
   eventDate: string;
@@ -439,6 +441,94 @@ export function useRevertPaymentMutation() {
       const { data } = await apiClient.post(
         `/installments/payments/${paymentId}/revert`,
         { reason, applyInterest, cascade },
+      );
+      return data.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['installments'] });
+      queryClient.invalidateQueries({ queryKey: ['sales'] });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Undo a reschedule — preview + mutation
+// ---------------------------------------------------------------------------
+export interface UndoReschedulePreviewIneligible {
+  eligible: false;
+  reason: string;
+}
+
+export interface UndoReschedulePreviewSubRow {
+  eligible: true;
+  branch: 'sub_row';
+  subRowId: string;
+  subRowLabel: string;
+  amount: number;
+  newDueDate: string;
+  sourceId: string;
+  sourceLabel: string;
+  sourceDueDate: string;
+  rescheduledAt: string | null;
+  rescheduledBy: string | null;
+}
+
+export interface UndoReschedulePreviewRedistribute {
+  eligible: true;
+  branch: 'redistribute';
+  restoresPrimaryNumber: number;
+  carryover: number;
+  promisedDate: string | null;
+  targets: Array<{
+    id: string;
+    installmentNumber: number;
+    currentAmountDue: number;
+    currentRemaining: number;
+    delta: number;
+    newAmountDue: number;
+    newRemaining: number;
+    eligible: boolean;
+  }>;
+  redistLogId: string;
+  rescheduledAt: string | null;
+  rescheduledBy: string | null;
+}
+
+export type UndoReschedulePreview =
+  | UndoReschedulePreviewIneligible
+  | UndoReschedulePreviewSubRow
+  | UndoReschedulePreviewRedistribute;
+
+export function useUndoReschedulePreviewQuery(
+  installmentId: string | undefined,
+  enabled: boolean,
+) {
+  return useQuery({
+    queryKey: ['installments', 'undo-reschedule-preview', installmentId],
+    enabled: !!installmentId && enabled,
+    queryFn: async () => {
+      const { data } = await apiClient.get<ApiResponse<UndoReschedulePreview>>(
+        `/installments/${installmentId}/undo-reschedule/preview`,
+      );
+      return data.data!;
+    },
+  });
+}
+
+export function useUndoRescheduleMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      installmentId,
+      reason,
+    }: {
+      installmentId: string;
+      reason: string;
+    }) => {
+      const { data } = await apiClient.post(
+        `/installments/${installmentId}/undo-reschedule`,
+        { reason },
       );
       return data.data;
     },

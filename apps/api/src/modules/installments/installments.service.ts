@@ -1,6 +1,6 @@
 import { prisma } from '../../config/database.js';
 import type { Prisma } from '@prisma/client';
-import { ensureRolledForToday, applyPartialWithPromise, syncScheduleAndSale, distributeOverpayment } from './installments.rules.js';
+import { ensureRolledForToday, applyPartialWithPromise, syncScheduleAndSale, distributeOverpayment, resolveScheduleTenantId } from './installments.rules.js';
 import { computeSettlementQuote, computeAccruedInterest } from '@retailerp/shared-utils';
 
 /**
@@ -20,6 +20,25 @@ function saleScopeFilter(scope: ReadScope): Prisma.SaleRecordWhereInput {
     return { shopId: { in: scope.shopIds } };
   }
   return { shopId: scope.shopId };
+}
+
+/** UTC day truncation — used to compare dates without time-of-day noise. */
+function toDateOnly(d: Date): Date {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+}
+
+/**
+ * Strip the `"Rescheduled to YYYY-MM-DD."` prefix (and any trailing space)
+ * that `reschedule()` / `recordPayment(scenario='reschedule')` prepend to the
+ * source row's notes. Idempotent — returns the original text when no such
+ * prefix is present.
+ */
+function stripReschedulePrefix(notes: string | null): string | null {
+  if (!notes) return notes;
+  const match = notes.match(/^Rescheduled to \d{4}-\d{2}-\d{2}\.\s*/);
+  if (!match) return notes;
+  const stripped = notes.slice(match[0].length).trim();
+  return stripped.length > 0 ? stripped : null;
 }
 
 export const installmentsService = {
@@ -985,6 +1004,7 @@ export const installmentsService = {
             : `#${installment.installmentNumber}`;
         await tx.installmentRollLog.create({
           data: {
+            tenantId: await resolveScheduleTenantId(tx, schedule.id),
             scheduleId: schedule.id,
             installmentId,
             eventType: 'interest_applied',
@@ -1087,6 +1107,7 @@ export const installmentsService = {
         // Audit log
         await tx.installmentRollLog.create({
           data: {
+            tenantId: await resolveScheduleTenantId(tx, schedule.id),
             scheduleId: schedule.id,
             installmentId,
             eventType: 'payment_recorded',
@@ -1115,6 +1136,20 @@ export const installmentsService = {
             installment.parentInstallmentNumber ?? installment.installmentNumber;
           const today = new Date();
           today.setHours(0, 0, 0, 0);
+
+          // ── Bug-2 fix: greedy interest waiver is the wrong semantic when
+          // paying an "absorbed" row (rem === 0 because R4 already pushed
+          // the obligation forward). In that case the user's intent is to
+          // reverse the absorption, NOT to early-settle future installments.
+          // Force equal-split (no greedy clearing) regardless of the UI
+          // flag for absorbed-row payments. Genuine overpayments on rows
+          // with rem > 0 continue to honour `waiveExcessInterest`.
+          const isAbsorbedRowPayment =
+            Number(installment.remainingAmount) === 0 &&
+            Number(installment.amountPaid) === 0;
+          const effectiveWaiveInterest =
+            isAbsorbedRowPayment ? false : data.waiveExcessInterest === true;
+
           const { distributed, targets } = await distributeOverpayment(tx, {
             scheduleId: schedule.id,
             sourcePrimaryNumber,
@@ -1124,7 +1159,8 @@ export const installmentsService = {
             actorUserId: userId,
             paymentMode: data.paymentMode,
             notes: data.notes,
-            waiveInterest: data.waiveExcessInterest === true,
+            waiveInterest: effectiveWaiveInterest,
+            paymentId: paymentRecord?.id,
           });
           if (targets.length === 0) {
             // No future primaries to absorb the excess. Roll back the
@@ -1193,6 +1229,7 @@ export const installmentsService = {
             // Log the early collection scheduling
             await tx.installmentRollLog.create({
               data: {
+                tenantId: await resolveScheduleTenantId(tx, schedule.id),
                 scheduleId: schedule.id,
                 installmentId: nextInstallment.id,
                 eventType: 'early_collection_scheduled',
@@ -1212,66 +1249,39 @@ export const installmentsService = {
         }
       } else if (data.scenario === 'reschedule') {
         const newDate = new Date(data.newDate!);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const newDateStr = newDate.toISOString().split('T')[0];
 
-        // Mark original as rescheduled
+        // Record the reschedule date on the source row's notes so it is
+        // visible in the installment table and timeline. Preserve any
+        // user-provided note by appending it.
+        const sourceNote = data.notes
+          ? `Rescheduled to ${newDateStr}. ${data.notes}`
+          : `Rescheduled to ${newDateStr}.`;
         await tx.installment.update({
           where: { id: installmentId },
-          data: {
-            isRescheduled: true,
-            status: 'rescheduled',
-            notes: data.notes ?? `Rescheduled to ${data.newDate}`,
-          },
+          data: { notes: sourceNote },
         });
 
-        // Create new installment on the new date. Preserve sub-row identity
-        // (parentInstallmentNumber + subSequence) so e.g. 6.1 stays 6.1 on the
-        // new date rather than appearing as a primary #6.
-        newInstallment = await tx.installment.create({
-          data: {
-            scheduleId: schedule.id,
-            installmentNumber: installment.installmentNumber,
-            parentInstallmentNumber: installment.parentInstallmentNumber,
-            subSequence: installment.subSequence,
-            dueDate: newDate,
-            amountDue: Number(installment.remainingAmount),
-            amountPaid: 0,
-            remainingAmount: Number(installment.remainingAmount),
-            status: 'upcoming',
-            isRescheduled: false,
-            rescheduledFromId: installmentId,
-            notes: data.notes ?? `Rescheduled from ${new Date(installment.dueDate).toISOString().split('T')[0]}. Original installment #${installment.installmentNumber}.`,
-          },
+        // Delegate chain handling to the rule engine. This mirrors the
+        // partial_reschedule path with zero payment:
+        //   • newDate ≤ next primary's dueDate  → create sub-row #N.(k+1)
+        //   • newDate >  next primary's dueDate → redistribute remainder (R3)
+        const result = await applyPartialWithPromise(tx, {
+          sourceInstallmentId: installmentId,
+          newPromiseDate: newDate,
+          remainderAfterPayment: Number(installment.remainingAmount),
+          actorUserId: userId,
+          employeeNote: data.notes,
+          today,
         });
 
-        // Audit log
-        const instLabel =
-          installment.parentInstallmentNumber != null && installment.subSequence != null
-            ? `#${installment.parentInstallmentNumber}.${installment.subSequence}`
-            : `#${installment.installmentNumber}`;
-        const fromDateStr = new Date(installment.dueDate).toISOString().split('T')[0];
-        const toDateStr = newDate.toISOString().split('T')[0];
-        await tx.installmentRollLog.create({
-          data: {
-            scheduleId: schedule.id,
-            installmentId,
-            eventType: 'rescheduled',
-            eventDate: new Date(),
-            actorUserId: userId,
-            displayMessage:
-              `Installment ${instLabel} rescheduled from ${fromDateStr} to ${toDateStr}.` +
-              (data.notes ? ` Note: ${data.notes}` : ''),
-            metadata: {
-              installmentId,
-              newInstallmentId: newInstallment.id,
-              installmentNumber: installment.installmentNumber,
-              parentInstallmentNumber: installment.parentInstallmentNumber,
-              subSequence: installment.subSequence,
-              fromDate: fromDateStr,
-              toDate: toDateStr,
-              amount: Number(installment.remainingAmount),
-            } as Prisma.InputJsonValue,
-          },
-        });
+        if (result.branch === 'sub_created' && result.newSubId) {
+          newInstallment = await tx.installment.findUnique({
+            where: { id: result.newSubId },
+          });
+        }
       } else if (data.scenario === 'partial_reschedule') {
         const amount = data.amountPaid!;
         const newDate = new Date(data.newDate!);
@@ -1472,8 +1482,13 @@ export const installmentsService = {
   },
 
   /**
-   * Dedicated reschedule method (Scenario 2).
-   * Creates new installment on the new date, marks original as rescheduled.
+   * Dedicated reschedule method (Scenario 2 — no payment recorded).
+   *
+   * Delegates chain handling to the rule engine (applyPartialWithPromise),
+   * which creates a sub-row #N.(k+1) when the new date falls on/before the
+   * next primary's due date, or redistributes the remainder across future
+   * primaries otherwise (R3). The source row's notes are updated to record
+   * the reschedule date.
    */
   async reschedule(
     installmentId: string,
@@ -1502,99 +1517,492 @@ export const installmentsService = {
     }
 
     const newDate = new Date(data.newDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const newDateStr = newDate.toISOString().split('T')[0];
 
     const result = await prisma.$transaction(async (tx) => {
-      // Mark original as rescheduled
+      // Record the reschedule date on the source row's notes so it is
+      // visible in the installment table and timeline. Preserve any
+      // user-provided note by appending it.
+      const sourceNote = data.notes
+        ? `Rescheduled to ${newDateStr}. ${data.notes}`
+        : `Rescheduled to ${newDateStr}.`;
       await tx.installment.update({
         where: { id: installmentId },
-        data: {
-          isRescheduled: true,
-          status: 'rescheduled',
-          notes: data.notes ?? `Rescheduled to ${data.newDate}`,
-        },
+        data: { notes: sourceNote },
       });
 
-      // Create new installment on new date. Preserve sub-row identity so
-      // rescheduling 6.1 produces a new 6.1 on the new date (not a primary #6).
-      const newInstallment = await tx.installment.create({
-        data: {
-          scheduleId: installment.schedule.id,
-          installmentNumber: installment.installmentNumber,
-          parentInstallmentNumber: installment.parentInstallmentNumber,
-          subSequence: installment.subSequence,
-          dueDate: newDate,
-          amountDue: Number(installment.remainingAmount),
-          amountPaid: 0,
-          remainingAmount: Number(installment.remainingAmount),
-          status: 'upcoming',
-          isRescheduled: false,
-          rescheduledFromId: installmentId,
-          notes: data.notes ?? `Rescheduled from ${new Date(installment.dueDate).toISOString().split('T')[0]}. Original installment #${installment.installmentNumber}.`,
-        },
-      });
-
-      // Audit log
-      const instLabel =
-        installment.parentInstallmentNumber != null && installment.subSequence != null
-          ? `#${installment.parentInstallmentNumber}.${installment.subSequence}`
-          : `#${installment.installmentNumber}`;
-      const fromDateStr = new Date(installment.dueDate).toISOString().split('T')[0];
-      const toDateStr = newDate.toISOString().split('T')[0];
-      await tx.installmentRollLog.create({
-        data: {
-          scheduleId: installment.schedule.id,
-          installmentId,
-          eventType: 'rescheduled',
-          eventDate: new Date(),
-          actorUserId: userId,
-          displayMessage:
-            `Installment ${instLabel} rescheduled from ${fromDateStr} to ${toDateStr}.` +
-            (data.notes ? ` Note: ${data.notes}` : ''),
-          metadata: {
-            installmentId,
-            newInstallmentId: newInstallment.id,
-            installmentNumber: installment.installmentNumber,
-            parentInstallmentNumber: installment.parentInstallmentNumber,
-            subSequence: installment.subSequence,
-            fromDate: fromDateStr,
-            toDate: toDateStr,
-            amount: Number(installment.remainingAmount),
-          } as Prisma.InputJsonValue,
-        },
+      // Delegate chain handling to the rule engine.
+      const ruleResult = await applyPartialWithPromise(tx, {
+        sourceInstallmentId: installmentId,
+        newPromiseDate: newDate,
+        remainderAfterPayment: Number(installment.remainingAmount),
+        actorUserId: userId,
+        employeeNote: data.notes,
+        today,
       });
 
       await syncScheduleAndSale(tx, installment.schedule.id);
 
-      return newInstallment;
+      return ruleResult;
     });
 
-    // Return with full details
-    const newInstallment = await prisma.installment.findUnique({
-      where: { id: result.id },
-      include: {
-        rescheduledFrom: {
-          select: {
-            id: true,
-            installmentNumber: true,
-            dueDate: true,
-            amountDue: true,
+    // If a sub row was created, return it with full details. Otherwise
+    // (redistribution branch) there is no single new installment to return.
+    if (result.branch === 'sub_created' && result.newSubId) {
+      return prisma.installment.findUnique({
+        where: { id: result.newSubId },
+        include: {
+          rescheduledFrom: {
+            select: {
+              id: true,
+              installmentNumber: true,
+              dueDate: true,
+              amountDue: true,
+            },
           },
-        },
-        schedule: {
-          select: {
-            id: true,
-            sale: {
-              select: {
-                saleNumber: true,
-                customer: { select: { name: true, phone: true } },
+          schedule: {
+            select: {
+              id: true,
+              sale: {
+                select: {
+                  saleNumber: true,
+                  customer: { select: { name: true, phone: true } },
+                },
               },
             },
           },
         },
+      });
+    }
+
+    return null;
+  },
+
+  /**
+   * Preview an undo-reschedule for an installment that was created by a
+   * reschedule (either a sub-row OR a `redistributed` event that absorbed
+   * a parent into future primaries). Read-only — used by the UI to decide
+   * whether to show the Undo button and what consequence-text to display.
+   *
+   * Returns one of:
+   *   { eligible: true, branch: 'sub_row', restoresInstallmentId, amount, sourceDueDate }
+   *   { eligible: true, branch: 'redistribute', restoresPrimaryNumber, targets: [...], promisedDate }
+   *   { eligible: false, reason: '...' }
+   */
+  async previewUndoReschedule(installmentId: string) {
+    const inst = await prisma.installment.findUnique({
+      where: { id: installmentId },
+      select: {
+        id: true,
+        scheduleId: true,
+        installmentNumber: true,
+        parentInstallmentNumber: true,
+        subSequence: true,
+        dueDate: true,
+        amountDue: true,
+        amountPaid: true,
+        remainingAmount: true,
+        status: true,
+        isRescheduled: true,
+        rescheduledFromId: true,
       },
     });
+    if (!inst) {
+      return { eligible: false as const, reason: 'Installment not found' };
+    }
 
-    return newInstallment;
+    // Case A — this row is a reschedule-created sub-row.
+    if (inst.parentInstallmentNumber != null && inst.rescheduledFromId) {
+      if (Number(inst.amountPaid) > 0) {
+        return {
+          eligible: false as const,
+          reason: 'Cannot undo: this rescheduled installment already has a payment recorded on it.',
+        };
+      }
+      if (inst.isRescheduled) {
+        return {
+          eligible: false as const,
+          reason: 'Cannot undo: this installment was itself rescheduled again. Undo the newer reschedule first.',
+        };
+      }
+      const source = await prisma.installment.findUnique({
+        where: { id: inst.rescheduledFromId },
+        select: { id: true, installmentNumber: true, parentInstallmentNumber: true, subSequence: true, dueDate: true, remainingAmount: true },
+      });
+      if (!source) {
+        return { eligible: false as const, reason: 'Source installment not found.' };
+      }
+      const subCreatedLog = await prisma.installmentRollLog.findFirst({
+        where: {
+          scheduleId: inst.scheduleId,
+          installmentId: inst.id,
+          eventType: 'sub_created',
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true, eventDate: true, createdAt: true, actorUserId: true, actor: { select: { fullName: true, username: true } } },
+      });
+      return {
+        eligible: true as const,
+        branch: 'sub_row' as const,
+        subRowId: inst.id,
+        subRowLabel:
+          inst.parentInstallmentNumber != null && inst.subSequence != null
+            ? `#${inst.parentInstallmentNumber}.${inst.subSequence}`
+            : `#${inst.installmentNumber}`,
+        amount: Number(inst.amountDue),
+        newDueDate: inst.dueDate,
+        sourceId: source.id,
+        sourceLabel:
+          source.parentInstallmentNumber != null && source.subSequence != null
+            ? `#${source.parentInstallmentNumber}.${source.subSequence}`
+            : `#${source.installmentNumber}`,
+        sourceDueDate: source.dueDate,
+        rescheduledAt: subCreatedLog?.eventDate ?? null,
+        rescheduledBy: subCreatedLog?.actor?.fullName ?? subCreatedLog?.actor?.username ?? null,
+      };
+    }
+
+    // Case B — caller passed the *primary* row that was redistributed away.
+    // Find the latest `redistributed` log on this schedule for this primary
+    // whose reason is `promise_after_next` (i.e. user-driven reschedule, not
+    // automatic R4 daily rollover).
+    const primaryNumber = inst.installmentNumber;
+    const redistLog = await prisma.installmentRollLog.findFirst({
+      where: {
+        scheduleId: inst.scheduleId,
+        eventType: 'redistributed',
+      },
+      orderBy: [{ eventDate: 'desc' }, { createdAt: 'desc' }],
+      include: { actor: { select: { fullName: true, username: true } } },
+    });
+    if (!redistLog || !redistLog.metadata) {
+      return { eligible: false as const, reason: 'No reschedule found to undo.' };
+    }
+    const meta = redistLog.metadata as Prisma.JsonObject;
+    if (meta.sourcePrimary !== primaryNumber) {
+      return { eligible: false as const, reason: 'Latest redistribute event does not target this installment.' };
+    }
+    if (meta.reason !== 'promise_after_next') {
+      return {
+        eligible: false as const,
+        reason: 'Cannot undo: this redistribution was performed automatically by the daily rollover, not by a manual reschedule. Use Apply Interest / Move Payment to correct instead.',
+      };
+    }
+    const targets = (meta.targets ?? []) as Array<{ id: string; delta: number; installmentNumber: number }>;
+    if (targets.length === 0) {
+      return { eligible: false as const, reason: 'Redistribution log has no targets.' };
+    }
+    const carryover = Number(meta.carryover ?? 0);
+    const promisedDate = (meta.promisedDate as string | null) ?? null;
+    const cutoff = redistLog.eventDate;
+
+    // Eligibility check: no payments/interest/newer events touching any
+    // target since `cutoff`.
+    const targetIds = targets.map((t) => t.id);
+    const [postPayments, postInterest, postRollLogs] = await Promise.all([
+      prisma.installmentPayment.count({
+        where: { installmentId: { in: targetIds }, createdAt: { gt: cutoff } },
+      }),
+      prisma.installmentInterestApplication.count({
+        where: { installmentId: { in: targetIds }, createdAt: { gt: cutoff } },
+      }),
+      prisma.installmentRollLog.count({
+        where: {
+          scheduleId: inst.scheduleId,
+          installmentId: { in: targetIds },
+          eventType: { in: ['redistributed', 'sub_created', 'rescheduled', 'interest_applied', 'payment_recorded'] },
+          createdAt: { gt: cutoff },
+        },
+      }),
+    ]);
+    if (postPayments > 0 || postInterest > 0 || postRollLogs > 0) {
+      return {
+        eligible: false as const,
+        reason: 'Cannot undo: payments, interest, or other reschedules have been recorded on the affected installments since this reschedule. Reverse those actions first.',
+      };
+    }
+
+    // Per-target preview: each target's new amountDue/remainingAmount after
+    // decrementing by its delta. We also sanity-check that none would go
+    // below amountPaid (which would mean a payment slipped through despite
+    // the count check — should not happen with the gates above).
+    const targetRows = await prisma.installment.findMany({
+      where: { id: { in: targetIds } },
+      select: { id: true, installmentNumber: true, amountDue: true, amountPaid: true, remainingAmount: true },
+    });
+    const previews = targets.map((t) => {
+      const row = targetRows.find((r) => r.id === t.id);
+      if (!row) {
+        return { id: t.id, installmentNumber: t.installmentNumber, delta: t.delta, eligible: false as const };
+      }
+      const newAmountDue = Number(row.amountDue) - t.delta;
+      const newRemaining = Number(row.remainingAmount) - t.delta;
+      const safe = newAmountDue >= Number(row.amountPaid) && newRemaining >= 0;
+      return {
+        id: t.id,
+        installmentNumber: t.installmentNumber,
+        currentAmountDue: Number(row.amountDue),
+        currentRemaining: Number(row.remainingAmount),
+        delta: t.delta,
+        newAmountDue,
+        newRemaining,
+        eligible: safe,
+      };
+    });
+    const allSafe = previews.every((p) => p.eligible);
+    if (!allSafe) {
+      return {
+        eligible: false as const,
+        reason: 'Cannot undo: reversing the redistribution would corrupt one or more target installments.',
+      };
+    }
+
+    return {
+      eligible: true as const,
+      branch: 'redistribute' as const,
+      restoresPrimaryNumber: primaryNumber,
+      carryover,
+      promisedDate,
+      targets: previews,
+      redistLogId: redistLog.id,
+      rescheduledAt: redistLog.eventDate,
+      rescheduledBy: redistLog.actor?.fullName ?? redistLog.actor?.username ?? null,
+    };
+  },
+
+  /**
+   * Undo a reschedule. Two branches mirror previewUndoReschedule:
+   *
+   *  Case A — sub-row branch (`installmentId` points to the sub-row #N.k):
+   *    1. Restore the source row's remainingAmount to the sub-row's amount.
+   *    2. Recompute the source row's status from amountPaid + today vs dueDate.
+   *    3. Delete the sub-row's payments (none expected — eligibility blocks).
+   *    4. Delete the sub-row.
+   *    5. Delete the `sub_created` roll-log entry.
+   *    6. Strip the "Rescheduled to YYYY-MM-DD." prefix from source.notes.
+   *    7. Write a `reschedule_undone` log.
+   *
+   *  Case B — redistribute branch (`installmentId` points to the source
+   *    primary row; eligibility lookup finds a recent `redistributed` log):
+   *    1. For each target in the log's metadata, decrement amountDue and
+   *       remainingAmount by `delta`. Recompute status (`paid` ↔ `upcoming`).
+   *    2. Restore the source primary chain's remainingAmount to `carryover`,
+   *       split back to the rows that originally held it (we restore the
+   *       FULL carryover onto the primary row itself for simplicity — the
+   *       sub-rows we previously zeroed all had remaining=0 at the time of
+   *       redistribute, so collapsing the carryover onto the primary is
+   *       lossless w.r.t. totals; if the primary itself had been
+   *       partially_paid we preserve amountPaid as-is).
+   *    3. Delete the `redistributed` roll-log entry.
+   *    4. Strip the reschedule note from the source primary.
+   *    5. Write a `reschedule_undone` log.
+   *
+   * After either branch: syncScheduleAndSale + ensureRolledForToday (with
+   * lastRolloverDate=null) so the chain is re-evaluated.
+   */
+  async undoReschedule(
+    installmentId: string,
+    reason: string,
+    userId: string | null,
+  ) {
+    const preview = await this.previewUndoReschedule(installmentId);
+    if (!preview.eligible) {
+      throw new Error(preview.reason);
+    }
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    return prisma.$transaction(async (tx) => {
+      if (preview.branch === 'sub_row') {
+        const source = await tx.installment.findUnique({
+          where: { id: preview.sourceId },
+        });
+        if (!source) throw new Error('Source installment not found');
+
+        const amountToRestore = preview.amount;
+        const newRemaining = Number(source.remainingAmount) + amountToRestore;
+        const newAmountPaid = Number(source.amountPaid);
+        let newStatus: string;
+        if (newAmountPaid >= Number(source.amountDue) + amountToRestore) {
+          newStatus = 'paid';
+        } else if (newAmountPaid > 0) {
+          newStatus = 'partially_paid';
+        } else {
+          const dueDay = toDateOnly(source.dueDate).getTime();
+          const todayDay = toDateOnly(today).getTime();
+          newStatus = dueDay < todayDay ? 'overdue' : dueDay === todayDay ? 'due_today' : 'upcoming';
+        }
+
+        // Strip the "Rescheduled to YYYY-MM-DD. " prefix we added on
+        // reschedule (the standalone reschedule() method writes this).
+        const strippedNotes = stripReschedulePrefix(source.notes);
+
+        await tx.installment.update({
+          where: { id: source.id },
+          data: {
+            remainingAmount: newRemaining,
+            status: newStatus as any,
+            notes: strippedNotes,
+          },
+        });
+
+        // Delete the sub-row's roll log entries first (FK), then the row.
+        await tx.installmentRollLog.deleteMany({
+          where: { installmentId: preview.subRowId },
+        });
+        // Delete any (unexpected) payments on the sub-row — eligibility
+        // gate above should mean there are none, but be defensive.
+        await tx.installmentPayment.deleteMany({
+          where: { installmentId: preview.subRowId },
+        });
+        await tx.installment.delete({ where: { id: preview.subRowId } });
+
+        // Write the undone log on the SOURCE row.
+        await tx.installmentRollLog.create({
+          data: {
+            tenantId: await resolveScheduleTenantId(tx, source.scheduleId),
+            scheduleId: source.scheduleId,
+            installmentId: source.id,
+            eventType: 'reschedule_undone',
+            eventDate: new Date(),
+            actorUserId: userId,
+            displayMessage:
+              `Reschedule of installment ${preview.sourceLabel} to ` +
+              `${toDateOnly(preview.newDueDate).toISOString().split('T')[0]} was undone.` +
+              (reason ? ` Reason: ${reason}` : ''),
+            metadata: {
+              branch: 'sub_row',
+              deletedSubRowId: preview.subRowId,
+              restoredAmount: amountToRestore,
+              originalDueDate: toDateOnly(preview.sourceDueDate).toISOString().split('T')[0],
+              cancelledNewDueDate: toDateOnly(preview.newDueDate).toISOString().split('T')[0],
+              reason,
+            } as Prisma.InputJsonValue,
+          },
+        });
+
+        await syncScheduleAndSale(tx, source.scheduleId, userId ?? undefined);
+        await tx.installmentSchedule.update({
+          where: { id: source.scheduleId },
+          data: { lastRolloverDate: null },
+        });
+        await ensureRolledForToday(tx, today, { scheduleId: source.scheduleId });
+
+        return { branch: 'sub_row', restoredInstallmentId: source.id, restoredAmount: amountToRestore };
+      }
+
+      // Case B — redistribute branch.
+      const sourcePrimary = await tx.installment.findUnique({
+        where: { id: installmentId },
+      });
+      if (!sourcePrimary) throw new Error('Source primary installment not found');
+
+      // 1. Reverse the per-target deltas.
+      for (const t of preview.targets) {
+        const row = await tx.installment.findUnique({ where: { id: t.id } });
+        if (!row) continue;
+        const newAmountDue = Number(row.amountDue) - t.delta;
+        const newRemaining = Number(row.remainingAmount) - t.delta;
+        const newAmountPaid = Number(row.amountPaid);
+        let newStatus: string;
+        if (newAmountPaid >= newAmountDue && newAmountDue > 0) {
+          newStatus = 'paid';
+        } else if (newAmountPaid > 0) {
+          newStatus = 'partially_paid';
+        } else {
+          const dueDay = toDateOnly(row.dueDate).getTime();
+          const todayDay = toDateOnly(today).getTime();
+          newStatus = dueDay < todayDay ? 'overdue' : dueDay === todayDay ? 'due_today' : 'upcoming';
+        }
+        await tx.installment.update({
+          where: { id: t.id },
+          data: {
+            amountDue: newAmountDue,
+            remainingAmount: newRemaining,
+            status: newStatus as any,
+          },
+        });
+      }
+
+      // 2. Restore the source primary chain. Find every row in the chain
+      //    (primary + sub-rows) so we can put the carryover back.
+      //    Simplest: dump the full carryover onto the primary row's
+      //    remainingAmount (collapsing all sub-row remainders that were
+      //    zeroed at redistribute time). Status is recomputed from
+      //    amountPaid + today.
+      const primaryAmountPaid = Number(sourcePrimary.amountPaid);
+      const primaryAmountDue = Number(sourcePrimary.amountDue);
+      const restoredPrimaryRemaining = primaryAmountDue - primaryAmountPaid;
+      let primaryStatus: string;
+      if (primaryAmountPaid >= primaryAmountDue) {
+        primaryStatus = 'paid';
+      } else if (primaryAmountPaid > 0) {
+        primaryStatus = 'partially_paid';
+      } else {
+        const dueDay = toDateOnly(sourcePrimary.dueDate).getTime();
+        const todayDay = toDateOnly(today).getTime();
+        primaryStatus = dueDay < todayDay ? 'overdue' : dueDay === todayDay ? 'due_today' : 'upcoming';
+      }
+      const strippedPrimaryNotes = stripReschedulePrefix(sourcePrimary.notes);
+      await tx.installment.update({
+        where: { id: sourcePrimary.id },
+        data: {
+          remainingAmount: restoredPrimaryRemaining,
+          status: primaryStatus as any,
+          notes: strippedPrimaryNotes,
+        },
+      });
+
+      // 3. Delete the original `redistributed` log entry.
+      await tx.installmentRollLog.delete({ where: { id: preview.redistLogId } });
+
+      // 4. Write the undone log.
+      const sourceLabel = `#${sourcePrimary.installmentNumber}`;
+      await tx.installmentRollLog.create({
+        data: {
+          tenantId: await resolveScheduleTenantId(tx, sourcePrimary.scheduleId),
+          scheduleId: sourcePrimary.scheduleId,
+          installmentId: sourcePrimary.id,
+          eventType: 'reschedule_undone',
+          eventDate: new Date(),
+          actorUserId: userId,
+          displayMessage:
+            `Reschedule (redistribute) of installment ${sourceLabel} ` +
+            `(promised ${preview.promisedDate ?? 'n/a'}) was undone. ` +
+            `${preview.targets.length} future installment(s) restored.` +
+            (reason ? ` Reason: ${reason}` : ''),
+          metadata: {
+            branch: 'redistribute',
+            sourcePrimary: sourcePrimary.installmentNumber,
+            carryoverRestored: preview.carryover,
+            cancelledPromisedDate: preview.promisedDate,
+            targets: preview.targets.map((t) => ({
+              id: t.id,
+              installmentNumber: t.installmentNumber,
+              delta: t.delta,
+            })),
+            reason,
+          } as Prisma.InputJsonValue,
+        },
+      });
+
+      await syncScheduleAndSale(tx, sourcePrimary.scheduleId, userId ?? undefined);
+      await tx.installmentSchedule.update({
+        where: { id: sourcePrimary.scheduleId },
+        data: { lastRolloverDate: null },
+      });
+      await ensureRolledForToday(tx, today, { scheduleId: sourcePrimary.scheduleId });
+
+      return {
+        branch: 'redistribute',
+        restoredInstallmentId: sourcePrimary.id,
+        restoredAmount: preview.carryover,
+        targetsAffected: preview.targets.length,
+      };
+    });
   },
 
   /**
@@ -1686,6 +2094,149 @@ export const installmentsService = {
     const amountToRevert = Number(payment.amount);
 
     const result = await prisma.$transaction(async (tx) => {
+      // ── Pre-step: reverse R7 overpayment distribution side-effects ──────
+      // When the original recordPayment had excess cash, R7 mutated future
+      // installments' amountDue / remainingAmount / amountPaid. Those
+      // mutations are *not* undone by simply deleting the payment row —
+      // we must explicitly reverse them. We locate the R7 log entry by
+      //   (a) preferred:  metadata.paymentId === paymentId, OR
+      //   (b) fallback:   most recent `redistributed` log for this row
+      //                   with reason='overpayment' AND createdAt close to
+      //                   the payment's createdAt (same transaction).
+      // Eligibility: if ANY of the target installments has had a payment,
+      // interest application, or further redistribute event AFTER the R7
+      // log was written, refuse the revert — the user must reverse those
+      // newer actions first to avoid silently corrupting totals.
+      const r7Log = await tx.installmentRollLog.findFirst({
+        where: {
+          scheduleId: inst.schedule.id,
+          eventType: 'redistributed',
+          installmentId: inst.id,
+          OR: [
+            { metadata: { path: ['paymentId'], equals: paymentId } as any },
+            // Fallback for older payments (no paymentId stored in meta) —
+            // match by closely-following createdAt and reason='overpayment'.
+            {
+              AND: [
+                { metadata: { path: ['reason'], equals: 'overpayment' } as any },
+                { createdAt: { gte: new Date(payment.createdAt.getTime() - 2000) } },
+                { createdAt: { lte: new Date(payment.createdAt.getTime() + 10000) } },
+              ],
+            },
+          ],
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      if (r7Log && r7Log.metadata) {
+        const meta = r7Log.metadata as Prisma.JsonObject;
+        const targets = (meta.targets ?? []) as Array<{
+          id: string;
+          delta: number;
+          installmentNumber: number;
+          paidOff?: boolean;
+          interestWaived?: number;
+          closedEarly?: boolean;
+        }>;
+        const targetIds = targets.map((t) => t.id);
+
+        if (targetIds.length > 0) {
+          // Eligibility gate (same algorithm as undoReschedule Case B).
+          const cutoff = r7Log.createdAt;
+          const [postPayments, postInterest, postRollLogs] = await Promise.all([
+            tx.installmentPayment.count({
+              where: {
+                installmentId: { in: targetIds },
+                createdAt: { gt: cutoff },
+              },
+            }),
+            tx.installmentInterestApplication.count({
+              where: {
+                installmentId: { in: targetIds },
+                createdAt: { gt: cutoff },
+              },
+            }),
+            tx.installmentRollLog.count({
+              where: {
+                scheduleId: inst.schedule.id,
+                installmentId: { in: targetIds },
+                eventType: {
+                  in: [
+                    'redistributed',
+                    'sub_created',
+                    'rescheduled',
+                    'interest_applied',
+                    'payment_recorded',
+                  ],
+                },
+                createdAt: { gt: cutoff },
+              },
+            }),
+          ]);
+          if (postPayments > 0 || postInterest > 0 || postRollLogs > 0) {
+            throw new Error(
+              'Cannot revert: payments, interest, or further redistributions have been recorded on the installments that received this overpayment. Reverse those newer actions first.',
+            );
+          }
+
+          // Reverse each target's R7 mutation. Two shapes to handle:
+          //   - greedy/closedEarly: amountDue and rem were decremented by
+          //     (delta + interestWaived); amountPaid was incremented by
+          //     delta. Reverse exactly.
+          //   - equal-split (default): amountDue and rem decremented by
+          //     delta; amountPaid untouched. Reverse the same.
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          for (const t of targets) {
+            const row = await tx.installment.findUnique({ where: { id: t.id } });
+            if (!row) continue;
+            const delta = Number(t.delta);
+            const interestWaived = Number(t.interestWaived ?? 0);
+            const wasGreedy = !!t.closedEarly;
+            const addToDue = delta + interestWaived;
+            const restoredAmountDue = Number(row.amountDue) + addToDue;
+            const restoredAmountPaid = wasGreedy
+              ? Math.max(0, Number(row.amountPaid) - delta)
+              : Number(row.amountPaid);
+            // Re-derive rem from the invariant rem = due - paid to be
+            // safe against any drift in the live row state.
+            const restoredRem = Math.max(0, restoredAmountDue - restoredAmountPaid);
+            let newStatus: string;
+            if (restoredAmountPaid >= restoredAmountDue && restoredAmountDue > 0) {
+              newStatus = 'paid';
+            } else if (restoredAmountPaid > 0) {
+              newStatus = 'partially_paid';
+            } else {
+              const dueDay = new Date(
+                Date.UTC(
+                  row.dueDate.getUTCFullYear(),
+                  row.dueDate.getUTCMonth(),
+                  row.dueDate.getUTCDate(),
+                ),
+              ).getTime();
+              const todayDay = today.getTime();
+              newStatus = dueDay < todayDay
+                ? 'overdue'
+                : dueDay === todayDay
+                  ? 'due_today'
+                  : 'upcoming';
+            }
+            await tx.installment.update({
+              where: { id: row.id },
+              data: {
+                amountDue: restoredAmountDue,
+                amountPaid: restoredAmountPaid,
+                remainingAmount: restoredRem,
+                status: newStatus as any,
+              },
+            });
+          }
+
+          // Delete the R7 log entry — its side-effects are undone.
+          await tx.installmentRollLog.delete({ where: { id: r7Log.id } });
+        }
+      }
+
       // Delete the payment record
       await tx.installmentPayment.delete({ where: { id: paymentId } });
 
@@ -1711,6 +2262,7 @@ export const installmentsService = {
         : `#${inst.installmentNumber}`;
       await tx.installmentRollLog.create({
         data: {
+          tenantId: await resolveScheduleTenantId(tx, inst.schedule.id),
           scheduleId: inst.schedule.id,
           installmentId: inst.id,
           eventType: 'payment_reverted',
@@ -1771,6 +2323,7 @@ export const installmentsService = {
         });
         await tx.installmentRollLog.create({
           data: {
+            tenantId: await resolveScheduleTenantId(tx, inst.schedule.id),
             scheduleId: inst.schedule.id,
             installmentId: inst.id,
             eventType: 'interest_applied',
@@ -1863,6 +2416,7 @@ export const installmentsService = {
 
           await tx.installmentRollLog.create({
             data: {
+              tenantId: await resolveScheduleTenantId(tx, inst.schedule.id),
               scheduleId: inst.schedule.id,
               installmentId: prevInstallment.id,
               eventType: 'payment_moved',
@@ -2099,6 +2653,7 @@ export const installmentsService = {
 
       await tx.installmentRollLog.create({
         data: {
+          tenantId: await resolveScheduleTenantId(tx, scheduleId),
           scheduleId,
           eventType: 'final_settlement',
           eventDate: paymentDate,
@@ -2282,6 +2837,7 @@ export const installmentsService = {
 
       await tx.installmentRollLog.create({
         data: {
+          tenantId: await resolveScheduleTenantId(tx, inst.schedule.id),
           scheduleId: inst.schedule.id,
           installmentId,
           eventType: 'interest_applied',
@@ -2387,6 +2943,7 @@ export const installmentsService = {
 
       await tx.installmentRollLog.create({
         data: {
+          tenantId: await resolveScheduleTenantId(tx, app.schedule.id),
           scheduleId: app.schedule.id,
           installmentId: app.installmentId,
           eventType: 'interest_rolled_back',
@@ -2530,6 +3087,7 @@ export const installmentsService = {
 
       await tx.installmentRollLog.create({
         data: {
+          tenantId: await resolveScheduleTenantId(tx, scheduleId),
           scheduleId,
           installmentId: sourceInst.id,
           eventType: 'payment_moved',
@@ -2582,6 +3140,7 @@ export const installmentsService = {
 
         await tx.installmentRollLog.create({
           data: {
+            tenantId: await resolveScheduleTenantId(tx, scheduleId),
             scheduleId,
             installmentId: targetInst.id,
             eventType: 'interest_applied',
@@ -2636,6 +3195,7 @@ export const installmentsService = {
 
       await tx.installmentRollLog.create({
         data: {
+          tenantId: await resolveScheduleTenantId(tx, scheduleId),
           scheduleId,
           installmentId: targetInst.id,
           eventType: 'payment_moved',
@@ -2773,6 +3333,7 @@ export const installmentsService = {
 
         await tx.installmentRollLog.create({
           data: {
+            tenantId: await resolveScheduleTenantId(tx, scheduleId),
             scheduleId,
             installmentId: inst.id,
             eventType: 'interest_applied',
@@ -2911,6 +3472,7 @@ export const installmentsService = {
 
             await tx.installmentRollLog.create({
               data: {
+                tenantId: await resolveScheduleTenantId(tx, scheduleId),
                 scheduleId,
                 installmentId: row.id,
                 eventType: 'payment_corrected',
@@ -2936,6 +3498,7 @@ export const installmentsService = {
       // ── Step E: Log the correction on the source installment ─────────────
       await tx.installmentRollLog.create({
         data: {
+          tenantId: await resolveScheduleTenantId(tx, scheduleId),
           scheduleId,
           installmentId: inst.id,
           eventType: 'payment_corrected',

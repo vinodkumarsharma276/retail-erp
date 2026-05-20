@@ -39,6 +39,22 @@ import type { Prisma, PrismaClient } from '@prisma/client';
 
 type Tx = Prisma.TransactionClient | PrismaClient;
 
+/**
+ * Resolve a schedule's tenantId. Used to populate the required `tenantId`
+ * scalar on `installmentRollLog.create` calls (the model inherits its tenant
+ * from the parent schedule).
+ */
+export async function resolveScheduleTenantId(tx: Tx, scheduleId: string): Promise<string> {
+  const sched = await tx.installmentSchedule.findUnique({
+    where: { id: scheduleId },
+    select: { tenantId: true },
+  });
+  if (!sched) {
+    throw new Error(`InstallmentSchedule ${scheduleId} not found while resolving tenantId`);
+  }
+  return sched.tenantId;
+}
+
 function toDateOnly(d: Date): Date {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
 }
@@ -137,6 +153,7 @@ export async function syncScheduleAndSale(
     where: { id: scheduleId },
     select: {
       id: true,
+      tenantId: true,
       status: true,
       saleId: true,
       sale: { select: { id: true, completedAt: true, saleNumber: true } },
@@ -173,6 +190,7 @@ export async function syncScheduleAndSale(
     });
     await tx.installmentRollLog.create({
       data: {
+        tenantId: schedule.tenantId,
         scheduleId,
         eventType: 'schedule_completed',
         eventDate: toDateOnly(completedAt),
@@ -288,7 +306,7 @@ async function redistributePrimaryChain(
     scheduleId: string;
     primaryNumber: number;
     today: Date;
-    actorUserId?: string;
+    actorUserId?: string | null;
     reason: 'auto_next_due' | 'promise_after_next';
     promisedDate?: Date;
     employeeNote?: string;
@@ -370,8 +388,10 @@ async function redistributePrimaryChain(
       : `Next installment's due date arrived while Installment #${args.primaryNumber} still owed ${formatINR(carryover)}. ` +
         `Amount redistributed across ${targetLabel} (${formatINR(perTarget)} each).`;
 
+  const tenantId = await resolveScheduleTenantId(tx, args.scheduleId);
   await tx.installmentRollLog.create({
     data: {
+      tenantId,
       scheduleId: args.scheduleId,
       eventType: 'redistributed',
       eventDate: todayDate,
@@ -427,6 +447,13 @@ export async function distributeOverpayment(
      * decremented from future installments without any interest discount.
      */
     waiveInterest?: boolean;
+    /**
+     * Optional payment record id this overpayment originated from. When
+     * provided, it is stored on the resulting `redistributed` roll-log's
+     * metadata so `revertPayment` can find and reverse the per-target
+     * deltas atomically when the payment is undone.
+     */
+    paymentId?: string;
   },
 ): Promise<{
   distributed: number;
@@ -619,8 +646,10 @@ export async function distributeOverpayment(
     (leftover > 0 ? ` Unallocated excess ${formatINR(leftover)} kept on source row.` : '') +
     (args.notes ? ` Note: ${args.notes}` : '');
 
+  const tenantId = await resolveScheduleTenantId(tx, args.scheduleId);
   await tx.installmentRollLog.create({
     data: {
+      tenantId,
       scheduleId: args.scheduleId,
       installmentId: args.sourceInstallmentId,
       eventType: 'redistributed',
@@ -639,6 +668,7 @@ export async function distributeOverpayment(
         fileShare,
         targets: targetDeltas,
         paymentMode: args.paymentMode ?? null,
+        paymentId: args.paymentId ?? null,
       } as Prisma.InputJsonValue,
     },
   });
@@ -751,7 +781,8 @@ export async function applyPartialWithPromise(
     sourceInstallmentId: string;
     newPromiseDate: Date;
     remainderAfterPayment: number;
-    actorUserId: string;
+    /** Null when invoked by an unauthenticated/system context (rare). */
+    actorUserId: string | null;
     employeeNote?: string;
     today: Date;
   },
@@ -854,13 +885,15 @@ export async function applyPartialWithPromise(
     },
   });
 
+  const subTenantId = await resolveScheduleTenantId(tx, source.scheduleId);
   await tx.installmentRollLog.create({
     data: {
+      tenantId: subTenantId,
       scheduleId: source.scheduleId,
       installmentId: newSub.id,
       eventType: 'sub_created',
       eventDate: todayDate,
-      actorUserId: args.actorUserId,
+      actorUserId: args.actorUserId ?? null,
       displayMessage:
         `Customer committed ${formatDate(promiseDate)} for the remaining ${formatINR(args.remainderAfterPayment)} ` +
         `on Installment #${primaryNumber}. New sub-row #${primaryNumber}.${nextSubSeq} created.` +

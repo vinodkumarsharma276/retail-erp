@@ -145,6 +145,11 @@ export const rescheduleSchema = z.object({
   notes: z.string().optional(),
 });
 
+/** Body for `POST /installments/:installmentId/undo-reschedule`. */
+export const undoRescheduleSchema = z.object({
+  reason: z.string().min(1, 'Reason is required').max(500),
+});
+
 /** Body for `POST /installments/schedules/:scheduleId/final-settlement`. */
 export const finalSettlementSchema = z.object({
   paymentMode: z.enum(

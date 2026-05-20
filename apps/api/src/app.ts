@@ -6,6 +6,7 @@ import rateLimit from '@fastify/rate-limit';
 import multipart from '@fastify/multipart';
 import { config } from './config/index.js';
 import { errorHandler } from './middleware/error-handler.js';
+import { tenantResolver } from './middleware/tenant-resolver.js';
 import { authRoutes } from './modules/auth/auth.routes.js';
 import { shopRoutes } from './modules/shops/shops.routes.js';
 import { userRoutes } from './modules/users/users.routes.js';
@@ -26,6 +27,7 @@ import { notificationRoutes } from './modules/notifications/notifications.routes
 import { rolesRoutes } from './modules/roles/roles.routes.js';
 import { ocrRoutes } from './modules/ocr/ocr.routes.js';
 import { lookupRoutes } from './modules/lookup/lookup.routes.js';
+import { platformRoutes } from './modules/platform/platform.routes.js';
 import { registerInstallmentScheduler } from './jobs/installments-scheduler.js';
 
 function isAllowedDevOrigin(origin: string) {
@@ -66,7 +68,7 @@ export async function buildApp() {
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Shop-Id'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Shop-Id', 'X-Tenant-Slug'],
   });
   await app.register(jwt, { secret: config.jwt.secret });
   await app.register(cookie);
@@ -77,6 +79,10 @@ export async function buildApp() {
       fileSize: config.ocr.maxFileMb * 1024 * 1024,
     },
   });
+
+  // Tenant resolver — runs on every request BEFORE auth. Bypasses
+  // `/api/health`, `/api/ready`, and `/api/v1/platform/*` internally.
+  app.addHook('onRequest', tenantResolver);
 
   // Error handler
   app.setErrorHandler(errorHandler);
@@ -107,6 +113,9 @@ export async function buildApp() {
   await app.register(rolesRoutes, { prefix: '/api/v1/roles' });
   await app.register(ocrRoutes, { prefix: '/api/v1/ocr' });
   await app.register(lookupRoutes, { prefix: '/api/v1/lookup' });
+
+  // Platform admin (separate identity, no tenant context — bypassed by tenantResolver)
+  await app.register(platformRoutes, { prefix: '/api/v1/platform' });
 
   // Background jobs (gated by ENABLE_SCHEDULER=true).
   registerInstallmentScheduler(app.log);

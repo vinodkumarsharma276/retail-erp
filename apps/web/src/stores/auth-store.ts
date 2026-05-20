@@ -48,6 +48,11 @@ export const useAuthStore = create<AuthState>((set) => ({
     localStorage.removeItem('currentShopId');
     localStorage.removeItem('currentShopName');
     localStorage.removeItem('currentShopCode');
+    // Tenant chrome (name in header etc.) clears on logout too. The
+    // tenant slug derived from the hostname is independent of this and
+    // persists across logouts so the user always lands on their own
+    // tenant's login page.
+    localStorage.removeItem('tenantContext');
     set({ user: null, permissions: new Set(), isAuthenticated: false, isHydrated: true });
   },
   setHydrated: () => set({ isHydrated: true }),

@@ -18,6 +18,7 @@ import {
   Flag,
   CalendarClock,
   Shuffle,
+  Undo2,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import {
@@ -170,6 +171,11 @@ const rollLogConfig: Record<
     color: 'text-amber-600 dark:text-amber-400',
     bg: 'bg-amber-100 dark:bg-amber-900/30',
   },
+  reschedule_undone: {
+    icon: <Undo2 className="h-4 w-4" />,
+    color: 'text-red-600 dark:text-red-400',
+    bg: 'bg-red-100 dark:bg-red-900/30',
+  },
   redistributed: {
     icon: <Shuffle className="h-4 w-4" />,
     color: 'text-indigo-600 dark:text-indigo-400',
@@ -179,6 +185,11 @@ const rollLogConfig: Record<
     icon: <AlertCircle className="h-4 w-4" />,
     color: 'text-red-600 dark:text-red-400',
     bg: 'bg-red-100 dark:bg-red-900/30',
+  },
+  payment_moved: {
+    icon: <Shuffle className="h-4 w-4" />,
+    color: 'text-purple-600 dark:text-purple-400',
+    bg: 'bg-purple-100 dark:bg-purple-900/30',
   },
   early_collection_scheduled: {
     icon: <CalendarDays className="h-4 w-4" />,
