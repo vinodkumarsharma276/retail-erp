@@ -30,6 +30,10 @@ export const invoiceParseSchema = z.object({
       state: nullableString,
       pincode: nullableString,
       phone: nullableString,
+      bankName: nullableString,
+      bankAccountNumber: nullableString,
+      bankIfsc: nullableString,
+      bankBranch: nullableString,
     }),
     match: z.object({
       id: nullableString,
@@ -57,6 +61,8 @@ export const invoiceParseSchema = z.object({
     barcode: nullableString,
     notes: nullableString,
     confidence: z.number().min(0).max(1),
+    matchedProductId: nullableString.optional(),
+    categoryId: nullableString.optional(),
   })),
   warnings: z.array(z.string()),
   rawText: z.string().nullable(),
@@ -89,7 +95,8 @@ export const invoiceJsonSchema = {
       type: 'object', additionalProperties: false, required: ['parsed', 'match'],
       properties: {
         parsed: {
-          type: 'object', additionalProperties: false, required: ['companyName', 'gstNumber', 'panNumber', 'address', 'city', 'state', 'pincode', 'phone'],
+          type: 'object', additionalProperties: false,
+          required: ['companyName', 'gstNumber', 'panNumber', 'address', 'city', 'state', 'pincode', 'phone', 'bankName', 'bankAccountNumber', 'bankIfsc', 'bankBranch'],
           properties: {
             companyName: { type: ['string', 'null'] },
             gstNumber: { type: ['string', 'null'] },
@@ -99,6 +106,10 @@ export const invoiceJsonSchema = {
             state: { type: ['string', 'null'] },
             pincode: { type: ['string', 'null'] },
             phone: { type: ['string', 'null'] },
+            bankName: { type: ['string', 'null'] },
+            bankAccountNumber: { type: ['string', 'null'] },
+            bankIfsc: { type: ['string', 'null'] },
+            bankBranch: { type: ['string', 'null'] },
           },
         },
         match: {

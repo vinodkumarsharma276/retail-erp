@@ -25,6 +25,10 @@ type DistributorDraft = {
   city: string;
   state: string;
   pincode: string;
+  bankName: string;
+  bankAccountNumber: string;
+  bankIfsc: string;
+  bankBranch: string;
 };
 
 // Phone numbers from OCR may be comma/slash/semicolon separated, contain spaces,
@@ -82,6 +86,10 @@ function initialDraft(result: InvoiceParseResult): DistributorDraft {
     city: parsed.city || '',
     state: parsed.state || '',
     pincode: parsed.pincode || '',
+    bankName: parsed.bankName || '',
+    bankAccountNumber: parsed.bankAccountNumber || '',
+    bankIfsc: parsed.bankIfsc || '',
+    bankBranch: parsed.bankBranch || '',
   };
 }
 
@@ -101,10 +109,12 @@ export function ScanInvoiceDialog({ open, onClose, onApply }: Props) {
   const createDistributor = useCreateDistributorMutation();
   const [createdDistributor, setCreatedDistributor] = useState<DistributorListItem | null>(null);
   const [draft, setDraft] = useState<DistributorDraft | null>(null);
+  const [overrideMatch, setOverrideMatch] = useState(false);
 
   const result = scanMutation.data ?? null;
   const matchedDistributor = useMemo(() => result ? distributorFromMatch(result) : null, [result]);
-  const selectedDistributor = createdDistributor ?? matchedDistributor;
+  const effectiveMatch = overrideMatch ? null : matchedDistributor;
+  const selectedDistributor = createdDistributor ?? effectiveMatch;
 
   if (!open) return null;
 
@@ -116,6 +126,7 @@ export function ScanInvoiceDialog({ open, onClose, onApply }: Props) {
     }
     setCreatedDistributor(null);
     setDraft(null);
+    setOverrideMatch(false);
     scanMutation.mutate(file, {
       onSuccess: (data) => {
         if (!data.distributor.match.id) setDraft(initialDraft(data));
@@ -141,6 +152,10 @@ export function ScanInvoiceDialog({ open, onClose, onApply }: Props) {
         altPhone: altPhoneFinal || undefined,
         gstNumber: draft.gstNumber || undefined,
         panNumber: draft.panNumber || undefined,
+        bankName: draft.bankName || undefined,
+        bankAccountNumber: draft.bankAccountNumber || undefined,
+        bankIfsc: draft.bankIfsc || undefined,
+        bankBranch: draft.bankBranch || undefined,
       },
       {
         onSuccess: (distributor) => {
@@ -204,18 +219,50 @@ export function ScanInvoiceDialog({ open, onClose, onApply }: Props) {
                     {selectedDistributor ? (
                       <p className="mt-1 text-sm text-muted-foreground">
                         <span className="font-medium text-foreground">{selectedDistributor.companyName}</span>{' '}
-                        {matchedDistributor ? `(matched by ${result.distributor.match.matchedBy})` : '(newly created)'}
+                        {createdDistributor
+                          ? '(newly created)'
+                          : effectiveMatch
+                            ? `(matched by ${result.distributor.match.matchedBy})`
+                            : ''}
                       </p>
                     ) : (
-                      <p className="mt-1 text-sm text-muted-foreground">No existing distributor matched. Confirm the details below to create it.</p>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        {matchedDistributor && overrideMatch
+                          ? `Ignoring matched distributor "${matchedDistributor.companyName}". Edit the details below and create a new one.`
+                          : 'No existing distributor matched. Confirm the details below to create it.'}
+                      </p>
                     )}
                   </div>
-                  {result.invoice.number && <span className="rounded bg-muted px-2 py-1 font-mono text-xs">{result.invoice.number}</span>}
+                  <div className="flex items-center gap-2">
+                    {result.invoice.number && <span className="rounded bg-muted px-2 py-1 font-mono text-xs">{result.invoice.number}</span>}
+                    {effectiveMatch && !createdDistributor && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setOverrideMatch(true);
+                          if (!draft) setDraft(initialDraft(result));
+                        }}
+                        className="rounded-md border px-2 py-1 text-xs font-medium hover:bg-accent"
+                        title="OCR may have matched the wrong distributor — create a new one instead"
+                      >
+                        Not this distributor? Create new
+                      </button>
+                    )}
+                    {overrideMatch && matchedDistributor && !createdDistributor && (
+                      <button
+                        type="button"
+                        onClick={() => { setOverrideMatch(false); setDraft(null); }}
+                        className="rounded-md border px-2 py-1 text-xs font-medium hover:bg-accent"
+                      >
+                        Use matched distributor
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 {!selectedDistributor && draft && (
                   <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                    {(['companyName', 'contactPerson', 'phone', 'altPhone', 'gstNumber', 'panNumber', 'addressLine1', 'city', 'state', 'pincode'] as const).map((key) => (
+                    {(['companyName', 'contactPerson', 'phone', 'altPhone', 'gstNumber', 'panNumber', 'addressLine1', 'city', 'state', 'pincode', 'bankName', 'bankAccountNumber', 'bankIfsc', 'bankBranch'] as const).map((key) => (
                       <div key={key} className={key === 'addressLine1' ? 'sm:col-span-2 lg:col-span-3' : ''}>
                         <label className="block text-xs font-medium capitalize text-muted-foreground">
                           {key === 'altPhone' ? 'Alt phone (optional)' : key.replace(/([A-Z])/g, ' $1')}

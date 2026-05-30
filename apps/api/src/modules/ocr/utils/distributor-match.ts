@@ -23,11 +23,11 @@ function normalizeName(value: string | null | undefined) {
   return value?.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().replace(/\s+/g, ' ') || '';
 }
 
-export async function matchDistributor(parsed: ParsedDistributor): Promise<DistributorMatch> {
+export async function matchDistributor(parsed: ParsedDistributor, tenantId: string): Promise<DistributorMatch> {
   const gstNumber = normalizeGst(parsed.gstNumber);
   if (gstNumber) {
     const gstMatch = await prisma.distributor.findFirst({
-      where: { gstNumber: { equals: gstNumber, mode: 'insensitive' } },
+      where: { tenantId, gstNumber: { equals: gstNumber, mode: 'insensitive' } },
       select: { id: true, companyName: true, contactPerson: true, phone: true, gstNumber: true },
     });
     if (gstMatch) {
@@ -38,7 +38,7 @@ export async function matchDistributor(parsed: ParsedDistributor): Promise<Distr
   const normalized = normalizeName(parsed.companyName);
   if (normalized.length >= 4) {
     const candidates = await prisma.distributor.findMany({
-      where: { companyName: { contains: parsed.companyName ?? '', mode: 'insensitive' } },
+      where: { tenantId, companyName: { contains: parsed.companyName ?? '', mode: 'insensitive' } },
       select: { id: true, companyName: true, contactPerson: true, phone: true, gstNumber: true },
       take: 5,
     });

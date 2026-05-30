@@ -77,7 +77,8 @@ export const distributorsController = {
   ) {
     try {
       const userId = request.currentUser!.userId;
-      const distributor = await distributorsService.create(request.body, userId);
+      const tenantId = request.currentUser!.tenantId;
+      const distributor = await distributorsService.create(request.body, userId, tenantId);
       return sendSuccess(reply, distributor, 201);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to create distributor';

@@ -129,33 +129,33 @@ export const distributorsService = {
     paymentTerms?: string | null;
     creditLimit?: number;
     categoryIds?: string[];
-  }, userId: string) {
+  }, userId: string, tenantId: string) {
     const { categoryIds, ...distributorData } = data;
 
-    // Check for duplicate GST number
+    // Check for duplicate GST number (scoped to tenant)
     if (distributorData.gstNumber) {
       const existingGst = await prisma.distributor.findFirst({
-        where: { gstNumber: distributorData.gstNumber },
+        where: { tenantId, gstNumber: distributorData.gstNumber },
       });
       if (existingGst) {
         throw new Error(`A distributor with GST number "${distributorData.gstNumber}" already exists (${existingGst.companyName})`);
       }
     }
 
-    // Check for duplicate PAN number
+    // Check for duplicate PAN number (scoped to tenant)
     if (distributorData.panNumber) {
       const existingPan = await prisma.distributor.findFirst({
-        where: { panNumber: distributorData.panNumber },
+        where: { tenantId, panNumber: distributorData.panNumber },
       });
       if (existingPan) {
         throw new Error(`A distributor with PAN number "${distributorData.panNumber}" already exists (${existingPan.companyName})`);
       }
     }
 
-    // Check for duplicate bank account number
+    // Check for duplicate bank account number (scoped to tenant)
     if (distributorData.bankAccountNumber) {
       const existingBank = await prisma.distributor.findFirst({
-        where: { bankAccountNumber: distributorData.bankAccountNumber },
+        where: { tenantId, bankAccountNumber: distributorData.bankAccountNumber },
       });
       if (existingBank) {
         throw new Error(`A distributor with bank account "${distributorData.bankAccountNumber}" already exists (${existingBank.companyName})`);
@@ -192,7 +192,8 @@ export const distributorsService = {
         bankBranch: distributorData.bankBranch ?? null,
         paymentTerms: distributorData.paymentTerms ?? null,
         creditLimit: distributorData.creditLimit ?? 0,
-        createdBy: userId,
+        tenant: { connect: { id: tenantId } },
+        creator: { connect: { id: userId } },
         categories: categoryIds && categoryIds.length > 0
           ? {
               create: categoryIds.map((categoryId) => ({

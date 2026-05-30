@@ -118,36 +118,13 @@ const customerFields: FieldSeed[] = [
     sectionName: 'Address',
     isVisible: true,
   },
-  {
-    // Zone — geographic zone within the shop's serving area. Per-shop
-    // dropdown values; today the same 4 cardinal directions are used
-    // across all shops. The UI gates this field with the
-    // `view.customer.address.zone` permission (Owner & Admin always have
-    // it). Drives the Installment list zone filter.
-    fieldName: 'zone',
-    fieldLabel: 'Zone',
-    fieldType: 'select',
-    isRequired: false,
-    options: [
-      { label: 'East', value: 'East' },
-      { label: 'West', value: 'West' },
-      { label: 'North', value: 'North' },
-      { label: 'South', value: 'South' },
-      { label: 'Delhi', value: 'Delhi' },
-      { label: 'Ghaziabad', value: 'Ghaziabad' },
-      { label: 'Noida', value: 'Noida' },
-    ],
-    displayOrder: 9,
-    sectionName: 'Address',
-    isVisible: true,
-  },
   // Section: Identity
   {
     fieldName: 'photoIdUrl',
     fieldLabel: 'Photo ID',
     fieldType: 'file',
     isRequired: false,
-    displayOrder: 10,
+    displayOrder: 9,
     sectionName: 'Identity',
     isVisible: true,
   },
@@ -576,9 +553,6 @@ const productFields: FieldSeed[] = [
 ];
 
 export async function seedFormDefinitions(prisma: PrismaClient): Promise<FormDefinition[]> {
-  const tenant = await prisma.tenant.findUnique({ where: { slug: 'vn' }, select: { id: true } });
-  if (!tenant) return [];
-
   const formConfigs = [
     { formName: 'customer', description: 'Customer registration and details form', fields: customerFields },
     { formName: 'distributor', description: 'Distributor/supplier registration form', fields: distributorFields },
@@ -591,7 +565,7 @@ export async function seedFormDefinitions(prisma: PrismaClient): Promise<FormDef
   for (const config of formConfigs) {
     // Check if definition already exists
     const existing = await prisma.formDefinition.findFirst({
-      where: { tenantId: tenant.id, formName: config.formName, shopId: null },
+      where: { formName: config.formName, shopId: null },
     });
 
     if (existing) {
@@ -601,7 +575,6 @@ export async function seedFormDefinitions(prisma: PrismaClient): Promise<FormDef
 
     const definition = await prisma.formDefinition.create({
       data: {
-        tenantId: tenant.id,
         formName: config.formName,
         shopId: null,
         version: 1,
@@ -609,7 +582,6 @@ export async function seedFormDefinitions(prisma: PrismaClient): Promise<FormDef
         description: config.description,
         fields: {
           create: config.fields.map((f) => ({
-            tenantId: tenant.id,
             fieldName: f.fieldName,
             fieldLabel: f.fieldLabel,
             fieldType: f.fieldType as any,

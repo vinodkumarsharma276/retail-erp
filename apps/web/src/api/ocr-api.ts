@@ -16,6 +16,8 @@ export interface ParsedInvoiceItem {
   barcode: string | null;
   notes: string | null;
   confidence: number;
+  matchedProductId?: string | null;
+  categoryId?: string | null;
 }
 
 export interface InvoiceParseResult {
@@ -38,6 +40,10 @@ export interface InvoiceParseResult {
       state: string | null;
       pincode: string | null;
       phone: string | null;
+      bankName: string | null;
+      bankAccountNumber: string | null;
+      bankIfsc: string | null;
+      bankBranch: string | null;
     };
     match: {
       id: string | null;

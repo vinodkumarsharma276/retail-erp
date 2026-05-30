@@ -92,34 +92,11 @@ enum FormFieldType {
   hidden
   readonly
   autocomplete
-  /// List of free-text values (rendered with add/remove rows). Stored as
-  /// `string[]` inside the JSON column. Used e.g. for IMEI numbers on
-  /// mobile phones where a device may carry 1–3 IMEIs.
-  multi_text
 }
 
 enum BankTxnType {
   credit
   debit
-}
-
-enum CustomerType {
-  individual
-  business
-}
-
-enum SaleApprovalStatus {
-  pending
-  approved
-}
-
-/// Per-user override on a permission key. Layered on top of the role's
-/// permissions: `effective = (rolePerms ∪ user.grants) ∖ user.denies`.
-/// Use `grant` to allow ONE user something their role doesn't grant; use
-/// `deny` to take a permission away from ONE user that their role does grant.
-enum UserPermissionEffect {
-  grant
-  deny
 }
 
 enum ReconciliationStatus {
@@ -129,238 +106,22 @@ enum ReconciliationStatus {
   disputed
 }
 
-enum TenantStatus {
-  active
-  trial
-  suspended
-  cancelled
-}
-
 // ============================================================================
-// TENANTS — Top-level multi-tenancy boundary (SaaS organisations)
-// ============================================================================
-//
-// One row per onboarded customer organisation. Maps to a subdomain
-// (e.g. `vn.retailerp.com`) via `slug`. Every per-tenant table carries
-// `tenantId` for isolation; queries that omit the filter are bugs.
-
-model Tenant {
-  id           String       @id @default(uuid())
-  /// URL-safe subdomain slug (lower-case alphanumeric + hyphens). Unique.
-  slug         String       @unique @db.VarChar(63)
-  name         String       @db.VarChar(200)
-  contactEmail String?      @map("contact_email") @db.VarChar(255)
-  contactPhone String?      @map("contact_phone") @db.VarChar(15)
-  gstNumber    String?      @map("gst_number") @db.VarChar(15)
-  /// Optional CNAME the customer points at the SaaS (e.g. erp.customer.com).
-  customDomain String?      @unique @map("custom_domain") @db.VarChar(255)
-  status       TenantStatus @default(active)
-  planId       String       @map("plan_id")
-  trialEndsAt  DateTime?    @map("trial_ends_at") @db.Timestamptz()
-  /// Free-form structured metadata: billing customer id, internal notes, etc.
-  billingMeta  Json?        @map("billing_meta")
-  /// Per-tenant policy knobs, including installment defaults.
-  settings     Json?        @db.JsonB
-  createdAt    DateTime     @default(now()) @map("created_at") @db.Timestamptz()
-  updatedAt    DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
-
-  plan     Plan            @relation(fields: [planId], references: [id])
-  features TenantFeature[]
-
-  // ── Back-relations to all per-tenant entities (kept compact) ─────────────
-  shops                           Shop[]
-  users                           User[]
-  roles                           Role[]
-  rolePermissions                 RolePermission[]
-  userPermissions                 UserPermission[]
-  userShops                       UserShop[]
-  refreshTokens                   RefreshToken[]
-  productCategories               ProductCategory[]
-  categoryAttributes              CategoryAttribute[]
-  products                        Product[]
-  productAuditTrails              ProductAuditTrail[]
-  distributors                    Distributor[]
-  distributorCategories           DistributorCategory[]
-  purchases                       Purchase[]
-  purchasePayments                PurchasePayment[]
-  customers                       Customer[]
-  saleRecords                     SaleRecord[]
-  salesSanitized                  SaleRecordSanitized[]
-  installmentSchedules            InstallmentSchedule[]
-  installments                    Installment[]
-  installmentPayments             InstallmentPayment[]
-  installmentInterestApplications InstallmentInterestApplication[]
-  installmentRollLogs             InstallmentRollLog[]
-  installmentPromises             InstallmentPromise[]
-  collectionAssignments           EmployeeCollectionAssignment[]
-  interShopTransfers              InterShopTransfer[]
-  expenses                        Expense[]
-  bankAccounts                    BankAccount[]
-  bankTransactions                BankTransaction[]
-  formDefinitions                 FormDefinition[]
-  formFields                      FormField[]
-  notificationTokens              NotificationToken[]
-  notifications                   Notification[]
-  auditLogs                       AuditLog[]
-  employees                       Employee[]
-  appSettings                     AppSetting[]
-
-  platformAuditLogs PlatformAuditLog[]
-
-  @@index([planId])
-  @@index([status])
-  @@map("tenants")
-}
-
-/// Pricing tier. Each tenant references one plan; the plan's PlanFeature
-/// rows seed the tenant's default feature toggles. Per-tenant overrides
-/// (TenantFeature) take precedence at runtime.
-model Plan {
-  id           String   @id @default(uuid())
-  /// Short stable code: `starter`, `pro`, `enterprise`.
-  code         String   @unique @db.VarChar(50)
-  name         String   @db.VarChar(200)
-  description  String?  @db.Text
-  priceMonthly Decimal  @default(0) @map("price_monthly") @db.Decimal(10, 2)
-  priceYearly  Decimal  @default(0) @map("price_yearly") @db.Decimal(10, 2)
-  /// Visible in self-serve plan catalog. If false, only assignable by platform admin.
-  isPublic     Boolean  @default(true) @map("is_public")
-  isActive     Boolean  @default(true) @map("is_active")
-  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz()
-  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
-
-  tenants  Tenant[]
-  features PlanFeature[]
-
-  @@map("plans")
-}
-
-model PlanFeature {
-  id         String   @id @default(uuid())
-  planId     String   @map("plan_id")
-  /// Feature key from packages/shared-types/src/features.ts FeatureKey enum.
-  featureKey String   @map("feature_key") @db.VarChar(100)
-  enabled    Boolean  @default(true)
-  /// For limit-style features (e.g. {"max": 5}). Free-form JSON.
-  valueJson  Json?    @map("value_json")
-  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz()
-
-  plan Plan @relation(fields: [planId], references: [id], onDelete: Cascade)
-
-  @@unique([planId, featureKey])
-  @@index([planId])
-  @@map("plan_features")
-}
-
-model TenantFeature {
-  id         String   @id @default(uuid())
-  tenantId   String   @map("tenant_id")
-  featureKey String   @map("feature_key") @db.VarChar(100)
-  enabled    Boolean  @default(true)
-  valueJson  Json?    @map("value_json")
-  /// Optional note explaining why this override exists (trial, partner deal, etc.).
-  note       String?  @db.Text
-  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz()
-  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
-
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-
-  @@unique([tenantId, featureKey])
-  @@index([tenantId])
-  @@map("tenant_features")
-}
-
-// ============================================================================
-// PLATFORM ADMINS — SaaS operators (separate from any tenant)
-// ============================================================================
-//
-// Platform admins live OUTSIDE the per-tenant RBAC. They use a separate
-// auth flow (`/api/v1/platform/auth/login`) and can never log in to a
-// tenant subdomain with these credentials.
-
-model PlatformUser {
-  id           String    @id @default(uuid())
-  username     String    @unique @db.VarChar(100)
-  email        String    @unique @db.VarChar(255)
-  passwordHash String    @map("password_hash") @db.VarChar(255)
-  fullName     String    @map("full_name") @db.VarChar(200)
-  isActive     Boolean   @default(true) @map("is_active")
-  /// Reserved for future MFA support.
-  totpSecret   String?   @map("totp_secret") @db.VarChar(255)
-  lastLoginAt  DateTime? @map("last_login_at") @db.Timestamptz()
-  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz()
-  updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
-
-  refreshTokens PlatformRefreshToken[]
-  auditLogs     PlatformAuditLog[]
-
-  @@map("platform_users")
-}
-
-model PlatformRefreshToken {
-  id             String    @id @default(uuid())
-  platformUserId String    @map("platform_user_id")
-  tokenHash      String    @map("token_hash") @db.VarChar(255)
-  deviceInfo     String?   @map("device_info") @db.VarChar(500)
-  expiresAt      DateTime  @map("expires_at") @db.Timestamptz()
-  revokedAt      DateTime? @map("revoked_at") @db.Timestamptz()
-  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz()
-
-  platformUser PlatformUser @relation(fields: [platformUserId], references: [id], onDelete: Cascade)
-
-  @@index([platformUserId])
-  @@index([tokenHash])
-  @@map("platform_refresh_tokens")
-}
-
-/// Immutable audit trail of platform-admin actions (tenant onboarding,
-/// plan changes, feature overrides, suspensions). Separate from tenant
-/// `AuditLog` so operator activity never appears in customer-facing trails.
-model PlatformAuditLog {
-  id             String  @id @default(uuid())
-  tenantId       String? @map("tenant_id")
-  platformUserId String  @map("platform_user_id")
-  /// Optional tenant the action affected (null for system-wide actions).
-
-  action     String   @db.VarChar(100)
-  entityType String?  @map("entity_type") @db.VarChar(50)
-  entityId   String?  @map("entity_id")
-  oldValues  Json?    @map("old_values")
-  newValues  Json?    @map("new_values")
-  ipAddress  String?  @map("ip_address") @db.VarChar(45)
-  userAgent  String?  @map("user_agent") @db.VarChar(500)
-  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz()
-
-  platformUser PlatformUser @relation(fields: [platformUserId], references: [id])
-  tenant       Tenant?      @relation(fields: [tenantId], references: [id])
-
-  @@index([platformUserId])
-  @@index([tenantId])
-  @@index([action])
-  @@index([createdAt])
-  @@map("platform_audit_logs")
-}
-
-// ============================================================================
-// SHOPS — Per-tenant operating units (each shop is a separate GST entity)
+// SHOPS — Core multi-tenancy anchor
 // ============================================================================
 
 model Shop {
-  id       String @id @default(uuid())
-  tenantId String @map("tenant_id")
-  /// Owning tenant. Nullable during the multi-tenant migration window; will
-  /// become NOT NULL once backfill completes.
-
+  id                String   @id @default(uuid())
   name              String   @db.VarChar(200)
-  code              String   @db.VarChar(20)
-  gstNumber         String   @map("gst_number") @db.VarChar(15)
+  code              String   @unique @db.VarChar(20)
+  gstNumber         String   @unique @map("gst_number") @db.VarChar(15)
   panNumber         String   @map("pan_number") @db.VarChar(10)
   addressLine1      String   @map("address_line1") @db.VarChar(255)
   addressLine2      String?  @map("address_line2") @db.VarChar(255)
   city              String   @db.VarChar(100)
   state             String   @db.VarChar(100)
   pincode           String   @db.VarChar(6)
-  phone             String   @db.VarChar(200)
+  phone             String   @db.VarChar(15)
   email             String?  @db.VarChar(255)
   bankName          String?  @map("bank_name") @db.VarChar(200)
   bankAccountNumber String?  @map("bank_account_number") @db.VarChar(20)
@@ -372,26 +133,22 @@ model Shop {
   updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  tenant            Tenant                         @relation(fields: [tenantId], references: [id])
-  userShops         UserShop[]
-  products          Product[]
-  saleRecords       SaleRecord[]
-  salesSanitized    SaleRecordSanitized[]
-  purchases         Purchase[]
-  expenses          Expense[]
-  bankAccounts      BankAccount[]
-  employees         Employee[]
-  transfersFrom     InterShopTransfer[]            @relation("TransferFrom")
-  transfersTo       InterShopTransfer[]            @relation("TransferTo")
-  customers         Customer[]
-  formDefinitions   FormDefinition[]
-  appSettings       AppSetting[]
-  auditLogs         AuditLog[]
-  collectionAssigns EmployeeCollectionAssignment[]
+  userShops          UserShop[]
+  products           Product[]
+  saleRecords        SaleRecord[]
+  salesSanitized     SaleRecordSanitized[]
+  purchases          Purchase[]
+  expenses           Expense[]
+  bankAccounts       BankAccount[]
+  employees          Employee[]
+  transfersFrom      InterShopTransfer[]     @relation("TransferFrom")
+  transfersTo        InterShopTransfer[]     @relation("TransferTo")
+  customers          Customer[]
+  formDefinitions    FormDefinition[]
+  appSettings        AppSetting[]
+  auditLogs          AuditLog[]
+  collectionAssigns  EmployeeCollectionAssignment[]
 
-  @@unique([tenantId, code])
-  @@unique([tenantId, gstNumber])
-  @@index([tenantId])
   @@map("shops")
 }
 
@@ -400,13 +157,8 @@ model Shop {
 // ============================================================================
 
 model User {
-  id       String @id @default(uuid())
-  tenantId String @map("tenant_id")
-  /// Owning tenant. Nullable during the multi-tenant migration window; will
-  /// become NOT NULL once backfill completes. Username uniqueness becomes
-  /// per-tenant once tenantId is enforced.
-
-  username     String    @db.VarChar(100)
+  id           String    @id @default(uuid())
+  username     String    @unique @db.VarChar(100)
   passwordHash String    @map("password_hash") @db.VarChar(255)
   fullName     String    @map("full_name") @db.VarChar(200)
   email        String?   @db.VarChar(255)
@@ -416,43 +168,33 @@ model User {
   isMobileOnly Boolean   @default(false) @map("is_mobile_only")
   isActive     Boolean   @default(true) @map("is_active")
   lastLoginAt  DateTime? @map("last_login_at") @db.Timestamptz()
-  preferences  Json?     @map("preferences")
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz()
   updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  tenant                Tenant                           @relation(fields: [tenantId], references: [id])
-  customRole            Role?                            @relation(fields: [roleId], references: [id])
+  customRole            Role?                  @relation(fields: [roleId], references: [id])
   userShops             UserShop[]
   refreshTokens         RefreshToken[]
-  permissionOverrides   UserPermission[]                 @relation("UserPermissionOwner")
-  permissionsAuthored   UserPermission[]                 @relation("UserPermissionCreator")
-  createdProducts       Product[]                        @relation("ProductCreator")
-  createdSales          SaleRecord[]                     @relation("SaleCreator")
-  approvedSales         SaleRecord[]                     @relation("SaleApprover")
-  createdSalesSanitized SaleRecordSanitized[]            @relation("SanitizedSaleCreator")
-  createdPurchases      Purchase[]                       @relation("PurchaseCreator")
-  createdCustomers      Customer[]                       @relation("CustomerCreator")
-  createdDistributors   Distributor[]                    @relation("DistributorCreator")
-  createdExpenses       Expense[]                        @relation("ExpenseCreator")
-  purchasePaymentsBy    PurchasePayment[]                @relation("PurchasePaymentCreator")
-  installmentPayments   InstallmentPayment[]             @relation("InstallmentCollector")
-  installmentRollEvents InstallmentRollLog[]             @relation("RollLogActor")
-  interestApplied       InstallmentInterestApplication[] @relation("InterestAppliedBy")
-  interestRolledBack    InstallmentInterestApplication[] @relation("InterestRolledBackBy")
-  promisesCreated       InstallmentPromise[]             @relation("PromiseCreatedBy")
-  auditTrailPerformed   ProductAuditTrail[]              @relation("AuditPerformer")
-  transfersInitiated    InterShopTransfer[]              @relation("TransferInitiator")
-  transfersReceived     InterShopTransfer[]              @relation("TransferReceiver")
+  createdProducts       Product[]              @relation("ProductCreator")
+  createdSales          SaleRecord[]           @relation("SaleCreator")
+  createdSalesSanitized SaleRecordSanitized[]  @relation("SanitizedSaleCreator")
+  createdPurchases      Purchase[]             @relation("PurchaseCreator")
+  createdCustomers      Customer[]             @relation("CustomerCreator")
+  createdDistributors   Distributor[]          @relation("DistributorCreator")
+  createdExpenses       Expense[]              @relation("ExpenseCreator")
+  purchasePaymentsBy    PurchasePayment[]      @relation("PurchasePaymentCreator")
+  installmentPayments   InstallmentPayment[]   @relation("InstallmentCollector")
+  installmentRollEvents InstallmentRollLog[]   @relation("RollLogActor")
+  auditTrailPerformed   ProductAuditTrail[]    @relation("AuditPerformer")
+  transfersInitiated    InterShopTransfer[]    @relation("TransferInitiator")
+  transfersReceived     InterShopTransfer[]    @relation("TransferReceiver")
   auditLogs             AuditLog[]
   employee              Employee?
   collectionAssigns     EmployeeCollectionAssignment[]
   notifications         Notification[]
   notificationTokens    NotificationToken[]
-  bankReconciled        BankTransaction[]                @relation("Reconciler")
+  bankReconciled        BankTransaction[]      @relation("Reconciler")
 
-  @@unique([tenantId, username])
-  @@index([tenantId])
   @@index([role])
   @@index([roleId])
   @@map("users")
@@ -463,25 +205,18 @@ model User {
 // ============================================================================
 
 model Role {
-  id       String @id @default(uuid())
-  tenantId String @map("tenant_id")
-  /// Owning tenant. Nullable during migration; becomes NOT NULL after backfill.
-  /// Role `code` uniqueness becomes per-tenant once enforced.
+  id          String    @id @default(uuid())
+  code        String    @unique @db.VarChar(50)
+  name        String    @db.VarChar(100)
+  description String?   @db.Text
+  isSystem    Boolean   @default(false) @map("is_system")
+  isActive    Boolean   @default(true) @map("is_active")
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
-  code        String   @db.VarChar(50)
-  name        String   @db.VarChar(100)
-  description String?  @db.Text
-  isSystem    Boolean  @default(false) @map("is_system")
-  isActive    Boolean  @default(true) @map("is_active")
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz()
-  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
-
-  tenant          Tenant           @relation(fields: [tenantId], references: [id])
   users           User[]
   rolePermissions RolePermission[]
 
-  @@unique([tenantId, code])
-  @@index([tenantId])
   @@map("roles")
 }
 
@@ -493,86 +228,44 @@ model Permission {
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz()
 
   rolePermissions RolePermission[]
-  userPermissions UserPermission[]
 
   @@index([module])
   @@map("permissions")
 }
 
 model RolePermission {
-  id       String @id @default(uuid())
-  tenantId String @map("tenant_id")
-  /// Owning tenant (matches the role's tenantId). Nullable during migration.
-
+  id           String   @id @default(uuid())
   roleId       String   @map("role_id")
   permissionId String   @map("permission_id")
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz()
 
-  tenant     Tenant     @relation(fields: [tenantId], references: [id])
   role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
   permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
 
   @@unique([roleId, permissionId])
-  @@index([tenantId])
   @@index([roleId])
   @@index([permissionId])
   @@map("role_permissions")
 }
 
-/// Per-user permission override. One row per (user, permission). Effect is
-/// either `grant` (force-on) or `deny` (force-off) regardless of what the
-/// user's role allows. Used to handle exceptions like "all accountants
-/// can approve sales except this one user".
-model UserPermission {
-  id       String @id @default(uuid())
-  tenantId String @map("tenant_id")
-  /// Owning tenant (matches the user's tenantId). Nullable during migration.
-
-  userId       String               @map("user_id")
-  permissionId String               @map("permission_id")
-  effect       UserPermissionEffect
-  createdBy    String?              @map("created_by")
-  createdAt    DateTime             @default(now()) @map("created_at") @db.Timestamptz()
-  updatedAt    DateTime             @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
-
-  tenant     Tenant     @relation(fields: [tenantId], references: [id])
-  user       User       @relation("UserPermissionOwner", fields: [userId], references: [id], onDelete: Cascade)
-  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
-  creator    User?      @relation("UserPermissionCreator", fields: [createdBy], references: [id])
-
-  @@unique([userId, permissionId])
-  @@index([tenantId])
-  @@index([userId])
-  @@index([permissionId])
-  @@map("user_permissions")
-}
-
 model UserShop {
-  id       String @id @default(uuid())
-  tenantId String @map("tenant_id")
-  /// Owning tenant (matches user's and shop's tenantId). Nullable during migration.
-
+  id        String   @id @default(uuid())
   userId    String   @map("user_id")
   shopId    String   @map("shop_id")
   isPrimary Boolean  @default(false) @map("is_primary")
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
 
-  tenant Tenant @relation(fields: [tenantId], references: [id])
-  user   User   @relation(fields: [userId], references: [id])
-  shop   Shop   @relation(fields: [shopId], references: [id])
+  user User @relation(fields: [userId], references: [id])
+  shop Shop @relation(fields: [shopId], references: [id])
 
   @@unique([userId, shopId])
-  @@index([tenantId])
   @@index([userId])
   @@index([shopId])
   @@map("user_shops")
 }
 
 model RefreshToken {
-  id       String @id @default(uuid())
-  tenantId String @map("tenant_id")
-  /// Owning tenant (matches user's tenantId). Nullable during migration.
-
+  id         String    @id @default(uuid())
   userId     String    @map("user_id")
   tokenHash  String    @map("token_hash") @db.VarChar(255)
   deviceInfo String?   @map("device_info") @db.VarChar(500)
@@ -580,10 +273,8 @@ model RefreshToken {
   revokedAt  DateTime? @map("revoked_at") @db.Timestamptz()
   createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz()
 
-  tenant Tenant @relation(fields: [tenantId], references: [id])
-  user   User   @relation(fields: [userId], references: [id])
+  user User @relation(fields: [userId], references: [id])
 
-  @@index([tenantId])
   @@index([userId])
   @@index([tokenHash])
   @@map("refresh_tokens")
@@ -594,11 +285,7 @@ model RefreshToken {
 // ============================================================================
 
 model ProductCategory {
-  id       String @id @default(uuid())
-  tenantId String @map("tenant_id")
-  /// Owning tenant. Each tenant maintains its own product taxonomy.
-  /// Nullable during migration; becomes NOT NULL after backfill.
-
+  id           String   @id @default(uuid())
   name         String   @db.VarChar(200)
   slug         String   @db.VarChar(200)
   parentId     String?  @map("parent_id")
@@ -612,16 +299,14 @@ model ProductCategory {
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz()
   updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
-  tenant   Tenant            @relation(fields: [tenantId], references: [id])
   parent   ProductCategory?  @relation("CategoryHierarchy", fields: [parentId], references: [id])
   children ProductCategory[] @relation("CategoryHierarchy")
 
-  attributes            CategoryAttribute[]
-  products              Product[]
-  distributorCategories DistributorCategory[]
+  attributes             CategoryAttribute[]
+  products               Product[]
+  distributorCategories  DistributorCategory[]
 
   @@unique([slug, parentId])
-  @@index([tenantId])
   @@index([parentId])
   @@index([path])
   @@index([slug])
@@ -629,26 +314,21 @@ model ProductCategory {
 }
 
 model CategoryAttribute {
-  id       String @id @default(uuid())
-  tenantId String @map("tenant_id")
-  /// Owning tenant (matches the parent category's tenantId).
-
-  categoryId      String        @map("category_id")
-  attributeName   String        @map("attribute_name") @db.VarChar(100)
-  attributeLabel  String        @map("attribute_label") @db.VarChar(200)
+  id              String       @id @default(uuid())
+  categoryId      String       @map("category_id")
+  attributeName   String       @map("attribute_name") @db.VarChar(100)
+  attributeLabel  String       @map("attribute_label") @db.VarChar(200)
   attributeType   FormFieldType @map("attribute_type")
-  isRequired      Boolean       @default(false) @map("is_required")
-  validationRules Json?         @map("validation_rules")
+  isRequired      Boolean      @default(false) @map("is_required")
+  validationRules Json?        @map("validation_rules")
   options         Json?
-  displayOrder    Int           @default(0) @map("display_order")
-  isActive        Boolean       @default(true) @map("is_active")
-  createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz()
+  displayOrder    Int          @default(0) @map("display_order")
+  isActive        Boolean      @default(true) @map("is_active")
+  createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz()
 
-  tenant   Tenant          @relation(fields: [tenantId], references: [id])
   category ProductCategory @relation(fields: [categoryId], references: [id])
 
   @@unique([categoryId, attributeName])
-  @@index([tenantId])
   @@index([categoryId])
   @@map("category_attributes")
 }
@@ -658,10 +338,7 @@ model CategoryAttribute {
 // ============================================================================
 
 model Product {
-  id       String @id @default(uuid())
-  tenantId String @map("tenant_id")
-  /// Owning tenant (matches shopId's tenantId). Nullable during migration.
-
+  id                String        @id @default(uuid())
   shopId            String        @map("shop_id")
   categoryId        String        @map("category_id")
   brand             String        @db.VarChar(200)
@@ -684,19 +361,17 @@ model Product {
   createdAt         DateTime      @default(now()) @map("created_at") @db.Timestamptz()
   updatedAt         DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
-  shop        Shop            @relation(fields: [shopId], references: [id])
-  tenant      Tenant          @relation(fields: [tenantId], references: [id])
-  category    ProductCategory @relation(fields: [categoryId], references: [id])
-  distributor Distributor?    @relation(fields: [distributorId], references: [id])
-  purchase    Purchase?       @relation(fields: [purchaseId], references: [id])
-  creator     User?           @relation("ProductCreator", fields: [createdBy], references: [id])
+  shop        Shop             @relation(fields: [shopId], references: [id])
+  category    ProductCategory  @relation(fields: [categoryId], references: [id])
+  distributor Distributor?     @relation(fields: [distributorId], references: [id])
+  purchase    Purchase?        @relation(fields: [purchaseId], references: [id])
+  creator     User?            @relation("ProductCreator", fields: [createdBy], references: [id])
 
-  auditTrail     ProductAuditTrail[]
-  saleRecords    SaleRecord[]
+  auditTrail  ProductAuditTrail[]
+  saleRecords SaleRecord[]
   salesSanitized SaleRecordSanitized[]
-  transfers      InterShopTransfer[]
+  transfers   InterShopTransfer[]
 
-  @@index([tenantId])
   @@index([shopId])
   @@index([categoryId])
   @@index([status])
@@ -707,10 +382,7 @@ model Product {
 }
 
 model ProductAuditTrail {
-  id       String @id @default(uuid())
-  tenantId String @map("tenant_id")
-  /// Owning tenant (matches the product's tenantId).
-
+  id            String   @id @default(uuid())
   productId     String   @map("product_id")
   eventType     String   @map("event_type") @db.VarChar(50)
   fromShopId    String?  @map("from_shop_id")
@@ -721,11 +393,9 @@ model ProductAuditTrail {
   performedBy   String?  @map("performed_by")
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz()
 
-  tenant    Tenant  @relation(fields: [tenantId], references: [id])
   product   Product @relation(fields: [productId], references: [id])
   performer User?   @relation("AuditPerformer", fields: [performedBy], references: [id])
 
-  @@index([tenantId])
   @@index([productId])
   @@index([createdAt])
   @@map("product_audit_trail")
@@ -736,11 +406,7 @@ model ProductAuditTrail {
 // ============================================================================
 
 model Distributor {
-  id       String @id @default(uuid())
-  tenantId String @map("tenant_id")
-  /// Owning tenant. Each tenant maintains its own supplier list.
-  /// Nullable during migration; becomes NOT NULL after backfill.
-
+  id                String   @id @default(uuid())
   companyName       String   @map("company_name") @db.VarChar(300)
   contactPerson     String   @map("contact_person") @db.VarChar(200)
   phone             String   @db.VarChar(15)
@@ -765,13 +431,11 @@ model Distributor {
   createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz()
   updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
-  creator    User?                 @relation("DistributorCreator", fields: [createdBy], references: [id])
-  tenant     Tenant                @relation(fields: [tenantId], references: [id])
+  creator    User?               @relation("DistributorCreator", fields: [createdBy], references: [id])
   categories DistributorCategory[]
   purchases  Purchase[]
   products   Product[]
 
-  @@index([tenantId])
   @@index([companyName])
   @@index([gstNumber])
   @@index([phone])
@@ -779,19 +443,14 @@ model Distributor {
 }
 
 model DistributorCategory {
-  id       String @id @default(uuid())
-  tenantId String @map("tenant_id")
-  /// Owning tenant (matches the distributor's tenantId).
-
+  id            String @id @default(uuid())
   distributorId String @map("distributor_id")
   categoryId    String @map("category_id")
 
-  tenant      Tenant          @relation(fields: [tenantId], references: [id])
   distributor Distributor     @relation(fields: [distributorId], references: [id])
   category    ProductCategory @relation(fields: [categoryId], references: [id])
 
   @@unique([distributorId, categoryId])
-  @@index([tenantId])
   @@map("distributor_categories")
 }
 
@@ -800,10 +459,7 @@ model DistributorCategory {
 // ============================================================================
 
 model Purchase {
-  id       String @id @default(uuid())
-  tenantId String @map("tenant_id")
-  /// Owning tenant (matches shopId's tenantId). Nullable during migration.
-
+  id             String   @id @default(uuid())
   shopId         String   @map("shop_id")
   distributorId  String   @map("distributor_id")
   invoiceNumber  String   @map("invoice_number") @db.VarChar(100)
@@ -820,14 +476,12 @@ model Purchase {
   updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   shop        Shop        @relation(fields: [shopId], references: [id])
-  tenant      Tenant      @relation(fields: [tenantId], references: [id])
   distributor Distributor @relation(fields: [distributorId], references: [id])
   creator     User?       @relation("PurchaseCreator", fields: [createdBy], references: [id])
 
   products Product[]
   payments PurchasePayment[]
 
-  @@index([tenantId])
   @@index([shopId])
   @@index([distributorId])
   @@index([invoiceNumber])
@@ -836,10 +490,7 @@ model Purchase {
 }
 
 model PurchasePayment {
-  id       String @id @default(uuid())
-  tenantId String @map("tenant_id")
-  /// Owning tenant (matches the purchase's tenantId).
-
+  id              String      @id @default(uuid())
   purchaseId      String      @map("purchase_id")
   amount          Decimal     @db.Decimal(12, 2)
   paymentMode     PaymentMode @map("payment_mode")
@@ -849,11 +500,9 @@ model PurchasePayment {
   createdBy       String?     @map("created_by")
   createdAt       DateTime    @default(now()) @map("created_at") @db.Timestamptz()
 
-  tenant   Tenant   @relation(fields: [tenantId], references: [id])
   purchase Purchase @relation(fields: [purchaseId], references: [id])
   creator  User?    @relation("PurchasePaymentCreator", fields: [createdBy], references: [id])
 
-  @@index([tenantId])
   @@index([purchaseId])
   @@map("purchase_payments")
 }
@@ -863,43 +512,27 @@ model PurchasePayment {
 // ============================================================================
 
 model Customer {
-  id       String @id @default(uuid())
-  tenantId String @map("tenant_id")
-  /// Owning tenant (matches shopId's tenantId). Nullable during migration.
-  /// `customerCode` becomes per-tenant unique once tenantId is enforced.
-
-  customerCode      String       @map("customer_code") @db.VarChar(20)
-  name              String       @db.VarChar(200)
-  phone             String       @db.VarChar(15)
-  altPhone          String?      @map("alt_phone") @db.VarChar(15)
-  aadhaarNumber     String?      @map("aadhaar_number") @db.VarChar(12)
-  addressLine1      String?      @map("address_line1") @db.VarChar(255)
-  addressLine2      String?      @map("address_line2") @db.VarChar(255)
-  city              String?      @db.VarChar(100)
-  state             String?      @db.VarChar(100)
-  pincode           String?      @db.VarChar(6)
-  /// Geographic zone within the shop's serving area (East / West / North / South).
-  /// Per-shop dropdown values; today the same 4 cardinal directions are used
-  /// across all shops. Drives the Installment list zone filter.
-  zone              String?      @db.VarChar(20)
-  /// Distinguishes B2B (`business`) customers — invoices for them include
-  /// the business name and GSTIN — from regular individuals.
-  customerType      CustomerType @default(individual) @map("customer_type")
-  /// Legal business name (B2B). Null for individual customers.
-  businessName      String?      @map("business_name") @db.VarChar(200)
-  /// 15-character GSTIN for B2B customers. Shown on invoices.
-  gstNumber         String?      @map("gst_number") @db.VarChar(15)
-  photoIdUrl        String?      @map("photo_id_url") @db.VarChar(500)
-  isGuarantor       Boolean      @default(false) @map("is_guarantor")
-  guarantorId       String?      @map("guarantor_id")
-  dynamicAttributes Json         @default("{}") @map("dynamic_attributes")
-  shopId            String       @map("shop_id")
-  createdBy         String?      @map("created_by")
-  createdAt         DateTime     @default(now()) @map("created_at") @db.Timestamptz()
-  updatedAt         DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+  id                String   @id @default(uuid())
+  customerCode      String   @unique @map("customer_code") @db.VarChar(20)
+  name              String   @db.VarChar(200)
+  phone             String   @db.VarChar(15)
+  altPhone          String?  @map("alt_phone") @db.VarChar(15)
+  aadhaarNumber     String?  @map("aadhaar_number") @db.VarChar(12)
+  addressLine1      String?  @map("address_line1") @db.VarChar(255)
+  addressLine2      String?  @map("address_line2") @db.VarChar(255)
+  city              String?  @db.VarChar(100)
+  state             String?  @db.VarChar(100)
+  pincode           String?  @db.VarChar(6)
+  photoIdUrl        String?  @map("photo_id_url") @db.VarChar(500)
+  isGuarantor       Boolean  @default(false) @map("is_guarantor")
+  guarantorId       String?  @map("guarantor_id")
+  dynamicAttributes Json     @default("{}") @map("dynamic_attributes")
+  shopId            String   @map("shop_id")
+  createdBy         String?  @map("created_by")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   shop      Shop      @relation(fields: [shopId], references: [id])
-  tenant    Tenant    @relation(fields: [tenantId], references: [id])
   creator   User?     @relation("CustomerCreator", fields: [createdBy], references: [id])
   guarantor Customer? @relation("CustomerGuarantor", fields: [guarantorId], references: [id])
 
@@ -907,17 +540,13 @@ model Customer {
   saleRecords         SaleRecord[]          @relation("SaleCustomer")
   salesAsGuarantor    SaleRecord[]          @relation("SaleGuarantor")
   salesSanitized      SaleRecordSanitized[]
-  installmentPromises InstallmentPromise[]
 
-  @@unique([tenantId, customerCode])
-  @@index([tenantId])
   @@index([phone])
   @@index([customerCode])
   @@index([name])
   @@index([shopId])
   @@index([guarantorId])
   @@index([aadhaarNumber])
-  @@index([zone])
   @@map("customers")
 }
 
@@ -944,82 +573,65 @@ model FinanceCompany {
 // ============================================================================
 
 model SaleRecord {
-  id       String @id @default(uuid())
-  tenantId String @map("tenant_id")
-  /// Owning tenant (matches shopId's tenantId). Nullable during migration.
-  /// `saleNumber` and `ledgerNumber` become per-tenant unique once enforced.
-
-  saleNumber                 String                @map("sale_number") @db.VarChar(30)
-  ledgerNumber               String                @map("ledger_number") @db.VarChar(50)
-  shopId                     String                @map("shop_id")
-  productId                  String                @map("product_id")
-  customerId                 String                @map("customer_id")
-  saleDate                   DateTime              @map("sale_date") @db.Date
-  saleType                   SaleType              @map("sale_type")
-  mrp                        Decimal               @db.Decimal(12, 2)
-  sellingPrice               Decimal               @map("selling_price") @db.Decimal(12, 2)
-  discountAmount             Decimal               @default(0) @map("discount_amount") @db.Decimal(12, 2)
-  netAmount                  Decimal               @map("net_amount") @db.Decimal(12, 2)
-  gstRate                    Decimal               @default(0) @map("gst_rate") @db.Decimal(4, 2)
-  gstAmount                  Decimal               @default(0) @map("gst_amount") @db.Decimal(12, 2)
-  purchasePrice              Decimal               @default(0) @map("purchase_price") @db.Decimal(12, 2)
-  purchaseGstAmount          Decimal               @default(0) @map("purchase_gst_amount") @db.Decimal(12, 2)
-  totalAmount                Decimal               @map("total_amount") @db.Decimal(12, 2)
-  downPayment                Decimal               @default(0) @map("down_payment") @db.Decimal(12, 2)
-  paymentMode                PaymentMode           @map("payment_mode")
-  paymentBreakdown           Json?                 @map("payment_breakdown")
+  id                          String               @id @default(uuid())
+  saleNumber                  String               @unique @map("sale_number") @db.VarChar(30)
+  ledgerNumber                String               @map("ledger_number") @db.VarChar(50)
+  shopId                      String               @map("shop_id")
+  productId                   String               @map("product_id")
+  customerId                  String               @map("customer_id")
+  saleDate                    DateTime             @map("sale_date") @db.Date
+  saleType                    SaleType             @map("sale_type")
+  mrp                         Decimal              @db.Decimal(12, 2)
+  sellingPrice                Decimal              @map("selling_price") @db.Decimal(12, 2)
+  discountAmount              Decimal              @default(0) @map("discount_amount") @db.Decimal(12, 2)
+  netAmount                   Decimal              @map("net_amount") @db.Decimal(12, 2)
+  gstRate                     Decimal              @default(0) @map("gst_rate") @db.Decimal(4, 2)
+  gstAmount                   Decimal              @default(0) @map("gst_amount") @db.Decimal(12, 2)
+  purchasePrice               Decimal              @default(0) @map("purchase_price") @db.Decimal(12, 2)
+  purchaseGstAmount           Decimal              @default(0) @map("purchase_gst_amount") @db.Decimal(12, 2)
+  totalAmount                 Decimal              @map("total_amount") @db.Decimal(12, 2)
+  downPayment                 Decimal              @default(0) @map("down_payment") @db.Decimal(12, 2)
+  paymentMode                 PaymentMode          @map("payment_mode")
+  paymentBreakdown            Json?                @map("payment_breakdown")
   // Partial with promise
-  promiseDate                DateTime?             @map("promise_date") @db.Date
-  pendingAmount              Decimal               @default(0) @map("pending_amount") @db.Decimal(12, 2)
+  promiseDate                 DateTime?            @map("promise_date") @db.Date
+  pendingAmount               Decimal              @default(0) @map("pending_amount") @db.Decimal(12, 2)
   // Self finance
-  interestRate               Decimal?              @map("interest_rate") @db.Decimal(4, 2)
-  /// Per-sale override for monthly penal interest rate. Null uses tenant settings.
-  penalRate                  Decimal?              @map("penal_rate") @db.Decimal(4, 2)
-  fileCharge                 Decimal               @default(0) @map("file_charge") @db.Decimal(12, 2)
+  interestRate                Decimal?             @map("interest_rate") @db.Decimal(4, 2)
+  fileCharge                  Decimal              @default(0) @map("file_charge") @db.Decimal(12, 2)
   /// Computed: interestRate + (fileCharge / principal / numInstallments) × 100.
   /// Shown in UI so users see the true monthly finance cost when a flat fee and
   /// an interest rate are combined. Stored for reporting.
-  effectiveMonthlyRate       Decimal?              @map("effective_monthly_rate") @db.Decimal(6, 3)
-  totalFinancedAmount        Decimal?              @map("total_financed_amount") @db.Decimal(12, 2)
-  numInstallments            Int?                  @map("num_installments")
-  emiAmount                  Decimal?              @map("emi_amount") @db.Decimal(12, 2)
-  guarantorId                String?               @map("guarantor_id")
+  effectiveMonthlyRate        Decimal?             @map("effective_monthly_rate") @db.Decimal(6, 3)
+  totalFinancedAmount         Decimal?             @map("total_financed_amount") @db.Decimal(12, 2)
+  numInstallments             Int?                 @map("num_installments")
+  emiAmount                   Decimal?             @map("emi_amount") @db.Decimal(12, 2)
+  guarantorId                 String?              @map("guarantor_id")
   // Company finance
-  financeCompanyId           String?               @map("finance_company_id")
-  financedAmount             Decimal?              @map("financed_amount") @db.Decimal(12, 2)
-  expectedPaymentDate        DateTime?             @map("expected_payment_date") @db.Date
-  financePaymentStatus       FinancePaymentStatus? @map("finance_payment_status")
-  financePaymentReceivedDate DateTime?             @map("finance_payment_received_date") @db.Date
-  financeReferenceNumber     String?               @map("finance_reference_number") @db.VarChar(100)
+  financeCompanyId            String?              @map("finance_company_id")
+  financedAmount              Decimal?             @map("financed_amount") @db.Decimal(12, 2)
+  expectedPaymentDate         DateTime?            @map("expected_payment_date") @db.Date
+  financePaymentStatus        FinancePaymentStatus? @map("finance_payment_status")
+  financePaymentReceivedDate  DateTime?            @map("finance_payment_received_date") @db.Date
+  financeReferenceNumber      String?              @map("finance_reference_number") @db.VarChar(100)
   // Completion
   /// Timestamp when the sale was fully settled (installments all paid, or full-payment at creation).
   /// Null means still active/pending.
-  completedAt                DateTime?             @map("completed_at") @db.Timestamptz()
-  // Approval workflow — sales created by users without `sales.approve` are
-  // saved as `pending` and visible to approvers (Owner, or anyone granted
-  // the permission). Default is `approved` so existing rows + sales created
-  // by approvers themselves do not block business flows.
-  approvalStatus             SaleApprovalStatus    @default(approved) @map("approval_status")
-  approvedById               String?               @map("approved_by_id")
-  approvedAt                 DateTime?             @map("approved_at") @db.Timestamptz()
+  completedAt                 DateTime?            @map("completed_at") @db.Timestamptz()
   // Metadata
-  notes                      String?               @db.Text
-  createdBy                  String                @map("created_by")
-  createdAt                  DateTime              @default(now()) @map("created_at") @db.Timestamptz()
-  updatedAt                  DateTime              @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+  notes                       String?              @db.Text
+  createdBy                   String               @map("created_by")
+  createdAt                   DateTime             @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt                   DateTime             @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
-  shop                Shop                 @relation(fields: [shopId], references: [id])
-  tenant              Tenant               @relation(fields: [tenantId], references: [id])
-  product             Product              @relation(fields: [productId], references: [id])
-  customer            Customer             @relation("SaleCustomer", fields: [customerId], references: [id])
-  guarantor           Customer?            @relation("SaleGuarantor", fields: [guarantorId], references: [id])
-  financeCompany      FinanceCompany?      @relation(fields: [financeCompanyId], references: [id])
-  creator             User                 @relation("SaleCreator", fields: [createdBy], references: [id])
-  approver            User?                @relation("SaleApprover", fields: [approvedById], references: [id])
+  shop             Shop              @relation(fields: [shopId], references: [id])
+  product          Product           @relation(fields: [productId], references: [id])
+  customer         Customer          @relation("SaleCustomer", fields: [customerId], references: [id])
+  guarantor        Customer?         @relation("SaleGuarantor", fields: [guarantorId], references: [id])
+  financeCompany   FinanceCompany?   @relation(fields: [financeCompanyId], references: [id])
+  creator          User              @relation("SaleCreator", fields: [createdBy], references: [id])
   installmentSchedule InstallmentSchedule?
 
-  @@unique([tenantId, saleNumber])
-  @@index([tenantId])
   @@index([shopId])
   @@index([productId])
   @@index([customerId])
@@ -1031,7 +643,6 @@ model SaleRecord {
   @@index([guarantorId])
   @@index([createdBy])
   @@index([completedAt])
-  @@index([approvalStatus])
   @@map("sale_records")
 }
 
@@ -1040,10 +651,7 @@ model SaleRecord {
 // ============================================================================
 
 model SaleRecordSanitized {
-  id       String @id
-  tenantId String @map("tenant_id")
-  /// Owning tenant (mirrors the real SaleRecord). Nullable during migration.
-
+  id           String   @id
   saleNumber   String   @map("sale_number") @db.VarChar(30)
   ledgerNumber String   @map("ledger_number") @db.VarChar(50)
   shopId       String   @map("shop_id")
@@ -1058,12 +666,10 @@ model SaleRecordSanitized {
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz()
 
   shop     Shop     @relation(fields: [shopId], references: [id])
-  tenant   Tenant   @relation(fields: [tenantId], references: [id])
   product  Product  @relation(fields: [productId], references: [id])
   customer Customer @relation(fields: [customerId], references: [id])
   creator  User     @relation("SanitizedSaleCreator", fields: [createdBy], references: [id])
 
-  @@index([tenantId])
   @@index([shopId])
   @@index([saleDate])
   @@map("sale_records_sanitized")
@@ -1074,45 +680,33 @@ model SaleRecordSanitized {
 // ============================================================================
 
 model InstallmentSchedule {
-  id       String @id @default(uuid())
-  tenantId String @map("tenant_id")
-  /// Owning tenant (matches sale's tenantId). Nullable during migration.
-
-  saleId           String    @unique @map("sale_id")
-  totalPrincipal   Decimal   @map("total_principal") @db.Decimal(12, 2)
-  totalInterest    Decimal   @map("total_interest") @db.Decimal(12, 2)
-  fileCharge       Decimal   @default(0) @map("file_charge") @db.Decimal(12, 2)
-  totalPayable     Decimal   @map("total_payable") @db.Decimal(12, 2)
-  numInstallments  Int       @map("num_installments")
-  emiAmount        Decimal   @map("emi_amount") @db.Decimal(12, 2)
-  startDate        DateTime  @map("start_date") @db.Date
-  status           String    @default("active") @db.VarChar(20)
+  id              String   @id @default(uuid())
+  saleId          String   @unique @map("sale_id")
+  totalPrincipal  Decimal  @map("total_principal") @db.Decimal(12, 2)
+  totalInterest   Decimal  @map("total_interest") @db.Decimal(12, 2)
+  fileCharge      Decimal  @default(0) @map("file_charge") @db.Decimal(12, 2)
+  totalPayable    Decimal  @map("total_payable") @db.Decimal(12, 2)
+  numInstallments Int      @map("num_installments")
+  emiAmount       Decimal  @map("emi_amount") @db.Decimal(12, 2)
+  startDate       DateTime @map("start_date") @db.Date
+  status          String   @default("active") @db.VarChar(20)
   /// The last business date on which the daily rollover job processed this schedule.
   /// Used for idempotent scheduler runs.
   lastRolloverDate DateTime? @map("last_rollover_date") @db.Date
-  /// Excess payment held at schedule level and consumed by future EMIs.
-  creditBalance    Decimal   @default(0) @map("credit_balance") @db.Decimal(12, 2)
-  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz()
-  updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
-  sale                 SaleRecord                       @relation(fields: [saleId], references: [id])
-  tenant               Tenant                           @relation(fields: [tenantId], references: [id])
-  installments         Installment[]
-  collectionAssigns    EmployeeCollectionAssignment[]
-  rollLogEvents        InstallmentRollLog[]             @relation("RollLogSchedule")
-  interestApplications InstallmentInterestApplication[] @relation("ScheduleInterestApps")
-  promises             InstallmentPromise[]
+  sale         SaleRecord   @relation(fields: [saleId], references: [id])
+  installments Installment[]
+  collectionAssigns EmployeeCollectionAssignment[]
+  rollLogEvents     InstallmentRollLog[] @relation("RollLogSchedule")
 
-  @@index([tenantId])
   @@index([saleId])
   @@map("installment_schedules")
 }
 
 model Installment {
-  id       String @id @default(uuid())
-  tenantId String @map("tenant_id")
-  /// Owning tenant (matches the schedule's tenantId). Nullable during migration.
-
+  id                      String            @id @default(uuid())
   scheduleId              String            @map("schedule_id")
   installmentNumber       Int               @map("installment_number")
   /// For sub-rows (e.g. "2.1") this is the parent's installment_number ("2"). Null for primary rows.
@@ -1133,15 +727,12 @@ model Installment {
   createdAt               DateTime          @default(now()) @map("created_at") @db.Timestamptz()
   updatedAt               DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
-  schedule             InstallmentSchedule              @relation(fields: [scheduleId], references: [id])
-  tenant               Tenant                           @relation(fields: [tenantId], references: [id])
-  rescheduledFrom      Installment?                     @relation("RescheduledFrom", fields: [rescheduledFromId], references: [id])
-  rescheduledTo        Installment[]                    @relation("RescheduledFrom")
-  payments             InstallmentPayment[]
-  rollLogEvents        InstallmentRollLog[]             @relation("RollLogInstallment")
-  interestApplications InstallmentInterestApplication[] @relation("InstallmentInterestApps")
+  schedule        InstallmentSchedule @relation(fields: [scheduleId], references: [id])
+  rescheduledFrom Installment?        @relation("RescheduledFrom", fields: [rescheduledFromId], references: [id])
+  rescheduledTo   Installment[]       @relation("RescheduledFrom")
+  payments        InstallmentPayment[]
+  rollLogEvents   InstallmentRollLog[] @relation("RollLogInstallment")
 
-  @@index([tenantId])
   @@index([scheduleId])
   @@index([dueDate])
   @@index([status])
@@ -1151,10 +742,7 @@ model Installment {
 }
 
 model InstallmentPayment {
-  id       String @id @default(uuid())
-  tenantId String @map("tenant_id")
-  /// Owning tenant (matches the installment's tenantId).
-
+  id              String      @id @default(uuid())
   installmentId   String      @map("installment_id")
   amount          Decimal     @db.Decimal(12, 2)
   paymentMode     PaymentMode @map("payment_mode")
@@ -1164,62 +752,19 @@ model InstallmentPayment {
   notes           String?     @db.Text
   createdAt       DateTime    @default(now()) @map("created_at") @db.Timestamptz()
 
-  tenant      Tenant      @relation(fields: [tenantId], references: [id])
   installment Installment @relation(fields: [installmentId], references: [id])
   collector   User?       @relation("InstallmentCollector", fields: [collectedBy], references: [id])
 
-  @@index([tenantId])
   @@index([installmentId])
   @@index([paymentDate])
   @@index([collectedBy])
   @@map("installment_payments")
 }
 
-/// Discretionary overdue-interest penalty applied by the field employee
-/// (or admin) to a specific installment. Multiple historical rows may
-/// exist; only rows with `rolledBackAt IS NULL` are "active" and
-/// contribute to the installment's amountDue / remainingAmount.
-model InstallmentInterestApplication {
-  id       String @id @default(uuid())
-  tenantId String @map("tenant_id")
-  /// Owning tenant (matches the installment's tenantId).
-
-  installmentId  String    @map("installment_id")
-  scheduleId     String    @map("schedule_id")
-  daysOverdue    Int       @map("days_overdue")
-  /// Daily rate snapshot (fraction, e.g. 0.000667 for 2%/month ÷ 30).
-  dailyRate      Decimal   @map("daily_rate") @db.Decimal(8, 6)
-  /// Installment remainingAmount used as the base when this penalty was computed.
-  baseAmount     Decimal   @map("base_amount") @db.Decimal(12, 2)
-  /// Penalty amount added to the installment's amountDue / remainingAmount.
-  appliedAmount  Decimal   @map("applied_amount") @db.Decimal(12, 2)
-  appliedAt      DateTime  @default(now()) @map("applied_at") @db.Timestamptz()
-  appliedBy      String    @map("applied_by")
-  notes          String?   @db.Text
-  rolledBackAt   DateTime? @map("rolled_back_at") @db.Timestamptz()
-  rolledBackBy   String?   @map("rolled_back_by")
-  rollbackReason String?   @map("rollback_reason") @db.Text
-
-  installment      Installment         @relation("InstallmentInterestApps", fields: [installmentId], references: [id])
-  schedule         InstallmentSchedule @relation("ScheduleInterestApps", fields: [scheduleId], references: [id])
-  tenant           Tenant              @relation(fields: [tenantId], references: [id])
-  appliedByUser    User                @relation("InterestAppliedBy", fields: [appliedBy], references: [id])
-  rolledBackByUser User?               @relation("InterestRolledBackBy", fields: [rolledBackBy], references: [id])
-
-  @@index([tenantId])
-  @@index([installmentId])
-  @@index([scheduleId])
-  @@index([rolledBackAt])
-  @@map("installment_interest_applications")
-}
-
 /// Immutable audit log of every state change in an installment schedule.
 /// Drives the schedule timeline UI and the customer reliability summary.
 model InstallmentRollLog {
-  id       String @id @default(uuid())
-  tenantId String @map("tenant_id")
-  /// Owning tenant (matches the schedule's tenantId).
-
+  id             String   @id @default(uuid())
   scheduleId     String   @map("schedule_id")
   installmentId  String?  @map("installment_id")
   /// One of: installment_due | sub_created | payment_recorded | partial_payment |
@@ -1236,68 +781,27 @@ model InstallmentRollLog {
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz()
 
   schedule    InstallmentSchedule @relation("RollLogSchedule", fields: [scheduleId], references: [id])
-  tenant      Tenant              @relation(fields: [tenantId], references: [id])
   installment Installment?        @relation("RollLogInstallment", fields: [installmentId], references: [id])
   actor       User?               @relation("RollLogActor", fields: [actorUserId], references: [id])
 
-  @@index([tenantId])
   @@index([scheduleId, eventDate])
   @@index([installmentId])
   @@index([eventType])
   @@map("installment_roll_log")
 }
 
-enum InstallmentPromiseStatus {
-  pending
-  kept
-  partially_kept
-  broken
-}
-
-model InstallmentPromise {
-  id                    String                   @id @default(uuid())
-  tenantId              String                   @map("tenant_id")
-  scheduleId            String                   @map("schedule_id")
-  customerId            String                   @map("customer_id")
-  coveredInstallmentIds String[]                 @map("covered_installment_ids")
-  promisedDate          DateTime                 @map("promised_date") @db.Date
-  promisedAmount        Decimal                  @map("promised_amount") @db.Decimal(12, 2)
-  status                InstallmentPromiseStatus @default(pending)
-  createdBy             String                   @map("created_by")
-  createdAt             DateTime                 @default(now()) @map("created_at") @db.Timestamptz()
-  resolvedAt            DateTime?                @map("resolved_at") @db.Timestamptz()
-  collectedAmount       Decimal                  @default(0) @map("collected_amount") @db.Decimal(12, 2)
-  notes                 String?                  @db.Text
-
-  tenant        Tenant              @relation(fields: [tenantId], references: [id])
-  schedule      InstallmentSchedule @relation(fields: [scheduleId], references: [id])
-  customer      Customer            @relation(fields: [customerId], references: [id])
-  createdByUser User                @relation("PromiseCreatedBy", fields: [createdBy], references: [id])
-
-  @@index([tenantId])
-  @@index([scheduleId, status])
-  @@index([customerId, status])
-  @@index([promisedDate, status])
-  @@map("promises")
-}
-
 model EmployeeCollectionAssignment {
-  id       String @id @default(uuid())
-  tenantId String @map("tenant_id")
-  /// Owning tenant. Nullable during migration.
-
+  id         String   @id @default(uuid())
   employeeId String   @map("employee_id")
   scheduleId String   @map("schedule_id")
   shopId     String   @map("shop_id")
   isActive   Boolean  @default(true) @map("is_active")
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz()
 
-  tenant   Tenant              @relation(fields: [tenantId], references: [id])
   employee User                @relation(fields: [employeeId], references: [id])
   schedule InstallmentSchedule @relation(fields: [scheduleId], references: [id])
   shop     Shop                @relation(fields: [shopId], references: [id])
 
-  @@index([tenantId])
   @@index([employeeId])
   @@index([scheduleId])
   @@map("employee_collection_assignments")
@@ -1308,33 +812,28 @@ model EmployeeCollectionAssignment {
 // ============================================================================
 
 model InterShopTransfer {
-  id       String @id @default(uuid())
-  tenantId String @map("tenant_id")
-  /// Owning tenant (both fromShop and toShop must be in the same tenant).
-
-  productId     String         @map("product_id")
-  fromShopId    String         @map("from_shop_id")
-  toShopId      String         @map("to_shop_id")
-  transferDate  DateTime       @map("transfer_date") @db.Date
-  status        TransferStatus @default(initiated)
-  transferPrice Decimal?       @map("transfer_price") @db.Decimal(12, 2)
-  gstAmount     Decimal?       @map("gst_amount") @db.Decimal(12, 2)
-  invoiceNumber String?        @map("invoice_number") @db.VarChar(100)
-  notes         String?        @db.Text
-  initiatedBy   String         @map("initiated_by")
-  receivedBy    String?        @map("received_by")
-  receivedAt    DateTime?      @map("received_at") @db.Timestamptz()
-  createdAt     DateTime       @default(now()) @map("created_at") @db.Timestamptz()
-  updatedAt     DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+  id             String         @id @default(uuid())
+  productId      String         @map("product_id")
+  fromShopId     String         @map("from_shop_id")
+  toShopId       String         @map("to_shop_id")
+  transferDate   DateTime       @map("transfer_date") @db.Date
+  status         TransferStatus @default(initiated)
+  transferPrice  Decimal?       @map("transfer_price") @db.Decimal(12, 2)
+  gstAmount      Decimal?       @map("gst_amount") @db.Decimal(12, 2)
+  invoiceNumber  String?        @map("invoice_number") @db.VarChar(100)
+  notes          String?        @db.Text
+  initiatedBy    String         @map("initiated_by")
+  receivedBy     String?        @map("received_by")
+  receivedAt     DateTime?      @map("received_at") @db.Timestamptz()
+  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt      DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   product   Product @relation(fields: [productId], references: [id])
-  tenant    Tenant  @relation(fields: [tenantId], references: [id])
   fromShop  Shop    @relation("TransferFrom", fields: [fromShopId], references: [id])
   toShop    Shop    @relation("TransferTo", fields: [toShopId], references: [id])
   initiator User    @relation("TransferInitiator", fields: [initiatedBy], references: [id])
   receiver  User?   @relation("TransferReceiver", fields: [receivedBy], references: [id])
 
-  @@index([tenantId])
   @@index([productId])
   @@index([fromShopId])
   @@index([toShopId])
@@ -1347,10 +846,7 @@ model InterShopTransfer {
 // ============================================================================
 
 model Expense {
-  id       String @id @default(uuid())
-  tenantId String @map("tenant_id")
-  /// Owning tenant (matches shopId's tenantId). Nullable during migration.
-
+  id             String          @id @default(uuid())
   shopId         String          @map("shop_id")
   expenseDate    DateTime        @map("expense_date") @db.Date
   category       ExpenseCategory
@@ -1365,11 +861,9 @@ model Expense {
   createdAt      DateTime        @default(now()) @map("created_at") @db.Timestamptz()
   updatedAt      DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
-  shop    Shop   @relation(fields: [shopId], references: [id])
-  tenant  Tenant @relation(fields: [tenantId], references: [id])
-  creator User?  @relation("ExpenseCreator", fields: [createdBy], references: [id])
+  shop    Shop  @relation(fields: [shopId], references: [id])
+  creator User? @relation("ExpenseCreator", fields: [createdBy], references: [id])
 
-  @@index([tenantId])
   @@index([shopId])
   @@index([expenseDate])
   @@index([category])
@@ -1381,10 +875,7 @@ model Expense {
 // ============================================================================
 
 model BankAccount {
-  id       String @id @default(uuid())
-  tenantId String @map("tenant_id")
-  /// Owning tenant (matches shopId's tenantId).
-
+  id             String   @id @default(uuid())
   shopId         String   @map("shop_id")
   bankName       String   @map("bank_name") @db.VarChar(200)
   accountNumber  String   @map("account_number") @db.VarChar(20)
@@ -1395,19 +886,14 @@ model BankAccount {
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz()
 
   shop         Shop              @relation(fields: [shopId], references: [id])
-  tenant       Tenant            @relation(fields: [tenantId], references: [id])
   transactions BankTransaction[]
 
-  @@index([tenantId])
   @@index([shopId])
   @@map("bank_accounts")
 }
 
 model BankTransaction {
-  id       String @id @default(uuid())
-  tenantId String @map("tenant_id")
-  /// Owning tenant (matches the bank account's tenantId).
-
+  id                   String               @id @default(uuid())
   bankAccountId        String               @map("bank_account_id")
   transactionDate      DateTime             @map("transaction_date") @db.Date
   valueDate            DateTime?            @map("value_date") @db.Date
@@ -1424,10 +910,8 @@ model BankTransaction {
   createdAt            DateTime             @default(now()) @map("created_at") @db.Timestamptz()
 
   bankAccount BankAccount @relation(fields: [bankAccountId], references: [id])
-  tenant      Tenant      @relation(fields: [tenantId], references: [id])
   reconciler  User?       @relation("Reconciler", fields: [reconciledBy], references: [id])
 
-  @@index([tenantId])
   @@index([bankAccountId])
   @@index([transactionDate])
   @@index([reconciliationStatus])
@@ -1439,10 +923,7 @@ model BankTransaction {
 // ============================================================================
 
 model FormDefinition {
-  id       String @id @default(uuid())
-  tenantId String @map("tenant_id")
-  /// Owning tenant. Nullable during migration; becomes NOT NULL after backfill.
-
+  id          String   @id @default(uuid())
   formName    String   @map("form_name") @db.VarChar(100)
   shopId      String?  @map("shop_id")
   version     Int      @default(1)
@@ -1452,41 +933,34 @@ model FormDefinition {
   updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   shop   Shop?       @relation(fields: [shopId], references: [id])
-  tenant Tenant      @relation(fields: [tenantId], references: [id])
   fields FormField[]
 
   @@unique([formName, shopId, version])
-  @@index([tenantId])
   @@index([formName])
   @@map("form_definitions")
 }
 
 model FormField {
-  id       String @id @default(uuid())
-  tenantId String @map("tenant_id")
-  /// Owning tenant (matches the form definition's tenantId).
-
-  formDefinitionId String        @map("form_definition_id")
-  fieldName        String        @map("field_name") @db.VarChar(100)
-  fieldLabel       String        @map("field_label") @db.VarChar(200)
+  id               String       @id @default(uuid())
+  formDefinitionId String       @map("form_definition_id")
+  fieldName        String       @map("field_name") @db.VarChar(100)
+  fieldLabel       String       @map("field_label") @db.VarChar(200)
   fieldType        FormFieldType @map("field_type")
-  placeholder      String?       @db.VarChar(200)
-  defaultValue     String?       @map("default_value") @db.VarChar(500)
-  isRequired       Boolean       @default(false) @map("is_required")
-  validationRules  Json?         @map("validation_rules")
+  placeholder      String?      @db.VarChar(200)
+  defaultValue     String?      @map("default_value") @db.VarChar(500)
+  isRequired       Boolean      @default(false) @map("is_required")
+  validationRules  Json?        @map("validation_rules")
   options          Json?
-  displayOrder     Int           @default(0) @map("display_order")
-  sectionName      String?       @map("section_name") @db.VarChar(100)
-  isVisible        Boolean       @default(true) @map("is_visible")
-  cssClass         String?       @map("css_class") @db.VarChar(200)
-  dependsOn        Json?         @map("depends_on")
-  createdAt        DateTime      @default(now()) @map("created_at") @db.Timestamptz()
+  displayOrder     Int          @default(0) @map("display_order")
+  sectionName      String?      @map("section_name") @db.VarChar(100)
+  isVisible        Boolean      @default(true) @map("is_visible")
+  cssClass         String?      @map("css_class") @db.VarChar(200)
+  dependsOn        Json?        @map("depends_on")
+  createdAt        DateTime     @default(now()) @map("created_at") @db.Timestamptz()
 
   formDefinition FormDefinition @relation(fields: [formDefinitionId], references: [id])
-  tenant         Tenant         @relation(fields: [tenantId], references: [id])
 
   @@unique([formDefinitionId, fieldName])
-  @@index([tenantId])
   @@index([formDefinitionId])
   @@map("form_fields")
 }
@@ -1496,28 +970,20 @@ model FormField {
 // ============================================================================
 
 model NotificationToken {
-  id       String @id @default(uuid())
-  tenantId String @map("tenant_id")
-  /// Owning tenant (matches the user's tenantId). Nullable during migration.
+  id             String   @id @default(uuid())
+  userId         String   @map("user_id")
+  expoPushToken  String   @map("expo_push_token") @db.VarChar(200)
+  deviceInfo     String?  @map("device_info") @db.VarChar(200)
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz()
 
-  userId        String   @map("user_id")
-  expoPushToken String   @map("expo_push_token") @db.VarChar(200)
-  deviceInfo    String?  @map("device_info") @db.VarChar(200)
-  isActive      Boolean  @default(true) @map("is_active")
-  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  user User @relation(fields: [userId], references: [id])
 
-  tenant Tenant @relation(fields: [tenantId], references: [id])
-  user   User   @relation(fields: [userId], references: [id])
-
-  @@index([tenantId])
   @@map("notification_tokens")
 }
 
 model Notification {
-  id       String @id @default(uuid())
-  tenantId String @map("tenant_id")
-  /// Owning tenant (matches the user's tenantId). Nullable during migration.
-
+  id        String    @id @default(uuid())
   userId    String    @map("user_id")
   title     String    @db.VarChar(200)
   body      String    @db.Text
@@ -1526,10 +992,8 @@ model Notification {
   sentAt    DateTime? @map("sent_at") @db.Timestamptz()
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz()
 
-  tenant Tenant @relation(fields: [tenantId], references: [id])
-  user   User   @relation(fields: [userId], references: [id])
+  user User @relation(fields: [userId], references: [id])
 
-  @@index([tenantId])
   @@map("notifications")
 }
 
@@ -1538,11 +1002,7 @@ model Notification {
 // ============================================================================
 
 model AuditLog {
-  id       String  @id @default(uuid())
-  tenantId String? @map("tenant_id")
-  /// Owning tenant — set from the request context. Nullable during migration
-  /// and for legacy rows that predate multi-tenancy.
-
+  id         String   @id @default(uuid())
   userId     String?  @map("user_id")
   shopId     String?  @map("shop_id")
   entityType String   @map("entity_type") @db.VarChar(50)
@@ -1554,11 +1014,9 @@ model AuditLog {
   userAgent  String?  @map("user_agent") @db.VarChar(500)
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz()
 
-  tenant Tenant? @relation(fields: [tenantId], references: [id])
-  user   User?   @relation(fields: [userId], references: [id])
-  shop   Shop?   @relation(fields: [shopId], references: [id])
+  user User? @relation(fields: [userId], references: [id])
+  shop Shop? @relation(fields: [shopId], references: [id])
 
-  @@index([tenantId])
   @@index([entityType, entityId])
   @@index([userId])
   @@index([createdAt])
@@ -1570,10 +1028,7 @@ model AuditLog {
 // ============================================================================
 
 model Employee {
-  id       String @id @default(uuid())
-  tenantId String @map("tenant_id")
-  /// Owning tenant (matches user's and shop's tenantId).
-
+  id               String    @id @default(uuid())
   userId           String    @unique @map("user_id")
   shopId           String    @map("shop_id")
   designation      String?   @db.VarChar(100)
@@ -1586,11 +1041,9 @@ model Employee {
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz()
   updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
-  user   User   @relation(fields: [userId], references: [id])
-  tenant Tenant @relation(fields: [tenantId], references: [id])
-  shop   Shop   @relation(fields: [shopId], references: [id])
+  user User @relation(fields: [userId], references: [id])
+  shop Shop @relation(fields: [shopId], references: [id])
 
-  @@index([tenantId])
   @@index([shopId])
   @@index([userId])
   @@map("employees")
@@ -1601,23 +1054,15 @@ model Employee {
 // ============================================================================
 
 model AppSetting {
-  id       String @id @default(uuid())
-  tenantId String @map("tenant_id")
-  /// Owning tenant. Nullable during migration; becomes NOT NULL after backfill.
-  /// Existing tenant-wide (shop=null) settings still work — they're scoped
-  /// per-tenant once backfilled.
-
+  id        String   @id @default(uuid())
   shopId    String?  @map("shop_id")
   key       String   @db.VarChar(100)
   value     Json
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
-  tenant Tenant @relation(fields: [tenantId], references: [id])
-  shop   Shop?  @relation(fields: [shopId], references: [id])
+  shop Shop? @relation(fields: [shopId], references: [id])
 
   @@unique([shopId, key])
-  @@unique([tenantId, shopId, key])
-  @@index([tenantId])
   @@map("app_settings")
 }

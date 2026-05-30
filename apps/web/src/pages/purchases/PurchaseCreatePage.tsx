@@ -119,7 +119,7 @@ export function PurchaseCreatePage() {
     formState: { errors },
   } = methods;
 
-  const { fields, append, remove, replace } = useFieldArray({
+  const { fields, append, remove } = useFieldArray({
     control,
     name: 'items',
   });
@@ -361,17 +361,31 @@ export function PurchaseCreatePage() {
   const applyInvoiceParse = (result: InvoiceParseResult, distributor: DistributorListItem) => {
     setSelectedDistributor(distributor);
     setDistributorSearchText(distributor.companyName);
-    methods.setValue('invoiceNumber', result.invoice.number || '', { shouldValidate: true });
-    methods.setValue('invoiceDate', result.invoice.date || new Date().toISOString().split('T')[0], { shouldValidate: true });
-    methods.setValue('notes', result.warnings.length > 0 ? `OCR warnings: ${result.warnings.join(' ')}` : '');
 
-    const parsedItems = result.items.length > 0
+    const isoToday = new Date().toISOString().split('T')[0];
+    const normalizeDate = (raw: string | null | undefined): string => {
+      if (!raw) return isoToday;
+      const trimmed = raw.trim();
+      if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+      // dd/mm/yyyy or dd-mm-yyyy
+      const dmy = trimmed.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/);
+      if (dmy) {
+        const [, d, m, y] = dmy;
+        const year = y.length === 2 ? `20${y}` : y;
+        return `${year}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+      }
+      const parsed = new Date(trimmed);
+      if (!Number.isNaN(parsed.getTime())) return parsed.toISOString().split('T')[0];
+      return isoToday;
+    };
+
+    const parsedItems: ProductItem[] = result.items.length > 0
       ? result.items.map((item) => ({
-          categoryId: '',
+          categoryId: item.categoryId || '',
           brand: item.brand || '',
           modelNumber: item.modelNumber || '',
           serialNumbers: item.serialNumbers.join('\n'),
-          mrp: item.mrp ?? '',
+          mrp: '', // Always blank — employee must fill MRP manually
           purchasePrice: item.purchasePrice ?? '',
           sellingPrice: item.sellingPrice ?? '',
           gstPercent: item.gstPercent ?? 18,
@@ -382,8 +396,15 @@ export function PurchaseCreatePage() {
         }))
       : [{ ...emptyProductItem }];
 
-    replace(parsedItems);
-    setItemCategoryIds(parsedItems.map(() => undefined));
+    // Reset whole form so registered + unmounted fields all hydrate consistently
+    methods.reset({
+      invoiceNumber: result.invoice.number || '',
+      invoiceDate: normalizeDate(result.invoice.date),
+      notes: result.warnings.length > 0 ? `OCR warnings: ${result.warnings.join(' ')}` : '',
+      items: parsedItems,
+    });
+
+    setItemCategoryIds(parsedItems.map((p) => p.categoryId || undefined));
     setInvoiceCheckError('');
     setCurrentStep(2);
     setIsScanOpen(false);
@@ -805,26 +826,6 @@ export function PurchaseCreatePage() {
                           {errors.items[index].purchasePrice?.message}
                         </p>
                       )}
-                    </div>
-
-                    {/* Selling Price */}
-                    <div>
-                      <label className="block text-sm font-medium mb-1.5">
-                        Selling Price
-                      </label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        {...register(`items.${index}.sellingPrice`, {
-                          min: { value: 0, message: 'Must be positive' },
-                        })}
-                        placeholder="Same as MRP if empty"
-                        className={cn(
-                          'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
-                          'placeholder:text-muted-foreground',
-                          'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                        )}
-                      />
                     </div>
 
                     {/* GST % per product */}

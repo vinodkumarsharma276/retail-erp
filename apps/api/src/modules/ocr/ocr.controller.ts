@@ -39,7 +39,8 @@ export const ocrController = {
   async parseInvoice(request: FastifyRequest, reply: FastifyReply) {
     try {
       const file = await readUpload(request);
-      const result = await ocrService.parseInvoice(file);
+      const tenantId = request.currentUser!.tenantId;
+      const result = await ocrService.parseInvoice(file, tenantId);
       return sendSuccess(reply, result);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to parse invoice';
