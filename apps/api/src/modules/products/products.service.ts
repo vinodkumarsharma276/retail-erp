@@ -117,6 +117,123 @@ export const productsService = {
     return { products, totalItems };
   },
 
+  /**
+   * List products grouped by (shopId, categoryId, brand, modelNumber, status).
+   * Same filters as `list`. Each group includes the unit count and price
+   * range; the UI can lazy-fetch the individual units via `list` filtered
+   * by brand+model+category when the row is expanded.
+   */
+  async listGrouped(
+    scope: { shopId: string; shopIds?: string[] },
+    filters: {
+      skip: number;
+      take: number;
+      page: number;
+      pageSize: number;
+      categoryId?: string;
+      status?: string;
+      brand?: string;
+      search?: string;
+      dateFrom?: string;
+      dateTo?: string;
+    },
+  ) {
+    const where: Prisma.ProductWhereInput =
+      scope.shopIds && scope.shopIds.length > 0
+        ? { shopId: { in: scope.shopIds } }
+        : { shopId: scope.shopId };
+
+    if (filters.categoryId) {
+      const category = await prisma.productCategory.findUnique({
+        where: { id: filters.categoryId },
+        select: { isLeaf: true },
+      });
+      if (category && !category.isLeaf) {
+        const children = await prisma.productCategory.findMany({
+          where: { parentId: filters.categoryId },
+          select: { id: true },
+        });
+        where.categoryId = { in: children.map((c) => c.id) };
+      } else {
+        where.categoryId = filters.categoryId;
+      }
+    }
+    if (filters.status) where.status = filters.status as any;
+    if (filters.brand) where.brand = { contains: filters.brand, mode: 'insensitive' };
+    if (filters.search) {
+      const orClauses: Prisma.ProductWhereInput[] = [
+        { modelNumber: { contains: filters.search, mode: 'insensitive' } },
+        { brand: { contains: filters.search, mode: 'insensitive' } },
+        { serialNumber: { contains: filters.search, mode: 'insensitive' } },
+      ];
+      if (/^\d{15}$/.test(filters.search)) {
+        orClauses.push({
+          dynamicAttributes: { path: ['imeiNumbers'], array_contains: filters.search } as any,
+        });
+      }
+      where.OR = orClauses;
+    }
+    if (filters.dateFrom || filters.dateTo) {
+      const invoiceDate: Prisma.DateTimeFilter = {};
+      if (filters.dateFrom) invoiceDate.gte = new Date(filters.dateFrom);
+      if (filters.dateTo) {
+        const to = new Date(filters.dateTo);
+        to.setHours(23, 59, 59, 999);
+        invoiceDate.lte = to;
+      }
+      where.purchase = { is: { invoiceDate } };
+    }
+
+    // Aggregate in DB. Group by the natural key so each group is one
+    // model line in a particular shop with a particular status.
+    const groups = await prisma.product.groupBy({
+      by: ['shopId', 'categoryId', 'brand', 'modelNumber', 'status'],
+      where,
+      _count: { _all: true },
+      _min: { mrp: true, purchasePrice: true, createdAt: true },
+      _max: { mrp: true, purchasePrice: true, createdAt: true },
+      orderBy: [{ _max: { createdAt: 'desc' } }],
+    });
+
+    const totalItems = groups.length;
+    const pageSlice = groups.slice(filters.skip, filters.skip + filters.take);
+
+    // Hydrate referenced shop + category names in one shot.
+    const shopIds = [...new Set(pageSlice.map((g) => g.shopId))];
+    const categoryIds = [...new Set(pageSlice.map((g) => g.categoryId))];
+    const [shops, categories] = await Promise.all([
+      prisma.shop.findMany({
+        where: { id: { in: shopIds } },
+        select: { id: true, name: true, code: true },
+      }),
+      prisma.productCategory.findMany({
+        where: { id: { in: categoryIds } },
+        select: { id: true, name: true, slug: true, path: true },
+      }),
+    ]);
+    const shopMap = new Map(shops.map((s) => [s.id, s]));
+    const categoryMap = new Map(categories.map((c) => [c.id, c]));
+
+    const rows = pageSlice.map((g) => ({
+      shopId: g.shopId,
+      shop: shopMap.get(g.shopId) ?? null,
+      categoryId: g.categoryId,
+      category: categoryMap.get(g.categoryId) ?? null,
+      brand: g.brand,
+      modelNumber: g.modelNumber,
+      status: g.status,
+      quantity: g._count._all,
+      mrpMin: g._min.mrp,
+      mrpMax: g._max.mrp,
+      purchasePriceMin: g._min.purchasePrice,
+      purchasePriceMax: g._max.purchasePrice,
+      oldestPurchase: g._min.createdAt,
+      latestPurchase: g._max.createdAt,
+    }));
+
+    return { groups: rows, totalItems };
+  },
+
   async globalSearch(
     scope: { shopId: string; shopIds?: string[] },
     query: string,

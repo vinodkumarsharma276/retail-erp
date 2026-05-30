@@ -47,6 +47,38 @@ export const productsController = {
     }
   },
 
+  async listGrouped(
+    request: FastifyRequest<{
+      Querystring: {
+        page?: string;
+        pageSize?: string;
+        categoryId?: string;
+        status?: string;
+        brand?: string;
+        search?: string;
+        dateFrom?: string;
+        dateTo?: string;
+      };
+    }>,
+    reply: FastifyReply,
+  ) {
+    try {
+      const { page, pageSize, skip, take } = parsePagination(request.query);
+      const { categoryId, status, brand, search, dateFrom, dateTo } = request.query;
+      const { shopId, shopIds, allShops } = request.shopFilter!;
+
+      const { groups, totalItems } = await productsService.listGrouped(
+        { shopId, shopIds: allShops ? shopIds : undefined },
+        { page, pageSize, skip, take, categoryId, status, brand, search, dateFrom, dateTo },
+      );
+
+      return sendPaginated(reply, groups, { page, pageSize, totalItems });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to fetch grouped products';
+      return sendError(reply, message, 500);
+    }
+  },
+
   async globalSearch(
     request: FastifyRequest<{
       Querystring: { query: string };

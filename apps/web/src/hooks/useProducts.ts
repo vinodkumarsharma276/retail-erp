@@ -98,6 +98,48 @@ export function useProductsQuery(filters: ProductFilters) {
 }
 
 // ---------------------------------------------------------------------------
+// Product list grouped by (shop, category, brand, model, status) with qty
+// ---------------------------------------------------------------------------
+export interface ProductGroupRow {
+  shopId: string;
+  shop: { id: string; name: string; code: string } | null;
+  categoryId: string;
+  category: { id: string; name: string; slug: string; path: string } | null;
+  brand: string;
+  modelNumber: string;
+  status: string;
+  quantity: number;
+  mrpMin: string | null;
+  mrpMax: string | null;
+  purchasePriceMin: string | null;
+  purchasePriceMax: string | null;
+  oldestPurchase: string | null;
+  latestPurchase: string | null;
+}
+
+export function useProductsGroupedQuery(filters: ProductFilters) {
+  return useQuery({
+    queryKey: ['products', 'grouped', filters] as const,
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (filters.page) params.set('page', String(filters.page));
+      if (filters.pageSize) params.set('pageSize', String(filters.pageSize));
+      if (filters.categoryId) params.set('categoryId', filters.categoryId);
+      if (filters.status) params.set('status', filters.status);
+      if (filters.brand) params.set('brand', filters.brand);
+      if (filters.search) params.set('search', filters.search);
+      if (filters.dateFrom) params.set('dateFrom', filters.dateFrom);
+      if (filters.dateTo) params.set('dateTo', filters.dateTo);
+      const { data } = await apiClient.get<PaginatedResponse<ProductGroupRow>>(
+        `/products/grouped?${params.toString()}`,
+      );
+      return data;
+    },
+    placeholderData: keepPreviousData,
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Product global search (3+ chars)
 // ---------------------------------------------------------------------------
 export function useProductSearchQuery(query: string) {

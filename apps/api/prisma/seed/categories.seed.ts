@@ -39,6 +39,11 @@ const HSN_CODES: Record<string, string> = {
   'mixer-grinder': '8509',
   'water-purifier': '8421',
   'iron': '8516',
+  // Batteries - HSN 8507 (electric accumulators: lead-acid, lithium-ion, etc.)
+  'battery': '8507',
+  'inverter-battery': '8507',
+  'automotive-battery': '8507',
+  'ups-battery': '8507',
 };
 
 export async function seedCategories(prisma: PrismaClient, tenantId: string): Promise<ProductCategory[]> {
@@ -94,6 +99,13 @@ export async function seedCategories(prisma: PrismaClient, tenantId: string): Pr
         { name: 'Mixer Grinder', slug: 'mixer-grinder' },
         { name: 'Water Purifier', slug: 'water-purifier' },
         { name: 'Iron', slug: 'iron' },
+      ],
+    },
+    {
+      name: 'Battery', slug: 'battery', icon: 'battery', children: [
+        { name: 'Inverter Battery', slug: 'inverter-battery' },
+        { name: 'Automotive Battery', slug: 'automotive-battery' },
+        { name: 'UPS Battery', slug: 'ups-battery' },
       ],
     },
   ];
@@ -187,6 +199,9 @@ async function seedCategoryAttributes(prisma: PrismaClient, categories: ProductC
     'mixer-grinder': ['Bajaj', 'Preethi', 'Philips', 'Butterfly', 'Maharaja Whiteline'],
     'water-purifier': ['Kent', 'Aquaguard', 'Pureit', 'Livpure', 'Blue Star'],
     'iron': ['Philips', 'Bajaj', 'Morphy Richards', 'Havells', 'Usha'],
+    'inverter-battery': ['Exide', 'Amaron', 'Luminous', 'Livguard', 'Microtek', 'Okaya', 'SF Sonic', 'Tata Green'],
+    'automotive-battery': ['Exide', 'Amaron', 'SF Sonic', 'Tata Green', 'Livguard', 'Bosch', 'ACDelco'],
+    'ups-battery': ['Exide', 'Amaron', 'Luminous', 'Livguard', 'APC', 'Microtek', 'Okaya'],
   };
 
   // Other category-specific attributes (displayOrder will be shifted by +1 to make room for brand at 0).
@@ -263,6 +278,22 @@ async function seedCategoryAttributes(prisma: PrismaClient, categories: ProductC
     'front-load': [
       { attributeName: 'capacity_kg', attributeLabel: 'Capacity (KG)', attributeType: 'select', isRequired: true, options: ['6', '7', '8', '9', '10'] },
       { attributeName: 'rpm', attributeLabel: 'Max RPM', attributeType: 'number', isRequired: false },
+    ],
+    'inverter-battery': [
+      { attributeName: 'capacity_ah', attributeLabel: 'Capacity (Ah)', attributeType: 'select', isRequired: true, options: ['80', '100', '120', '135', '150', '180', '200', '220'] },
+      { attributeName: 'voltage', attributeLabel: 'Voltage (V)', attributeType: 'select', isRequired: true, options: ['12', '24'] },
+      { attributeName: 'battery_type', attributeLabel: 'Battery Type', attributeType: 'select', isRequired: true, options: ['Tubular', 'Flat Plate', 'Gel', 'Lithium-Ion', 'SMF'] },
+    ],
+    'automotive-battery': [
+      { attributeName: 'capacity_ah', attributeLabel: 'Capacity (Ah)', attributeType: 'select', isRequired: true, options: ['32', '35', '38', '40', '45', '55', '60', '65', '70', '80', '100'] },
+      { attributeName: 'voltage', attributeLabel: 'Voltage (V)', attributeType: 'select', isRequired: true, options: ['6', '12'] },
+      { attributeName: 'vehicle_type', attributeLabel: 'Vehicle Type', attributeType: 'select', isRequired: true, options: ['Car', 'Bike', 'Auto Rickshaw', 'Tractor', 'Truck/Bus', 'Commercial Vehicle'] },
+      { attributeName: 'battery_type', attributeLabel: 'Battery Type', attributeType: 'select', isRequired: false, options: ['Lead Acid', 'Maintenance Free (MF)', 'AGM', 'Lithium-Ion'] },
+    ],
+    'ups-battery': [
+      { attributeName: 'capacity_ah', attributeLabel: 'Capacity (Ah)', attributeType: 'select', isRequired: true, options: ['7', '9', '12', '18', '26', '42', '65', '100'] },
+      { attributeName: 'voltage', attributeLabel: 'Voltage (V)', attributeType: 'select', isRequired: true, options: ['6', '12'] },
+      { attributeName: 'battery_type', attributeLabel: 'Battery Type', attributeType: 'select', isRequired: false, options: ['SMF / VRLA', 'Lead Acid', 'Lithium-Ion'] },
     ],
   };
 

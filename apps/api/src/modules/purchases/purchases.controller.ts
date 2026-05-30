@@ -107,8 +107,9 @@ export const purchasesController = {
     try {
       const shopId = request.shopFilter!.shopId;
       const userId = request.currentUser!.userId;
+      const tenantId = request.currentUser!.tenantId;
 
-      const purchase = await purchasesService.create(shopId, request.body, userId);
+      const purchase = await purchasesService.create(shopId, tenantId, request.body, userId);
       return sendSuccess(reply, purchase, 201);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to create purchase';

@@ -22,20 +22,34 @@ export function DynamicAttributeFields({
   values,
   fieldPrefix = 'dynamicAttributes',
 }: DynamicAttributeFieldsProps) {
-  const { register, setValue, formState: { errors } } = useFormContext();
+  const { register, setValue, watch, formState: { errors } } = useFormContext();
   const { data: attributes, isLoading } = useCategoryAttributesQuery(categoryId);
 
-  // Pre-fill values when editing
+  // Pre-fill values when editing; case-correct existing select values to
+  // canonical option labels so OCR-parsed values like "samsung" or "SAMSUNG"
+  // resolve to the dropdown option "Samsung".
   useEffect(() => {
-    if (values && attributes) {
-      for (const attr of attributes) {
-        const val = values[attr.attributeName];
-        if (val !== undefined) {
-          setValue(`${fieldPrefix}.${attr.attributeName}`, val);
+    if (!attributes) return;
+    for (const attr of attributes) {
+      const valFromProp = values?.[attr.attributeName];
+      if (valFromProp !== undefined) {
+        setValue(`${fieldPrefix}.${attr.attributeName}`, valFromProp);
+      }
+      if (attr.attributeType === 'select' && Array.isArray(attr.options)) {
+        const current = watch(`${fieldPrefix}.${attr.attributeName}`);
+        if (typeof current === 'string' && current.trim()) {
+          const normalized = current.trim().toLowerCase();
+          const canonical = attr.options
+            .map((o) => (typeof o === 'object' && o !== null ? ((o as Record<string, string>).value ?? String(o)) : String(o)))
+            .find((opt) => opt.toLowerCase() === normalized);
+          if (canonical && canonical !== current) {
+            setValue(`${fieldPrefix}.${attr.attributeName}`, canonical);
+          }
         }
       }
     }
-  }, [values, attributes, setValue, fieldPrefix]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [values, attributes, fieldPrefix]);
 
   if (!categoryId) {
     return (
@@ -149,20 +163,33 @@ export function DynamicAttributeFields({
                     )}
                   >
                     <option value="">Select...</option>
-                    {Array.isArray(attr.options) &&
-                      attr.options.map((opt) => {
+                    {(() => {
+                      const opts = Array.isArray(attr.options) ? attr.options : [];
+                      const normalized = opts.map((opt) => {
                         const optValue = typeof opt === 'object' && opt !== null
                           ? (opt as Record<string, string>).value ?? String(opt)
                           : String(opt);
                         const optLabel = typeof opt === 'object' && opt !== null
                           ? (opt as Record<string, string>).label ?? String(opt)
                           : String(opt);
-                        return (
-                          <option key={optValue} value={optValue}>
-                            {optLabel}
-                          </option>
-                        );
-                      })}
+                        return { value: optValue, label: optLabel };
+                      });
+                      const current = watch(fieldName);
+                      const missing =
+                        typeof current === 'string' &&
+                        current.trim() &&
+                        !normalized.some((o) => o.value === current);
+                      return (
+                        <>
+                          {missing && (
+                            <option value={current as string}>{`${current} (custom)`}</option>
+                          )}
+                          {normalized.map((o) => (
+                            <option key={o.value} value={o.value}>{o.label}</option>
+                          ))}
+                        </>
+                      );
+                    })()}
                   </select>
                 </div>
               )}

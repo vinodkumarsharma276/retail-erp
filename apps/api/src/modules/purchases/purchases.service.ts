@@ -122,7 +122,7 @@ export const purchasesService = {
     return purchase;
   },
 
-  async create(shopId: string, data: {
+  async create(shopId: string, tenantId: string, data: {
     distributorId: string;
     invoiceNumber: string;
     invoiceDate: string;
@@ -222,6 +222,7 @@ export const purchasesService = {
       // Create purchase record
       const purchase = await tx.purchase.create({
         data: {
+          tenantId,
           shopId,
           distributorId: data.distributorId,
           invoiceNumber: data.invoiceNumber,
@@ -252,6 +253,7 @@ export const purchasesService = {
 
         const product = await tx.product.create({
           data: {
+            tenantId,
             shopId,
             categoryId: item.categoryId,
             brand,
@@ -276,6 +278,7 @@ export const purchasesService = {
         // Create audit trail entry
         await tx.productAuditTrail.create({
           data: {
+            tenantId,
             productId: product.id,
             eventType: 'purchased',
             toShopId: shopId,

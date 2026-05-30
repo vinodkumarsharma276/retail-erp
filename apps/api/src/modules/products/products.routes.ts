@@ -18,6 +18,9 @@ export async function productRoutes(app: FastifyInstance) {
   // List products (paginated, filtered, shop-scoped)
   app.get('/', { preHandler: allRoles }, productsController.list as any);
 
+  // List products grouped by (shop, category, brand, model, status) with qty
+  app.get('/grouped', { preHandler: allRoles }, productsController.listGrouped as any);
+
   // Global search across categories (shop-scoped)
   app.get('/search', { preHandler: allRoles }, productsController.globalSearch as any);
 

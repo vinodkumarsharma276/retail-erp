@@ -137,7 +137,11 @@ export function ScanInvoiceDialog({ open, onClose, onApply }: Props) {
     });
   };
 
-  const canCreateDistributor = !!draft?.companyName && !!draft.contactPerson && !!draft.phone && !!draft.addressLine1 && !!draft.city && !!draft.state && !!draft.pincode;
+  const requiredDistributorFields = ['companyName', 'contactPerson', 'phone', 'addressLine1', 'city', 'state', 'pincode'] as const;
+  const missingDistributorFields = draft
+    ? requiredDistributorFields.filter((k) => !draft[k] || !String(draft[k]).trim())
+    : requiredDistributorFields.slice();
+  const canCreateDistributor = !!draft && missingDistributorFields.length === 0;
 
   const handleCreateDistributor = () => {
     if (!draft) return;
@@ -262,15 +266,19 @@ export function ScanInvoiceDialog({ open, onClose, onApply }: Props) {
 
                 {!selectedDistributor && draft && (
                   <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                    {(['companyName', 'contactPerson', 'phone', 'altPhone', 'gstNumber', 'panNumber', 'addressLine1', 'city', 'state', 'pincode', 'bankName', 'bankAccountNumber', 'bankIfsc', 'bankBranch'] as const).map((key) => (
+                    {(['companyName', 'contactPerson', 'phone', 'altPhone', 'gstNumber', 'panNumber', 'addressLine1', 'city', 'state', 'pincode', 'bankName', 'bankAccountNumber', 'bankIfsc', 'bankBranch'] as const).map((key) => {
+                      const isRequired = (requiredDistributorFields as readonly string[]).includes(key);
+                      const isMissing = isRequired && (!draft[key] || !String(draft[key]).trim());
+                      return (
                       <div key={key} className={key === 'addressLine1' ? 'sm:col-span-2 lg:col-span-3' : ''}>
                         <label className="block text-xs font-medium capitalize text-muted-foreground">
                           {key === 'altPhone' ? 'Alt phone (optional)' : key.replace(/([A-Z])/g, ' $1')}
+                          {isRequired && <span className="ml-0.5 text-destructive">*</span>}
                         </label>
                         <input
                           value={draft[key]}
                           onChange={(e) => setDraft({ ...draft, [key]: e.target.value })}
-                          className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm"
+                          className={`mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm ${isMissing ? 'border-destructive' : ''}`}
                         />
                         {key === 'phone' && draft.phone.includes(',') && (
                           <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">
@@ -278,7 +286,8 @@ export function ScanInvoiceDialog({ open, onClose, onApply }: Props) {
                           </p>
                         )}
                       </div>
-                    ))}
+                      );
+                    })}
                     <div className="sm:col-span-2 lg:col-span-3">
                       <button
                         type="button"
@@ -289,6 +298,11 @@ export function ScanInvoiceDialog({ open, onClose, onApply }: Props) {
                         {createDistributor.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
                         Create distributor
                       </button>
+                      {missingDistributorFields.length > 0 && (
+                        <p className="mt-2 text-xs text-destructive">
+                          Missing required field{missingDistributorFields.length > 1 ? 's' : ''}: {missingDistributorFields.map((f) => f.replace(/([A-Z])/g, ' $1').toLowerCase()).join(', ')}
+                        </p>
+                      )}
                     </div>
                   </div>
                 )}
@@ -308,12 +322,13 @@ export function ScanInvoiceDialog({ open, onClose, onApply }: Props) {
                 <h3 className="font-medium">Products parsed ({result.items.length})</h3>
                 <div className="mt-3 overflow-x-auto">
                   <table className="w-full text-sm">
-                    <thead className="bg-muted/50"><tr><th className="px-2 py-2 text-left">Model</th><th className="px-2 py-2 text-left">Brand</th><th className="px-2 py-2 text-left">Serials</th><th className="px-2 py-2 text-right">DP</th><th className="px-2 py-2 text-right">GST</th></tr></thead>
+                    <thead className="bg-muted/50"><tr><th className="px-2 py-2 text-left">Model</th><th className="px-2 py-2 text-left">Brand</th><th className="px-2 py-2 text-left">HSN</th><th className="px-2 py-2 text-left">Serials</th><th className="px-2 py-2 text-right">DP</th><th className="px-2 py-2 text-right">GST</th></tr></thead>
                     <tbody>
                       {result.items.map((item, index) => (
                         <tr key={`${item.modelNumber}-${index}`} className="border-b last:border-0">
                           <td className="px-2 py-2 font-medium">{item.modelNumber || '-'}</td>
                           <td className="px-2 py-2">{item.brand || '-'}</td>
+                          <td className="px-2 py-2 font-mono text-xs">{item.hsnCode || '-'}</td>
                           <td className="px-2 py-2 font-mono text-xs">{item.serialNumbers.length ? item.serialNumbers.join(', ') : `${item.quantity} qty`}</td>
                           <td className="px-2 py-2 text-right">{formatINR(item.purchasePrice || 0)}</td>
                           <td className="px-2 py-2 text-right">{item.gstPercent ?? '-'}%</td>

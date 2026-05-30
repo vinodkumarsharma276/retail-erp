@@ -67,14 +67,18 @@ function postProcessInvoice(result: InvoiceParseResult): InvoiceParseResult {
 }
 
 /**
- * Second-pass enrichment: for each line item with a readable model number but
- * no brand, ask OpenAI to resolve the brand via web search. Runs all lookups
- * in parallel. Failures are silent — we just leave brand as null.
+ * Second-pass enrichment: for each line item with a readable model number,
+ * resolve / validate the brand via OpenAI web search.
+ *   - No brand parsed   -> use the web-search result.
+ *   - Brand parsed      -> validate against the model number; if the web
+ *                          search returns a clearly different brand, prefer
+ *                          the web answer (OCR mis-reads happen) and warn.
+ * Runs all lookups in parallel. Failures are silent.
  */
 async function resolveMissingBrands(result: InvoiceParseResult): Promise<InvoiceParseResult> {
   const needsLookup = result.items
     .map((item, index) => ({ item, index }))
-    .filter(({ item }) => !item.brand?.trim() && item.modelNumber?.trim());
+    .filter(({ item }) => item.modelNumber?.trim());
 
   if (needsLookup.length === 0) return result;
 
@@ -87,14 +91,29 @@ async function resolveMissingBrands(result: InvoiceParseResult): Promise<Invoice
     ),
   );
 
+  const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const brandsMatch = (a: string, b: string) => {
+    const na = normalize(a);
+    const nb = normalize(b);
+    if (!na || !nb) return false;
+    return na === nb || na.includes(nb) || nb.includes(na);
+  };
+
   const items = [...result.items];
   const warnings = [...result.warnings];
   needsLookup.forEach(({ index, item }, lookupIdx) => {
-    const brand = lookups[lookupIdx];
-    if (brand) {
-      items[index] = { ...items[index], brand };
+    const webBrand = lookups[lookupIdx];
+    if (!webBrand) return;
+    const parsedBrand = item.brand?.trim();
+    if (!parsedBrand) {
+      items[index] = { ...items[index], brand: webBrand };
       warnings.push(
-        `Brand "${brand}" inferred from model number "${item.modelNumber}" via web lookup — please verify.`,
+        `Brand "${webBrand}" inferred from model number "${item.modelNumber}" via web lookup — please verify.`,
+      );
+    } else if (!brandsMatch(parsedBrand, webBrand)) {
+      items[index] = { ...items[index], brand: webBrand };
+      warnings.push(
+        `Brand for model "${item.modelNumber}" updated from "${parsedBrand}" to "${webBrand}" based on web lookup — please verify.`,
       );
     }
   });
@@ -201,7 +220,7 @@ export const ocrService = {
         'You are a precise OCR system specialising in Indian GST purchase invoices for retail electronics, furniture, and mobile shops.',
         'Rules:',
         '- Return strict JSON matching the schema. Use null for any field that is not clearly visible — never guess or invent values.',
-        '- For the line-item `brand` field: if the brand is printed on the invoice (in a Brand/Make column, or as part of the description like "Samsung 1.5T Split AC"), extract it. If the brand is NOT printed but the model number is readable, set brand to null — a separate post-processing step will resolve the brand from the model number via web search. Do not guess.',
+        '- For the line-item `brand` field: scan EVERY part of each row for a brand name — the dedicated Brand/Make column, the product description / particulars / description-of-goods column, AND the model number itself (model numbers often embed a brand prefix or code, e.g. "SAM-UA43T5500" => Samsung, "LG-32LM560" => LG, "WHR-IFPRO" => Whirlpool). Common Indian retail brands: Samsung, LG, Sony, Panasonic, Vivo, Oppo, Xiaomi/Redmi/MI, Realme, OnePlus, Apple, Bajaj, Havells, Whirlpool, Godrej, Voltas, Daikin, Hitachi, Blue Star, Carrier, IFB, Bosch, Haier, Crompton, Usha, V-Guard, Philips, Boat, JBL, Asus, HP, Dell, Lenovo, Acer, Sleepwell, Duroflex, Nilkamal, Cello, Prestige, Pigeon, Butterfly. If the brand is clearly written in the description (e.g. "Samsung 1.5T Split AC", "Whirlpool 265L Fridge"), extract it. ONLY return null when no brand word and no recognizable brand prefix is visible — a post-processing step will then resolve it via web search.',
         '- For the line-item `hsnCode` field: HSN/SAC codes are 4, 6, or 8 digit numeric codes. They are almost always printed on Indian GST invoices in a dedicated "HSN" / "HSN/SAC" / "HSN Code" column near the product description, OR repeated for each row, OR sometimes printed once for the whole invoice if all items share the same HSN. Look very carefully — do not return null unless absolutely nothing resembling an HSN code is visible. If only an item-level HSN is shown for some rows, apply that same HSN to other rows of the SAME product category. If the HSN is genuinely absent on the invoice, set it to null — a post-processing step will resolve it from the category.',
         '- Serial numbers / IMEI numbers are CRITICAL: copy every digit exactly as printed. A single wrong digit is a serious error. If you cannot read a digit clearly, include what you can see and add a warning.',
         '- Indian GSTIN is 15 characters: 2-digit state code + 10-char PAN + 1-char entity number + always "Z" + 1 checksum digit  (example: 07AABCU9603R1ZP).',
@@ -241,9 +260,9 @@ export const ocrService = {
         '  - totals.netAmount: grand total / invoice total',
         '',
         'LINE ITEMS (one entry per product model):',
-        '  - brand: manufacturer name if printed on the invoice (Samsung, LG, Sony, Vivo, Xiaomi, Bajaj, Whirlpool, Godrej, etc.). If not printed, return null — a post-processing step will resolve it from the model number via web search.',
+        '  - brand: manufacturer name — look in the Brand/Make column AND inside the product description/particulars text AND as a prefix on the model number. Recognize brand words even when mixed into the description (e.g. "Samsung 1.5T Split AC", "LG 7kg Front Load WM", "Whirlpool 265L Refrigerator", "Vivo Y21"). Only return null if no recognizable brand text is anywhere on the row.',
         '  - modelNumber: exact alphanumeric model number as printed — do NOT paraphrase',
-        '  - hsnCode: HSN/SAC code for this item — look in the dedicated HSN column on EVERY row, not just the first. If the column shows a single HSN for the whole invoice apply it to every row. Common HSN codes: 8528 (TV), 8418 (Refrigerator), 8415 (AC), 8450 (Washing Machine), 8517 (Mobile phone), 8471 (Laptop), 9403 (Furniture).',
+        '  - hsnCode: HSN/SAC code for this item — look in the dedicated HSN column on EVERY row, not just the first. If the column shows a single HSN for the whole invoice apply it to every row. Common HSN codes: 8528 (TV), 8418 (Refrigerator), 8415 (AC), 8450 (Washing Machine), 8517 (Mobile phone), 8471 (Laptop), 9403 (Furniture), 8507 (Battery — inverter / automotive / UPS).',
         '  - serialNumbers: array of ALL serial / IMEI numbers for this model line — read each character very carefully, transcribe exactly',
         '  - quantity: number of units',
         '  - mrp: maximum retail price per unit',
@@ -251,7 +270,7 @@ export const ocrService = {
         '  - gstPercent: GST rate as a number (5, 12, 18, or 28)',
         '  - color: colour/variant if printed',
         '  - warrantyMonths: warranty in months if stated',
-        '  - categoryHint: product category (TV, AC, Refrigerator, Washing Machine, Mobile, Laptop, etc.)',
+        '  - categoryHint: product category (TV, AC, Refrigerator, Washing Machine, Mobile, Laptop, Battery — Inverter / Automotive / UPS, Furniture, etc.)',
         '',
         'Set rawText to ALL text from the invoice (full verbatim transcription).',
         'Add entries in warnings for anything that was hard to read, ambiguous, or partially obscured.',
