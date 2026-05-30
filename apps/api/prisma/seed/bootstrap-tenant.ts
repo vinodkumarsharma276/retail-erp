@@ -28,6 +28,14 @@ const BOOTSTRAP_TENANT = {
   contactEmail: null as string | null,
   contactPhone: null as string | null,
   gstNumber: null as string | null,
+  settings: {
+    installment: {
+      defaultPenalRateMonthly: 1.0,
+      defaultPaymentAllocation: 'oldest_first',
+      defaultThresholdDays: 60,
+      reliabilityWindowDays: 365,
+    },
+  },
 };
 
 const ENTERPRISE_PLAN = {
@@ -80,6 +88,7 @@ async function ensureBootstrapTenant(planId: string) {
       name: BOOTSTRAP_TENANT.name,
       planId,
       status: 'active',
+      settings: BOOTSTRAP_TENANT.settings,
     },
     create: {
       slug: BOOTSTRAP_TENANT.slug,
@@ -89,6 +98,7 @@ async function ensureBootstrapTenant(planId: string) {
       gstNumber: BOOTSTRAP_TENANT.gstNumber,
       status: 'active',
       planId,
+      settings: BOOTSTRAP_TENANT.settings,
     },
   });
 }

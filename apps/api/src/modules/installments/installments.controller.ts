@@ -1,5 +1,14 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
+import { PaymentMode } from '@prisma/client';
+import { prisma } from '../../config/database.js';
+import {
+  applyInterest,
+  recordPayment as recordPatternBPayment,
+  revertPayment as revertPatternBPayment,
+  rollbackInterest,
+} from './installments.engine.js';
 import { installmentsService } from './installments.service.js';
+import { promisesService } from '../promises/promises.service.js';
 import { sendSuccess, sendError, sendPaginated } from '../../utils/response.js';
 import { parsePagination } from '../../utils/pagination.js';
 
@@ -246,27 +255,68 @@ export const installmentsController = {
     request: FastifyRequest<{
       Params: { installmentId: string };
       Body: {
-        scenario: 'full_payment' | 'reschedule' | 'partial_reschedule';
+        scenario?: 'full_payment' | 'reschedule' | 'partial_reschedule';
+        amount?: number;
         amountPaid?: number;
         paymentMode?: string;
-        paymentBreakdown?: Array<{ mode: string; amount: number }>;
+        explicitInstallmentId?: string;
+        paymentDate?: string;
         newDate?: string;
         referenceNumber?: string;
         notes?: string;
-        applyInterest?: { amount: number; notes?: string };
-        waiveExcessInterest?: boolean;
+        applyInterest?: { installmentId?: string; amount?: number; appliedAmount?: number; daysOverdue?: number; notes?: string };
       };
     }>,
     reply: FastifyReply,
   ) {
     try {
       const userId = request.currentUser!.userId;
-      const result = await installmentsService.recordPayment(
-        request.params.installmentId,
-        request.body,
-        userId,
-      );
-      return sendSuccess(reply, result, 201);
+      const amount = request.body.amount ?? request.body.amountPaid;
+      if (!amount) return sendError(reply, 'amount is required', 400);
+      if (!request.body.paymentMode) return sendError(reply, 'paymentMode is required', 400);
+
+      const interestAmount = request.body.applyInterest?.appliedAmount ?? request.body.applyInterest?.amount;
+      const result = await recordPatternBPayment(prisma, {
+        installmentId: request.params.installmentId,
+        amount,
+        paymentMode: request.body.paymentMode as PaymentMode,
+        paymentDate: request.body.paymentDate ? new Date(request.body.paymentDate) : undefined,
+        explicitInstallmentId: request.body.explicitInstallmentId,
+        referenceNumber: request.body.referenceNumber,
+        notes: request.body.notes,
+        applyInterest: interestAmount
+          ? {
+              installmentId: request.body.applyInterest?.installmentId ?? request.params.installmentId,
+              appliedAmount: interestAmount,
+              daysOverdue: request.body.applyInterest?.daysOverdue,
+              notes: request.body.applyInterest?.notes,
+            }
+          : undefined,
+      }, { tenantId: request.tenant!.id, actorUserId: userId });
+
+      let promise = null;
+      if (request.body.scenario === 'partial_reschedule' && request.body.newDate) {
+        const target = await prisma.installment.findFirst({
+          where: { id: request.body.explicitInstallmentId ?? request.params.installmentId, tenantId: request.tenant!.id },
+          select: {
+            id: true,
+            scheduleId: true,
+            remainingAmount: true,
+            schedule: { select: { sale: { select: { customerId: true } } } },
+          },
+        });
+        if (target && Number(target.remainingAmount) > 0) {
+          promise = await promisesService.create({
+            scheduleId: target.scheduleId,
+            customerId: target.schedule.sale.customerId,
+            coveredInstallmentIds: [target.id],
+            promisedDate: request.body.newDate,
+            promisedAmount: Number(target.remainingAmount),
+            notes: request.body.notes,
+          }, { tenantId: request.tenant!.id, actorUserId: userId });
+        }
+      }
+      return sendSuccess(reply, { ...result, promise }, 201);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to record payment';
       if (
@@ -421,13 +471,13 @@ export const installmentsController = {
     reply: FastifyReply,
   ) {
     try {
-      const result = await installmentsService.revertPayment(
+      const patternBResult = await revertPatternBPayment(
+        prisma,
         request.params.paymentId,
         request.body.reason,
-        request.currentUser?.userId ?? '',
-        { applyInterest: request.body.applyInterest, cascade: request.body.cascade },
+        { tenantId: request.tenant!.id, actorUserId: request.currentUser?.userId ?? '' },
       );
-      return sendSuccess(reply, result);
+      return sendSuccess(reply, patternBResult);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to revert payment';
       if (message === 'Payment not found') {
@@ -502,11 +552,10 @@ export const installmentsController = {
     reply: FastifyReply,
   ) {
     try {
-      const result = await installmentsService.applyOverdueInterest(
-        request.params.installmentId,
-        request.body,
-        request.currentUser?.userId ?? '',
-      );
+      const result = await applyInterest(prisma, request.params.installmentId, request.body, {
+        tenantId: request.tenant!.id,
+        actorUserId: request.currentUser?.userId ?? '',
+      });
       return sendSuccess(reply, result);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to apply interest';
@@ -522,10 +571,11 @@ export const installmentsController = {
     reply: FastifyReply,
   ) {
     try {
-      const result = await installmentsService.rollbackInterestApplication(
+      const result = await rollbackInterest(
+        prisma,
         request.params.applicationId,
-        request.body,
-        request.currentUser?.userId ?? '',
+        request.body.reason,
+        { tenantId: request.tenant!.id, actorUserId: request.currentUser?.userId ?? '' },
       );
       return sendSuccess(reply, result);
     } catch (error) {

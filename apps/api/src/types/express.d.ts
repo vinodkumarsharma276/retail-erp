@@ -14,6 +14,7 @@ declare module 'fastify' {
       name: string;
       planId: string;
       status: string;
+      settings?: unknown;
     };
     /**
      * Platform admin context — set only on `/api/v1/platform/*` routes by

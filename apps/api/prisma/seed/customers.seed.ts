@@ -57,15 +57,18 @@ export async function seedCustomers(
   shops: Shop[],
   _users: User[],
 ): Promise<Customer[]> {
+  const tenantId = shops[0]?.tenantId;
+  if (!tenantId) return [];
   // Idempotency — if any customers already exist (from previous seed), append; but
   // in most cases clear.ts will have been run first.
-  const existing = await prisma.customer.count();
+  const existing = await prisma.customer.count({ where: { tenantId } });
   if (existing >= 1200) {
-    return prisma.customer.findMany();
+    return prisma.customer.findMany({ where: { tenantId } });
   }
 
   // Get last customer code for sequential generation
   const lastCustomer = await prisma.customer.findFirst({
+    where: { tenantId },
     orderBy: { customerCode: 'desc' },
     select: { customerCode: true },
   });
@@ -77,7 +80,7 @@ export async function seedCustomers(
   const shopAdminMap: Record<string, string | null> = {};
   for (const shop of shops) {
     const us = await prisma.userShop.findFirst({
-      where: { shopId: shop.id, isPrimary: true, user: { role: 'admin' } },
+      where: { tenantId, shopId: shop.id, isPrimary: true, user: { role: 'admin' } },
       include: { user: true },
     });
     shopAdminMap[shop.id] = us?.user.id ?? null;
@@ -104,6 +107,7 @@ export async function seedCustomers(
 
       const customer = await prisma.customer.create({
         data: {
+          tenantId,
           customerCode,
           name: `${first} ${last}`,
           phone,
@@ -148,5 +152,5 @@ export async function seedCustomers(
     }
   }
 
-  return prisma.customer.findMany();
+  return prisma.customer.findMany({ where: { tenantId } });
 }

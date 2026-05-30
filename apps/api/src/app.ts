@@ -17,6 +17,7 @@ import { purchaseRoutes } from './modules/purchases/purchases.routes.js';
 import { customerRoutes } from './modules/customers/customers.routes.js';
 import { saleRoutes } from './modules/sales/sales.routes.js';
 import { installmentRoutes } from './modules/installments/installments.routes.js';
+import { promisesRoutes } from './modules/promises/promises.routes.js';
 import { transferRoutes } from './modules/transfers/transfers.routes.js';
 import { expenseRoutes } from './modules/expenses/expenses.routes.js';
 import { bankRoutes } from './modules/bank/bank.routes.js';
@@ -103,6 +104,7 @@ export async function buildApp() {
   await app.register(customerRoutes, { prefix: '/api/v1/customers' });
   await app.register(saleRoutes, { prefix: '/api/v1/sales' });
   await app.register(installmentRoutes, { prefix: '/api/v1/installments' });
+  await app.register(promisesRoutes, { prefix: '/api/v1/promises' });
   await app.register(transferRoutes, { prefix: '/api/v1/transfers' });
   await app.register(expenseRoutes, { prefix: '/api/v1/expenses' });
   await app.register(bankRoutes, { prefix: '/api/v1/bank' });

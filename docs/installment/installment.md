@@ -1,6 +1,17 @@
 # Installment Module — Complete Reference
 
-This document is the authoritative reference for the installment system. Read this before modifying any installment-related code. All files, rules, endpoints, service methods, and edge cases are documented here.
+This document contains legacy reference material for the original redistribution-based installment system.
+
+The current implementation direction is **ADR-0001: Per-EMI Overdue Installment Model (Pattern B)**. Read [docs/adr/0001-per-emi-overdue-installment-model.md](../adr/0001-per-emi-overdue-installment-model.md) and [docs/adr/0001-implementation-plan.md](../adr/0001-implementation-plan.md) before modifying installment-related code.
+
+Pattern B invariants:
+- Each EMI remains an independent obligation.
+- Missed EMIs are not redistributed into future EMIs.
+- Promises are first-class records and never suppress due/overdue call lists.
+- Penalty is suggested at the tenant-configured monthly rate (default 1%) but applied only when the employee explicitly chooses it.
+- Every promise, payment, interest application, and reliability query is tenant-scoped.
+
+The sections below are retained only for understanding legacy data and roll-log history.
 
 ---
 

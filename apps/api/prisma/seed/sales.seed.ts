@@ -189,6 +189,7 @@ export async function seedSales(
       // Build per-type fields
       const saleData: any = {
         id: randomUUID(),
+        tenantId: shop.tenantId,
         saleNumber,
         ledgerNumber,
         shopId: shop.id,
@@ -242,6 +243,10 @@ export async function seedSales(
 
           saleData.downPayment = downPayment;
           saleData.interestRate = interestRate;
+          if (rand(seed + 20) < 0.3) {
+            const penalRates = [1, 1.5, 2];
+            saleData.penalRate = penalRates[Math.floor(rand(seed + 21) * penalRates.length)];
+          }
           saleData.fileCharge = fileCharge;
           saleData.totalFinancedAmount = totalPayable;
           saleData.numInstallments = numInstallments;
@@ -286,6 +291,7 @@ export async function seedSales(
         await tx.saleRecordSanitized.create({
           data: {
             id: saleData.id,
+            tenantId: shop.tenantId,
             saleNumber,
             ledgerNumber,
             shopId: shop.id,
@@ -300,6 +306,7 @@ export async function seedSales(
         if (installmentSchedule) {
           const schedule = await tx.installmentSchedule.create({
             data: {
+              tenantId: shop.tenantId,
               saleId: saleData.id,
               totalPrincipal: installmentSchedule.principal,
               totalInterest: installmentSchedule.totalInterest,
@@ -320,6 +327,7 @@ export async function seedSales(
             else if (dueDate.getTime() === today.getTime()) status = 'due_today';
             await tx.installment.create({
               data: {
+                tenantId: shop.tenantId,
                 scheduleId: schedule.id,
                 installmentNumber: n,
                 dueDate,

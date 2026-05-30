@@ -6,6 +6,8 @@ import type {
   InstallmentSchedule,
   Installment,
   InstallmentPayment,
+  InstallmentPromiseRecord,
+  CreateInstallmentPromiseInput,
 } from '@retailerp/shared-types';
 
 // ---------------------------------------------------------------------------
@@ -19,6 +21,7 @@ const keys = {
   scheduleDetail: (id: string) => ['installments', 'schedule', id] as const,
   scheduleTimeline: (id: string) => ['installments', 'schedule', id, 'timeline'] as const,
   scheduleRollLog: (id: string) => ['installments', 'schedule', id, 'roll-log'] as const,
+  promises: (filters: { scheduleId?: string; customerId?: string; status?: string }) => ['installment-promises', filters] as const,
 };
 
 // ---------------------------------------------------------------------------
@@ -367,14 +370,18 @@ export function useRecordInstallmentPaymentMutation() {
     }: {
       installmentId: string;
       payload: {
-        scenario: 'full_payment' | 'reschedule' | 'partial_reschedule';
+        scenario?: 'full_payment' | 'reschedule' | 'partial_reschedule';
+        amount?: number;
         amountPaid?: number;
         paymentMode?: string;
         paymentBreakdown?: Array<{ mode: string; amount: number }>;
+        paymentDate?: string;
+        explicitInstallmentId?: string;
         newDate?: string;
-        notes?: string;
-        applyInterest?: { amount: number; notes?: string };
         waiveExcessInterest?: boolean;
+        earlyCollectionDate?: string;
+        notes?: string;
+        applyInterest?: { installmentId?: string; amount?: number; appliedAmount?: number; daysOverdue?: number; notes?: string };
       };
     }) => {
       const { data } = await apiClient.post<ApiResponse<Installment>>(
@@ -386,6 +393,38 @@ export function useRecordInstallmentPaymentMutation() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['installments'] });
       queryClient.invalidateQueries({ queryKey: ['sales'] });
+    },
+  });
+}
+
+export function useInstallmentPromisesQuery(filters: { scheduleId?: string; customerId?: string; status?: string }) {
+  return useQuery({
+    queryKey: keys.promises(filters),
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (filters.scheduleId) params.set('scheduleId', filters.scheduleId);
+      if (filters.customerId) params.set('customerId', filters.customerId);
+      if (filters.status) params.set('status', filters.status);
+      const { data } = await apiClient.get<ApiResponse<InstallmentPromiseRecord[]>>(
+        `/promises?${params.toString()}`,
+      );
+      return data.data ?? [];
+    },
+    enabled: !!filters.scheduleId || !!filters.customerId,
+  });
+}
+
+export function useCreateInstallmentPromiseMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: CreateInstallmentPromiseInput) => {
+      const { data } = await apiClient.post<ApiResponse<InstallmentPromiseRecord>>('/promises', payload);
+      return data.data!;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['installment-promises'] });
+      queryClient.invalidateQueries({ queryKey: ['installments'] });
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
     },
   });
 }

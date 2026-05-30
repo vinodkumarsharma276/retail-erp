@@ -1,5 +1,8 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { customersService } from './customers.service.js';
+import { prisma } from '../../config/database.js';
+import { computeCustomerReliability } from './customers.reliability.js';
+import { mergeInstallmentSettings } from '../installments/installments.derivations.js';
 import { sendSuccess, sendError, sendPaginated } from '../../utils/response.js';
 import { parsePagination } from '../../utils/pagination.js';
 
@@ -72,6 +75,26 @@ export const customersController = {
       return sendSuccess(reply, customer);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to fetch customer';
+      return sendError(reply, message, 500);
+    }
+  },
+
+  async getReliability(
+    request: FastifyRequest<{ Params: { id: string } }>,
+    reply: FastifyReply,
+  ) {
+    try {
+      const settings = mergeInstallmentSettings(request.tenant?.settings);
+      const metrics = await computeCustomerReliability(
+        prisma,
+        request.params.id,
+        request.tenant!.id,
+        settings.reliabilityWindowDays,
+      );
+      if (!metrics) return sendError(reply, 'Customer not found', 404);
+      return sendSuccess(reply, metrics);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to fetch reliability metrics';
       return sendError(reply, message, 500);
     }
   },

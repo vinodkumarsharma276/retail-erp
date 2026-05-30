@@ -870,6 +870,7 @@ export async function applyPartialWithPromise(
 
   const newSub = await tx.installment.create({
     data: {
+      tenantId: await resolveScheduleTenantId(tx, source.scheduleId),
       scheduleId: source.scheduleId,
       installmentNumber: primaryNumber,
       parentInstallmentNumber: primaryNumber,
@@ -929,7 +930,6 @@ export async function ensureRolledForToday(
   today: Date,
   scope: { scheduleId?: string; shopId?: string; shopIds?: string[] },
 ): Promise<{ redistributions: number; markedOverdue: number }> {
-  const { redistributions } = await applyDailyRollover(tx, today, scope);
   const markedOverdue = await markOverdueForToday(tx, today, scope);
 
   // For single-schedule scope also sync directly.
@@ -937,7 +937,7 @@ export async function ensureRolledForToday(
     await syncScheduleAndSale(tx, scope.scheduleId);
   }
 
-  return { redistributions, markedOverdue };
+  return { redistributions: 0, markedOverdue };
 }
 
 // ---------------------------------------------------------------------------

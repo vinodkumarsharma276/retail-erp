@@ -576,6 +576,9 @@ const productFields: FieldSeed[] = [
 ];
 
 export async function seedFormDefinitions(prisma: PrismaClient): Promise<FormDefinition[]> {
+  const tenant = await prisma.tenant.findUnique({ where: { slug: 'vn' }, select: { id: true } });
+  if (!tenant) return [];
+
   const formConfigs = [
     { formName: 'customer', description: 'Customer registration and details form', fields: customerFields },
     { formName: 'distributor', description: 'Distributor/supplier registration form', fields: distributorFields },
@@ -588,7 +591,7 @@ export async function seedFormDefinitions(prisma: PrismaClient): Promise<FormDef
   for (const config of formConfigs) {
     // Check if definition already exists
     const existing = await prisma.formDefinition.findFirst({
-      where: { formName: config.formName, shopId: null },
+      where: { tenantId: tenant.id, formName: config.formName, shopId: null },
     });
 
     if (existing) {
@@ -598,6 +601,7 @@ export async function seedFormDefinitions(prisma: PrismaClient): Promise<FormDef
 
     const definition = await prisma.formDefinition.create({
       data: {
+        tenantId: tenant.id,
         formName: config.formName,
         shopId: null,
         version: 1,
@@ -605,6 +609,7 @@ export async function seedFormDefinitions(prisma: PrismaClient): Promise<FormDef
         description: config.description,
         fields: {
           create: config.fields.map((f) => ({
+            tenantId: tenant.id,
             fieldName: f.fieldName,
             fieldLabel: f.fieldLabel,
             fieldType: f.fieldType as any,

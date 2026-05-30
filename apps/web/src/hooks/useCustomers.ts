@@ -4,6 +4,7 @@ import type {
   ApiResponse,
   PaginatedResponse,
   Customer,
+  ReliabilityMetrics,
 } from '@retailerp/shared-types';
 
 // ---------------------------------------------------------------------------
@@ -124,6 +125,19 @@ export function useCustomerInstallmentHistoryQuery(id: string | undefined) {
     queryFn: async () => {
       const { data } = await apiClient.get<ApiResponse<CustomerInstallmentHistory>>(
         `/customers/${id}/installment-history`,
+      );
+      return data.data!;
+    },
+    enabled: !!id,
+  });
+}
+
+export function useCustomerReliabilityQuery(id: string | undefined) {
+  return useQuery({
+    queryKey: ['customers', id, 'reliability'],
+    queryFn: async () => {
+      const { data } = await apiClient.get<ApiResponse<ReliabilityMetrics>>(
+        `/customers/${id}/reliability`,
       );
       return data.data!;
     },

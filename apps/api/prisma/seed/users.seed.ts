@@ -11,9 +11,9 @@ interface SystemRoleMap {
   employee?: string;
 }
 
-async function loadRoleIds(prisma: PrismaClient): Promise<SystemRoleMap> {
+async function loadRoleIds(prisma: PrismaClient, tenantId: string): Promise<SystemRoleMap> {
   const rows = await prisma.role.findMany({
-    where: { code: { in: ['owner', 'admin', 'accountant', 'others', 'employee'] } },
+    where: { tenantId, code: { in: ['owner', 'admin', 'accountant', 'others', 'employee'] } },
     select: { id: true, code: true },
   });
   const map: SystemRoleMap = {};
@@ -24,8 +24,10 @@ async function loadRoleIds(prisma: PrismaClient): Promise<SystemRoleMap> {
 export async function seedUsers(prisma: PrismaClient, shops: Shop[]): Promise<User[]> {
   const passwordHash = await bcrypt.hash(DEFAULT_PASSWORD, 10);
   const users: User[] = [];
+  const tenantId = shops[0]?.tenantId;
+  if (!tenantId) return users;
 
-  const roleIds = await loadRoleIds(prisma);
+  const roleIds = await loadRoleIds(prisma, tenantId);
 
   // ------------------------------------------------------------------------
   // 2 OWNERS â€” full access across every shop. Their roleId points to the
@@ -38,9 +40,10 @@ export async function seedUsers(prisma: PrismaClient, shops: Shop[]): Promise<Us
   ];
   for (const o of owners) {
     const user = await prisma.user.upsert({
-      where: { username: o.username },
+      where: { tenantId_username: { tenantId, username: o.username } },
       update: { roleId: roleIds.owner ?? null, role: 'owner' },
       create: {
+        tenantId,
         username: o.username,
         passwordHash,
         fullName: o.fullName,
@@ -54,7 +57,7 @@ export async function seedUsers(prisma: PrismaClient, shops: Shop[]): Promise<Us
       await prisma.userShop.upsert({
         where: { userId_shopId: { userId: user.id, shopId: shop.id } },
         update: {},
-        create: { userId: user.id, shopId: shop.id, isPrimary: shop.id === shops[0]?.id },
+        create: { tenantId, userId: user.id, shopId: shop.id, isPrimary: shop.id === shops[0]?.id },
       });
     }
     users.push(user);
@@ -66,9 +69,10 @@ export async function seedUsers(prisma: PrismaClient, shops: Shop[]): Promise<Us
     // 2 Admins per shop
     for (let i = 1; i <= 2; i++) {
       const user = await prisma.user.upsert({
-        where: { username: `${prefix}_admin${i}` },
+        where: { tenantId_username: { tenantId, username: `${prefix}_admin${i}` } },
         update: { roleId: roleIds.admin ?? null },
         create: {
+          tenantId,
           username: `${prefix}_admin${i}`,
           passwordHash,
           fullName: `${shop.name} Admin ${i}`,
@@ -81,7 +85,7 @@ export async function seedUsers(prisma: PrismaClient, shops: Shop[]): Promise<Us
       await prisma.userShop.upsert({
         where: { userId_shopId: { userId: user.id, shopId: shop.id } },
         update: {},
-        create: { userId: user.id, shopId: shop.id, isPrimary: true },
+        create: { tenantId, userId: user.id, shopId: shop.id, isPrimary: true },
       });
       // Admins get access to all shops
       for (const otherShop of shops) {
@@ -89,7 +93,7 @@ export async function seedUsers(prisma: PrismaClient, shops: Shop[]): Promise<Us
           await prisma.userShop.upsert({
             where: { userId_shopId: { userId: user.id, shopId: otherShop.id } },
             update: {},
-            create: { userId: user.id, shopId: otherShop.id, isPrimary: false },
+            create: { tenantId, userId: user.id, shopId: otherShop.id, isPrimary: false },
           });
         }
       }
@@ -99,9 +103,10 @@ export async function seedUsers(prisma: PrismaClient, shops: Shop[]): Promise<Us
     // 3 Accountants per shop
     for (let i = 1; i <= 3; i++) {
       const user = await prisma.user.upsert({
-        where: { username: `${prefix}_acc${i}` },
+        where: { tenantId_username: { tenantId, username: `${prefix}_acc${i}` } },
         update: { roleId: roleIds.accountant ?? null },
         create: {
+          tenantId,
           username: `${prefix}_acc${i}`,
           passwordHash,
           fullName: `${shop.name} Accountant ${i}`,
@@ -114,7 +119,7 @@ export async function seedUsers(prisma: PrismaClient, shops: Shop[]): Promise<Us
       await prisma.userShop.upsert({
         where: { userId_shopId: { userId: user.id, shopId: shop.id } },
         update: {},
-        create: { userId: user.id, shopId: shop.id, isPrimary: true },
+        create: { tenantId, userId: user.id, shopId: shop.id, isPrimary: true },
       });
       // Accountants also get access to all shops
       for (const otherShop of shops) {
@@ -122,7 +127,7 @@ export async function seedUsers(prisma: PrismaClient, shops: Shop[]): Promise<Us
           await prisma.userShop.upsert({
             where: { userId_shopId: { userId: user.id, shopId: otherShop.id } },
             update: {},
-            create: { userId: user.id, shopId: otherShop.id, isPrimary: false },
+            create: { tenantId, userId: user.id, shopId: otherShop.id, isPrimary: false },
           });
         }
       }
@@ -132,9 +137,10 @@ export async function seedUsers(prisma: PrismaClient, shops: Shop[]): Promise<Us
     // 2 Others per shop
     for (let i = 1; i <= 2; i++) {
       const user = await prisma.user.upsert({
-        where: { username: `${prefix}_staff${i}` },
+        where: { tenantId_username: { tenantId, username: `${prefix}_staff${i}` } },
         update: { roleId: roleIds.others ?? null },
         create: {
+          tenantId,
           username: `${prefix}_staff${i}`,
           passwordHash,
           fullName: `${shop.name} Staff ${i}`,
@@ -147,7 +153,7 @@ export async function seedUsers(prisma: PrismaClient, shops: Shop[]): Promise<Us
       await prisma.userShop.upsert({
         where: { userId_shopId: { userId: user.id, shopId: shop.id } },
         update: {},
-        create: { userId: user.id, shopId: shop.id, isPrimary: true },
+        create: { tenantId, userId: user.id, shopId: shop.id, isPrimary: true },
       });
       users.push(user);
     }
@@ -155,9 +161,10 @@ export async function seedUsers(prisma: PrismaClient, shops: Shop[]): Promise<Us
     // 3 Employees per shop (mobile-only)
     for (let i = 1; i <= 3; i++) {
       const user = await prisma.user.upsert({
-        where: { username: `${prefix}_emp${i}` },
+        where: { tenantId_username: { tenantId, username: `${prefix}_emp${i}` } },
         update: { roleId: roleIds.employee ?? null },
         create: {
+          tenantId,
           username: `${prefix}_emp${i}`,
           passwordHash,
           fullName: `${shop.name} Employee ${i}`,
@@ -170,7 +177,7 @@ export async function seedUsers(prisma: PrismaClient, shops: Shop[]): Promise<Us
       await prisma.userShop.upsert({
         where: { userId_shopId: { userId: user.id, shopId: shop.id } },
         update: {},
-        create: { userId: user.id, shopId: shop.id, isPrimary: true },
+        create: { tenantId, userId: user.id, shopId: shop.id, isPrimary: true },
       });
       users.push(user);
     }

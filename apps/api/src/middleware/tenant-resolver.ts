@@ -41,6 +41,7 @@ interface CachedTenant {
   name: string;
   planId: string;
   status: string;
+  settings: unknown;
   expiresAt: number;
 }
 
@@ -63,7 +64,7 @@ async function loadTenantBySlug(slug: string): Promise<CachedTenant | null> {
   }
   const row = await prisma.tenant.findUnique({
     where: { slug },
-    select: { id: true, slug: true, name: true, planId: true, status: true },
+    select: { id: true, slug: true, name: true, planId: true, status: true, settings: true },
   });
   if (!row) return null;
   const entry: CachedTenant = {
@@ -170,5 +171,6 @@ export async function tenantResolver(request: FastifyRequest, reply: FastifyRepl
     name: tenant.name,
     planId: tenant.planId,
     status: tenant.status,
+    settings: tenant.settings,
   };
 }

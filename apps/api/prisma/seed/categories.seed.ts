@@ -41,7 +41,7 @@ const HSN_CODES: Record<string, string> = {
   'iron': '8516',
 };
 
-export async function seedCategories(prisma: PrismaClient): Promise<ProductCategory[]> {
+export async function seedCategories(prisma: PrismaClient, tenantId: string): Promise<ProductCategory[]> {
   const categories: ProductCategory[] = [];
 
   // Root categories with subcategories
@@ -102,12 +102,13 @@ export async function seedCategories(prisma: PrismaClient): Promise<ProductCateg
     const parent = tree[i];
     // Root categories have null parentId — can't use composite unique upsert
     let parentCat = await prisma.productCategory.findFirst({
-      where: { slug: parent.slug, parentId: null },
+      where: { tenantId, slug: parent.slug, parentId: null },
     });
     if (!parentCat) {
       parentCat = await prisma.productCategory.create({
         data: {
           name: parent.name,
+          tenantId,
           slug: parent.slug,
           level: 0,
           path: parent.slug,
@@ -128,12 +129,13 @@ export async function seedCategories(prisma: PrismaClient): Promise<ProductCateg
     for (let j = 0; j < parent.children.length; j++) {
       const child = parent.children[j];
       let childCat = await prisma.productCategory.findFirst({
-        where: { slug: child.slug, parentId: parentCat.id },
+        where: { tenantId, slug: child.slug, parentId: parentCat.id },
       });
       if (!childCat) {
         childCat = await prisma.productCategory.create({
           data: {
             name: child.name,
+            tenantId,
             slug: child.slug,
             parentId: parentCat.id,
             level: 1,
@@ -155,12 +157,12 @@ export async function seedCategories(prisma: PrismaClient): Promise<ProductCateg
   }
 
   // Seed category-specific attributes for leaf categories
-  await seedCategoryAttributes(prisma, categories);
+  await seedCategoryAttributes(prisma, categories, tenantId);
 
   return categories;
 }
 
-async function seedCategoryAttributes(prisma: PrismaClient, categories: ProductCategory[]) {
+async function seedCategoryAttributes(prisma: PrismaClient, categories: ProductCategory[], tenantId: string) {
   // Brand options per leaf category slug
   const brandMap: Record<string, string[]> = {
     'led-tv': ['Samsung', 'LG', 'Sony', 'TCL', 'Mi', 'OnePlus', 'Vu', 'Hisense'],
@@ -276,6 +278,7 @@ async function seedCategoryAttributes(prisma: PrismaClient, categories: ProductC
         displayOrder: 0,
       },
       create: {
+        tenantId,
         categoryId: cat.id,
         attributeName: 'brand',
         attributeLabel: 'Brand',
@@ -310,6 +313,7 @@ async function seedCategoryAttributes(prisma: PrismaClient, categories: ProductC
           isActive: true,
         },
         create: {
+          tenantId,
           categoryId: cat.id,
           attributeName: attr.attributeName,
           attributeLabel: attr.attributeLabel,

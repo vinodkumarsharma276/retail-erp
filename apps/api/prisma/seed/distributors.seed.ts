@@ -65,13 +65,15 @@ export async function seedDistributors(
   categories: ProductCategory[],
 ): Promise<Distributor[]> {
   const leafCategories = categories.filter((c) => c.isLeaf);
+  const tenantId = categories[0]?.tenantId;
+  if (!tenantId) return [];
 
-  const existingCount = await prisma.distributor.count();
+  const existingCount = await prisma.distributor.count({ where: { tenantId } });
   if (existingCount >= 40) {
-    return prisma.distributor.findMany();
+    return prisma.distributor.findMany({ where: { tenantId } });
   }
 
-  const firstAdmin = await prisma.user.findFirst({ where: { role: 'admin' } });
+  const firstAdmin = await prisma.user.findFirst({ where: { tenantId, role: 'admin' } });
   const createdBy = firstAdmin?.id ?? null;
 
   const distributors: Distributor[] = [];
@@ -93,6 +95,7 @@ export async function seedDistributors(
 
     const distributor = await prisma.distributor.create({
       data: {
+        tenantId,
         companyName,
         contactPerson: contact,
         phone,
@@ -123,7 +126,7 @@ export async function seedDistributors(
       if (linkedCatIds.has(cat.id)) continue;
       linkedCatIds.add(cat.id);
       await prisma.distributorCategory.create({
-        data: { distributorId: distributor.id, categoryId: cat.id },
+        data: { tenantId, distributorId: distributor.id, categoryId: cat.id },
       });
     }
   }

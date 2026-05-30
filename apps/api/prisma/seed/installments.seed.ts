@@ -65,7 +65,12 @@ export async function seedInstallments(
       const shop = await prisma.shop.findUnique({ where: { id: schedule.sale.shopId } });
       if (shop) {
         const emp = await prisma.user.findUnique({
-          where: { username: `${shop.code.toLowerCase()}_emp1` },
+          where: {
+            tenantId_username: {
+              tenantId: schedule.tenantId,
+              username: `${shop.code.toLowerCase()}_emp1`,
+            },
+          },
         });
         shopCollectorMap[schedule.sale.shopId] = emp?.id ?? null;
       }
@@ -94,6 +99,7 @@ export async function seedInstallments(
 
       paymentRows.push({
         id: randomUUID(),
+        tenantId: schedule.tenantId,
         installmentId: inst.id,
         amount: inst.amountDue,
         paymentMode: mode,
@@ -108,6 +114,8 @@ export async function seedInstallments(
           amountPaid: inst.amountDue,
           remainingAmount: 0,
           status: 'paid',
+          isClosed: false,
+          isRescheduled: false,
         },
       });
     }

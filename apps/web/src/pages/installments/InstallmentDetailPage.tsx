@@ -19,7 +19,7 @@ import {
   Info,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { useScheduleDetailQuery, useRevertPaymentMutation, useMovePaymentMutation, useCorrectPaymentMutation, useUndoReschedulePreviewQuery, useUndoRescheduleMutation } from '../../hooks/useInstallments';
+import { useScheduleDetailQuery, useRevertPaymentMutation, useMovePaymentMutation, useCorrectPaymentMutation, useUndoReschedulePreviewQuery, useUndoRescheduleMutation, useInstallmentPromisesQuery } from '../../hooks/useInstallments';
 import { StatusBadge } from '../../components/StatusBadge';
 import { PaymentTimeline } from '../../components/PaymentTimeline';
 import { RecordPaymentDialog } from '../../components/RecordPaymentDialog';
@@ -35,6 +35,7 @@ export function InstallmentDetailPage() {
   const navigate = useNavigate();
 
   const { data, isLoading, isError } = useScheduleDetailQuery(scheduleId);
+  const { data: promises = [] } = useInstallmentPromisesQuery({ scheduleId, status: 'pending' });
 
   // Payment dialog state
   const [paymentTarget, setPaymentTarget] = useState<{
@@ -185,6 +186,14 @@ export function InstallmentDetailPage() {
     : installments.filter(
         (i: any) => i.status !== InstallmentStatus.RESCHEDULED,
       );
+  const promisesByInstallmentId = new Map<string, typeof promises>();
+  for (const promise of promises) {
+    for (const installmentId of promise.coveredInstallmentIds) {
+      const list = promisesByInstallmentId.get(installmentId) ?? [];
+      list.push(promise);
+      promisesByInstallmentId.set(installmentId, list);
+    }
+  }
 
   const actionableStatuses: string[] = [
     InstallmentStatus.UPCOMING,
@@ -433,6 +442,7 @@ export function InstallmentDetailPage() {
                   inst.payments?.length > 0
                     ? inst.payments[inst.payments.length - 1]
                     : null;
+                const activePromises = promisesByInstallmentId.get(inst.id) ?? [];
 
                 return (
                   <tr
@@ -456,6 +466,19 @@ export function InstallmentDetailPage() {
                     </td>
                     <td className="px-3 py-2.5">
                       {formatDateIN(inst.dueDate)}
+                      {activePromises.length > 0 && (
+                        <div className="mt-1 space-y-1">
+                          {activePromises.map((promise) => (
+                            <div
+                              key={promise.id}
+                              className="inline-flex rounded-md border border-blue-200 bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700 dark:border-blue-800 dark:bg-blue-950/30 dark:text-blue-300"
+                              title={promise.notes ?? undefined}
+                            >
+                              Promise {formatINR(Number(promise.promisedAmount))} on {formatDateIN(promise.promisedDate)}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </td>
                     <td className="px-3 py-2.5 text-right font-medium">
                       {formatINR(inst.amountDue)}

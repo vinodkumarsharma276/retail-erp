@@ -31,6 +31,9 @@ export async function customerRoutes(app: FastifyInstance) {
   // Quick search across ALL shops (any authenticated user)
   app.get('/search', { preHandler: [authenticate] }, customersController.search as any);
 
+  // Tenant-scoped installment reliability metrics.
+  app.get('/:id/reliability', { preHandler: adminAccountant }, customersController.getReliability as any);
+
   // Create customer (admin, accountant, others — shop-scoped)
   app.post('/', {
     preHandler: [...allShopRoles, validate(createCustomerSchema)],

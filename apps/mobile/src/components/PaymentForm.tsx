@@ -25,11 +25,13 @@ interface PaymentFormProps {
   isSubmitting: boolean;
   onSubmit: (data: {
     installmentId: string;
-    scenario: Scenario;
+    scenario?: Scenario;
+    amount?: number;
     amountPaid?: number;
     paymentMode?: PaymentMode;
     newDate?: string;
     notes?: string;
+    applyInterest?: { amount: number; notes?: string };
   }) => void;
 }
 
@@ -42,8 +44,7 @@ const PAYMENT_MODES: { label: string; value: PaymentMode }[] = [
 
 const SCENARIO_TABS: { label: string; value: Scenario }[] = [
   { label: 'Full Payment', value: 'full_payment' },
-  { label: 'Reschedule', value: 'reschedule' },
-  { label: 'Partial + Reschedule', value: 'partial_reschedule' },
+  { label: 'Partial', value: 'partial_reschedule' },
 ];
 
 export default function PaymentForm({
@@ -62,6 +63,9 @@ export default function PaymentForm({
   const [partialAmount, setPartialAmount] = useState('');
   const [newDate, setNewDate] = useState('');
   const [notes, setNotes] = useState('');
+  const [applyInterest, setApplyInterest] = useState(false);
+  const [interestAmount, setInterestAmount] = useState('');
+  const [interestNotes, setInterestNotes] = useState('');
 
   const partialRemaining = useMemo(() => {
     const paid = parseFloat(partialAmount) || 0;
@@ -78,20 +82,13 @@ export default function PaymentForm({
       onSubmit({
         installmentId,
         scenario: 'full_payment',
+        amount: amt,
         amountPaid: amt,
         paymentMode,
         notes: notes.trim() || undefined,
-      });
-    } else if (scenario === 'reschedule') {
-      if (!newDate || !/^\d{4}-\d{2}-\d{2}$/.test(newDate)) {
-        Alert.alert('Invalid Date', 'Please enter a valid date in YYYY-MM-DD format.');
-        return;
-      }
-      onSubmit({
-        installmentId,
-        scenario: 'reschedule',
-        newDate,
-        notes: notes.trim() || undefined,
+        applyInterest: applyInterest && Number(interestAmount) > 0
+          ? { amount: Number(interestAmount), notes: interestNotes.trim() || undefined }
+          : undefined,
       });
     } else if (scenario === 'partial_reschedule') {
       const amt = parseFloat(partialAmount);
@@ -102,17 +99,16 @@ export default function PaymentForm({
         );
         return;
       }
-      if (!newDate || !/^\d{4}-\d{2}-\d{2}$/.test(newDate)) {
-        Alert.alert('Invalid Date', 'Please enter a valid date in YYYY-MM-DD format for the remaining amount.');
-        return;
-      }
       onSubmit({
         installmentId,
-        scenario: 'partial_reschedule',
+        scenario: 'full_payment',
+        amount: amt,
         amountPaid: amt,
         paymentMode,
-        newDate,
         notes: notes.trim() || undefined,
+        applyInterest: applyInterest && Number(interestAmount) > 0
+          ? { amount: Number(interestAmount), notes: interestNotes.trim() || undefined }
+          : undefined,
       });
     }
   }
@@ -195,6 +191,37 @@ export default function PaymentForm({
             placeholderTextColor="#94A3B8"
             multiline
             numberOfLines={3}
+          />
+        </View>
+      )}
+
+      <TouchableOpacity
+        style={styles.checkboxRow}
+        onPress={() => setApplyInterest((value) => !value)}
+      >
+        <View style={[styles.checkbox, applyInterest && styles.checkboxActive]} />
+        <Text style={styles.checkboxText}>Apply 1% overdue interest at discretion</Text>
+      </TouchableOpacity>
+
+      {applyInterest && (
+        <View style={styles.formSection}>
+          <Text style={styles.label}>Interest amount</Text>
+          <TextInput
+            style={styles.input}
+            value={interestAmount}
+            onChangeText={setInterestAmount}
+            keyboardType="numeric"
+            placeholder="Enter penalty amount"
+            placeholderTextColor="#94A3B8"
+          />
+          <Text style={styles.label}>Interest notes (optional)</Text>
+          <TextInput
+            style={[styles.input, styles.inputMultiline]}
+            value={interestNotes}
+            onChangeText={setInterestNotes}
+            placeholder="Why penalty was applied"
+            placeholderTextColor="#94A3B8"
+            multiline
           />
         </View>
       )}
@@ -389,6 +416,34 @@ const styles = StyleSheet.create({
   },
   formSection: {
     marginBottom: 20,
+  },
+  checkboxRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    padding: 12,
+    marginBottom: 12,
+  },
+  checkbox: {
+    width: 18,
+    height: 18,
+    borderRadius: 4,
+    borderWidth: 2,
+    borderColor: '#94A3B8',
+  },
+  checkboxActive: {
+    backgroundColor: '#1E40AF',
+    borderColor: '#1E40AF',
+  },
+  checkboxText: {
+    flex: 1,
+    color: '#334155',
+    fontSize: 13,
+    fontWeight: '600',
   },
   label: {
     fontSize: 13,

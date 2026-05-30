@@ -150,11 +150,14 @@ export function useSaleDetailQuery(saleId: string | null) {
 
 interface RecordPaymentInput {
   installmentId: string;
-  scenario: 'full_payment' | 'reschedule' | 'partial_reschedule';
+  scenario?: 'full_payment' | 'reschedule' | 'partial_reschedule';
+  amount?: number;
   amountPaid?: number;
   paymentMode?: PaymentMode;
+  paymentDate?: string;
   newDate?: string;
   notes?: string;
+  applyInterest?: { amount: number; notes?: string };
 }
 
 export function useRecordPaymentMutation() {

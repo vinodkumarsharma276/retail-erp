@@ -159,6 +159,8 @@ model Tenant {
   trialEndsAt  DateTime?    @map("trial_ends_at") @db.Timestamptz()
   /// Free-form structured metadata: billing customer id, internal notes, etc.
   billingMeta  Json?        @map("billing_meta")
+  /// Per-tenant policy knobs, including installment defaults.
+  settings     Json?        @db.JsonB
   createdAt    DateTime     @default(now()) @map("created_at") @db.Timestamptz()
   updatedAt    DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
@@ -189,6 +191,7 @@ model Tenant {
   installmentPayments             InstallmentPayment[]
   installmentInterestApplications InstallmentInterestApplication[]
   installmentRollLogs             InstallmentRollLog[]
+  installmentPromises             InstallmentPromise[]
   collectionAssignments           EmployeeCollectionAssignment[]
   interShopTransfers              InterShopTransfer[]
   expenses                        Expense[]
@@ -437,6 +440,7 @@ model User {
   installmentRollEvents InstallmentRollLog[]             @relation("RollLogActor")
   interestApplied       InstallmentInterestApplication[] @relation("InterestAppliedBy")
   interestRolledBack    InstallmentInterestApplication[] @relation("InterestRolledBackBy")
+  promisesCreated       InstallmentPromise[]             @relation("PromiseCreatedBy")
   auditTrailPerformed   ProductAuditTrail[]              @relation("AuditPerformer")
   transfersInitiated    InterShopTransfer[]              @relation("TransferInitiator")
   transfersReceived     InterShopTransfer[]              @relation("TransferReceiver")
@@ -903,6 +907,7 @@ model Customer {
   saleRecords         SaleRecord[]          @relation("SaleCustomer")
   salesAsGuarantor    SaleRecord[]          @relation("SaleGuarantor")
   salesSanitized      SaleRecordSanitized[]
+  installmentPromises InstallmentPromise[]
 
   @@unique([tenantId, customerCode])
   @@index([tenantId])
@@ -968,6 +973,8 @@ model SaleRecord {
   pendingAmount              Decimal               @default(0) @map("pending_amount") @db.Decimal(12, 2)
   // Self finance
   interestRate               Decimal?              @map("interest_rate") @db.Decimal(4, 2)
+  /// Per-sale override for monthly penal interest rate. Null uses tenant settings.
+  penalRate                  Decimal?              @map("penal_rate") @db.Decimal(4, 2)
   fileCharge                 Decimal               @default(0) @map("file_charge") @db.Decimal(12, 2)
   /// Computed: interestRate + (fileCharge / principal / numInstallments) × 100.
   /// Shown in UI so users see the true monthly finance cost when a flat fee and
@@ -1083,6 +1090,8 @@ model InstallmentSchedule {
   /// The last business date on which the daily rollover job processed this schedule.
   /// Used for idempotent scheduler runs.
   lastRolloverDate DateTime? @map("last_rollover_date") @db.Date
+  /// Excess payment held at schedule level and consumed by future EMIs.
+  creditBalance    Decimal   @default(0) @map("credit_balance") @db.Decimal(12, 2)
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz()
   updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
@@ -1092,6 +1101,7 @@ model InstallmentSchedule {
   collectionAssigns    EmployeeCollectionAssignment[]
   rollLogEvents        InstallmentRollLog[]             @relation("RollLogSchedule")
   interestApplications InstallmentInterestApplication[] @relation("ScheduleInterestApps")
+  promises             InstallmentPromise[]
 
   @@index([tenantId])
   @@index([saleId])
@@ -1235,6 +1245,40 @@ model InstallmentRollLog {
   @@index([installmentId])
   @@index([eventType])
   @@map("installment_roll_log")
+}
+
+enum InstallmentPromiseStatus {
+  pending
+  kept
+  partially_kept
+  broken
+}
+
+model InstallmentPromise {
+  id                    String                   @id @default(uuid())
+  tenantId              String                   @map("tenant_id")
+  scheduleId            String                   @map("schedule_id")
+  customerId            String                   @map("customer_id")
+  coveredInstallmentIds String[]                 @map("covered_installment_ids")
+  promisedDate          DateTime                 @map("promised_date") @db.Date
+  promisedAmount        Decimal                  @map("promised_amount") @db.Decimal(12, 2)
+  status                InstallmentPromiseStatus @default(pending)
+  createdBy             String                   @map("created_by")
+  createdAt             DateTime                 @default(now()) @map("created_at") @db.Timestamptz()
+  resolvedAt            DateTime?                @map("resolved_at") @db.Timestamptz()
+  collectedAmount       Decimal                  @default(0) @map("collected_amount") @db.Decimal(12, 2)
+  notes                 String?                  @db.Text
+
+  tenant        Tenant              @relation(fields: [tenantId], references: [id])
+  schedule      InstallmentSchedule @relation(fields: [scheduleId], references: [id])
+  customer      Customer            @relation(fields: [customerId], references: [id])
+  createdByUser User                @relation("PromiseCreatedBy", fields: [createdBy], references: [id])
+
+  @@index([tenantId])
+  @@index([scheduleId, status])
+  @@index([customerId, status])
+  @@index([promisedDate, status])
+  @@map("promises")
 }
 
 model EmployeeCollectionAssignment {

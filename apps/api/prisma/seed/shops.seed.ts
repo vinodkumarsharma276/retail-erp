@@ -1,6 +1,6 @@
 import type { PrismaClient, Shop } from '@prisma/client';
 
-export async function seedShops(prisma: PrismaClient): Promise<Shop[]> {
+export async function seedShops(prisma: PrismaClient, tenantId: string): Promise<Shop[]> {
   const shopsData = [
     {
       name: 'Vinod Electronics',
@@ -74,9 +74,9 @@ export async function seedShops(prisma: PrismaClient): Promise<Shop[]> {
   const shops: Shop[] = [];
   for (const data of shopsData) {
     const shop = await prisma.shop.upsert({
-      where: { code: data.code },
+      where: { tenantId_code: { tenantId, code: data.code } },
       update: {},
-      create: data,
+      create: { ...data, tenantId },
     });
     shops.push(shop);
   }

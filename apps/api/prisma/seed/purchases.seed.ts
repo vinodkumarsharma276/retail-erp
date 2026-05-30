@@ -98,10 +98,13 @@ export async function seedPurchases(
   categories: ProductCategory[],
   distributors: Distributor[],
 ): Promise<{ purchases: Purchase[]; products: Product[] }> {
-  const existingPurchases = await prisma.purchase.count();
+  const tenantId = shops[0]?.tenantId;
+  if (!tenantId) return { purchases: [], products: [] };
+
+  const existingPurchases = await prisma.purchase.count({ where: { tenantId } });
   if (existingPurchases >= 2000) {
-    const purchases = await prisma.purchase.findMany();
-    const products = await prisma.product.findMany();
+    const purchases = await prisma.purchase.findMany({ where: { tenantId } });
+    const products = await prisma.product.findMany({ where: { tenantId } });
     return { purchases, products };
   }
 
@@ -109,7 +112,7 @@ export async function seedPurchases(
   const catById = new Map(categories.map((c) => [c.id, c]));
 
   // Build distributor → [leaf category] map from DistributorCategory
-  const distribCats = await prisma.distributorCategory.findMany();
+  const distribCats = await prisma.distributorCategory.findMany({ where: { tenantId } });
   const distribToCats = new Map<string, ProductCategory[]>();
   for (const dc of distribCats) {
     const cat = catById.get(dc.categoryId);
@@ -124,7 +127,7 @@ export async function seedPurchases(
   const shopAdminMap: Record<string, string | null> = {};
   for (const shop of shops) {
     const us = await prisma.userShop.findFirst({
-      where: { shopId: shop.id, isPrimary: true, user: { role: 'admin' } },
+      where: { tenantId, shopId: shop.id, isPrimary: true, user: { role: 'admin' } },
       include: { user: true },
     });
     shopAdminMap[shop.id] = us?.user.id ?? null;
@@ -229,6 +232,7 @@ export async function seedPurchases(
 
         productRows.push({
           id: randomUUID(),
+          tenantId,
           shopId: shop.id,
           categoryId: cat.id,
           brand,
@@ -265,6 +269,7 @@ export async function seedPurchases(
 
       purchaseRows.push({
         id: purchaseId,
+        tenantId,
         shopId: shop.id,
         distributorId: distributor.id,
         invoiceNumber,
@@ -283,6 +288,7 @@ export async function seedPurchases(
         const paymentModes = ['bank_transfer', 'cheque', 'upi', 'cash'];
         paymentRows.push({
           id: randomUUID(),
+          tenantId,
           purchaseId,
           amount: amountPaid,
           paymentMode: paymentModes[Math.floor(rand(seed + 7) * paymentModes.length)] as any,
@@ -313,7 +319,7 @@ export async function seedPurchases(
     }
   }
 
-  const purchases = await prisma.purchase.findMany();
-  const products = await prisma.product.findMany();
+  const purchases = await prisma.purchase.findMany({ where: { tenantId } });
+  const products = await prisma.product.findMany({ where: { tenantId } });
   return { purchases, products };
 }

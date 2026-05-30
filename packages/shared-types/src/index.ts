@@ -10,6 +10,7 @@ export * from './customer.types';
 export * from './distributor.types';
 export * from './sale.types';
 export * from './installment.types';
+export * from './promise.types';
 export * from './purchase.types';
 export * from './form.types';
 export * from './api-response.types';

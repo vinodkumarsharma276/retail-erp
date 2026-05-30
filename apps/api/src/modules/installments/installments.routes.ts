@@ -7,13 +7,11 @@ import { validate } from '../../middleware/validate.js';
 import { requirePermission } from '../../middleware/permissions.js';
 import {
   recordPaymentSchema,
-  rescheduleSchema,
   finalSettlementSchema,
   applyInterestSchema,
   rollbackInterestSchema,
   movePaymentSchema,
   correctPaymentSchema,
-  undoRescheduleSchema,
 } from './installments.validation.js';
 import { UserRole } from '@retailerp/shared-types';
 
@@ -76,31 +74,8 @@ export async function installmentRoutes(app: FastifyInstance) {
     preHandler: [...collectionRoles, validate(recordPaymentSchema)],
   }, installmentsController.recordPayment as any);
 
-  // Reschedule (admin, accountant only)
-  app.post('/:installmentId/reschedule', {
-    preHandler: [...adminAccountantShopScoped, validate(rescheduleSchema)],
-  }, installmentsController.reschedule as any);
-
-  // Preview undo-reschedule eligibility + consequence (admin, accountant)
-  app.get('/:installmentId/undo-reschedule/preview', {
-    preHandler: adminAccountant,
-  }, installmentsController.previewUndoReschedule as any);
-
-  // Undo a reschedule (admin, accountant only)
-  app.post('/:installmentId/undo-reschedule', {
-    preHandler: [...adminAccountantShopScoped, validate(undoRescheduleSchema)],
-  }, installmentsController.undoReschedule as any);
-
   // Roll log (audit trail for a schedule — admin, accountant, employee)
   app.get('/:scheduleId/roll-log', { preHandler: adminAccountantEmployee }, installmentsController.getRollLog as any);
-
-  // Admin: manually trigger the rollover engine across all active schedules (owner, admin)
-  app.post('/admin/run-rollover', {
-    preHandler: [
-      authenticate,
-      authorize([UserRole.OWNER, UserRole.ADMIN]),
-    ],
-  }, installmentsController.runRollover as any);
 
   // Revert a payment (admin only)
   app.post('/payments/:paymentId/revert', {
