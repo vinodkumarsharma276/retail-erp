@@ -981,6 +981,7 @@ export const installmentsService = {
 
         const app = await tx.installmentInterestApplication.create({
           data: {
+            tenantId: await resolveScheduleTenantId(tx, schedule.id),
             installmentId,
             scheduleId: schedule.id,
             daysOverdue,
@@ -2304,6 +2305,7 @@ export const installmentsService = {
 
         const app = await tx.installmentInterestApplication.create({
           data: {
+            tenantId: await resolveScheduleTenantId(tx, inst.schedule.id),
             installmentId: inst.id,
             scheduleId: inst.schedule.id,
             daysOverdue,
@@ -2811,6 +2813,7 @@ export const installmentsService = {
     const result = await prisma.$transaction(async (tx) => {
       const app = await tx.installmentInterestApplication.create({
         data: {
+          tenantId: await resolveScheduleTenantId(tx, inst.schedule.id),
           installmentId,
           scheduleId: inst.schedule.id,
           daysOverdue: accrual.daysOverdue,
@@ -3118,6 +3121,7 @@ export const installmentsService = {
 
         const app = await tx.installmentInterestApplication.create({
           data: {
+            tenantId: await resolveScheduleTenantId(tx, scheduleId),
             installmentId: targetInst.id,
             scheduleId,
             daysOverdue,
