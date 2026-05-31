@@ -18,6 +18,7 @@ export interface ParsedInvoiceItem {
   confidence: number;
   matchedProductId?: string | null;
   categoryId?: string | null;
+  dynamicAttributes?: Record<string, unknown> | null;
 }
 
 export interface InvoiceParseResult {

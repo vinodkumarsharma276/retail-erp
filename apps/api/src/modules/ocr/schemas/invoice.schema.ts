@@ -63,6 +63,14 @@ export const invoiceParseSchema = z.object({
     confidence: z.number().min(0).max(1),
     matchedProductId: nullableString.optional(),
     categoryId: nullableString.optional(),
+    /**
+     * Web-search / catalogue resolved category-specific specs, keyed by the
+     * category attribute name (e.g. { ram: '8', storage: '128' }). Attached
+     * during enrichment — never produced directly by the vision model. Values
+     * are usually strings, but multi-value attributes (e.g. imeiNumbers) are
+     * stored as string arrays.
+     */
+    dynamicAttributes: z.record(z.unknown()).optional(),
   })),
   warnings: z.array(z.string()),
   rawText: z.string().nullable(),

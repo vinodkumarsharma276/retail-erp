@@ -38,6 +38,7 @@ interface ProductItem {
   brand: string;
   modelNumber: string;
   serialNumbers: string; // textarea: one serial per line, supports multiple
+  quantity: number | ''; // units to create when no serial numbers are entered
   mrp: number | '';
   purchasePrice: number | '';
   sellingPrice: number | '';
@@ -60,6 +61,7 @@ const emptyProductItem: ProductItem = {
   brand: '',
   modelNumber: '',
   serialNumbers: '',
+  quantity: 1,
   mrp: '',
   purchasePrice: '',
   sellingPrice: '',
@@ -141,6 +143,16 @@ export function PurchaseCreatePage() {
 
   // totalExpandedCount is computed inline below with totalPurchasePrice
 
+  // Effective unit count per item: when serial numbers are entered each serial
+  // is one unit; otherwise the explicit quantity field drives how many product
+  // rows are created.
+  const effectiveQty = (idx: number) => {
+    const serialCount = parsedSerials[idx]?.length ?? 0;
+    if (serialCount > 0) return serialCount;
+    const q = Number(watchedItems[idx]?.quantity);
+    return Number.isFinite(q) && q > 0 ? Math.floor(q) : 1;
+  };
+
   // Detect duplicate serial numbers across all items' parsed serials
   const serialDuplicateMap = useMemo(() => {
     const map = new Map<number, string>();
@@ -173,16 +185,16 @@ export function PurchaseCreatePage() {
 
   // Computed totals — per-product GST
   const totalPurchasePrice = watchedItems.reduce((sum, item, idx) => {
-    const qty = Math.max(1, parsedSerials[idx]?.length ?? 1);
+    const qty = effectiveQty(idx);
     return sum + (Number(item.purchasePrice) || 0) * qty;
   }, 0);
 
   const totalExpandedCount = watchedItems.reduce((sum, _item, idx) => {
-    return sum + Math.max(1, parsedSerials[idx]?.length ?? 1);
+    return sum + effectiveQty(idx);
   }, 0);
 
   const gstAmount = watchedItems.reduce((sum, item, idx) => {
-    const qty = Math.max(1, parsedSerials[idx]?.length ?? 1);
+    const qty = effectiveQty(idx);
     const itemTotal = (Number(item.purchasePrice) || 0) * qty;
     return sum + Math.round(itemTotal * (item.gstPercent ?? 18) / 100 * 100) / 100;
   }, 0);
@@ -297,7 +309,9 @@ export function PurchaseCreatePage() {
         dynamicAttributes: item.dynamicAttributes,
       };
       if (serials.length === 0) {
-        return [{ ...baseItem, serialNumber: undefined }];
+        const qty = Number(item.quantity);
+        const unitCount = Number.isFinite(qty) && qty > 0 ? Math.floor(qty) : 1;
+        return Array.from({ length: unitCount }, () => ({ ...baseItem, serialNumber: undefined }));
       }
       return serials.map((sn) => ({ ...baseItem, serialNumber: sn }));
     });
@@ -422,20 +436,36 @@ export function PurchaseCreatePage() {
     };
 
     const parsedItems: ProductItem[] = result.items.length > 0
-      ? result.items.map((item) => ({
-          categoryId: item.categoryId || '',
-          brand: item.brand || '',
-          modelNumber: item.modelNumber || '',
-          serialNumbers: item.serialNumbers.join('\n'),
-          mrp: '', // Always blank — employee must fill MRP manually
-          purchasePrice: item.purchasePrice ?? '',
-          sellingPrice: item.sellingPrice ?? '',
-          gstPercent: item.gstPercent ?? 18,
-          color: item.color || '',
-          warrantyMonths: item.warrantyMonths ?? '',
-          barcode: item.barcode || '',
-          dynamicAttributes: item.brand ? { brand: item.brand } : {},
-        }))
+      ? result.items.map((item) => {
+          const imeiValues = item.dynamicAttributes?.imeiNumbers;
+          const hasImei = Array.isArray(imeiValues) && imeiValues.length > 0;
+          // Quantity: serials drive it; mobiles with IMEI(s) are a single unit;
+          // otherwise fall back to the invoice quantity.
+          const quantity =
+            item.serialNumbers.length > 0
+              ? item.serialNumbers.length
+              : hasImei
+                ? 1
+                : item.quantity || 1;
+          return {
+            categoryId: item.categoryId || '',
+            brand: item.brand || '',
+            modelNumber: item.modelNumber || '',
+            serialNumbers: item.serialNumbers.join('\n'),
+            quantity,
+            mrp: '', // Always blank — employee must fill MRP manually
+            purchasePrice: item.purchasePrice ?? '',
+            sellingPrice: item.sellingPrice ?? '',
+            gstPercent: item.gstPercent ?? 18,
+            color: item.color || '',
+            warrantyMonths: item.warrantyMonths ?? '',
+            barcode: item.barcode || '',
+            dynamicAttributes: {
+              ...(item.dynamicAttributes ?? {}),
+              ...(item.brand ? { brand: item.brand } : {}),
+            },
+          };
+        })
       : [{ ...emptyProductItem }];
 
     // Reset whole form so registered + unmounted fields all hydrate consistently
@@ -791,7 +821,7 @@ export function PurchaseCreatePage() {
                     </div>
 
                     {/* Serial Numbers (multi-line) */}
-                    <div className="sm:col-span-2 lg:col-span-3">
+                    <div className="sm:col-span-2 lg:col-span-2">
                       <label className="block text-sm font-medium mb-1.5">
                         Serial Numbers{' '}
                         <span className="text-xs text-muted-foreground font-normal">
@@ -821,6 +851,30 @@ export function PurchaseCreatePage() {
                           </p>
                         )}
                       </div>
+                    </div>
+
+                    {/* Quantity (used when no serial numbers are entered) */}
+                    <div>
+                      <label className="block text-sm font-medium mb-1.5">
+                        Quantity
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        step={1}
+                        disabled={parsedSerials[index]?.length > 0}
+                        {...register(`items.${index}.quantity`, { valueAsNumber: true })}
+                        className={cn(
+                          'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                          'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                          'disabled:cursor-not-allowed disabled:opacity-60',
+                        )}
+                      />
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {parsedSerials[index]?.length > 0
+                          ? 'Set by serial count'
+                          : `${effectiveQty(index)} unit${effectiveQty(index) !== 1 ? 's' : ''} added to stock`}
+                      </p>
                     </div>
 
                     {/* MRP */}

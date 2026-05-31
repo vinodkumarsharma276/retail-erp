@@ -277,3 +277,135 @@ export async function resolveHsnByWebSearch(args: {
     return null;
   }
 }
+
+/**
+ * Describes one category attribute that the spec lookup should try to fill.
+ */
+export type SpecAttributeDef = {
+  attributeName: string;
+  attributeLabel: string;
+  attributeType: string;
+  /** Allowed values for `select` attributes (canonical labels). */
+  options?: string[];
+};
+
+/**
+ * Resolve product specifications (RAM, storage, screen size, tonnage, star
+ * rating, etc.) for a given model number using OpenAI Responses API + web
+ * search. The caller supplies the target category's attribute schema so the
+ * returned keys map 1:1 onto the dynamic form fields.
+ *
+ * Returns a map of `{ attributeName: value }` containing only the attributes
+ * the model could determine with confidence. Values for `select` attributes
+ * are constrained to the supplied `options`. Failures are silent (returns {}).
+ */
+export async function resolveProductSpecsByWebSearch(args: {
+  brand?: string | null;
+  modelNumber: string;
+  categoryName?: string | null;
+  attributes: SpecAttributeDef[];
+  model?: string;
+}): Promise<Record<string, string>> {
+  if (!config.ocr.openAiApiKey) return {};
+  if (!args.attributes.length) return {};
+
+  const searchModel = args.model || 'gpt-4o';
+  const descriptor = [args.brand, args.modelNumber].filter(Boolean).join(' ');
+  const category = args.categoryName ? ` (${args.categoryName})` : '';
+
+  // Build a human-readable spec of the fields we want filled.
+  const fieldLines = args.attributes.map((a) => {
+    const opts =
+      a.attributeType === 'select' && a.options?.length
+        ? ` — choose EXACTLY one of: ${a.options.join(', ')}`
+        : a.attributeType === 'checkbox'
+          ? ' — answer true or false'
+          : a.attributeType === 'number'
+            ? ' — a number only'
+            : '';
+    return `  - "${a.attributeName}" (${a.attributeLabel})${opts}`;
+  });
+
+  const systemPrompt = [
+    'You are a product-specification assistant for an Indian electronics/appliance/mobile retailer.',
+    'Given a product brand + model number, find its real specifications by searching Indian retail and manufacturer sites.',
+    'You MUST call the web_search_preview tool — do not answer from memory alone, because specs vary by model and region.',
+    'Return ONLY a single JSON object (no markdown, no prose) whose keys are the requested attribute names.',
+    'Include a key ONLY when you are confident of its value from the search results. Omit keys you cannot determine — never guess.',
+    'For attributes with a fixed list of choices, the value MUST be one of those exact choices.',
+    'For number attributes return a bare number as a string (e.g. "43"). For checkbox attributes return "true" or "false".',
+    'If you cannot determine any attribute, return an empty object: {}',
+  ].join('\n');
+
+  const userPrompt = [
+    `Find the specifications for this product${category}: ${descriptor}`,
+    '',
+    'Fill ONLY these attributes (use these exact keys):',
+    ...fieldLines,
+    '',
+    'Search query suggestion:',
+    `  "${descriptor}" specifications site:amazon.in OR site:flipkart.com OR site:gsmarena.com OR site:croma.com`,
+    '',
+    'Respond with just the JSON object.',
+  ].join('\n');
+
+  try {
+    const response = await fetch('https://api.openai.com/v1/responses', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${config.ocr.openAiApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: searchModel,
+        input: [
+          { role: 'system', content: [{ type: 'input_text', text: systemPrompt }] },
+          { role: 'user', content: [{ type: 'input_text', text: userPrompt }] },
+        ],
+        tools: [{ type: 'web_search_preview' }],
+        tool_choice: { type: 'web_search_preview' },
+      }),
+    });
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => '');
+      console.warn(`[ocr] Spec web-search failed (${response.status}): ${body.slice(0, 300)}`);
+      return {};
+    }
+
+    const payload = await response.json();
+    const text = extractOutputText(payload).trim();
+    // The model may wrap the JSON in prose/code fences — extract the first {...} block.
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return {};
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(jsonMatch[0]);
+    } catch {
+      return {};
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+
+    // Keep only requested keys, normalise to strings, drop empties, and
+    // constrain `select` values to the allowed options (case-insensitive).
+    const byName = new Map(args.attributes.map((a) => [a.attributeName, a]));
+    const out: Record<string, string> = {};
+    for (const [key, rawValue] of Object.entries(parsed as Record<string, unknown>)) {
+      const def = byName.get(key);
+      if (!def) continue;
+      if (rawValue === null || rawValue === undefined) continue;
+      let value = String(rawValue).trim();
+      if (!value || /^(unknown|n\/?a|none)$/i.test(value)) continue;
+      if (def.attributeType === 'select' && def.options?.length) {
+        const canonical = def.options.find((o) => o.toLowerCase() === value.toLowerCase());
+        if (!canonical) continue; // skip values that don't match an allowed option
+        value = canonical;
+      }
+      out[key] = value;
+    }
+    return out;
+  } catch (err) {
+    console.warn('[ocr] Spec web-search error:', err);
+    return {};
+  }
+}
