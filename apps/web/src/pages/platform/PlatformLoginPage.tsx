@@ -42,8 +42,8 @@ export function PlatformLoginPage() {
 
   return (
     <div className="relative flex min-h-screen items-center justify-center bg-background">
-      <div className="absolute inset-0 bg-gradient-to-br from-amber-500/5 via-transparent to-amber-500/5" />
-      <div className="w-full max-w-md rounded-2xl border bg-card p-8 shadow-xl shadow-black/5 dark:shadow-black/20">
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-amber-500/5 via-transparent to-amber-500/5" />
+      <div className="relative z-10 w-full max-w-md rounded-2xl border bg-card p-8 shadow-xl shadow-black/5 dark:shadow-black/20">
         <div className="flex flex-col items-center mb-8">
           <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-amber-600 shadow-sm mb-4">
             <ShieldCheck className="h-7 w-7 text-white" />

@@ -35,7 +35,10 @@ function isAllowedDevOrigin(origin: string) {
   try {
     const url = new URL(origin);
     const isWebDevPort = url.port === '5173' || url.port === '4173';
-    const isLocalhost = url.hostname === 'localhost' || url.hostname === '127.0.0.1';
+    const isLocalhost =
+      url.hostname === 'localhost' ||
+      url.hostname.endsWith('.localhost') ||
+      url.hostname === '127.0.0.1';
     const isPrivateLan = /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)/.test(url.hostname);
     return isWebDevPort && (isLocalhost || isPrivateLan);
   } catch {

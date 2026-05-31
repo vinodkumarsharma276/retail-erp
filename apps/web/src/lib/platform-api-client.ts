@@ -22,7 +22,10 @@ function resolveApiBaseUrl() {
   const configuredUrl = import.meta.env.VITE_API_URL;
   if (configuredUrl) return normalizeApiUrl(configuredUrl);
   const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
-  const apiHost = host === 'localhost' || host === '127.0.0.1' ? 'localhost' : host;
+  const apiHost =
+    host === 'localhost' || host.endsWith('.localhost') || host === '127.0.0.1'
+      ? 'localhost'
+      : host;
   return `http://${apiHost}:3001/api/v1`;
 }
 

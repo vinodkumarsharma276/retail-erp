@@ -49,7 +49,7 @@ async function ensureBootstrapTenant() {
   return prisma.tenant.upsert({
     where: { slug: 'vn' },
     update: {
-      name: 'Vinod & Nishant',
+      name: 'Vinod Electronics',
       planId: plan.id,
       status: 'active',
       settings: {
@@ -63,7 +63,7 @@ async function ensureBootstrapTenant() {
     },
     create: {
       slug: 'vn',
-      name: 'Vinod & Nishant',
+      name: 'Vinod Electronics',
       status: 'active',
       planId: plan.id,
       settings: {

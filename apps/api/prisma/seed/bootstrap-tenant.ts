@@ -24,7 +24,7 @@ const prisma = new PrismaClient();
 
 const BOOTSTRAP_TENANT = {
   slug: 'vn',
-  name: 'Vinod & Nishant',
+  name: 'Vinod Electronics',
   contactEmail: null as string | null,
   contactPhone: null as string | null,
   gstNumber: null as string | null,
