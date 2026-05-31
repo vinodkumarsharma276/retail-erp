@@ -20,6 +20,7 @@ import { CategoryCascader } from '../../components/CategoryCascader';
 import { DynamicAttributeFields } from '../../components/DynamicAttributeFields';
 import { ModelAutocomplete } from '../../components/ModelAutocomplete';
 import { ScanInvoiceDialog } from '../../components/ScanInvoiceDialog';
+import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { formatINR } from '@retailerp/shared-utils';
 import type { DistributorListItem } from '@retailerp/shared-types';
 import { apiClient } from '../../lib/api-client';
@@ -191,6 +192,9 @@ export function PurchaseCreatePage() {
   // Mutation
   const createMutation = useCreatePurchaseMutation();
 
+  // Final confirmation dialog (shown on the Review step before actually creating)
+  const [isConfirmOpen, setIsConfirmOpen] = useState(false);
+
   // Invoice duplicate check state
   const [invoiceCheckError, setInvoiceCheckError] = useState('');
   const [isCheckingInvoice, setIsCheckingInvoice] = useState(false);
@@ -234,14 +238,10 @@ export function PurchaseCreatePage() {
         setIsCheckingInvoice(true);
         setInvoiceCheckError('');
         try {
-          // Check all purchases for this distributor for matching invoice number
-          const { data: allData } = await apiClient.get('/purchases', {
-            params: { pageSize: 1000, distributorId: selectedDistributor.id, allShops: true },
+          const { data: resp } = await apiClient.get('/purchases/check-invoice', {
+            params: { distributorId: selectedDistributor.id, invoiceNumber: invoiceNum },
           });
-          const duplicate = (allData?.data ?? []).find(
-            (p: any) => p.invoiceNumber?.toLowerCase() === invoiceNum.toLowerCase(),
-          );
-          if (duplicate) {
+          if (resp?.data?.exists && resp.data.sameDistributor) {
             setInvoiceCheckError(`Invoice number "${invoiceNum}" already exists for this distributor`);
             setIsCheckingInvoice(false);
             return;
@@ -325,9 +325,51 @@ export function PurchaseCreatePage() {
 
     createMutation.mutate(payload, {
       onSuccess: () => {
+        setIsConfirmOpen(false);
         navigate('/purchases', { replace: true });
       },
+      onError: (err) => {
+        // If the backend rejects because the invoice number was created
+        // in the meantime (e.g. another tab), close the dialog and bounce
+        // the user back to the invoice step with the error highlighted so
+        // they can fix it instead of getting stuck on a silent failure.
+        const msg = (err as any)?.response?.data?.error
+          ?? (err as any)?.response?.data?.message
+          ?? '';
+        if (typeof msg === 'string' && /invoice number/i.test(msg) && /exist/i.test(msg)) {
+          setInvoiceCheckError(msg);
+          setIsConfirmOpen(false);
+          setCurrentStep(1);
+        }
+      },
     });
+  };
+
+  /**
+   * Final pre-submit gate fired from the confirmation dialog. We re-run
+   * the duplicate-invoice check here too because the dialog may have been
+   * sitting open for a while; if a duplicate appears we abort the submit
+   * and send the user back to step 1 with the error visible.
+   */
+  const handleConfirmSubmit = async () => {
+    if (!selectedDistributor) return;
+    const invoiceNum = methods.getValues('invoiceNumber')?.trim();
+    if (invoiceNum) {
+      try {
+        const { data: resp } = await apiClient.get('/purchases/check-invoice', {
+          params: { distributorId: selectedDistributor.id, invoiceNumber: invoiceNum },
+        });
+        if (resp?.data?.exists && resp.data.sameDistributor) {
+          setInvoiceCheckError(`Invoice number "${invoiceNum}" already exists for this distributor`);
+          setIsConfirmOpen(false);
+          setCurrentStep(1);
+          return;
+        }
+      } catch {
+        // Fall through — backend will still reject on duplicate at submit.
+      }
+    }
+    handleSubmit(onSubmit)();
   };
 
   // Error message
@@ -416,8 +458,8 @@ export function PurchaseCreatePage() {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
         e.preventDefault();
         if (currentStep === STEPS.length - 1) {
-          if (!createMutation.isPending) {
-            handleSubmit(onSubmit)();
+          if (!createMutation.isPending && !isConfirmOpen) {
+            setIsConfirmOpen(true);
           }
         } else if (canGoNext()) {
           goNext();
@@ -426,7 +468,7 @@ export function PurchaseCreatePage() {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [currentStep, createMutation.isPending, handleSubmit, onSubmit, canGoNext, goNext]);
+  }, [currentStep, createMutation.isPending, isConfirmOpen, canGoNext, goNext]);
 
   return (
     <div className="mx-auto max-w-[1600px]">
@@ -1157,7 +1199,8 @@ export function PurchaseCreatePage() {
                 </button>
               ) : (
                 <button
-                  type="submit"
+                  type="button"
+                  onClick={() => setIsConfirmOpen(true)}
                   disabled={createMutation.isPending}
                   className={cn(
                     'flex items-center gap-2 rounded-md bg-green-600 px-6 py-2.5 text-sm font-medium text-white',
@@ -1181,6 +1224,26 @@ export function PurchaseCreatePage() {
             </div>
           </div>
         </form>
+
+        {/* Final confirmation — last guard before the purchase is committed */}
+        <ConfirmDialog
+          isOpen={isConfirmOpen}
+          title="Create this purchase?"
+          message={[
+            `Distributor: ${selectedDistributor?.companyName ?? '-'}`,
+            `Invoice: ${methods.getValues('invoiceNumber') || '-'}  •  Date: ${methods.getValues('invoiceDate') || '-'}`,
+            `Units: ${totalExpandedCount}  •  Net: ${formatINR(netAmount)} (GST ${formatINR(gstAmount)})`,
+            '',
+            'Once created, individual units cannot be removed — only updated. Proceed?',
+          ].join('\n')}
+          confirmText={createMutation.isPending ? 'Creating…' : 'Create Purchase'}
+          cancelText="Review again"
+          loading={createMutation.isPending}
+          onConfirm={handleConfirmSubmit}
+          onCancel={() => {
+            if (!createMutation.isPending) setIsConfirmOpen(false);
+          }}
+        />
       </FormProvider>
     </div>
   );

@@ -14,13 +14,14 @@ export const purchasesController = {
         dateTo?: string;
         paymentStatus?: string;
         allShops?: string;
+        search?: string;
       };
     }>,
     reply: FastifyReply,
   ) {
     try {
       const { page, pageSize, skip, take } = parsePagination(request.query);
-      const { distributorId, dateFrom, dateTo, paymentStatus, allShops } = request.query;
+      const { distributorId, dateFrom, dateTo, paymentStatus, allShops, search } = request.query;
 
       // Two ways to get a cross-shop view:
       //   1. Legacy: ?allShops=true with distributorId on the Distributor
@@ -51,6 +52,7 @@ export const purchasesController = {
         dateFrom,
         dateTo,
         paymentStatus,
+        search,
       });
 
       return sendPaginated(reply, purchases, { page, pageSize, totalItems });
@@ -72,6 +74,25 @@ export const purchasesController = {
       return sendSuccess(reply, purchase);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to fetch purchase';
+      return sendError(reply, message, 500);
+    }
+  },
+
+  async checkInvoice(
+    request: FastifyRequest<{
+      Querystring: { distributorId?: string; invoiceNumber?: string };
+    }>,
+    reply: FastifyReply,
+  ) {
+    try {
+      const { distributorId, invoiceNumber } = request.query;
+      if (!invoiceNumber) {
+        return sendError(reply, 'invoiceNumber is required', 400);
+      }
+      const result = await purchasesService.checkInvoiceExists(invoiceNumber, distributorId);
+      return sendSuccess(reply, result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to check invoice';
       return sendError(reply, message, 500);
     }
   },

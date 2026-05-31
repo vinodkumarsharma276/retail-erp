@@ -27,6 +27,7 @@ export interface PurchaseFilters {
   dateTo?: string;
   paymentStatus?: string;
   allShops?: boolean;
+  search?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -44,6 +45,7 @@ export function usePurchasesQuery(filters: PurchaseFilters) {
       if (filters.dateTo) params.set('dateTo', filters.dateTo);
       if (filters.paymentStatus) params.set('paymentStatus', filters.paymentStatus);
       if (filters.allShops) params.set('allShops', 'true');
+      if (filters.search?.trim()) params.set('search', filters.search.trim());
 
       const { data } = await apiClient.get<PaginatedResponse<Purchase>>(
         `/purchases?${params.toString()}`,

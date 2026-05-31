@@ -25,6 +25,7 @@ export const purchasesService = {
       dateFrom?: string;
       dateTo?: string;
       paymentStatus?: string;
+      search?: string;
     },
   ) {
     const where: Prisma.PurchaseWhereInput = {};
@@ -41,6 +42,10 @@ export const purchasesService = {
 
     if (filters.paymentStatus) {
       where.paymentStatus = filters.paymentStatus;
+    }
+
+    if (filters.search?.trim()) {
+      where.invoiceNumber = { contains: filters.search.trim(), mode: 'insensitive' };
     }
 
     if (filters.dateFrom || filters.dateTo) {
@@ -122,6 +127,63 @@ export const purchasesService = {
     return purchase;
   },
 
+  /**
+   * Lightweight existence check used by the New Purchase wizard to block
+   * the user from advancing (and from submitting) when the invoice number
+   * has already been recorded for that distributor.
+   *
+   * The check is intentionally global: the same invoice number recorded under
+   * a *different* distributor (e.g. a duplicate distributor record created by
+   * OCR) is still a strong duplicate signal, so we surface it too. The caller
+   * can compare `matchedDistributorId` against the distributor it expects to
+   * decide whether to block or merely warn.
+   */
+  async checkInvoiceExists(invoiceNumber: string, distributorId?: string) {
+    const trimmed = invoiceNumber.trim();
+    if (!trimmed) return { exists: false as const };
+
+    // 1. Exact match for the supplied distributor (the blocking case).
+    if (distributorId) {
+      const sameDistributor = await prisma.purchase.findFirst({
+        where: {
+          distributorId,
+          invoiceNumber: { equals: trimmed, mode: 'insensitive' },
+        },
+        select: { id: true, invoiceDate: true, totalAmount: true },
+      });
+      if (sameDistributor) {
+        return {
+          exists: true as const,
+          sameDistributor: true as const,
+          purchase: sameDistributor,
+        };
+      }
+    }
+
+    // 2. Same invoice number under any other distributor (the warning case).
+    const anyMatch = await prisma.purchase.findFirst({
+      where: { invoiceNumber: { equals: trimmed, mode: 'insensitive' } },
+      select: {
+        id: true,
+        invoiceDate: true,
+        totalAmount: true,
+        distributorId: true,
+        distributor: { select: { companyName: true } },
+      },
+    });
+    if (anyMatch) {
+      return {
+        exists: true as const,
+        sameDistributor: false as const,
+        purchase: { id: anyMatch.id, invoiceDate: anyMatch.invoiceDate, totalAmount: anyMatch.totalAmount },
+        matchedDistributorId: anyMatch.distributorId,
+        matchedDistributorName: anyMatch.distributor?.companyName ?? null,
+      };
+    }
+
+    return { exists: false as const };
+  },
+
   async create(shopId: string, tenantId: string, data: {
     distributorId: string;
     invoiceNumber: string;
@@ -160,7 +222,6 @@ export const purchasesService = {
     if (existingInvoice) {
       throw new Error(`Invoice number "${data.invoiceNumber}" already exists for this distributor`);
     }
-
     // Check for duplicate serial numbers within the items array itself
     const serialNumbers = data.items.filter(i => i.serialNumber).map(i => i.serialNumber!);
     const duplicateSerials = serialNumbers.filter((sn, i) => serialNumbers.indexOf(sn) !== i);

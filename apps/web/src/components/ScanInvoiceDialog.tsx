@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react';
-import { Camera, Check, FileImage, Loader2, Plus, X } from 'lucide-react';
+import { useMemo, useState, useEffect } from 'react';
+import { Camera, Check, FileImage, Loader2, Plus, X, AlertTriangle } from 'lucide-react';
 import { formatINR } from '@retailerp/shared-utils';
 import type { DistributorListItem } from '@retailerp/shared-types';
 import { cn } from '../lib/utils';
+import { apiClient } from '../lib/api-client';
 import { useOcrStatusQuery, useScanInvoiceMutation } from '../hooks/useOcr';
 import { useCreateDistributorMutation } from '../hooks/useDistributors';
 import { useToastStore } from '../stores/toast-store';
@@ -116,6 +117,38 @@ export function ScanInvoiceDialog({ open, onClose, onApply }: Props) {
   const effectiveMatch = overrideMatch ? null : matchedDistributor;
   const selectedDistributor = createdDistributor ?? effectiveMatch;
 
+  // Duplicate-invoice guard: once we know the distributor and the parsed
+  // invoice number, check whether that invoice was already recorded for
+  // this distributor. If so we warn and block applying the scan.
+  const invoiceNumber = result?.invoice.number?.trim() ?? '';
+  const [invoiceDuplicate, setInvoiceDuplicate] = useState(false);
+  const [isCheckingInvoice, setIsCheckingInvoice] = useState(false);
+
+  useEffect(() => {
+    const distributorId = selectedDistributor?.id;
+    if (!distributorId || !invoiceNumber) {
+      setInvoiceDuplicate(false);
+      setIsCheckingInvoice(false);
+      return;
+    }
+    let cancelled = false;
+    setIsCheckingInvoice(true);
+    apiClient
+      .get('/purchases/check-invoice', { params: { distributorId, invoiceNumber } })
+      .then(({ data }) => {
+        if (!cancelled) setInvoiceDuplicate(!!data?.data?.exists);
+      })
+      .catch(() => {
+        if (!cancelled) setInvoiceDuplicate(false);
+      })
+      .finally(() => {
+        if (!cancelled) setIsCheckingInvoice(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedDistributor?.id, invoiceNumber]);
+
   if (!open) return null;
 
   const handleFile = (file: File | undefined) => {
@@ -213,6 +246,19 @@ export function ScanInvoiceDialog({ open, onClose, onApply }: Props) {
               {result.warnings.length > 0 && (
                 <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
                   {result.warnings.join(' ')}
+                </div>
+              )}
+
+              {invoiceDuplicate && selectedDistributor && (
+                <div className="flex items-start gap-2 rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>
+                    Invoice number{' '}
+                    <span className="font-mono font-semibold">{invoiceNumber}</span>{' '}
+                    already exists for{' '}
+                    <span className="font-semibold">{selectedDistributor.companyName}</span>.
+                    This purchase appears to be a duplicate and cannot be applied.
+                  </span>
                 </div>
               )}
 
@@ -345,11 +391,13 @@ export function ScanInvoiceDialog({ open, onClose, onApply }: Props) {
         <div className="flex justify-end gap-2 border-t px-5 py-4">
           <button onClick={onClose} className="rounded-md border px-3 py-2 text-sm font-medium hover:bg-accent">Cancel</button>
           <button
-            disabled={!result || !selectedDistributor}
-            onClick={() => result && selectedDistributor && onApply(result, selectedDistributor)}
+            disabled={!result || !selectedDistributor || invoiceDuplicate || isCheckingInvoice}
+            onClick={() => result && selectedDistributor && !invoiceDuplicate && onApply(result, selectedDistributor)}
             className={cn('inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground', 'disabled:opacity-50')}
+            title={invoiceDuplicate ? 'This invoice number already exists for the distributor' : undefined}
           >
-            <Check className="h-4 w-4" /> Use these details
+            {isCheckingInvoice ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+            Use these details
           </button>
         </div>
       </div>

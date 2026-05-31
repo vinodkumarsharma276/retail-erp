@@ -52,4 +52,5 @@ export const purchaseListQuerySchema = z.object({
   dateFrom: z.string().optional(),
   dateTo: z.string().optional(),
   paymentStatus: z.enum(['pending', 'partial', 'paid']).optional(),
+  search: z.string().optional(),
 });

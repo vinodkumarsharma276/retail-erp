@@ -4,6 +4,7 @@ import {
   ChevronDown,
   Calendar,
   X,
+  Search,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { usePurchasesQuery } from '../../hooks/usePurchases';
@@ -38,8 +39,11 @@ export function PurchaseListPage() {
   // ------ Filters state (URL search params) ------
   const page = Number(searchParams.get('page')) || 1;
   const distributorId = searchParams.get('distributorId') || '';
-  const dateFrom = searchParams.get('dateFrom') || getDateDaysAgo(30);
-  const dateTo = searchParams.get('dateTo') || getToday();
+  const search = searchParams.get('search') || '';
+  // When searching by invoice number we ignore the default 30-day window so
+  // the lookup spans the full history. The user can still set dates manually.
+  const dateFrom = searchParams.get('dateFrom') || (search ? '' : getDateDaysAgo(30));
+  const dateTo = searchParams.get('dateTo') || (search ? '' : getToday());
   const paymentStatus = searchParams.get('paymentStatus') || '';
 
   const updateFilters = (updates: Record<string, string>) => {
@@ -64,6 +68,7 @@ export function PurchaseListPage() {
     dateFrom: dateFrom || undefined,
     dateTo: dateTo || undefined,
     paymentStatus: paymentStatus || undefined,
+    search: search || undefined,
   });
 
   // Distributors for the filter dropdown (load all for dropdown)
@@ -74,7 +79,7 @@ export function PurchaseListPage() {
   const pagination = purchasesQuery.data?.pagination;
 
   // ------ Clear filters ------
-  const hasFilters = distributorId || paymentStatus || dateFrom !== getDateDaysAgo(30) || dateTo !== getToday();
+  const hasFilters = distributorId || paymentStatus || search || dateFrom !== getDateDaysAgo(30) || dateTo !== getToday();
   const clearFilters = () => {
     setSearchParams({}, { replace: true });
   };
@@ -243,6 +248,36 @@ export function PurchaseListPage() {
 
       {/* Filters row */}
       <div className="flex flex-wrap items-end gap-4 mb-6">
+        {/* Invoice search */}
+        <div className="min-w-[220px]">
+          <label className="block text-xs font-medium text-muted-foreground mb-1">
+            Search invoice #
+          </label>
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <input
+              type="text"
+              value={search}
+              placeholder="Invoice number..."
+              onChange={(e) => updateFilters({ search: e.target.value, page: '1' })}
+              className={cn(
+                'w-full rounded-md border bg-background py-2 pl-8 pr-8 text-sm',
+                'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+              )}
+            />
+            {search && (
+              <button
+                type="button"
+                onClick={() => updateFilters({ search: '', page: '1' })}
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                aria-label="Clear search"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+        </div>
+
         {/* Distributor dropdown */}
         <div className="min-w-[200px]">
           <label className="block text-xs font-medium text-muted-foreground mb-1">
