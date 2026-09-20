@@ -473,12 +473,12 @@ function DynamicFormSkeleton() {
     <div className="space-y-8">
       {[1, 2].map((section) => (
         <div key={section} className="rounded-lg border bg-card p-6">
-          <div className="h-6 w-40 animate-pulse rounded bg-muted mb-4" />
+          <div className="h-6 w-40 skeleton rounded mb-4" />
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {[1, 2, 3, 4, 5, 6].map((i) => (
               <div key={i}>
-                <div className="h-4 w-24 animate-pulse rounded bg-muted mb-2" />
-                <div className="h-10 w-full animate-pulse rounded bg-muted" />
+                <div className="h-4 w-24 skeleton rounded mb-2" />
+                <div className="h-10 w-full skeleton rounded" />
               </div>
             ))}
           </div>

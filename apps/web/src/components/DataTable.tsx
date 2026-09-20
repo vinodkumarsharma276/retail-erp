@@ -130,10 +130,10 @@ export function DataTable<T>({
         <div className="divide-y md:hidden">
           {Array.from({ length: 4 }).map((_, rowIdx) => (
             <div key={rowIdx} className="p-3">
-              <div className="mb-3 h-4 w-2/3 animate-pulse rounded bg-muted" />
+              <div className="mb-3 h-4 w-2/3 skeleton rounded" />
               <div className="space-y-2">
-                <div className="h-3 w-full animate-pulse rounded bg-muted" />
-                <div className="h-3 w-3/4 animate-pulse rounded bg-muted" />
+                <div className="h-3 w-full skeleton rounded" />
+                <div className="h-3 w-3/4 skeleton rounded" />
               </div>
             </div>
           ))}
@@ -156,12 +156,12 @@ export function DataTable<T>({
                 ))}
               </tr>
             </thead>
-            <tbody>
+            <tbody className="stagger">
               {Array.from({ length: 5 }).map((_, rowIdx) => (
                 <tr key={rowIdx} className="border-b last:border-0">
                   {columns.map((col) => (
                     <td key={col.key} className="px-3 py-2">
-                      <div className="h-4 w-3/4 animate-pulse rounded bg-muted" />
+                      <div className="h-4 w-3/4 skeleton rounded" />
                     </td>
                   ))}
                 </tr>
@@ -218,7 +218,7 @@ export function DataTable<T>({
 
   return (
     <div className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
-      <div className="divide-y md:hidden">
+      <div className="stagger divide-y md:hidden">
         {sortedData.map((row, idx) => (
           <div
             key={rowKey ? rowKey(row, idx) : idx}
@@ -295,7 +295,7 @@ export function DataTable<T>({
               })}
             </tr>
           </thead>
-          <tbody>
+          <tbody className="stagger">
             {sortedData.map((row, idx) => (
               <tr
                 key={rowKey ? rowKey(row, idx) : idx}

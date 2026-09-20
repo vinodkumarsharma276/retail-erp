@@ -103,7 +103,7 @@ export function FilterBar({
       </div>
 
       {advanced && showAdvanced && (
-        <div className="animate-fade-in mt-3 flex flex-wrap items-end gap-2 border-t border-border pt-3">
+        <div className="animate-fade-in-down mt-3 flex flex-wrap items-end gap-2 border-t border-border pt-3">
           {advanced}
         </div>
       )}

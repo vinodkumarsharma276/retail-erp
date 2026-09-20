@@ -111,8 +111,10 @@ export function DropdownMenuContent({
       ref={contentRef}
       role="menu"
       className={cn(
-        'animate-fade-in absolute z-dropdown mt-1 min-w-[11rem] overflow-hidden rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-lg',
-        align === 'end' ? 'right-0' : 'left-0',
+        'animate-scale-in absolute z-dropdown mt-1 min-w-[11rem] overflow-hidden rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-lg',
+        // Scale from the corner the menu is anchored to, so it reads as
+        // growing out of the trigger rather than appearing beside it.
+        align === 'end' ? 'right-0 origin-top-right' : 'left-0 origin-top-left',
         className,
       )}
     >

@@ -8,13 +8,18 @@ import { cn } from '../../lib/utils';
  */
 export const Card = React.forwardRef<
   HTMLDivElement,
-  React.HTMLAttributes<HTMLDivElement> & { flush?: boolean }
->(({ className, flush = false, ...props }, ref) => (
+  React.HTMLAttributes<HTMLDivElement> & {
+    flush?: boolean;
+    /** Adds a hover lift. Only for cards that are themselves clickable. */
+    interactive?: boolean;
+  }
+>(({ className, flush = false, interactive = false, ...props }, ref) => (
   <div
     ref={ref}
     className={cn(
       'rounded-lg border border-border bg-card text-card-foreground',
       flush ? 'shadow-none' : 'shadow-sm',
+      interactive && 'hover-lift cursor-pointer hover:border-border-strong',
       className,
     )}
     {...props}

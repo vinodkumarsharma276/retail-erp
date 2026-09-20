@@ -310,7 +310,166 @@
 
 /* ===========================================================================
    MOTION
+   ---------------------------------------------------------------------------
+   Motion in an ERP has one job: explain what just changed. It should never
+   make someone wait. So durations stay under ~320ms, easing is decelerating
+   (fast out of the gate, gentle landing), and nothing animates layout on a
+   hot path — only opacity and transform, which the compositor handles.
+
+   Everything here collapses to near-zero under `prefers-reduced-motion`,
+   handled once at the bottom of this file.
    =========================================================================== */
+@layer base {
+  :root {
+    /* Decelerating curve — the workhorse for things entering the screen. */
+    --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+    --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+    /* Slight overshoot, reserved for small confirmations (badges, checks). */
+    --ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+
+    --dur-fast: 120ms;
+    --dur-base: 200ms;
+    --dur-slow: 320ms;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 6px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes fade-in-down {
+  from {
+    opacity: 0;
+    transform: translate3d(0, -4px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes slide-in-right {
+  from {
+    opacity: 0;
+    transform: translate3d(12px, 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes shimmer {
+  from {
+    background-position: -200% 0;
+  }
+  to {
+    background-position: 200% 0;
+  }
+}
+
+@layer utilities {
+  .animate-fade-in {
+    animation: fade-in var(--dur-base) var(--ease-out) both;
+  }
+  .animate-fade-in-up {
+    animation: fade-in-up var(--dur-slow) var(--ease-out) both;
+  }
+  .animate-fade-in-down {
+    animation: fade-in-down var(--dur-fast) var(--ease-out) both;
+  }
+  .animate-scale-in {
+    animation: scale-in var(--dur-fast) var(--ease-out) both;
+  }
+  .animate-slide-in-right {
+    animation: slide-in-right var(--dur-base) var(--ease-out) both;
+  }
+
+  /*
+   * Staggered list entrance. Rows cascade in rather than all appearing at
+   * once, which makes a table refresh legible instead of a flash. Capped at
+   * 12 steps: past that the last rows feel laggy, and anything below the
+   * fold doesn't need the cue anyway.
+   */
+  .stagger > * {
+    animation: fade-in-up var(--dur-base) var(--ease-out) both;
+  }
+  .stagger > *:nth-child(1) { animation-delay: 0ms; }
+  .stagger > *:nth-child(2) { animation-delay: 15ms; }
+  .stagger > *:nth-child(3) { animation-delay: 30ms; }
+  .stagger > *:nth-child(4) { animation-delay: 45ms; }
+  .stagger > *:nth-child(5) { animation-delay: 60ms; }
+  .stagger > *:nth-child(6) { animation-delay: 75ms; }
+  .stagger > *:nth-child(7) { animation-delay: 90ms; }
+  .stagger > *:nth-child(8) { animation-delay: 105ms; }
+  .stagger > *:nth-child(9) { animation-delay: 120ms; }
+  .stagger > *:nth-child(10) { animation-delay: 135ms; }
+  .stagger > *:nth-child(11) { animation-delay: 150ms; }
+  .stagger > *:nth-child(n + 12) { animation-delay: 165ms; }
+
+  /* Tactile press feedback on anything clickable. */
+  .press {
+    transition: transform var(--dur-fast) var(--ease-out);
+  }
+  .press:active:not(:disabled) {
+    transform: scale(0.97);
+  }
+
+  /* Cards that are themselves links / clickable summaries. */
+  .hover-lift {
+    transition:
+      transform var(--dur-base) var(--ease-out),
+      box-shadow var(--dur-base) var(--ease-out),
+      border-color var(--dur-base) var(--ease-out);
+  }
+  .hover-lift:hover {
+    transform: translate3d(0, -2px, 0);
+    box-shadow: var(--shadow-md);
+  }
+
+  /*
+   * Skeleton shimmer. A moving highlight reads as "loading" far better than
+   * a pulsing block, which is easy to mistake for real content.
+   */
+  .skeleton {
+    background-image: linear-gradient(
+      90deg,
+      hsl(var(--muted)) 0%,
+      hsl(var(--muted-foreground) / 0.12) 50%,
+      hsl(var(--muted)) 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.4s linear infinite;
+  }
+}
+
 @keyframes badge-shine {
   0% {
     background-position: -120% 50%;
@@ -334,21 +493,6 @@
   background-size: 220% 100%, 100% 100%;
   background-repeat: no-repeat;
   animation: badge-shine 3.2s ease-in-out infinite;
-}
-
-@keyframes fade-in {
-  from {
-    opacity: 0;
-    transform: translateY(-2px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-.animate-fade-in {
-  animation: fade-in 0.12s ease-out;
 }
 
 @media (prefers-reduced-motion: reduce) {

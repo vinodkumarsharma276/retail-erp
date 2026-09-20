@@ -139,7 +139,7 @@ export function LowMarginSalesCard() {
 
       <div className="mt-2">
         {isLoading ? (
-          <div className="h-9 w-20 rounded bg-muted animate-pulse" />
+          <div className="h-9 w-20 skeleton rounded" />
         ) : isError ? (
           <p className="text-sm text-destructive">Failed to load.</p>
         ) : (

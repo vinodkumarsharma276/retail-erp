@@ -81,12 +81,13 @@ export function Tabs<T extends string = string>({
               }
             }}
             className={cn(
-              'inline-flex items-center gap-1.5 rounded-md font-medium transition-colors',
+              'press inline-flex items-center gap-1.5 rounded-md font-medium',
+              'transition-[background-color,color,box-shadow,transform] duration-150',
               'disabled:pointer-events-none disabled:opacity-50',
               size === 'sm' ? 'h-7 px-2.5 text-xs' : 'h-8 px-3 text-sm',
               selected
                 ? 'bg-card text-foreground shadow-xs'
-                : 'text-muted-foreground hover:text-foreground',
+                : 'text-muted-foreground hover:bg-card/50 hover:text-foreground',
             )}
           >
             {item.label}

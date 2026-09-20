@@ -10,18 +10,20 @@ const icons: Record<ToastType, typeof CheckCircle2> = {
   warning: AlertTriangle,
 };
 
+// Semantic tokens instead of raw palette steps, so toasts follow the theme
+// and no longer need a parallel set of dark-mode classes.
 const styles: Record<ToastType, string> = {
-  success: 'border-green-200 bg-green-50 text-green-900 dark:border-green-800 dark:bg-green-950 dark:text-green-100',
-  error: 'border-red-200 bg-red-50 text-red-900 dark:border-red-800 dark:bg-red-950 dark:text-red-100',
-  info: 'border-blue-200 bg-blue-50 text-blue-900 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-100',
-  warning: 'border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100',
+  success: 'border-success/30 bg-success-muted text-success',
+  error: 'border-destructive/30 bg-destructive-muted text-destructive',
+  info: 'border-info/30 bg-info-muted text-info',
+  warning: 'border-warning/30 bg-warning-muted text-warning',
 };
 
 const iconStyles: Record<ToastType, string> = {
-  success: 'text-green-600 dark:text-green-400',
-  error: 'text-red-600 dark:text-red-400',
-  info: 'text-blue-600 dark:text-blue-400',
-  warning: 'text-amber-600 dark:text-amber-400',
+  success: 'text-success',
+  error: 'text-destructive',
+  info: 'text-info',
+  warning: 'text-warning',
 };
 
 function ToastItem({
@@ -52,11 +54,12 @@ function ToastItem({
   return (
     <div
       className={cn(
-        'pointer-events-auto flex w-80 items-start gap-3 rounded-lg border p-3 shadow-lg transition-all duration-200',
+        'pointer-events-auto flex w-80 items-start gap-3 rounded-lg border p-3 shadow-lg',
+        'transition-[transform,opacity] duration-200 ease-[cubic-bezier(0.16,1,0.3,1)]',
         styles[type],
         visible
-          ? 'translate-x-0 opacity-100'
-          : 'translate-x-4 opacity-0',
+          ? 'translate-x-0 scale-100 opacity-100'
+          : 'translate-x-6 scale-95 opacity-0',
       )}
     >
       <Icon className={cn('mt-0.5 h-4 w-4 shrink-0', iconStyles[type])} />

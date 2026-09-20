@@ -226,7 +226,7 @@ export function Sidebar() {
                 )}
 
                 {!sectionCollapsed && (
-                  <ul className="space-y-0.5">
+                  <ul className="stagger space-y-0.5">
                     {section.items.map((item) => (
                       <li key={item.to}>
                         <NavLink
@@ -253,12 +253,17 @@ export function Sidebar() {
                                 <span
                                   aria-hidden
                                   className={cn(
-                                    'absolute left-0 h-4 w-0.5 rounded-r bg-primary',
+                                    'animate-fade-in absolute left-0 h-4 w-0.5 rounded-r bg-primary',
                                     railMode && '-left-2',
                                   )}
                                 />
                               )}
-                              <item.icon className="h-4 w-4 shrink-0" />
+                              <item.icon
+                                className={cn(
+                                  'h-4 w-4 shrink-0 transition-transform duration-150',
+                                  !isActive && 'group-hover:scale-110',
+                                )}
+                              />
                               {!railMode && <span className="truncate">{item.label}</span>}
                             </>
                           )}
