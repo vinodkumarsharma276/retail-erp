@@ -124,7 +124,7 @@ async function main() {
   const scenarios = await seedRollingOverdueScenarios(prisma);
   console.log(`  Rolling-overdue scenario schedules: ${scenarios.scheduleIds.length}`);
 
-  const forms = await seedFormDefinitions(prisma);
+  const forms = await seedFormDefinitions(prisma, tenant.id);
   console.log(`  Form definitions: ${forms.length}`);
 
   console.log('\nSeeding complete!');

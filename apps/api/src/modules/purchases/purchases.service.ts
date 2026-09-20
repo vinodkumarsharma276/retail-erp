@@ -353,6 +353,28 @@ export const purchasesService = {
         products.push(product);
       }
 
+      /*
+       * Keep the distributor's "categories supplied" list in step with what
+       * they actually invoice us for. The list is otherwise only editable by
+       * hand on the distributor form, so it drifts the moment a supplier
+       * starts shipping a new kind of product.
+       *
+       * `skipDuplicates` leans on the @@unique([distributorId, categoryId])
+       * constraint, so this is a no-op for categories already linked and we
+       * avoid a read-then-write race between concurrent purchases.
+       */
+      const purchasedCategoryIds = [...new Set(data.items.map((i) => i.categoryId))];
+      if (purchasedCategoryIds.length > 0) {
+        await tx.distributorCategory.createMany({
+          data: purchasedCategoryIds.map((categoryId) => ({
+            tenantId,
+            distributorId: data.distributorId,
+            categoryId,
+          })),
+          skipDuplicates: true,
+        });
+      }
+
       return { purchase, products };
     });
 
@@ -466,9 +488,11 @@ export const purchasesService = {
     }
 
     const result = await prisma.$transaction(async (tx) => {
-      // Create the payment record
+      // Create the payment record. Tenant comes from the parent purchase so
+      // the payment always belongs to the same tenant as its invoice.
       const payment = await tx.purchasePayment.create({
         data: {
+          tenantId: purchase.tenantId,
           purchaseId,
           amount: data.amount,
           paymentMode: data.paymentMode as any,

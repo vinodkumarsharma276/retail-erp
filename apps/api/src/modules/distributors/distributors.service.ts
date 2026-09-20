@@ -194,9 +194,12 @@ export const distributorsService = {
         creditLimit: distributorData.creditLimit ?? 0,
         tenant: { connect: { id: tenantId } },
         creator: { connect: { id: userId } },
+        // Nested creates don't inherit the parent's tenant, so each join row
+        // has to carry `tenantId` explicitly.
         categories: categoryIds && categoryIds.length > 0
           ? {
               create: categoryIds.map((categoryId) => ({
+                tenantId,
                 categoryId,
               })),
             }
@@ -296,9 +299,11 @@ export const distributorsService = {
         if (categoryIds.length > 0) {
           await tx.distributorCategory.createMany({
             data: categoryIds.map((categoryId) => ({
+              tenantId: existing.tenantId,
               distributorId: id,
               categoryId,
             })),
+            skipDuplicates: true,
           });
         }
       }
@@ -431,9 +436,12 @@ export const distributorsService = {
 
         const payAmount = Math.min(remaining, pending);
 
-        // Create PurchasePayment record
+        // Create PurchasePayment record. `tenantId` is taken from the parent
+        // purchase rather than the request context so the payment can never
+        // land in a different tenant than the invoice it settles.
         await tx.purchasePayment.create({
           data: {
+            tenantId: purchase.tenantId,
             purchaseId: purchase.id,
             amount: payAmount,
             paymentMode: data.paymentMode as any,
