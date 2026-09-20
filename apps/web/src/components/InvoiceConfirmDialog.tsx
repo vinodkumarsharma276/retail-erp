@@ -151,7 +151,7 @@ export function InvoiceConfirmDialog({
               <h4 className="mb-2 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
                 Bill To
               </h4>
-              <div className="mb-3 flex items-center gap-3 rounded-md border bg-background px-3 py-2 text-sm">
+              <div className="mb-3 flex items-center gap-3 rounded-md border bg-field px-3 py-2 text-sm">
                 <label className="flex items-center gap-1.5 cursor-pointer">
                   <input
                     type="radio"
@@ -301,7 +301,7 @@ function Field({
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         className={cn(
-          'w-full rounded-md border bg-background px-3 py-2 text-sm',
+          'w-full rounded-md border bg-field px-3 py-2 text-sm',
           'placeholder:text-muted-foreground',
           'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
         )}

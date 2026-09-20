@@ -3,7 +3,7 @@ import { cn } from '../../lib/utils';
 
 /** Shared field chrome so inputs, selects and textareas stay identical. */
 export const fieldBase =
-  'w-full rounded-md border border-input bg-card text-sm text-foreground shadow-xs transition-colors ' +
+  'w-full rounded-md border border-input bg-field text-sm text-foreground shadow-xs transition-colors ' +
   'placeholder:text-muted-foreground/70 ' +
   'hover:border-border-strong ' +
   'focus:border-primary focus:outline-none focus:ring-2 focus:ring-ring/25 ' +

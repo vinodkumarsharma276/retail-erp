@@ -14,7 +14,7 @@ import { useUpdatePreferencesMutation } from '../../hooks/usePreferences';
 import { useToastStore } from '../../stores/toast-store';
 
 const FIELD_CLS =
-  'w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring';
+  'w-full rounded-md border border-input bg-field px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring';
 const LABEL_CLS = 'block text-sm font-medium mb-1';
 const HELP_CLS = 'mt-1 text-xs text-muted-foreground';
 

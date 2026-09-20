@@ -210,7 +210,7 @@ function DynamicField({ field, readOnly }: DynamicFieldProps) {
   const wrapperClass = cn(field.cssClass);
 
   const inputClasses = cn(
-    'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+    'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
     'placeholder:text-muted-foreground',
     'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
     fieldError && 'border-destructive',
@@ -326,7 +326,7 @@ function DynamicField({ field, readOnly }: DynamicFieldProps) {
             {...register(field.fieldName, validationRules)}
             disabled={readOnly}
             className={cn(
-              'w-full appearance-none rounded-md border bg-background px-3 py-2.5 pr-8 text-sm',
+              'w-full appearance-none rounded-md border bg-field px-3 py-2.5 pr-8 text-sm',
               'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
               fieldError && 'border-destructive',
               readOnly && 'bg-muted cursor-not-allowed',
@@ -446,7 +446,7 @@ function DynamicField({ field, readOnly }: DynamicFieldProps) {
           {...register(field.fieldName, validationRules)}
           disabled={readOnly}
           className={cn(
-            'w-full rounded-md border bg-background px-3 py-2 text-sm',
+            'w-full rounded-md border bg-field px-3 py-2 text-sm',
             'file:mr-4 file:py-1 file:px-4 file:rounded-md file:border-0',
             'file:text-sm file:font-medium file:bg-primary file:text-primary-foreground',
             'hover:file:bg-primary/90',

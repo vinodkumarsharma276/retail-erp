@@ -143,7 +143,7 @@ export function ModelAutocomplete({
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
           className={cn(
-            'w-full rounded-md border bg-background pl-9 pr-8 py-2.5 text-sm',
+            'w-full rounded-md border bg-field pl-9 pr-8 py-2.5 text-sm',
             'placeholder:text-muted-foreground',
             'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
             error && 'border-destructive',

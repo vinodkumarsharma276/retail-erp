@@ -248,7 +248,7 @@ export function PurchaseListPage() {
               placeholder="Invoice number..."
               onChange={(e) => updateFilters({ search: e.target.value, page: '1' })}
               className={cn(
-                'w-full rounded-md border bg-background py-2 pl-8 pr-8 text-sm',
+                'w-full rounded-md border bg-field py-2 pl-8 pr-8 text-sm',
                 'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
               )}
             />
@@ -277,7 +277,7 @@ export function PurchaseListPage() {
                 updateFilters({ distributorId: e.target.value, page: '1' });
               }}
               className={cn(
-                'w-full appearance-none rounded-md border bg-background px-3 py-2 pr-8 text-sm',
+                'w-full appearance-none rounded-md border bg-field px-3 py-2 pr-8 text-sm',
                 'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
               )}
             >
@@ -348,7 +348,7 @@ export function PurchaseListPage() {
                 updateFilters({ paymentStatus: e.target.value, page: '1' });
               }}
               className={cn(
-                'w-full appearance-none rounded-md border bg-background px-3 py-2 pr-8 text-sm',
+                'w-full appearance-none rounded-md border bg-field px-3 py-2 pr-8 text-sm',
                 'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
               )}
             >

@@ -33,7 +33,13 @@
     --subtle: 220 24% 98%;
     --border: 220 17% 89%;
     --border-strong: 220 15% 80%;
+    /* `--input` is the field BORDER (shadcn convention). `--field` is the
+       field FILL. They are separate because a field must never inherit the
+       canvas colour: `--background` is the grey the app sits on, so a field
+       painted with it looks filled-in and disabled once it's inside a white
+       card. Fields are always the lightest surface in the stack. */
     --input: 220 17% 89%;
+    --field: 0 0% 100%;
 
     /* --- Brand -------------------------------------------------------- */
     --primary: 239 66% 56%;
@@ -97,6 +103,8 @@
     --border: 224 18% 19%;
     --border-strong: 223 15% 28%;
     --input: 224 18% 19%;
+    /* Slightly lighter than --card so fields read as insets on dark panels. */
+    --field: 224 22% 14%;
 
     /* --- Brand -------------------------------------------------------- */
     --primary: 239 82% 67%;

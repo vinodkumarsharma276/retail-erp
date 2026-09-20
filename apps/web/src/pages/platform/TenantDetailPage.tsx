@@ -166,14 +166,14 @@ function EditableDetails({
           <input
             value={draft.name}
             onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
-            className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+            className="w-full rounded-md border bg-field px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
           />
         </Labeled>
         <Labeled label="Status">
           <select
             value={draft.status}
             onChange={(e) => setDraft((d) => ({ ...d, status: e.target.value as any }))}
-            className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+            className="w-full rounded-md border bg-field px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
           >
             <option value="active">Active</option>
             <option value="trial">Trial</option>
@@ -185,7 +185,7 @@ function EditableDetails({
           <select
             value={draft.planCode}
             onChange={(e) => setDraft((d) => ({ ...d, planCode: e.target.value }))}
-            className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+            className="w-full rounded-md border bg-field px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
           >
             {plans.map((p) => (
               <option key={p.id} value={p.code}>
@@ -199,7 +199,7 @@ function EditableDetails({
             value={draft.customDomain}
             onChange={(e) => setDraft((d) => ({ ...d, customDomain: e.target.value }))}
             placeholder="erp.customerdomain.com (optional)"
-            className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+            className="w-full rounded-md border bg-field px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
           />
         </Labeled>
         <Labeled label="Contact email">
@@ -207,14 +207,14 @@ function EditableDetails({
             type="email"
             value={draft.contactEmail}
             onChange={(e) => setDraft((d) => ({ ...d, contactEmail: e.target.value }))}
-            className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+            className="w-full rounded-md border bg-field px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
           />
         </Labeled>
         <Labeled label="Contact phone">
           <input
             value={draft.contactPhone}
             onChange={(e) => setDraft((d) => ({ ...d, contactPhone: e.target.value }))}
-            className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+            className="w-full rounded-md border bg-field px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
           />
         </Labeled>
         <Labeled label="GSTIN">
@@ -223,7 +223,7 @@ function EditableDetails({
             onChange={(e) =>
               setDraft((d) => ({ ...d, gstNumber: e.target.value.toUpperCase() }))
             }
-            className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+            className="w-full rounded-md border bg-field px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
           />
         </Labeled>
       </div>

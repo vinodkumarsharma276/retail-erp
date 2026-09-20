@@ -241,7 +241,7 @@ export function TransferCreatePage() {
                   onFocus={() => setShowProductDropdown(true)}
                   placeholder="Search by brand, model, or serial number..."
                   className={cn(
-                    'w-full rounded-md border bg-background pl-9 pr-8 py-2.5 text-sm',
+                    'w-full rounded-md border bg-field pl-9 pr-8 py-2.5 text-sm',
                     'placeholder:text-muted-foreground',
                     'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                   )}
@@ -340,7 +340,7 @@ export function TransferCreatePage() {
                 value={selectedShopId}
                 onChange={(e) => setSelectedShopId(e.target.value)}
                 className={cn(
-                  'w-full appearance-none rounded-md border bg-background px-3 py-2.5 pr-8 text-sm',
+                  'w-full appearance-none rounded-md border bg-field px-3 py-2.5 pr-8 text-sm',
                   'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                 )}
               >
@@ -378,7 +378,7 @@ export function TransferCreatePage() {
                 onChange={(e) => setTransferPrice(e.target.value)}
                 placeholder="0.00"
                 className={cn(
-                  'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                  'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                   'placeholder:text-muted-foreground',
                   'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                 )}
@@ -404,7 +404,7 @@ export function TransferCreatePage() {
                 onChange={(e) => setGstAmount(e.target.value)}
                 placeholder="0.00"
                 className={cn(
-                  'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                  'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                   'placeholder:text-muted-foreground',
                   'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                 )}
@@ -449,7 +449,7 @@ export function TransferCreatePage() {
               onChange={(e) => setNotes(e.target.value)}
               placeholder="Optional notes about this transfer..."
               className={cn(
-                'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                 'placeholder:text-muted-foreground',
                 'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
               )}

@@ -170,7 +170,7 @@ export function ExpenseFormPage() {
                   required: 'Expense date is required',
                 })}
                 className={cn(
-                  'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                  'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                   'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                   errors.expenseDate && 'border-destructive',
                 )}
@@ -194,7 +194,7 @@ export function ExpenseFormPage() {
                     required: 'Category is required',
                   })}
                   className={cn(
-                    'w-full appearance-none rounded-md border bg-background px-3 py-2.5 pr-8 text-sm',
+                    'w-full appearance-none rounded-md border bg-field px-3 py-2.5 pr-8 text-sm',
                     'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                     errors.category && 'border-destructive',
                   )}
@@ -226,7 +226,7 @@ export function ExpenseFormPage() {
                 {...register('vendorName')}
                 placeholder="e.g. Electrician Raju"
                 className={cn(
-                  'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                  'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                   'placeholder:text-muted-foreground',
                   'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                 )}
@@ -244,7 +244,7 @@ export function ExpenseFormPage() {
                 {...register('invoiceNumber')}
                 placeholder="e.g. INV-2026-001"
                 className={cn(
-                  'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                  'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                   'placeholder:text-muted-foreground',
                   'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                 )}
@@ -262,7 +262,7 @@ export function ExpenseFormPage() {
                 {...register('description')}
                 placeholder="Details about the expense..."
                 className={cn(
-                  'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                  'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                   'placeholder:text-muted-foreground',
                   'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                 )}
@@ -290,7 +290,7 @@ export function ExpenseFormPage() {
                 })}
                 placeholder="0.00"
                 className={cn(
-                  'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                  'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                   'placeholder:text-muted-foreground',
                   'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                   errors.amount && 'border-destructive',
@@ -317,7 +317,7 @@ export function ExpenseFormPage() {
                 })}
                 placeholder="0.00"
                 className={cn(
-                  'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                  'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                   'placeholder:text-muted-foreground',
                   'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                   errors.gstAmount && 'border-destructive',

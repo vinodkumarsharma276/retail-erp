@@ -281,7 +281,7 @@ export function DistributorForm({
 
   const inputClass = (hasError?: unknown) =>
     cn(
-      'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+      'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
       'placeholder:text-muted-foreground',
       'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
       hasError && 'border-destructive',
@@ -289,7 +289,7 @@ export function DistributorForm({
 
   const upperInputClass = (hasError?: unknown) =>
     cn(
-      'w-full rounded-md border bg-background px-3 py-2.5 text-sm uppercase',
+      'w-full rounded-md border bg-field px-3 py-2.5 text-sm uppercase',
       'placeholder:text-muted-foreground placeholder:normal-case',
       'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
       hasError && 'border-destructive',
@@ -509,7 +509,7 @@ export function DistributorForm({
               id="state"
               {...register('state', { required: 'State is required' })}
               className={cn(
-                'w-full appearance-none rounded-md border bg-background px-3 py-2.5 text-sm',
+                'w-full appearance-none rounded-md border bg-field px-3 py-2.5 text-sm',
                 'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                 errors.state && 'border-destructive',
               )}

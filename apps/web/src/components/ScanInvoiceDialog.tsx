@@ -324,7 +324,7 @@ export function ScanInvoiceDialog({ open, onClose, onApply }: Props) {
                         <input
                           value={draft[key]}
                           onChange={(e) => setDraft({ ...draft, [key]: e.target.value })}
-                          className={`mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm ${isMissing ? 'border-destructive' : ''}`}
+                          className={`mt-1 w-full rounded-md border bg-field px-3 py-2 text-sm ${isMissing ? 'border-destructive' : ''}`}
                         />
                         {key === 'phone' && draft.phone.includes(',') && (
                           <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">

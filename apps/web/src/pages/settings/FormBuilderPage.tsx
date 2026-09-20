@@ -195,14 +195,14 @@ export function FormBuilderPage() {
                 value={newFormName}
                 onChange={(e) => setNewFormName(e.target.value)}
                 placeholder="Form name (e.g. customer)"
-                className="w-full rounded-md border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                className="w-full rounded-md border bg-field px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
               />
               <input
                 type="text"
                 value={newFormDescription}
                 onChange={(e) => setNewFormDescription(e.target.value)}
                 placeholder="Description (optional)"
-                className="w-full rounded-md border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                className="w-full rounded-md border bg-field px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
               />
               <div className="flex items-center gap-2">
                 <button
@@ -679,7 +679,7 @@ function FieldFormFields({
   };
 
   const inputClass =
-    'w-full rounded-md border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring';
+    'w-full rounded-md border bg-field px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring';
 
   return (
     <div className="space-y-4">

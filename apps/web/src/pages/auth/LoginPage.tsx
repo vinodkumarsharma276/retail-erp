@@ -151,7 +151,7 @@ export function LoginPage() {
               }}
               placeholder="Enter your username"
               className={cn(
-                'w-full rounded-lg border bg-background px-4 py-3.5 text-base',
+                'w-full rounded-lg border bg-field px-4 py-3.5 text-base',
                 'placeholder:text-muted-foreground',
                 'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
               )}
@@ -178,7 +178,7 @@ export function LoginPage() {
                 }}
                 placeholder="Enter your password"
                 className={cn(
-                  'w-full rounded-lg border bg-background px-4 py-3.5 pr-12 text-base',
+                  'w-full rounded-lg border bg-field px-4 py-3.5 pr-12 text-base',
                   'placeholder:text-muted-foreground',
                   'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                 )}

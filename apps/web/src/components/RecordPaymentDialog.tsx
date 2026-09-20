@@ -361,7 +361,7 @@ export function RecordPaymentDialog({
                 }}
                 placeholder="0.00"
                 className={cn(
-                  'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                  'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                   'placeholder:text-muted-foreground',
                   'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                 )}
@@ -422,7 +422,7 @@ export function RecordPaymentDialog({
                 onChange={(e) => setFullNotes(e.target.value)}
                 placeholder="Optional payment notes..."
                 className={cn(
-                  'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                  'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                   'placeholder:text-muted-foreground',
                   'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                 )}
@@ -500,7 +500,7 @@ export function RecordPaymentDialog({
                 onChange={(e) => setRescheduleNotes(e.target.value)}
                 placeholder="Reason for rescheduling..."
                 className={cn(
-                  'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                  'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                   'placeholder:text-muted-foreground',
                   'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                 )}
@@ -543,7 +543,7 @@ export function RecordPaymentDialog({
                 onChange={(e) => setPartialAmount(e.target.value)}
                 placeholder="0.00"
                 className={cn(
-                  'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                  'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                   'placeholder:text-muted-foreground',
                   'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                 )}
@@ -602,7 +602,7 @@ export function RecordPaymentDialog({
                 onChange={(e) => setPartialNotes(e.target.value)}
                 placeholder="Optional notes..."
                 className={cn(
-                  'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                  'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                   'placeholder:text-muted-foreground',
                   'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                 )}
@@ -693,7 +693,7 @@ export function RecordPaymentDialog({
                           value={rollbackReason}
                           onChange={(e) => setRollbackReason(e.target.value)}
                           placeholder="Reason to roll back…"
-                          className="w-full rounded-md border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+                          className="w-full rounded-md border bg-field px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
                         />
                         <button
                           type="button"
@@ -757,7 +757,7 @@ export function RecordPaymentDialog({
                             value={interestAmount}
                             onChange={(e) => setInterestAmount(e.target.value)}
                             placeholder={String(accrualForRow.suggestedInterest)}
-                            className="flex-1 min-w-0 rounded-md border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+                            className="flex-1 min-w-0 rounded-md border bg-field px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
                           />
                           <button
                             type="button"
@@ -772,7 +772,7 @@ export function RecordPaymentDialog({
                           value={interestNotes}
                           onChange={(e) => setInterestNotes(e.target.value)}
                           placeholder="Note (optional)"
-                          className="w-full rounded-md border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+                          className="w-full rounded-md border bg-field px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
                         />
                       </div>
                     )}
@@ -1009,7 +1009,7 @@ function PaymentSplitsEditor({
             value={s.mode}
             onChange={(e) => setSplit(i, { mode: e.target.value as PaymentMode })}
             className={cn(
-              'shrink-0 rounded-md border bg-background px-2 py-1.5 text-xs',
+              'shrink-0 rounded-md border bg-field px-2 py-1.5 text-xs',
               'focus:outline-none focus:ring-2 focus:ring-ring',
             )}
           >
@@ -1030,7 +1030,7 @@ function PaymentSplitsEditor({
             }
             placeholder="0.00"
             className={cn(
-              'flex-1 min-w-0 rounded-md border bg-background px-2 py-1.5 text-xs',
+              'flex-1 min-w-0 rounded-md border bg-field px-2 py-1.5 text-xs',
               'placeholder:text-muted-foreground',
               'focus:outline-none focus:ring-2 focus:ring-ring',
             )}

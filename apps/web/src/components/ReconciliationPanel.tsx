@@ -315,7 +315,7 @@ export function ReconciliationPanel({
                   rows={3}
                   placeholder="e.g. Cash deposit for daily sales, ATM withdrawal for petty cash..."
                   className={cn(
-                    'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                    'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                     'placeholder:text-muted-foreground',
                     'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                   )}

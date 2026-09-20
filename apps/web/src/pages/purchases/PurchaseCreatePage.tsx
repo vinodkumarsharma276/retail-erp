@@ -603,7 +603,7 @@ export function PurchaseCreatePage() {
                     onChange={(e) => setDistributorSearchText(e.target.value)}
                     placeholder="Search distributors by name (min 3 chars)..."
                     className={cn(
-                      'w-full rounded-md border bg-background pl-9 pr-3 py-2.5 text-sm',
+                      'w-full rounded-md border bg-field pl-9 pr-3 py-2.5 text-sm',
                       'placeholder:text-muted-foreground',
                       'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                     )}
@@ -707,7 +707,7 @@ export function PurchaseCreatePage() {
                     })}
                     placeholder="e.g. INV-2026-001"
                     className={cn(
-                      'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                      'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                       'placeholder:text-muted-foreground',
                       'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                       (errors.invoiceNumber || invoiceCheckError) && 'border-destructive',
@@ -737,7 +737,7 @@ export function PurchaseCreatePage() {
                       required: 'Invoice date is required',
                     })}
                     className={cn(
-                      'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                      'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                       'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                       errors.invoiceDate && 'border-destructive',
                     )}
@@ -762,7 +762,7 @@ export function PurchaseCreatePage() {
                   {...register('notes')}
                   placeholder="Any additional notes about this purchase..."
                   className={cn(
-                    'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                    'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                     'placeholder:text-muted-foreground',
                     'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                   )}
@@ -878,7 +878,7 @@ export function PurchaseCreatePage() {
                         {...register(`items.${index}.serialNumbers`)}
                         placeholder={'SN-00001\nSN-00002\nSN-00003'}
                         className={cn(
-                          'w-full rounded-md border bg-background px-3 py-2.5 text-sm font-mono',
+                          'w-full rounded-md border bg-field px-3 py-2.5 text-sm font-mono',
                           'placeholder:text-muted-foreground',
                           'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                           serialDuplicateMap.has(index) && 'border-destructive',
@@ -910,7 +910,7 @@ export function PurchaseCreatePage() {
                         disabled={parsedSerials[index]?.length > 0}
                         {...register(`items.${index}.quantity`, { valueAsNumber: true })}
                         className={cn(
-                          'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                          'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                           'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                           'disabled:cursor-not-allowed disabled:opacity-60',
                         )}
@@ -935,7 +935,7 @@ export function PurchaseCreatePage() {
                         })}
                         placeholder="0.00"
                         className={cn(
-                          'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                          'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                           'placeholder:text-muted-foreground',
                           'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                         )}
@@ -956,7 +956,7 @@ export function PurchaseCreatePage() {
                         })}
                         placeholder="0.00"
                         className={cn(
-                          'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                          'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                           'placeholder:text-muted-foreground',
                           'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                           errors.items?.[index]?.purchasePrice && 'border-destructive',
@@ -977,7 +977,7 @@ export function PurchaseCreatePage() {
                       <select
                         {...register(`items.${index}.gstPercent`, { valueAsNumber: true })}
                         className={cn(
-                          'w-full appearance-none rounded-md border bg-background px-3 py-2.5 text-sm',
+                          'w-full appearance-none rounded-md border bg-field px-3 py-2.5 text-sm',
                           'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                         )}
                       >
@@ -999,7 +999,7 @@ export function PurchaseCreatePage() {
                         {...register(`items.${index}.color`)}
                         placeholder="e.g. Black"
                         className={cn(
-                          'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                          'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                           'placeholder:text-muted-foreground',
                           'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                         )}
@@ -1018,7 +1018,7 @@ export function PurchaseCreatePage() {
                         })}
                         placeholder="e.g. 12"
                         className={cn(
-                          'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                          'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                           'placeholder:text-muted-foreground',
                           'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                         )}
@@ -1035,7 +1035,7 @@ export function PurchaseCreatePage() {
                         {...register(`items.${index}.barcode`)}
                         placeholder="Scan or enter barcode"
                         className={cn(
-                          'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                          'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                           'placeholder:text-muted-foreground',
                           'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                         )}

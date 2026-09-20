@@ -191,7 +191,7 @@ export function ProductAddPage() {
                   {...register('brand', { required: 'Brand is required' })}
                   placeholder="e.g. Samsung, LG, Apple"
                   className={cn(
-                    'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                    'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                     'placeholder:text-muted-foreground',
                     'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                     errors.brand && 'border-destructive',
@@ -217,7 +217,7 @@ export function ProductAddPage() {
                   })}
                   placeholder="e.g. UA55AU7700"
                   className={cn(
-                    'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                    'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                     'placeholder:text-muted-foreground',
                     'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                     errors.modelNumber && 'border-destructive',
@@ -241,7 +241,7 @@ export function ProductAddPage() {
                   {...register('serialNumber')}
                   placeholder="e.g. SN-12345678"
                   className={cn(
-                    'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                    'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                     'placeholder:text-muted-foreground',
                     'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                   )}
@@ -263,7 +263,7 @@ export function ProductAddPage() {
                   })}
                   placeholder="0.00"
                   className={cn(
-                    'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                    'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                     'placeholder:text-muted-foreground',
                     'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                     errors.mrp && 'border-destructive',
@@ -291,7 +291,7 @@ export function ProductAddPage() {
                   })}
                   placeholder="0.00"
                   className={cn(
-                    'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                    'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                     'placeholder:text-muted-foreground',
                     'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                     errors.sellingPrice && 'border-destructive',
@@ -322,7 +322,7 @@ export function ProductAddPage() {
                   })}
                   placeholder="0.00"
                   className={cn(
-                    'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                    'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                     'placeholder:text-muted-foreground',
                     'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                     errors.purchasePrice && 'border-destructive',
@@ -346,7 +346,7 @@ export function ProductAddPage() {
                   {...register('color')}
                   placeholder="e.g. Black, White"
                   className={cn(
-                    'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                    'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                     'placeholder:text-muted-foreground',
                     'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                   )}
@@ -367,7 +367,7 @@ export function ProductAddPage() {
                   })}
                   placeholder="0.00"
                   className={cn(
-                    'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                    'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                     'placeholder:text-muted-foreground',
                     'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                   )}
@@ -387,7 +387,7 @@ export function ProductAddPage() {
                   })}
                   placeholder="e.g. 12"
                   className={cn(
-                    'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                    'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                     'placeholder:text-muted-foreground',
                     'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                   )}
@@ -405,7 +405,7 @@ export function ProductAddPage() {
                   {...register('barcode')}
                   placeholder="Scan or enter barcode"
                   className={cn(
-                    'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                    'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                     'placeholder:text-muted-foreground',
                     'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                   )}
@@ -423,7 +423,7 @@ export function ProductAddPage() {
                   {...register('notes')}
                   placeholder="Any additional notes about this product..."
                   className={cn(
-                    'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                    'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                     'placeholder:text-muted-foreground',
                     'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                   )}

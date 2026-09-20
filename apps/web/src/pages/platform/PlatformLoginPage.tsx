@@ -65,7 +65,7 @@ export function PlatformLoginPage() {
               onChange={(e) => setUsername(e.target.value)}
               placeholder="platform_admin"
               className={cn(
-                'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                 'placeholder:text-muted-foreground',
                 'focus:outline-none focus:ring-2 focus:ring-amber-500/50',
               )}
@@ -85,7 +85,7 @@ export function PlatformLoginPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
                 className={cn(
-                  'w-full rounded-md border bg-background px-3 py-2.5 pr-10 text-sm',
+                  'w-full rounded-md border bg-field px-3 py-2.5 pr-10 text-sm',
                   'placeholder:text-muted-foreground',
                   'focus:outline-none focus:ring-2 focus:ring-amber-500/50',
                 )}

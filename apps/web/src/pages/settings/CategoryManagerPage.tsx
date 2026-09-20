@@ -323,7 +323,7 @@ function AddCategoryForm({
         value={name}
         onChange={(e) => setName(e.target.value)}
         placeholder="Category name"
-        className="w-full rounded-md border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+        className="w-full rounded-md border bg-field px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
         autoFocus
       />
       <input
@@ -331,7 +331,7 @@ function AddCategoryForm({
         value={icon}
         onChange={(e) => setIcon(e.target.value)}
         placeholder="Icon (optional)"
-        className="w-full rounded-md border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+        className="w-full rounded-md border bg-field px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
       />
       <input
         type="text"
@@ -339,7 +339,7 @@ function AddCategoryForm({
         onChange={(e) => setHsnCode(e.target.value)}
         placeholder="HSN Code (e.g., 8528)"
         maxLength={8}
-        className="w-full rounded-md border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+        className="w-full rounded-md border bg-field px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
       />
       <div className="flex items-center gap-2">
         <button
@@ -408,14 +408,14 @@ function CategoryDetail({ category }: { category: ProductCategory }) {
               type="text"
               value={editName}
               onChange={(e) => setEditName(e.target.value)}
-              className="w-full rounded-md border bg-background px-3 py-2 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-ring"
+              className="w-full rounded-md border bg-field px-3 py-2 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-ring"
             />
             <input
               type="text"
               value={editIcon}
               onChange={(e) => setEditIcon(e.target.value)}
               placeholder="Icon (optional)"
-              className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              className="w-full rounded-md border bg-field px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
             />
             <input
               type="text"
@@ -423,7 +423,7 @@ function CategoryDetail({ category }: { category: ProductCategory }) {
               onChange={(e) => setEditHsnCode(e.target.value)}
               placeholder="HSN Code (e.g., 8528)"
               maxLength={8}
-              className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              className="w-full rounded-md border bg-field px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
             />
             <div className="flex items-center gap-2">
               <button
@@ -562,7 +562,7 @@ function CategoryAttributes({ categoryId }: { categoryId: string }) {
   }
 
   const inputClass =
-    'w-full rounded-md border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring';
+    'w-full rounded-md border bg-field px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring';
 
   return (
     <div>
@@ -815,7 +815,7 @@ function InlineAttributeEditor({
   };
 
   const inputClass =
-    'w-full rounded-md border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring';
+    'w-full rounded-md border bg-field px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring';
 
   return (
     <div className="p-3 bg-muted/30 space-y-3">

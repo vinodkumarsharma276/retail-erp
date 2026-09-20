@@ -252,7 +252,7 @@ export function CustomerFormPage() {
                 {...register('name', { required: 'Name is required' })}
                 placeholder="e.g. Rajesh Kumar"
                 className={cn(
-                  'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                  'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                   'placeholder:text-muted-foreground',
                   'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                   errors.name && 'border-destructive',
@@ -282,7 +282,7 @@ export function CustomerFormPage() {
                 })}
                 placeholder="e.g. 9876543210"
                 className={cn(
-                  'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                  'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                   'placeholder:text-muted-foreground',
                   'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                   errors.phone && 'border-destructive',
@@ -306,7 +306,7 @@ export function CustomerFormPage() {
                 {...register('altPhone')}
                 placeholder="Optional alternate number"
                 className={cn(
-                  'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                  'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                   'placeholder:text-muted-foreground',
                   'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                 )}
@@ -329,7 +329,7 @@ export function CustomerFormPage() {
                 })}
                 placeholder="e.g. 123456789012"
                 className={cn(
-                  'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                  'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                   'placeholder:text-muted-foreground',
                   'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                   errors.aadhaarNumber && 'border-destructive',
@@ -359,7 +359,7 @@ export function CustomerFormPage() {
                 {...register('addressLine1')}
                 placeholder="Street address, building, floor"
                 className={cn(
-                  'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                  'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                   'placeholder:text-muted-foreground',
                   'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                 )}
@@ -377,7 +377,7 @@ export function CustomerFormPage() {
                 {...register('addressLine2')}
                 placeholder="Area, landmark (optional)"
                 className={cn(
-                  'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                  'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                   'placeholder:text-muted-foreground',
                   'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                 )}
@@ -394,7 +394,7 @@ export function CustomerFormPage() {
                 {...register('city')}
                 placeholder="e.g. Delhi"
                 className={cn(
-                  'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                  'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                   'placeholder:text-muted-foreground',
                   'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                 )}
@@ -410,7 +410,7 @@ export function CustomerFormPage() {
                 id="state"
                 {...register('state')}
                 className={cn(
-                  'w-full appearance-none rounded-md border bg-background px-3 py-2.5 text-sm',
+                  'w-full appearance-none rounded-md border bg-field px-3 py-2.5 text-sm',
                   'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                 )}
               >
@@ -439,7 +439,7 @@ export function CustomerFormPage() {
                 })}
                 placeholder="e.g. 110001"
                 className={cn(
-                  'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                  'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                   'placeholder:text-muted-foreground',
                   'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                   errors.pincode && 'border-destructive',
@@ -463,7 +463,7 @@ export function CustomerFormPage() {
                   id="zone"
                   {...register('zone')}
                   className={cn(
-                    'w-full appearance-none rounded-md border bg-background px-3 py-2.5 text-sm',
+                    'w-full appearance-none rounded-md border bg-field px-3 py-2.5 text-sm',
                     'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                   )}
                 >
@@ -489,7 +489,7 @@ export function CustomerFormPage() {
                 id="customerType"
                 {...register('customerType')}
                 className={cn(
-                  'w-full appearance-none rounded-md border bg-background px-3 py-2.5 text-sm',
+                  'w-full appearance-none rounded-md border bg-field px-3 py-2.5 text-sm',
                   'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                 )}
               >
@@ -512,7 +512,7 @@ export function CustomerFormPage() {
                     })}
                     placeholder="e.g. Acme Distributors Pvt Ltd"
                     className={cn(
-                      'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                      'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                       'placeholder:text-muted-foreground',
                       'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                       errors.businessName && 'border-destructive',
@@ -541,7 +541,7 @@ export function CustomerFormPage() {
                     })}
                     placeholder="e.g. 07AAAAA0000A1Z5"
                     className={cn(
-                      'w-full rounded-md border bg-background px-3 py-2.5 text-sm uppercase',
+                      'w-full rounded-md border bg-field px-3 py-2.5 text-sm uppercase',
                       'placeholder:text-muted-foreground',
                       'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                       errors.gstNumber && 'border-destructive',
@@ -617,7 +617,7 @@ export function CustomerFormPage() {
                     onFocus={() => setShowGuarantorDropdown(true)}
                     placeholder="Search guarantor by name or phone (min 2 chars)..."
                     className={cn(
-                      'w-full rounded-md border bg-background pl-9 pr-8 py-2.5 text-sm',
+                      'w-full rounded-md border bg-field pl-9 pr-8 py-2.5 text-sm',
                       'placeholder:text-muted-foreground',
                       'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                     )}

@@ -148,7 +148,7 @@ export function FinalSettlementCard({ scheduleId, canSettle }: Props) {
                 <select
                   value={paymentMode}
                   onChange={(e) => setPaymentMode(e.target.value)}
-                  className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  className="w-full rounded-md border bg-field px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 >
                   {PAYMENT_MODES.map((m) => (
                     <option key={m.value} value={m.value}>
@@ -164,7 +164,7 @@ export function FinalSettlementCard({ scheduleId, canSettle }: Props) {
                   value={paymentDate}
                   max={new Date().toISOString().split('T')[0]}
                   onChange={(e) => setPaymentDate(e.target.value)}
-                  className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  className="w-full rounded-md border bg-field px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 />
               </div>
               <div>
@@ -176,7 +176,7 @@ export function FinalSettlementCard({ scheduleId, canSettle }: Props) {
                   value={referenceNumber}
                   onChange={(e) => setReferenceNumber(e.target.value)}
                   placeholder="UPI ref, cheque #, etc."
-                  className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  className="w-full rounded-md border bg-field px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 />
               </div>
               <div>
@@ -185,7 +185,7 @@ export function FinalSettlementCard({ scheduleId, canSettle }: Props) {
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   rows={2}
-                  className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  className="w-full rounded-md border bg-field px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 />
               </div>
             </div>

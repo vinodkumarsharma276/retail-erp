@@ -58,13 +58,13 @@ export function TenantListPage() {
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Search by name, slug, or email…"
-            className="w-full rounded-md border bg-background pl-8 pr-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+            className="w-full rounded-md border bg-field pl-8 pr-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
           />
         </div>
         <select
           value={status}
           onChange={(e) => setStatus(e.target.value)}
-          className="rounded-md border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+          className="rounded-md border bg-field px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
         >
           <option value="">All statuses</option>
           <option value="active">Active</option>

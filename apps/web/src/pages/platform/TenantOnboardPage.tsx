@@ -243,7 +243,7 @@ export function TenantOnboardPage() {
           type="button"
           onClick={handleBack}
           disabled={stepIndex === 0}
-          className="flex items-center gap-1.5 rounded-md border bg-background px-3 py-2 text-sm font-medium hover:bg-muted transition-colors disabled:opacity-50"
+          className="flex items-center gap-1.5 rounded-md border bg-field px-3 py-2 text-sm font-medium hover:bg-muted transition-colors disabled:opacity-50"
         >
           <ArrowLeft className="h-4 w-4" />
           Back
@@ -319,7 +319,7 @@ function TenantStep({ form, update, errors }: StepProps) {
           value={form.slug}
           onChange={(e) => update('slug', e.target.value.toLowerCase())}
           placeholder="acme"
-          className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+          className="w-full rounded-md border bg-field px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
         />
       </Field>
       <Field label="Display name" error={errors.name} required>
@@ -327,7 +327,7 @@ function TenantStep({ form, update, errors }: StepProps) {
           value={form.name}
           onChange={(e) => update('name', e.target.value)}
           placeholder="Acme Retail Pvt Ltd"
-          className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+          className="w-full rounded-md border bg-field px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
         />
       </Field>
       <div className="grid grid-cols-2 gap-4">
@@ -337,7 +337,7 @@ function TenantStep({ form, update, errors }: StepProps) {
             value={form.contactEmail}
             onChange={(e) => update('contactEmail', e.target.value)}
             placeholder="ops@acme.com"
-            className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+            className="w-full rounded-md border bg-field px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
           />
         </Field>
         <Field label="Contact phone">
@@ -345,7 +345,7 @@ function TenantStep({ form, update, errors }: StepProps) {
             value={form.contactPhone}
             onChange={(e) => update('contactPhone', e.target.value)}
             placeholder="+91…"
-            className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+            className="w-full rounded-md border bg-field px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
           />
         </Field>
       </div>
@@ -355,7 +355,7 @@ function TenantStep({ form, update, errors }: StepProps) {
             value={form.gstNumber}
             onChange={(e) => update('gstNumber', e.target.value.toUpperCase())}
             placeholder="15-char GSTIN (optional)"
-            className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+            className="w-full rounded-md border bg-field px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
           />
         </Field>
         <Field label="Trial ends at" hint="Leave blank for a non-trial active tenant.">
@@ -363,7 +363,7 @@ function TenantStep({ form, update, errors }: StepProps) {
             type="date"
             value={form.trialEndsAt}
             onChange={(e) => update('trialEndsAt', e.target.value)}
-            className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+            className="w-full rounded-md border bg-field px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
           />
         </Field>
       </div>
@@ -442,7 +442,7 @@ function OwnerStep({ form, update, errors }: StepProps) {
             value={form.ownerUsername}
             onChange={(e) => update('ownerUsername', e.target.value)}
             placeholder="acme_admin"
-            className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+            className="w-full rounded-md border bg-field px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
           />
         </Field>
         <Field label="Temporary password" error={errors.ownerPassword} required hint="Min 8 characters. The user must change it on first login.">
@@ -451,7 +451,7 @@ function OwnerStep({ form, update, errors }: StepProps) {
             value={form.ownerPassword}
             onChange={(e) => update('ownerPassword', e.target.value)}
             placeholder="At least 8 characters"
-            className="w-full rounded-md border bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+            className="w-full rounded-md border bg-field px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-amber-500/50"
           />
         </Field>
       </div>
@@ -460,7 +460,7 @@ function OwnerStep({ form, update, errors }: StepProps) {
           value={form.ownerFullName}
           onChange={(e) => update('ownerFullName', e.target.value)}
           placeholder="Jane Doe"
-          className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+          className="w-full rounded-md border bg-field px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
         />
       </Field>
       <div className="grid grid-cols-2 gap-4">
@@ -470,7 +470,7 @@ function OwnerStep({ form, update, errors }: StepProps) {
             value={form.ownerEmail}
             onChange={(e) => update('ownerEmail', e.target.value)}
             placeholder="jane@acme.com"
-            className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+            className="w-full rounded-md border bg-field px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
           />
         </Field>
         <Field label="Phone" error={errors.ownerPhone} required>
@@ -478,7 +478,7 @@ function OwnerStep({ form, update, errors }: StepProps) {
             value={form.ownerPhone}
             onChange={(e) => update('ownerPhone', e.target.value)}
             placeholder="+91…"
-            className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+            className="w-full rounded-md border bg-field px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
           />
         </Field>
       </div>
@@ -510,7 +510,7 @@ function ShopStep({ form, update, errors }: StepProps) {
                 value={form.shopCode}
                 onChange={(e) => update('shopCode', e.target.value.toUpperCase())}
                 placeholder="HQ"
-                className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                className="w-full rounded-md border bg-field px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
               />
             </Field>
             <Field label="Shop name" error={errors.shopName} required>
@@ -518,7 +518,7 @@ function ShopStep({ form, update, errors }: StepProps) {
                 value={form.shopName}
                 onChange={(e) => update('shopName', e.target.value)}
                 placeholder="Acme HQ"
-                className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                className="w-full rounded-md border bg-field px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
               />
             </Field>
             <Field label="Phone" error={errors.shopPhone} required>
@@ -526,7 +526,7 @@ function ShopStep({ form, update, errors }: StepProps) {
                 value={form.shopPhone}
                 onChange={(e) => update('shopPhone', e.target.value)}
                 placeholder="+91…"
-                className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                className="w-full rounded-md border bg-field px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
               />
             </Field>
           </div>
@@ -535,14 +535,14 @@ function ShopStep({ form, update, errors }: StepProps) {
               <input
                 value={form.shopGst}
                 onChange={(e) => update('shopGst', e.target.value.toUpperCase())}
-                className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                className="w-full rounded-md border bg-field px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
               />
             </Field>
             <Field label="PAN (10 chars)" error={errors.shopPan} required>
               <input
                 value={form.shopPan}
                 onChange={(e) => update('shopPan', e.target.value.toUpperCase())}
-                className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                className="w-full rounded-md border bg-field px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
               />
             </Field>
           </div>
@@ -550,7 +550,7 @@ function ShopStep({ form, update, errors }: StepProps) {
             <input
               value={form.shopAddress1}
               onChange={(e) => update('shopAddress1', e.target.value)}
-              className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+              className="w-full rounded-md border bg-field px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
             />
           </Field>
           <div className="grid grid-cols-3 gap-4">
@@ -558,21 +558,21 @@ function ShopStep({ form, update, errors }: StepProps) {
               <input
                 value={form.shopCity}
                 onChange={(e) => update('shopCity', e.target.value)}
-                className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                className="w-full rounded-md border bg-field px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
               />
             </Field>
             <Field label="State" error={errors.shopState} required>
               <input
                 value={form.shopState}
                 onChange={(e) => update('shopState', e.target.value)}
-                className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                className="w-full rounded-md border bg-field px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
               />
             </Field>
             <Field label="Pincode (6 digits)" error={errors.shopPincode} required>
               <input
                 value={form.shopPincode}
                 onChange={(e) => update('shopPincode', e.target.value)}
-                className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+                className="w-full rounded-md border bg-field px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
               />
             </Field>
           </div>

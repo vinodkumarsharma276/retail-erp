@@ -147,7 +147,7 @@ export function CategoryCascader({
                 value={selections[level] ?? ''}
                 onChange={(e) => handleChange(level, e.target.value)}
                 className={cn(
-                  'w-full appearance-none rounded-md border bg-background px-3 py-2.5 pr-8 text-sm',
+                  'w-full appearance-none rounded-md border bg-field px-3 py-2.5 pr-8 text-sm',
                   'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                 )}
               >

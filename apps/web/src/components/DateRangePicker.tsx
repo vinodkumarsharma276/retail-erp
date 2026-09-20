@@ -66,7 +66,7 @@ export function DateRangePicker({ value, onChange, className }: DateRangePickerP
           value={value.dateFrom}
           onChange={(e) => onChange({ ...value, dateFrom: e.target.value })}
           className={cn(
-            'rounded-md border bg-background px-2 py-1 text-xs',
+            'rounded-md border bg-field px-2 py-1 text-xs',
             'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1',
           )}
         />
@@ -76,7 +76,7 @@ export function DateRangePicker({ value, onChange, className }: DateRangePickerP
           value={value.dateTo}
           onChange={(e) => onChange({ ...value, dateTo: e.target.value })}
           className={cn(
-            'rounded-md border bg-background px-2 py-1 text-xs',
+            'rounded-md border bg-field px-2 py-1 text-xs',
             'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1',
           )}
         />

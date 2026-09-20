@@ -240,7 +240,7 @@ export function CustomerListPage() {
               }}
               placeholder="Name, phone, or customer code (min 2 chars)..."
               className={cn(
-                'w-full rounded-md border bg-background pl-9 pr-8 py-2 text-sm',
+                'w-full rounded-md border bg-field pl-9 pr-8 py-2 text-sm',
                 'placeholder:text-muted-foreground',
                 'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
               )}
@@ -268,7 +268,7 @@ export function CustomerListPage() {
               value={zoneFilter}
               onChange={(e) => updateFilters({ zone: e.target.value, page: '1' })}
               className={cn(
-                'w-full appearance-none rounded-md border bg-background px-3 py-2 text-sm',
+                'w-full appearance-none rounded-md border bg-field px-3 py-2 text-sm',
                 'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
               )}
             >

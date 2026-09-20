@@ -49,7 +49,7 @@ function ZoneFilter({ value, onChange }: { value: string; onChange: (v: string) 
         value={value}
         onChange={(e) => onChange(e.target.value)}
         className={cn(
-          'appearance-none rounded-md border bg-background px-3 py-2 pr-8 text-sm',
+          'appearance-none rounded-md border bg-field px-3 py-2 pr-8 text-sm',
           'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
         )}
       >
@@ -214,7 +214,7 @@ export function InstallmentListPage() {
                   value={searchFilter}
                   onChange={(e) => setSearchFilter(e.target.value)}
                   className={cn(
-                    'appearance-none rounded-md border bg-background pl-3 pr-8 py-2 text-sm',
+                    'appearance-none rounded-md border bg-field pl-3 pr-8 py-2 text-sm',
                     'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                   )}
                 >
@@ -236,7 +236,7 @@ export function InstallmentListPage() {
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="Search installments..."
                   className={cn(
-                    'w-full rounded-md border bg-background pl-9 pr-9 py-2 text-sm',
+                    'w-full rounded-md border bg-field pl-9 pr-9 py-2 text-sm',
                     'placeholder:text-muted-foreground',
                     'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                   )}

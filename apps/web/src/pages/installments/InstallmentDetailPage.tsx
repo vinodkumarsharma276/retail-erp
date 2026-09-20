@@ -800,7 +800,7 @@ export function InstallmentDetailPage() {
                     onChange={(e) => setRevertReason(e.target.value)}
                     placeholder="e.g. Wrong amount entered, wrong installment selected..."
                     className={cn(
-                      'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                      'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                       'placeholder:text-muted-foreground',
                       'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                     )}
@@ -848,7 +848,7 @@ export function InstallmentDetailPage() {
                         value={revertInterestAmount}
                         onChange={(e) => setRevertInterestAmount(e.target.value)}
                         placeholder={String(suggestedInterest)}
-                        className="flex-1 min-w-0 rounded-md border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+                        className="flex-1 min-w-0 rounded-md border bg-field px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
                       />
                       <button
                         type="button"
@@ -863,7 +863,7 @@ export function InstallmentDetailPage() {
                       value={revertInterestNotes}
                       onChange={(e) => setRevertInterestNotes(e.target.value)}
                       placeholder="Note (optional)"
-                      className="w-full rounded-md border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+                      className="w-full rounded-md border bg-field px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
                     />
                   </div>
                 )}
@@ -1014,7 +1014,7 @@ export function InstallmentDetailPage() {
                             setRevertMoveInterestEnabled(false);
                             setRevertMoveInterestAmount('');
                           }}
-                          className="w-full rounded-md border bg-background px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+                          className="w-full rounded-md border bg-field px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
                         >
                           <option value="">— Select installment —</option>
                           {moveTargetOptions.map((i: any) => (
@@ -1036,7 +1036,7 @@ export function InstallmentDetailPage() {
                           type="date"
                           value={revertMovePaymentDate}
                           onChange={(e) => setRevertMovePaymentDate(e.target.value)}
-                          className="rounded-md border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+                          className="rounded-md border bg-field px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
                         />
                         {revertTarget.originalPaymentDate && (
                           <button
@@ -1076,7 +1076,7 @@ export function InstallmentDetailPage() {
                                   value={revertMoveInterestAmount}
                                   onChange={(e) => setRevertMoveInterestAmount(e.target.value)}
                                   placeholder={String(targetSuggestedInterest)}
-                                  className="flex-1 rounded-md border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+                                  className="flex-1 rounded-md border bg-field px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
                                 />
                                 <button
                                   type="button"
@@ -1091,7 +1091,7 @@ export function InstallmentDetailPage() {
                                 value={revertMoveInterestNotes}
                                 onChange={(e) => setRevertMoveInterestNotes(e.target.value)}
                                 placeholder="Note (optional)"
-                                className="w-full rounded-md border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+                                className="w-full rounded-md border bg-field px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
                               />
                             </div>
                           )}
@@ -1306,7 +1306,7 @@ export function InstallmentDetailPage() {
                     setModifyInterestAmount('');
                   }}
                   placeholder={`Must be less than ${formatINR(modifyTarget.recordedAmount)}`}
-                  className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  className="w-full rounded-md border bg-field px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 />
                 {hasValidCorrect && (
                   <p className="mt-1 text-xs text-orange-600 font-medium">
@@ -1386,7 +1386,7 @@ export function InstallmentDetailPage() {
                           value={modifyInterestAmount}
                           onChange={(e) => setModifyInterestAmount(e.target.value)}
                           placeholder={String(suggestedInterestOnShortfall)}
-                          className="flex-1 rounded-md border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+                          className="flex-1 rounded-md border bg-field px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
                         />
                         <button
                           type="button"
@@ -1401,7 +1401,7 @@ export function InstallmentDetailPage() {
                         value={modifyInterestNotes}
                         onChange={(e) => setModifyInterestNotes(e.target.value)}
                         placeholder="Note (optional)"
-                        className="w-full rounded-md border bg-background px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+                        className="w-full rounded-md border bg-field px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
                       />
                     </div>
                   )}
@@ -1432,7 +1432,7 @@ export function InstallmentDetailPage() {
                       value={displayValue}
                       onChange={(e) => setModifyReason(e.target.value)}
                       placeholder="e.g. Customer paid ₹3,000 but ₹5,000 was recorded by mistake."
-                      className="w-full rounded-md border bg-background px-3 py-2.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                      className="w-full rounded-md border bg-field px-3 py-2.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                     />
                   </div>
                 );
@@ -1631,7 +1631,7 @@ export function InstallmentDetailPage() {
                     onChange={(e) => setUndoRescheduleReason(e.target.value)}
                     placeholder="e.g. Reschedule was created by mistake"
                     className={cn(
-                      'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                      'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                       'placeholder:text-muted-foreground',
                       'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                     )}
@@ -1643,7 +1643,7 @@ export function InstallmentDetailPage() {
               <div className="flex items-center justify-end gap-2 mt-6 pt-4 border-t">
                 <button
                   onClick={closeUndoResched}
-                  className="rounded-md border bg-background px-4 py-2 text-sm font-medium hover:bg-muted transition-colors"
+                  className="rounded-md border bg-field px-4 py-2 text-sm font-medium hover:bg-muted transition-colors"
                 >
                   Cancel
                 </button>

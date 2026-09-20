@@ -187,7 +187,7 @@ export function EmployeeFormPage() {
                   })}
                   disabled={loadingUsers}
                   className={cn(
-                    'w-full appearance-none rounded-md border bg-background px-3 py-2.5 pr-8 text-sm',
+                    'w-full appearance-none rounded-md border bg-field px-3 py-2.5 pr-8 text-sm',
                     'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                     errors.userId && 'border-destructive',
                   )}
@@ -229,7 +229,7 @@ export function EmployeeFormPage() {
                 {...register('designation')}
                 placeholder="e.g. Sales Executive, Store Manager"
                 className={cn(
-                  'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                  'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                   'placeholder:text-muted-foreground',
                   'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                 )}
@@ -249,7 +249,7 @@ export function EmployeeFormPage() {
                 type="date"
                 {...register('dateOfJoining')}
                 className={cn(
-                  'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                  'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                   'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                 )}
               />
@@ -272,7 +272,7 @@ export function EmployeeFormPage() {
                 })}
                 placeholder="0"
                 className={cn(
-                  'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                  'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                   'placeholder:text-muted-foreground',
                   'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                   errors.salary && 'border-destructive',
@@ -304,7 +304,7 @@ export function EmployeeFormPage() {
                 })}
                 placeholder="e.g. 123456789012"
                 className={cn(
-                  'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                  'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                   'placeholder:text-muted-foreground',
                   'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                   errors.aadhaarNumber && 'border-destructive',
@@ -336,7 +336,7 @@ export function EmployeeFormPage() {
                 })}
                 placeholder="e.g. 9876543210"
                 className={cn(
-                  'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                  'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                   'placeholder:text-muted-foreground',
                   'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                   errors.emergencyContact && 'border-destructive',
@@ -363,7 +363,7 @@ export function EmployeeFormPage() {
                 {...register('address')}
                 placeholder="Full residential address"
                 className={cn(
-                  'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                  'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                   'placeholder:text-muted-foreground',
                   'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                 )}

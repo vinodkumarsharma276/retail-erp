@@ -344,7 +344,7 @@ function ProductsTab({ distributorId }: { distributorId: string }) {
                 setPage(1);
               }}
               className={cn(
-                'rounded-md border bg-background pl-9 pr-3 py-2 text-sm',
+                'rounded-md border bg-field pl-9 pr-3 py-2 text-sm',
                 'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
               )}
             />
@@ -364,7 +364,7 @@ function ProductsTab({ distributorId }: { distributorId: string }) {
                 setPage(1);
               }}
               className={cn(
-                'rounded-md border bg-background pl-9 pr-3 py-2 text-sm',
+                'rounded-md border bg-field pl-9 pr-3 py-2 text-sm',
                 'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
               )}
             />
@@ -726,7 +726,7 @@ function LumpsumPaymentDialog({
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
                 className={cn(
-                  'w-full rounded-md border bg-background px-3 py-2 text-sm',
+                  'w-full rounded-md border bg-field px-3 py-2 text-sm',
                   'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                 )}
                 placeholder="Enter amount"
@@ -746,7 +746,7 @@ function LumpsumPaymentDialog({
                 value={paymentMode}
                 onChange={(e) => setPaymentMode(e.target.value)}
                 className={cn(
-                  'w-full rounded-md border bg-background px-3 py-2 text-sm',
+                  'w-full rounded-md border bg-field px-3 py-2 text-sm',
                   'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                 )}
                 required
@@ -766,7 +766,7 @@ function LumpsumPaymentDialog({
                 value={paymentDate}
                 onChange={(e) => setPaymentDate(e.target.value)}
                 className={cn(
-                  'w-full rounded-md border bg-background px-3 py-2 text-sm',
+                  'w-full rounded-md border bg-field px-3 py-2 text-sm',
                   'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                 )}
                 required
@@ -783,7 +783,7 @@ function LumpsumPaymentDialog({
                 value={referenceNumber}
                 onChange={(e) => setReferenceNumber(e.target.value)}
                 className={cn(
-                  'w-full rounded-md border bg-background px-3 py-2 text-sm',
+                  'w-full rounded-md border bg-field px-3 py-2 text-sm',
                   'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                 )}
                 placeholder="Cheque no., UTR, etc."
@@ -800,7 +800,7 @@ function LumpsumPaymentDialog({
                 onChange={(e) => setNotes(e.target.value)}
                 rows={2}
                 className={cn(
-                  'w-full rounded-md border bg-background px-3 py-2 text-sm resize-none',
+                  'w-full rounded-md border bg-field px-3 py-2 text-sm resize-none',
                   'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                 )}
                 placeholder="Any additional notes..."

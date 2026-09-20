@@ -210,7 +210,7 @@ function RolesPanel() {
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                     placeholder="Filter permissions…"
-                    className="w-56 rounded-md border bg-background py-1.5 pl-8 pr-2 text-sm"
+                    className="w-56 rounded-md border bg-field py-1.5 pl-8 pr-2 text-sm"
                   />
                 </div>
                 <button
@@ -229,14 +229,14 @@ function RolesPanel() {
                     const all = new Set((catalogQ.data ?? []).map((g) => g.module));
                     setExpandedGroups(all);
                   }}
-                  className="inline-flex items-center gap-1 rounded-md border bg-background px-3 py-1.5 text-sm hover:bg-accent"
+                  className="inline-flex items-center gap-1 rounded-md border bg-field px-3 py-1.5 text-sm hover:bg-accent"
                 >
                   <ChevronDown className="h-4 w-4" /> Expand all
                 </button>
                 <button
                   type="button"
                   onClick={() => setExpandedGroups(new Set())}
-                  className="inline-flex items-center gap-1 rounded-md border bg-background px-3 py-1.5 text-sm hover:bg-accent"
+                  className="inline-flex items-center gap-1 rounded-md border bg-field px-3 py-1.5 text-sm hover:bg-accent"
                 >
                   <ChevronRight className="h-4 w-4" /> Collapse all
                 </button>
@@ -248,7 +248,7 @@ function RolesPanel() {
                     if (!name) return;
                     cloneMut.mutate({ id: selectedRole.id, code, name });
                   }}
-                  className="inline-flex items-center gap-1 rounded-md border bg-background px-3 py-1.5 text-sm hover:bg-accent"
+                  className="inline-flex items-center gap-1 rounded-md border bg-field px-3 py-1.5 text-sm hover:bg-accent"
                 >
                   <Copy className="h-4 w-4" /> Clone
                 </button>
@@ -453,7 +453,7 @@ function NewRoleDialog({
               value={code}
               onChange={(e) => setCode(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'))}
               placeholder="e.g. shop_manager"
-              className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm"
+              className="mt-1 w-full rounded-md border bg-field px-3 py-2 text-sm"
             />
           </div>
           <div>
@@ -463,7 +463,7 @@ function NewRoleDialog({
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g. Shop Manager"
-              className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm"
+              className="mt-1 w-full rounded-md border bg-field px-3 py-2 text-sm"
             />
           </div>
           <div>
@@ -472,7 +472,7 @@ function NewRoleDialog({
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={2}
-              className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm"
+              className="mt-1 w-full rounded-md border bg-field px-3 py-2 text-sm"
             />
           </div>
           <div className="flex justify-end gap-2 pt-2">
@@ -622,7 +622,7 @@ function UsersPanel() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search users…"
-            className="w-72 rounded-md border bg-background py-1.5 pl-8 pr-2 text-sm"
+            className="w-72 rounded-md border bg-field py-1.5 pl-8 pr-2 text-sm"
           />
         </div>
         <p className="text-xs text-muted-foreground">
@@ -675,7 +675,7 @@ function UsersPanel() {
                         onChange={(e) =>
                           assignMut.mutate({ userId: u.id, roleId: e.target.value || null })
                         }
-                        className="rounded-md border bg-background px-2 py-1 text-sm"
+                        className="rounded-md border bg-field px-2 py-1 text-sm"
                       >
                         <option value="">— Legacy ({u.role}) —</option>
                         {rolesQ.data?.map((r) => (
@@ -803,7 +803,7 @@ function UsersPanel() {
                   type={showNewPassword ? 'text' : 'password'}
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="mt-1 w-full rounded-md border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                  className="mt-1 w-full rounded-md border bg-field px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                   autoComplete="new-password"
                 />
               </div>
@@ -1076,13 +1076,13 @@ function UserPermissionsDialog({
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search permission key or description…"
-              className="w-72 rounded-md border bg-background py-1.5 pl-8 pr-2 text-sm"
+              className="w-72 rounded-md border bg-field py-1.5 pl-8 pr-2 text-sm"
             />
           </div>
           <select
             value={moduleFilter}
             onChange={(e) => setModuleFilter(e.target.value)}
-            className="rounded-md border bg-background px-2 py-1.5 text-sm"
+            className="rounded-md border bg-field px-2 py-1.5 text-sm"
           >
             <option value="all">All modules</option>
             {catalog.map((g) => (

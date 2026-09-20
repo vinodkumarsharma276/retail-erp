@@ -54,7 +54,7 @@ export function PromiseDialog({ scheduleId, customerId, installments, onClose, o
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-lg rounded-lg border bg-background shadow-lg">
+      <div className="w-full max-w-lg rounded-lg border border-border bg-popover shadow-lg">
         <div className="flex items-center justify-between border-b px-4 py-3">
           <div className="flex items-center gap-2 font-semibold">
             <CalendarDays className="h-4 w-4" /> Add Promise
@@ -71,7 +71,7 @@ export function PromiseDialog({ scheduleId, customerId, installments, onClose, o
               type="date"
               value={promisedDate}
               onChange={(event) => setPromisedDate(event.target.value)}
-              className="mt-1 w-full rounded-md border bg-background px-3 py-2"
+              className="mt-1 w-full rounded-md border bg-field px-3 py-2"
             />
           </label>
 
@@ -84,7 +84,7 @@ export function PromiseDialog({ scheduleId, customerId, installments, onClose, o
               value={promisedAmount}
               placeholder={String(selectedTotal)}
               onChange={(event) => setPromisedAmount(event.target.value)}
-              className="mt-1 w-full rounded-md border bg-background px-3 py-2"
+              className="mt-1 w-full rounded-md border bg-field px-3 py-2"
             />
             <span className="mt-1 block text-xs text-muted-foreground">Selected EMI total: {formatINR(selectedTotal)}</span>
           </label>
@@ -106,7 +106,7 @@ export function PromiseDialog({ scheduleId, customerId, installments, onClose, o
 
           <label className="block text-sm">
             <span className="font-medium">Notes</span>
-            <textarea value={notes} onChange={(event) => setNotes(event.target.value)} className="mt-1 min-h-20 w-full rounded-md border bg-background px-3 py-2" />
+            <textarea value={notes} onChange={(event) => setNotes(event.target.value)} className="mt-1 min-h-20 w-full rounded-md border bg-field px-3 py-2" />
           </label>
 
           {mutation.error && (

@@ -920,7 +920,7 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
                   onChange={(e) => setProductSearchText(e.target.value)}
                   placeholder="Search product by brand or model..."
                   className={cn(
-                    'w-full rounded-md border bg-background pl-9 pr-3 py-2.5 text-sm',
+                    'w-full rounded-md border bg-field pl-9 pr-3 py-2.5 text-sm',
                     'placeholder:text-muted-foreground',
                     'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                   )}
@@ -954,7 +954,7 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
                 })}
                 placeholder="e.g., VE001"
                 className={cn(
-                  'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                  'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                   'placeholder:text-muted-foreground',
                   'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                   errors.ledgerNumber && 'border-destructive',
@@ -997,7 +997,7 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
                   },
                 })}
                 className={cn(
-                  'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                  'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                   'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                   errors.saleDate && 'border-destructive',
                 )}
@@ -1086,7 +1086,7 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
                     })}
                     placeholder="0.00"
                     className={cn(
-                      'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                      'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                       'placeholder:text-muted-foreground',
                       'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                       errors.sellingPrice && 'border-destructive',
@@ -1151,7 +1151,7 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
                     })}
                     placeholder="0.00"
                     className={cn(
-                      'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                      'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                       'placeholder:text-muted-foreground',
                       'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                       errors.sellingPrice && 'border-destructive',
@@ -1182,7 +1182,7 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
                     }}
                     placeholder="0.00"
                     className={cn(
-                      'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                      'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                       'placeholder:text-muted-foreground',
                       'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                       errors.downPayment && 'border-destructive',
@@ -1206,7 +1206,7 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
                       required: 'Promise date is required',
                     })}
                     className={cn(
-                      'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                      'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                       'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                       errors.promiseDate && 'border-destructive',
                     )}
@@ -1280,7 +1280,7 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
                     })}
                     placeholder="0.00"
                     className={cn(
-                      'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                      'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                       'placeholder:text-muted-foreground',
                       'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                       errors.sellingPrice && 'border-destructive',
@@ -1311,7 +1311,7 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
                     }}
                     placeholder="0.00"
                     className={cn(
-                      'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                      'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                       'placeholder:text-muted-foreground',
                       'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                       errors.downPayment && 'border-destructive',
@@ -1336,7 +1336,7 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
                         setValue('interestRate', Number(e.target.value))
                       }
                       className={cn(
-                        'w-full appearance-none rounded-md border bg-background px-3 py-2.5 pr-8 text-sm',
+                        'w-full appearance-none rounded-md border bg-field px-3 py-2.5 pr-8 text-sm',
                         'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                       )}
                     >
@@ -1363,7 +1363,7 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
                     })}
                     placeholder="0.00"
                     className={cn(
-                      'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                      'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                       'placeholder:text-muted-foreground',
                       'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                     )}
@@ -1382,7 +1382,7 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
                         setValue('numInstallments', Number(e.target.value))
                       }
                       className={cn(
-                        'w-full appearance-none rounded-md border bg-background px-3 py-2.5 pr-8 text-sm',
+                        'w-full appearance-none rounded-md border bg-field px-3 py-2.5 pr-8 text-sm',
                         'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                       )}
                     >
@@ -1562,7 +1562,7 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
                     })}
                     placeholder="0.00"
                     className={cn(
-                      'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                      'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                       'placeholder:text-muted-foreground',
                       'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                       errors.sellingPrice && 'border-destructive',
@@ -1586,7 +1586,7 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
                         required: 'Finance company is required',
                       })}
                       className={cn(
-                        'w-full appearance-none rounded-md border bg-background px-3 py-2.5 pr-8 text-sm',
+                        'w-full appearance-none rounded-md border bg-field px-3 py-2.5 pr-8 text-sm',
                         'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                         errors.financeCompanyId && 'border-destructive',
                       )}
@@ -1624,7 +1624,7 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
                     }}
                     placeholder="0.00"
                     className={cn(
-                      'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                      'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                       'placeholder:text-muted-foreground',
                       'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                     )}
@@ -1645,7 +1645,7 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
                     })}
                     placeholder="0.00"
                     className={cn(
-                      'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                      'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                       'placeholder:text-muted-foreground',
                       'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                       errors.financedAmount && 'border-destructive',
@@ -1667,7 +1667,7 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
                     type="date"
                     {...register('expectedPaymentDate')}
                     className={cn(
-                      'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                      'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                       'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                     )}
                   />
@@ -1773,7 +1773,7 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
                     }
                     placeholder="Customer name"
                     className={cn(
-                      'w-full rounded-md border bg-background px-3 py-2 text-sm',
+                      'w-full rounded-md border bg-field px-3 py-2 text-sm',
                       'placeholder:text-muted-foreground',
                       'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                     )}
@@ -1791,7 +1791,7 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
                     }
                     placeholder="10-digit number"
                     className={cn(
-                      'w-full rounded-md border bg-background px-3 py-2 text-sm',
+                      'w-full rounded-md border bg-field px-3 py-2 text-sm',
                       'placeholder:text-muted-foreground',
                       'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                     )}
@@ -1809,7 +1809,7 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
                     }
                     placeholder="Optional"
                     className={cn(
-                      'w-full rounded-md border bg-background px-3 py-2 text-sm',
+                      'w-full rounded-md border bg-field px-3 py-2 text-sm',
                       'placeholder:text-muted-foreground',
                       'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                     )}
@@ -1830,7 +1830,7 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
                     }
                     placeholder="12-digit number"
                     className={cn(
-                      'w-full rounded-md border bg-background px-3 py-2 text-sm',
+                      'w-full rounded-md border bg-field px-3 py-2 text-sm',
                       'placeholder:text-muted-foreground',
                       'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                     )}
@@ -1851,7 +1851,7 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
                     }
                     placeholder="Street address"
                     className={cn(
-                      'w-full rounded-md border bg-background px-3 py-2 text-sm',
+                      'w-full rounded-md border bg-field px-3 py-2 text-sm',
                       'placeholder:text-muted-foreground',
                       'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                     )}
@@ -1866,7 +1866,7 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
                     }
                     placeholder="City"
                     className={cn(
-                      'w-full rounded-md border bg-background px-3 py-2 text-sm',
+                      'w-full rounded-md border bg-field px-3 py-2 text-sm',
                       'placeholder:text-muted-foreground',
                       'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                     )}
@@ -1880,7 +1880,7 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
                       setNewCustomer({ ...newCustomer, state: e.target.value })
                     }
                     className={cn(
-                      'w-full appearance-none rounded-md border bg-background px-3 py-2 text-sm',
+                      'w-full appearance-none rounded-md border bg-field px-3 py-2 text-sm',
                       'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                     )}
                   >
@@ -1902,7 +1902,7 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
                     }
                     placeholder="6-digit pincode"
                     className={cn(
-                      'w-full rounded-md border bg-background px-3 py-2 text-sm',
+                      'w-full rounded-md border bg-field px-3 py-2 text-sm',
                       'placeholder:text-muted-foreground',
                       'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                     )}
@@ -1919,7 +1919,7 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
                         setNewCustomer({ ...newCustomer, zone: e.target.value })
                       }
                       className={cn(
-                        'w-full appearance-none rounded-md border bg-background px-3 py-2 text-sm',
+                        'w-full appearance-none rounded-md border bg-field px-3 py-2 text-sm',
                         'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                       )}
                     >
@@ -1951,7 +1951,7 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
                       })
                     }
                     className={cn(
-                      'w-full appearance-none rounded-md border bg-background px-3 py-2 text-sm',
+                      'w-full appearance-none rounded-md border bg-field px-3 py-2 text-sm',
                       'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                     )}
                   >
@@ -1977,7 +1977,7 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
                         }
                         placeholder="e.g. Acme Distributors Pvt Ltd"
                         className={cn(
-                          'w-full rounded-md border bg-background px-3 py-2 text-sm',
+                          'w-full rounded-md border bg-field px-3 py-2 text-sm',
                           'placeholder:text-muted-foreground',
                           'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                         )}
@@ -1999,7 +1999,7 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
                         }
                         placeholder="15-char GSTIN"
                         className={cn(
-                          'w-full rounded-md border bg-background px-3 py-2 text-sm uppercase',
+                          'w-full rounded-md border bg-field px-3 py-2 text-sm uppercase',
                           'placeholder:text-muted-foreground',
                           'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                         )}
@@ -2053,7 +2053,7 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
                   onFocus={() => setShowCustomerDropdown(true)}
                   placeholder="Search by phone, name, customer code or ledger # (min 2 chars)..."
                   className={cn(
-                    'w-full rounded-md border bg-background pl-9 pr-8 py-2.5 text-sm',
+                    'w-full rounded-md border bg-field pl-9 pr-8 py-2.5 text-sm',
                     'placeholder:text-muted-foreground',
                     'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                   )}
@@ -2211,7 +2211,7 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
                         }
                         placeholder="Full name"
                         className={cn(
-                          'w-full rounded-md border bg-background px-3 py-2 text-sm',
+                          'w-full rounded-md border bg-field px-3 py-2 text-sm',
                           'placeholder:text-muted-foreground',
                           'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                         )}
@@ -2229,7 +2229,7 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
                         }
                         placeholder="10-digit number"
                         className={cn(
-                          'w-full rounded-md border bg-background px-3 py-2 text-sm',
+                          'w-full rounded-md border bg-field px-3 py-2 text-sm',
                           'placeholder:text-muted-foreground',
                           'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                         )}
@@ -2247,7 +2247,7 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
                         }
                         placeholder="Optional"
                         className={cn(
-                          'w-full rounded-md border bg-background px-3 py-2 text-sm',
+                          'w-full rounded-md border bg-field px-3 py-2 text-sm',
                           'placeholder:text-muted-foreground',
                           'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                         )}
@@ -2268,7 +2268,7 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
                         }
                         placeholder="12-digit number"
                         className={cn(
-                          'w-full rounded-md border bg-background px-3 py-2 text-sm',
+                          'w-full rounded-md border bg-field px-3 py-2 text-sm',
                           'placeholder:text-muted-foreground',
                           'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                         )}
@@ -2289,7 +2289,7 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
                         }
                         placeholder="Street address"
                         className={cn(
-                          'w-full rounded-md border bg-background px-3 py-2 text-sm',
+                          'w-full rounded-md border bg-field px-3 py-2 text-sm',
                           'placeholder:text-muted-foreground',
                           'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                         )}
@@ -2306,7 +2306,7 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
                         }
                         placeholder="City"
                         className={cn(
-                          'w-full rounded-md border bg-background px-3 py-2 text-sm',
+                          'w-full rounded-md border bg-field px-3 py-2 text-sm',
                           'placeholder:text-muted-foreground',
                           'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                         )}
@@ -2355,7 +2355,7 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
                       onFocus={() => setShowGuarantorDropdown(true)}
                       placeholder="Search guarantor by name or phone..."
                       className={cn(
-                        'w-full rounded-md border bg-background pl-9 pr-8 py-2.5 text-sm',
+                        'w-full rounded-md border bg-field pl-9 pr-8 py-2.5 text-sm',
                         'placeholder:text-muted-foreground',
                         'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                       )}
@@ -2454,7 +2454,7 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
                 {...register('notes')}
                 placeholder="Any additional notes about this sale..."
                 className={cn(
-                  'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                  'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                   'placeholder:text-muted-foreground',
                   'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                 )}
@@ -2740,7 +2740,7 @@ function PaymentSplitSection({
               value={split.mode}
               onChange={(e) => updateSplit(index, 'mode', e.target.value as PaymentMode)}
               className={cn(
-                'w-full appearance-none rounded-md border bg-background px-3 py-2.5 pr-8 text-sm',
+                'w-full appearance-none rounded-md border bg-field px-3 py-2.5 pr-8 text-sm',
                 'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
               )}
             >
@@ -2768,7 +2768,7 @@ function PaymentSplitSection({
               }}
               placeholder="0.00"
               className={cn(
-                'w-full rounded-md border bg-background pl-7 pr-3 py-2.5 text-sm',
+                'w-full rounded-md border bg-field pl-7 pr-3 py-2.5 text-sm',
                 'placeholder:text-muted-foreground',
                 'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
               )}
@@ -2862,7 +2862,7 @@ function GstSelector({
             (incl. in SP)
           </span>
         </label>
-        <div className="flex flex-wrap items-center gap-3 rounded-md border bg-background px-3 py-2.5 text-sm">
+        <div className="flex flex-wrap items-center gap-3 rounded-md border bg-field px-3 py-2.5 text-sm">
           <label className="flex items-center gap-1.5 cursor-pointer">
             <input
               type="radio"
@@ -2906,7 +2906,7 @@ function GstSelector({
                 value={gstPercent}
                 onChange={(e) => onGstPercentChange(Number(e.target.value))}
                 className={cn(
-                  'w-full appearance-none rounded-md border bg-background px-3 py-2.5 pr-8 text-sm',
+                  'w-full appearance-none rounded-md border bg-field px-3 py-2.5 pr-8 text-sm',
                   'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                 )}
               >
@@ -2943,7 +2943,7 @@ function GstSelector({
                 value={gstPercent}
                 onChange={(e) => onGstPercentChange(Number(e.target.value))}
                 className={cn(
-                  'w-full appearance-none rounded-md border bg-background px-3 py-2.5 pr-8 text-sm',
+                  'w-full appearance-none rounded-md border bg-field px-3 py-2.5 pr-8 text-sm',
                   'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                 )}
               >

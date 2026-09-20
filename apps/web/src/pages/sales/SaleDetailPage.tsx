@@ -647,7 +647,7 @@ function SaleDetailPageInner() {
                             onChange={(e) => setFinanceRefNumber(e.target.value)}
                             placeholder="Transaction reference"
                             className={cn(
-                              'w-full max-w-sm rounded-md border bg-background px-3 py-2 text-sm',
+                              'w-full max-w-sm rounded-md border bg-field px-3 py-2 text-sm',
                               'placeholder:text-muted-foreground',
                               'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                             )}
@@ -809,7 +809,7 @@ function SaleDetailPageInner() {
                   value={paymentAmount}
                   onChange={(e) => setPaymentAmount(Number(e.target.value) || '')}
                   placeholder="Enter amount"
-                  className="w-full rounded-md border bg-background px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                  className="w-full rounded-md border bg-field px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                 />
               </div>
 
@@ -818,7 +818,7 @@ function SaleDetailPageInner() {
                 <select
                   value={paymentMode}
                   onChange={(e) => setPaymentMode(e.target.value)}
-                  className="w-full appearance-none rounded-md border bg-background px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                  className="w-full appearance-none rounded-md border bg-field px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                 >
                   <option value="cash">Cash</option>
                   <option value="upi">UPI</option>
@@ -836,7 +836,7 @@ function SaleDetailPageInner() {
                   value={paymentNotes}
                   onChange={(e) => setPaymentNotes(e.target.value)}
                   placeholder="e.g., Remaining amount collected"
-                  className="w-full rounded-md border bg-background px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                  className="w-full rounded-md border bg-field px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                 />
               </div>
 

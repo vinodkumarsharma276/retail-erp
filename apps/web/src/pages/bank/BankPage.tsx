@@ -441,7 +441,7 @@ function AccountTabContent({
                 setPage(1);
               }}
               className={cn(
-                'w-full appearance-none rounded-md border bg-background px-3 py-2 pr-8 text-sm',
+                'w-full appearance-none rounded-md border bg-field px-3 py-2 pr-8 text-sm',
                 'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
               )}
             >
@@ -598,7 +598,7 @@ function CreateBankAccountDialog({ onClose }: { onClose: () => void }) {
               })}
               placeholder="e.g. State Bank of India"
               className={cn(
-                'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                 'placeholder:text-muted-foreground',
                 'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                 errors.bankName && 'border-destructive',
@@ -627,7 +627,7 @@ function CreateBankAccountDialog({ onClose }: { onClose: () => void }) {
               })}
               placeholder="e.g. 1234567890"
               className={cn(
-                'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                 'placeholder:text-muted-foreground',
                 'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                 errors.accountNumber && 'border-destructive',
@@ -660,7 +660,7 @@ function CreateBankAccountDialog({ onClose }: { onClose: () => void }) {
               })}
               placeholder="e.g. SBIN0001234"
               className={cn(
-                'w-full rounded-md border bg-background px-3 py-2.5 text-sm uppercase',
+                'w-full rounded-md border bg-field px-3 py-2.5 text-sm uppercase',
                 'placeholder:text-muted-foreground placeholder:normal-case',
                 'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                 errors.ifscCode && 'border-destructive',
@@ -688,7 +688,7 @@ function CreateBankAccountDialog({ onClose }: { onClose: () => void }) {
                   required: 'Account type is required',
                 })}
                 className={cn(
-                  'w-full appearance-none rounded-md border bg-background px-3 py-2.5 pr-8 text-sm',
+                  'w-full appearance-none rounded-md border bg-field px-3 py-2.5 pr-8 text-sm',
                   'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                 )}
               >
@@ -716,7 +716,7 @@ function CreateBankAccountDialog({ onClose }: { onClose: () => void }) {
               })}
               placeholder="0.00"
               className={cn(
-                'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                 'placeholder:text-muted-foreground',
                 'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                 errors.openingBalance && 'border-destructive',
@@ -864,7 +864,7 @@ function AddTransactionDialog({
                 required: 'Transaction date is required',
               })}
               className={cn(
-                'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                 'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                 errors.transactionDate && 'border-destructive',
               )}
@@ -892,7 +892,7 @@ function AddTransactionDialog({
               })}
               placeholder="Transaction description"
               className={cn(
-                'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                 'placeholder:text-muted-foreground',
                 'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                 errors.description && 'border-destructive',
@@ -919,7 +919,7 @@ function AddTransactionDialog({
               {...register('referenceNumber')}
               placeholder="UTR / Cheque number"
               className={cn(
-                'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                 'placeholder:text-muted-foreground',
                 'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
               )}
@@ -971,7 +971,7 @@ function AddTransactionDialog({
               })}
               placeholder="0.00"
               className={cn(
-                'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                 'placeholder:text-muted-foreground',
                 'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                 errors.amount && 'border-destructive',
@@ -1001,7 +1001,7 @@ function AddTransactionDialog({
               })}
               placeholder="0.00"
               className={cn(
-                'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                 'placeholder:text-muted-foreground',
                 'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                 errors.balance && 'border-destructive',

@@ -91,7 +91,7 @@ export function LowMarginSalesCard() {
             value={state.threshold}
             onChange={(e) => setState((s) => ({ ...s, threshold: Number(e.target.value) }))}
             className={cn(
-              'appearance-none rounded-md border bg-background pl-2 pr-7 py-1 text-xs font-medium',
+              'appearance-none rounded-md border bg-field pl-2 pr-7 py-1 text-xs font-medium',
               'focus:outline-none focus:ring-2 focus:ring-ring',
             )}
           >
@@ -109,7 +109,7 @@ export function LowMarginSalesCard() {
             value={state.rangeMode}
             onChange={(e) => setRange(e.target.value as RangeMode)}
             className={cn(
-              'appearance-none rounded-md border bg-background pl-2 pr-7 py-1 text-xs',
+              'appearance-none rounded-md border bg-field pl-2 pr-7 py-1 text-xs',
               'focus:outline-none focus:ring-2 focus:ring-ring',
             )}
           >

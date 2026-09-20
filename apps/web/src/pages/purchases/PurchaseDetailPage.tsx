@@ -386,7 +386,7 @@ function RecordPaymentDialog({
               })}
               placeholder="0.00"
               className={cn(
-                'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                 'placeholder:text-muted-foreground',
                 'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                 errors.amount && 'border-destructive',
@@ -411,7 +411,7 @@ function RecordPaymentDialog({
                   required: 'Payment mode is required',
                 })}
                 className={cn(
-                  'w-full appearance-none rounded-md border bg-background px-3 py-2.5 pr-8 text-sm',
+                  'w-full appearance-none rounded-md border bg-field px-3 py-2.5 pr-8 text-sm',
                   'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                 )}
               >
@@ -438,7 +438,7 @@ function RecordPaymentDialog({
                 required: 'Payment date is required',
               })}
               className={cn(
-                'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                 'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                 errors.paymentDate && 'border-destructive',
               )}
@@ -461,7 +461,7 @@ function RecordPaymentDialog({
               {...register('referenceNumber')}
               placeholder="Transaction/Cheque number"
               className={cn(
-                'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                 'placeholder:text-muted-foreground',
                 'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
               )}
@@ -479,7 +479,7 @@ function RecordPaymentDialog({
               {...register('notes')}
               placeholder="Optional payment notes..."
               className={cn(
-                'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                 'placeholder:text-muted-foreground',
                 'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
               )}

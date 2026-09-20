@@ -120,7 +120,7 @@ export function DynamicAttributeFields({
                   })}
                   placeholder={`Enter ${attr.attributeLabel.toLowerCase()}`}
                   className={cn(
-                    'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                    'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                     'placeholder:text-muted-foreground',
                     'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                     fieldError && 'border-destructive',
@@ -140,7 +140,7 @@ export function DynamicAttributeFields({
                   })}
                   placeholder={`Enter ${attr.attributeLabel.toLowerCase()}`}
                   className={cn(
-                    'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                    'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                     'placeholder:text-muted-foreground',
                     'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                     fieldError && 'border-destructive',
@@ -157,7 +157,7 @@ export function DynamicAttributeFields({
                       required: attr.isRequired ? `${attr.attributeLabel} is required` : false,
                     })}
                     className={cn(
-                      'w-full appearance-none rounded-md border bg-background px-3 py-2.5 pr-8 text-sm',
+                      'w-full appearance-none rounded-md border bg-field px-3 py-2.5 pr-8 text-sm',
                       'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                       fieldError && 'border-destructive',
                     )}
@@ -222,7 +222,7 @@ export function DynamicAttributeFields({
                   rows={3}
                   placeholder={`Enter ${attr.attributeLabel.toLowerCase()}`}
                   className={cn(
-                    'w-full rounded-md border bg-background px-3 py-2.5 text-sm',
+                    'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
                     'placeholder:text-muted-foreground',
                     'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
                     fieldError && 'border-destructive',
@@ -383,7 +383,7 @@ function MultiTextField({
               onChange={(e) => handleRowChange(index, e.target.value)}
               placeholder={`${label} ${index + 1}`}
               className={cn(
-                'flex-1 rounded-md border bg-background px-3 py-2 text-sm',
+                'flex-1 rounded-md border bg-field px-3 py-2 text-sm',
                 'placeholder:text-muted-foreground',
                 'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
               )}

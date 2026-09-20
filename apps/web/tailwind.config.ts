@@ -16,6 +16,9 @@ export default {
         border: withAlpha('--border'),
         'border-strong': withAlpha('--border-strong'),
         input: withAlpha('--input'),
+        // Fill colour for form controls — never use `bg-background` on a
+        // field; that's the app canvas and makes inputs look disabled.
+        field: withAlpha('--field'),
         ring: withAlpha('--ring'),
         background: withAlpha('--background'),
         foreground: withAlpha('--foreground'),

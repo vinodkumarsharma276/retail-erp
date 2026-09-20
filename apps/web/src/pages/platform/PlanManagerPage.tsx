@@ -152,7 +152,7 @@ function PlanDetail({ plan }: { plan: PlanListItem }) {
             <input
               value={draft.name}
               onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
-              className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+              className="w-full rounded-md border bg-field px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
             />
           </Labeled>
           <Labeled label="Monthly price (₹)">
@@ -161,7 +161,7 @@ function PlanDetail({ plan }: { plan: PlanListItem }) {
               min={0}
               value={draft.priceMonthly}
               onChange={(e) => setDraft((d) => ({ ...d, priceMonthly: e.target.value }))}
-              className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+              className="w-full rounded-md border bg-field px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
             />
           </Labeled>
           <Labeled label="Yearly price (₹)">
@@ -170,7 +170,7 @@ function PlanDetail({ plan }: { plan: PlanListItem }) {
               min={0}
               value={draft.priceYearly}
               onChange={(e) => setDraft((d) => ({ ...d, priceYearly: e.target.value }))}
-              className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+              className="w-full rounded-md border bg-field px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
             />
           </Labeled>
           <div className="flex items-center gap-4 pt-5 text-sm">
@@ -199,7 +199,7 @@ function PlanDetail({ plan }: { plan: PlanListItem }) {
             value={draft.description}
             onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))}
             rows={3}
-            className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+            className="w-full rounded-md border bg-field px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
           />
         </Labeled>
         <div className="flex justify-end">
@@ -296,7 +296,7 @@ function CreatePlanModal({ onClose }: { onClose: () => void }) {
             value={form.code}
             onChange={(e) => setForm((f) => ({ ...f, code: e.target.value.toLowerCase() }))}
             placeholder="starter"
-            className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+            className="w-full rounded-md border bg-field px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
           />
         </Labeled>
         <Labeled label="Display name">
@@ -304,7 +304,7 @@ function CreatePlanModal({ onClose }: { onClose: () => void }) {
             value={form.name}
             onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
             placeholder="Starter"
-            className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+            className="w-full rounded-md border bg-field px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
           />
         </Labeled>
         <div className="grid grid-cols-2 gap-3">
@@ -314,7 +314,7 @@ function CreatePlanModal({ onClose }: { onClose: () => void }) {
               min={0}
               value={form.priceMonthly}
               onChange={(e) => setForm((f) => ({ ...f, priceMonthly: e.target.value }))}
-              className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+              className="w-full rounded-md border bg-field px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
             />
           </Labeled>
           <Labeled label="Yearly (₹)">
@@ -323,7 +323,7 @@ function CreatePlanModal({ onClose }: { onClose: () => void }) {
               min={0}
               value={form.priceYearly}
               onChange={(e) => setForm((f) => ({ ...f, priceYearly: e.target.value }))}
-              className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+              className="w-full rounded-md border bg-field px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
             />
           </Labeled>
         </div>
@@ -332,7 +332,7 @@ function CreatePlanModal({ onClose }: { onClose: () => void }) {
             rows={3}
             value={form.description}
             onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-            className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+            className="w-full rounded-md border bg-field px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/50"
           />
         </Labeled>
         <div className="flex items-center gap-4 text-sm">
@@ -364,7 +364,7 @@ function CreatePlanModal({ onClose }: { onClose: () => void }) {
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md border bg-background px-3 py-2 text-sm font-medium hover:bg-muted transition-colors"
+            className="rounded-md border bg-field px-3 py-2 text-sm font-medium hover:bg-muted transition-colors"
           >
             Cancel
           </button>
