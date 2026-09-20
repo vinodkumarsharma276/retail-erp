@@ -3,7 +3,12 @@ import { Loader2, Search } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { apiClient } from '../lib/api-client';
 
-interface ProductMatch {
+/**
+ * Shape returned by `/products/search`. Note `brand` is a top-level column on
+ * Product while the purchase form renders Brand as a category attribute — see
+ * `applyModelToItem` in PurchaseCreatePage for how the two are reconciled.
+ */
+export interface ProductMatch {
   id: string;
   modelNumber: string;
   brand: string;
@@ -12,6 +17,7 @@ interface ProductMatch {
   purchasePrice: number;
   color?: string;
   warrantyMonths?: number;
+  barcode?: string;
   categoryId: string;
   dynamicAttributes?: Record<string, unknown>;
   category?: { name: string };

@@ -24,7 +24,7 @@ import { useDistributorsQuery } from '../../hooks/useDistributors';
 import { useCreatePurchaseMutation } from '../../hooks/usePurchases';
 import { CategoryCascader } from '../../components/CategoryCascader';
 import { DynamicAttributeFields } from '../../components/DynamicAttributeFields';
-import { ModelAutocomplete } from '../../components/ModelAutocomplete';
+import { ModelAutocomplete, type ProductMatch } from '../../components/ModelAutocomplete';
 import { ScanInvoiceDialog } from '../../components/ScanInvoiceDialog';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { AddDistributorDialog } from '../../components/AddDistributorDialog';
@@ -435,6 +435,63 @@ export function PurchaseCreatePage() {
     setItemCategoryIds((prev) => prev.filter((_, i) => i !== index));
   };
 
+  /**
+   * Copy everything we know about an existing product onto a purchase row
+   * when the user picks it from the model autocomplete.
+   *
+   * The subtlety is `brand`. It is a top-level COLUMN on Product, but the
+   * form renders Brand as a category attribute, bound to
+   * `dynamicAttributes.brand`. The previous version only looped over
+   * `product.dynamicAttributes`, which is `{}` for most stock, so brand
+   * silently stayed empty even though the product clearly had one. Brand is
+   * a required field, so the user then had to re-pick it by hand.
+   *
+   * Existing values are never overwritten — if the user already typed a
+   * price, picking a model must not quietly change it.
+   */
+  const applyModelToItem = (index: number, product: ProductMatch) => {
+    const { setValue } = methods;
+    const base = `items.${index}` as const;
+
+    const isBlank = (v: unknown) => v === undefined || v === null || v === '';
+
+    const fill = (path: string, value: unknown) => {
+      if (isBlank(value)) return;
+      if (!isBlank(watch(path as never))) return;
+      setValue(path as never, value as never, { shouldDirty: true });
+    };
+
+    // Model is the field the user just acted on, so it always wins.
+    setValue(`${base}.modelNumber`, product.modelNumber, { shouldValidate: true });
+
+    fill(`${base}.mrp`, Number(product.mrp) || '');
+    fill(`${base}.purchasePrice`, Number(product.purchasePrice) || '');
+    fill(`${base}.sellingPrice`, Number(product.sellingPrice) || '');
+    fill(`${base}.color`, product.color);
+    fill(`${base}.warrantyMonths`, product.warrantyMonths);
+    // Barcode here is the model-level code (a per-unit identifier would be a
+    // serial number), so it is safe to carry across units of the same model.
+    fill(`${base}.barcode`, product.barcode);
+
+    // Brand: keep the top-level value in sync AND populate the visible
+    // category-attribute field. An explicit `dynamicAttributes.brand` on the
+    // source product is more specific, so it takes precedence.
+    const dynAttrs =
+      product.dynamicAttributes && typeof product.dynamicAttributes === 'object'
+        ? (product.dynamicAttributes as Record<string, unknown>)
+        : {};
+    const resolvedBrand = !isBlank(dynAttrs.brand) ? dynAttrs.brand : product.brand;
+    fill(`${base}.brand`, resolvedBrand);
+    fill(`${base}.dynamicAttributes.brand`, resolvedBrand);
+
+    // Remaining category attributes (capacity, star rating, screen size…).
+    // Set individually so the inputs registered by DynamicAttributeFields
+    // actually pick the values up.
+    for (const [key, value] of Object.entries(dynAttrs)) {
+      fill(`${base}.dynamicAttributes.${key}`, value);
+    }
+  };
+
   const applyInvoiceParse = (result: InvoiceParseResult, distributor: DistributorListItem) => {
     setSelectedDistributor(distributor);
     setDistributorSearchText(distributor.companyName);
@@ -843,30 +900,7 @@ export function PurchaseCreatePage() {
                         onChange={(val) => {
                           methods.setValue(`items.${index}.modelNumber`, val, { shouldValidate: true });
                         }}
-                        onSelect={(product) => {
-                          const { setValue } = methods;
-                          // Auto-fill all fields from the selected product
-                          setValue(`items.${index}.modelNumber`, product.modelNumber, { shouldValidate: true });
-                          if (!watch(`items.${index}.mrp`)) setValue(`items.${index}.mrp`, Number(product.mrp) || '');
-                          if (!watch(`items.${index}.purchasePrice`)) setValue(`items.${index}.purchasePrice`, Number(product.purchasePrice) || '');
-                          if (!watch(`items.${index}.sellingPrice`)) setValue(`items.${index}.sellingPrice`, Number(product.sellingPrice) || '');
-                          if (!watch(`items.${index}.color`) && product.color) setValue(`items.${index}.color`, product.color);
-                          if (!watch(`items.${index}.warrantyMonths`) && product.warrantyMonths) setValue(`items.${index}.warrantyMonths`, product.warrantyMonths);
-
-                          // Auto-fill dynamic attributes (brand, capacity, starRating, etc.)
-                          // Must set each key individually so DynamicAttributeFields registered fields update
-                          if (product.dynamicAttributes && typeof product.dynamicAttributes === 'object') {
-                            const dynAttrs = product.dynamicAttributes as Record<string, unknown>;
-                            for (const [key, val] of Object.entries(dynAttrs)) {
-                              if (val !== undefined && val !== null && val !== '') {
-                                const currentVal = watch(`items.${index}.dynamicAttributes.${key}`);
-                                if (!currentVal && currentVal !== 0) {
-                                  setValue(`items.${index}.dynamicAttributes.${key}`, val);
-                                }
-                              }
-                            }
-                          }
-                        }}
+                        onSelect={(product) => applyModelToItem(index, product)}
                         placeholder="Type model number to search..."
                         error={!!errors.items?.[index]?.modelNumber}
                       />
