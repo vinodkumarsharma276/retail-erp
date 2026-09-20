@@ -41,12 +41,15 @@ interface Crumb {
   path: string;
 }
 
-export function Breadcrumbs() {
+export function Breadcrumbs({ className }: { className?: string } = {}) {
   const { pathname } = useLocation();
 
   const segments = pathname.split('/').filter(Boolean);
 
   if (segments.length === 0) return null;
+
+  // A single crumb just repeats the page title that sits directly below it.
+  if (segments.length === 1) return null;
 
   const crumbs: Crumb[] = segments.map((seg, idx) => {
     // If this segment is a UUID, replace it with a meaningful label
@@ -82,7 +85,10 @@ export function Breadcrumbs() {
   }).filter(Boolean);
 
   return (
-    <nav aria-label="Breadcrumb" className="flex items-center gap-1 text-sm text-muted-foreground mb-4">
+    <nav
+      aria-label="Breadcrumb"
+      className={cn('flex items-center gap-1 text-xs text-muted-foreground', className)}
+    >
       <Link
         to="/"
         className="flex items-center hover:text-foreground transition-colors"
@@ -93,7 +99,7 @@ export function Breadcrumbs() {
         const isLast = idx === crumbs.length - 1;
         return (
           <span key={crumb.path} className="flex items-center gap-1">
-            <ChevronRight className="h-3.5 w-3.5" />
+            <ChevronRight className="h-3 w-3" />
             {isLast ? (
               <span className={cn('font-medium text-foreground')}>
                 {crumb.label}

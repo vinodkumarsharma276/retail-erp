@@ -148,7 +148,7 @@ export function ExpenseFormPage() {
         >
           <ArrowLeft className="h-5 w-5" />
         </button>
-        <h1 className="text-2xl font-semibold">
+        <h1 className="text-display">
           {isEditMode ? 'Edit Expense' : 'Add Expense'}
         </h1>
       </div>

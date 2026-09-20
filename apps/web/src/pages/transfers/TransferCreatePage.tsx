@@ -163,7 +163,7 @@ export function TransferCreatePage() {
         >
           <ArrowLeft className="h-5 w-5" />
         </button>
-        <h1 className="text-2xl font-semibold">New Transfer</h1>
+        <h1 className="text-display">New Transfer</h1>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">

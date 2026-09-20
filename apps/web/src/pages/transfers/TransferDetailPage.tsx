@@ -108,7 +108,7 @@ export function TransferDetailPage() {
             <ArrowLeft className="h-5 w-5" />
           </button>
           <div>
-            <h1 className="text-2xl font-semibold">
+            <h1 className="text-display">
               Transfer #{transfer.id.slice(0, 8).toUpperCase()}
             </h1>
             <div className="flex items-center gap-2 mt-1">

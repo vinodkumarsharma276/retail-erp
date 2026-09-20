@@ -50,7 +50,7 @@ export function SettingsPage() {
     <div>
       {/* Page header */}
       <div className="mb-6">
-        <h1 className="text-2xl font-semibold">Settings</h1>
+        <h1 className="text-display">Settings</h1>
         <p className="text-sm text-muted-foreground mt-1">
           Configure forms, categories, and system settings.
         </p>

@@ -6,6 +6,8 @@ import {
   X,
   Search,
 } from 'lucide-react';
+import { PageHeader } from '../../components/PageHeader';
+import { Button } from '../../components/ui/button';
 import { cn } from '../../lib/utils';
 import { usePurchasesQuery } from '../../hooks/usePurchases';
 import { useDistributorsQuery } from '../../hooks/useDistributors';
@@ -214,37 +216,22 @@ export function PurchaseListPage() {
 
   return (
     <div>
-      {/* Page header */}
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-semibold">Purchases</h1>
-        {canCreate && (
-          allShopsMode ? (
-            <button
-              type="button"
-              disabled
-              title="Switch to a single shop to record a purchase"
-              className={cn(
-                'flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground',
-                'opacity-50 cursor-not-allowed',
-              )}
-            >
-              <Plus className="h-4 w-4" />
-              New Purchase
-            </button>
+      <PageHeader
+        title="Purchases"
+        description="Invoices from distributors, and what you still owe on them."
+        actions={
+          canCreate &&
+          (allShopsMode ? (
+            <Button disabled title="Switch to a single shop to record a purchase" icon={<Plus className="h-3.5 w-3.5" />}>
+              New purchase
+            </Button>
           ) : (
-            <Link
-              to="/purchases/new"
-              className={cn(
-                'flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground',
-                'hover:bg-primary/90 transition-colors',
-              )}
-            >
-              <Plus className="h-4 w-4" />
-              New Purchase
+            <Link to="/purchases/new">
+              <Button icon={<Plus className="h-3.5 w-3.5" />}>New purchase</Button>
             </Link>
-          )
-        )}
-      </div>
+          ))
+        }
+      />
 
       {/* Filters row */}
       <div className="flex flex-wrap items-end gap-4 mb-6">

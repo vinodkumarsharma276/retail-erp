@@ -70,7 +70,7 @@ export function CustomerDetailPage() {
             <ArrowLeft className="h-5 w-5" />
           </button>
           <div>
-            <h1 className="text-2xl font-semibold">{customer.name}</h1>
+            <h1 className="text-display">{customer.name}</h1>
             <div className="flex items-center gap-2 mt-1">
               <span className="text-sm text-muted-foreground font-mono">
                 {customer.customerCode}

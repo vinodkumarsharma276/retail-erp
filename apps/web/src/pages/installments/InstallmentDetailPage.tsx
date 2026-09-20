@@ -234,7 +234,7 @@ export function InstallmentDetailPage() {
           <ArrowLeft className="h-5 w-5" />
         </button>
         <div>
-          <h1 className="text-2xl font-semibold">Installment Schedule</h1>
+          <h1 className="text-display">Installment Schedule</h1>
           <div className="flex items-center gap-2 mt-1">
             <StatusBadge status={schedule.status} />
             <span className="text-sm text-muted-foreground">

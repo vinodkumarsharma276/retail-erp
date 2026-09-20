@@ -126,7 +126,7 @@ export function DataTable<T>({
   // Skeleton rows when loading
   if (isLoading) {
     return (
-      <div className="rounded-lg border bg-card">
+      <div className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
         <div className="divide-y md:hidden">
           {Array.from({ length: 4 }).map((_, rowIdx) => (
             <div key={rowIdx} className="p-3">
@@ -141,12 +141,12 @@ export function DataTable<T>({
         <div className="hidden overflow-x-auto md:block">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b bg-muted/50">
+              <tr className="border-b border-border bg-muted/40">
                 {columns.map((col) => (
                   <th
                     key={col.key}
                     className={cn(
-                      'px-4 py-3 text-left font-medium text-muted-foreground',
+                      'h-9 whitespace-nowrap px-3 text-left align-middle text-overline',
                       col.align === 'center' && 'text-center',
                       col.align === 'right' && 'text-right',
                     )}
@@ -160,7 +160,7 @@ export function DataTable<T>({
               {Array.from({ length: 5 }).map((_, rowIdx) => (
                 <tr key={rowIdx} className="border-b last:border-0">
                   {columns.map((col) => (
-                    <td key={col.key} className="px-4 py-3">
+                    <td key={col.key} className="px-3 py-2">
                       <div className="h-4 w-3/4 animate-pulse rounded bg-muted" />
                     </td>
                   ))}
@@ -176,16 +176,16 @@ export function DataTable<T>({
   // Empty state
   if (data.length === 0) {
     return (
-      <div className="rounded-lg border bg-card">
+      <div className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
         <div className="hidden overflow-x-auto md:block">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b bg-muted/50">
+              <tr className="border-b border-border bg-muted/40">
                 {columns.map((col) => (
                   <th
                     key={col.key}
                     className={cn(
-                      'px-4 py-3 text-left font-medium text-muted-foreground',
+                      'h-9 whitespace-nowrap px-3 text-left align-middle text-overline',
                       col.align === 'center' && 'text-center',
                       col.align === 'right' && 'text-right',
                     )}
@@ -217,7 +217,7 @@ export function DataTable<T>({
   }
 
   return (
-    <div className="rounded-lg border bg-card">
+    <div className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
       <div className="divide-y md:hidden">
         {sortedData.map((row, idx) => (
           <div
@@ -233,7 +233,7 @@ export function DataTable<T>({
             } : undefined}
             className={cn(
               'block w-full p-3 text-left transition-colors',
-              onRowClick ? 'cursor-pointer hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring' : 'cursor-default',
+              onRowClick ? 'cursor-pointer hover:bg-subtle' : 'cursor-default',
             )}
           >
             {mobileTitleColumn && (
@@ -256,7 +256,7 @@ export function DataTable<T>({
       <div className="hidden overflow-x-auto md:block">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b bg-muted/50">
+            <tr className="border-b border-border bg-muted/40">
               {columns.map((col) => {
                 const isActive = sort?.key === col.key;
                 const Icon = !isActive ? ChevronsUpDown : sort?.dir === 'asc' ? ChevronUp : ChevronDown;
@@ -264,7 +264,7 @@ export function DataTable<T>({
                   <th
                     key={col.key}
                     className={cn(
-                      'px-4 py-3 text-left font-medium text-muted-foreground',
+                      'h-9 whitespace-nowrap px-3 text-left align-middle text-overline',
                       col.align === 'center' && 'text-center',
                       col.align === 'right' && 'text-right',
                     )}
@@ -301,7 +301,7 @@ export function DataTable<T>({
                 key={rowKey ? rowKey(row, idx) : idx}
                 onClick={onRowClick ? () => onRowClick(row, idx) : undefined}
                 className={cn(
-                  'border-b last:border-0 hover:bg-muted/30 transition-colors',
+                  'border-b border-border/60 transition-colors last:border-0 hover:bg-subtle',
                   onRowClick && 'cursor-pointer',
                 )}
               >
@@ -309,7 +309,7 @@ export function DataTable<T>({
                   <td
                     key={col.key}
                     className={cn(
-                      'px-4 py-3',
+                      'px-3 py-2 align-middle',
                       col.align === 'center' && 'text-center',
                       col.align === 'right' && 'text-right',
                       col.className,

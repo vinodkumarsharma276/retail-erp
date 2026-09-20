@@ -1,73 +1,99 @@
 import { cn } from '../lib/utils';
+import { Badge, type BadgeTone } from './ui/badge';
 
-const statusStyles: Record<string, { bg: string; text: string; label: string }> = {
-  // Product statuses
-  in_stock: { bg: 'bg-green-100 dark:bg-green-900/30', text: 'text-green-700 dark:text-green-400', label: 'In Stock' },
-  sold: { bg: 'bg-red-100 dark:bg-red-900/30', text: 'text-red-700 dark:text-red-400', label: 'Sold' },
-  transferred: { bg: 'bg-blue-100 dark:bg-blue-900/30', text: 'text-blue-700 dark:text-blue-400', label: 'Transferred' },
-  returned: { bg: 'bg-yellow-100 dark:bg-yellow-900/30', text: 'text-yellow-700 dark:text-yellow-400', label: 'Returned' },
-  damaged: { bg: 'bg-gray-100 dark:bg-gray-800/50', text: 'text-gray-700 dark:text-gray-400', label: 'Damaged' },
-  // Installment statuses
-  overdue: { bg: 'bg-red-100 dark:bg-red-900/30', text: 'text-red-700 dark:text-red-400', label: 'Overdue' },
-  paid: { bg: 'bg-green-100 dark:bg-green-900/30', text: 'text-green-700 dark:text-green-400', label: 'Paid' },
-  upcoming: { bg: 'bg-blue-100 dark:bg-blue-900/30', text: 'text-blue-700 dark:text-blue-400', label: 'Upcoming' },
-  due_today: { bg: 'bg-blue-100 dark:bg-blue-900/30', text: 'text-blue-700 dark:text-blue-400', label: 'Due Today' },
-  partially_paid: { bg: 'bg-yellow-100 dark:bg-yellow-900/30', text: 'text-yellow-700 dark:text-yellow-400', label: 'Partial' },
-  rescheduled: { bg: 'bg-gray-100 dark:bg-gray-800/50', text: 'text-gray-700 dark:text-gray-400', label: 'Rescheduled' },
-  pending: { bg: 'bg-orange-100 dark:bg-orange-900/30', text: 'text-orange-700 dark:text-orange-400', label: 'Pending' },
-  partial: { bg: 'bg-yellow-100 dark:bg-yellow-900/30', text: 'text-yellow-700 dark:text-yellow-400', label: 'Partial' },
-  received: { bg: 'bg-green-100 dark:bg-green-900/30', text: 'text-green-700 dark:text-green-400', label: 'Received' },
-  // Schedule-level statuses (also used as payment status for self-finance sales)
-  active: { bg: 'bg-amber-100 dark:bg-amber-900/30', text: 'text-amber-700 dark:text-amber-400', label: 'EMI Active' },
-  completed: { bg: 'bg-green-100 dark:bg-green-900/30', text: 'text-green-700 dark:text-green-400', label: 'Completed' },
-  defaulted: { bg: 'bg-red-100 dark:bg-red-900/30', text: 'text-red-700 dark:text-red-400', label: 'Defaulted' },
-  // Sale type statuses
-  full_payment: { bg: 'bg-green-100 dark:bg-green-900/30', text: 'text-green-700 dark:text-green-400', label: 'Full Payment' },
-  partial_with_promise: { bg: 'bg-orange-100 dark:bg-orange-900/30', text: 'text-orange-700 dark:text-orange-400', label: 'Partial + Promise' },
-  self_finance: { bg: 'bg-blue-100 dark:bg-blue-900/30', text: 'text-blue-700 dark:text-blue-400', label: 'Self Finance' },
-  company_finance: { bg: 'bg-purple-100 dark:bg-purple-900/30', text: 'text-purple-700 dark:text-purple-400', label: 'Company Finance' },
-  // Transfer statuses
-  initiated: { bg: 'bg-blue-100 dark:bg-blue-900/30', text: 'text-blue-700 dark:text-blue-400', label: 'Initiated' },
-  in_transit: { bg: 'bg-amber-100 dark:bg-amber-900/30', text: 'text-amber-700 dark:text-amber-400', label: 'In Transit' },
-  cancelled: { bg: 'bg-gray-100 dark:bg-gray-800/50', text: 'text-gray-700 dark:text-gray-400', label: 'Cancelled' },
-  // Reconciliation statuses
-  unmatched: { bg: 'bg-red-100 dark:bg-red-900/30', text: 'text-red-700 dark:text-red-400', label: 'Unmatched' },
-  matched: { bg: 'bg-green-100 dark:bg-green-900/30', text: 'text-green-700 dark:text-green-400', label: 'Matched' },
-  manual_match: { bg: 'bg-blue-100 dark:bg-blue-900/30', text: 'text-blue-700 dark:text-blue-400', label: 'Manual Match' },
-  disputed: { bg: 'bg-amber-100 dark:bg-amber-900/30', text: 'text-amber-700 dark:text-amber-400', label: 'Disputed' },
-  // Expense categories
-  rent: { bg: 'bg-purple-100 dark:bg-purple-900/30', text: 'text-purple-700 dark:text-purple-400', label: 'Rent' },
-  electricity: { bg: 'bg-yellow-100 dark:bg-yellow-900/30', text: 'text-yellow-700 dark:text-yellow-400', label: 'Electricity' },
-  salary: { bg: 'bg-blue-100 dark:bg-blue-900/30', text: 'text-blue-700 dark:text-blue-400', label: 'Salary' },
-  transport: { bg: 'bg-orange-100 dark:bg-orange-900/30', text: 'text-orange-700 dark:text-orange-400', label: 'Transport' },
-  maintenance: { bg: 'bg-gray-100 dark:bg-gray-800/50', text: 'text-gray-700 dark:text-gray-400', label: 'Maintenance' },
-  marketing: { bg: 'bg-pink-100 dark:bg-pink-900/30', text: 'text-pink-700 dark:text-pink-400', label: 'Marketing' },
-  purchase: { bg: 'bg-indigo-100 dark:bg-indigo-900/30', text: 'text-indigo-700 dark:text-indigo-400', label: 'Purchase' },
-  misc: { bg: 'bg-slate-100 dark:bg-slate-800/50', text: 'text-slate-700 dark:text-slate-400', label: 'Misc' },
+/**
+ * Maps every domain status in the app onto one of six semantic tones.
+ *
+ * The rule is "what should the reader DO about it?", not "what category is
+ * this?". So `overdue` and `unmatched` are both danger even though they come
+ * from unrelated modules, while expense categories — which carry no urgency at
+ * all — are uniformly neutral instead of each claiming their own colour.
+ */
+const statusMeta: Record<string, { tone: BadgeTone; label: string }> = {
+  // --- Product lifecycle ---
+  in_stock: { tone: 'success', label: 'In Stock' },
+  sold: { tone: 'neutral', label: 'Sold' },
+  transferred: { tone: 'info', label: 'Transferred' },
+  returned: { tone: 'warning', label: 'Returned' },
+  damaged: { tone: 'danger', label: 'Damaged' },
+
+  // --- Installment lifecycle ---
+  upcoming: { tone: 'neutral', label: 'Upcoming' },
+  due_today: { tone: 'info', label: 'Due Today' },
+  paid: { tone: 'success', label: 'Paid' },
+  partially_paid: { tone: 'warning', label: 'Partial' },
+  overdue: { tone: 'danger', label: 'Overdue' },
+  rescheduled: { tone: 'neutral', label: 'Rescheduled' },
+
+  // --- Schedule / finance payment ---
+  active: { tone: 'info', label: 'EMI Active' },
+  completed: { tone: 'success', label: 'Completed' },
+  defaulted: { tone: 'danger', label: 'Defaulted' },
+  pending: { tone: 'warning', label: 'Pending' },
+  partial: { tone: 'warning', label: 'Partial' },
+  received: { tone: 'success', label: 'Received' },
+
+  // --- Sale types ---
+  // Descriptive, not urgent: a single tone keeps the Sales table calm and
+  // leaves colour free to mean "needs attention" in the status column.
+  full_payment: { tone: 'neutral', label: 'Full Payment' },
+  partial_with_promise: { tone: 'neutral', label: 'Partial + Promise' },
+  self_finance: { tone: 'neutral', label: 'Self Finance' },
+  company_finance: { tone: 'neutral', label: 'Company Finance' },
+
+  // --- Sale approval ---
+  approved: { tone: 'success', label: 'Approved' },
+
+  // --- Transfers ---
+  initiated: { tone: 'info', label: 'Initiated' },
+  in_transit: { tone: 'warning', label: 'In Transit' },
+  cancelled: { tone: 'neutral', label: 'Cancelled' },
+
+  // --- Reconciliation ---
+  unmatched: { tone: 'danger', label: 'Unmatched' },
+  matched: { tone: 'success', label: 'Matched' },
+  manual_match: { tone: 'info', label: 'Manual Match' },
+  disputed: { tone: 'warning', label: 'Disputed' },
+
+  // --- Promise lifecycle (Pattern B) ---
+  kept: { tone: 'success', label: 'Kept' },
+  partially_kept: { tone: 'warning', label: 'Partially Kept' },
+  broken: { tone: 'danger', label: 'Broken' },
+
+  // --- Expense categories: classification only, never urgency ---
+  rent: { tone: 'neutral', label: 'Rent' },
+  electricity: { tone: 'neutral', label: 'Electricity' },
+  salary: { tone: 'neutral', label: 'Salary' },
+  transport: { tone: 'neutral', label: 'Transport' },
+  maintenance: { tone: 'neutral', label: 'Maintenance' },
+  marketing: { tone: 'neutral', label: 'Marketing' },
+  purchase: { tone: 'neutral', label: 'Purchase' },
+  misc: { tone: 'neutral', label: 'Misc' },
 };
+
+/** Tones that earn a leading dot, so urgency is visible without reading. */
+const DOTTED_TONES: BadgeTone[] = ['danger', 'warning', 'success'];
 
 interface StatusBadgeProps {
   status: string;
   className?: string;
+  /** Force the dot on or off, overriding the tone-based default. */
+  dot?: boolean;
 }
 
-export function StatusBadge({ status, className }: StatusBadgeProps) {
-  const style = statusStyles[status] ?? {
-    bg: 'bg-gray-100 dark:bg-gray-800/50',
-    text: 'text-gray-700 dark:text-gray-400',
+export function StatusBadge({ status, className, dot }: StatusBadgeProps) {
+  const meta = statusMeta[status] ?? {
+    tone: 'neutral' as BadgeTone,
     label: status.replace(/_/g, ' '),
   };
 
   return (
-    <span
-      className={cn(
-        'inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium capitalize',
-        style.bg,
-        style.text,
-        className,
-      )}
+    <Badge
+      tone={meta.tone}
+      dot={dot ?? DOTTED_TONES.includes(meta.tone)}
+      className={cn('capitalize', className)}
     >
-      {style.label}
-    </span>
+      {meta.label}
+    </Badge>
   );
 }

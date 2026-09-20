@@ -1,17 +1,41 @@
 import * as React from 'react';
 import { cn } from '../../lib/utils';
 
-export const Input = React.forwardRef<HTMLInputElement, React.ComponentProps<'input'>>(
-  ({ className, type, ...props }, ref) => (
-    <input
-      ref={ref}
-      type={type}
-      className={cn(
-        'flex h-9 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50',
-        className,
-      )}
-      {...props}
-    />
-  ),
+/** Shared field chrome so inputs, selects and textareas stay identical. */
+export const fieldBase =
+  'w-full rounded-md border border-input bg-card text-sm text-foreground shadow-xs transition-colors ' +
+  'placeholder:text-muted-foreground/70 ' +
+  'hover:border-border-strong ' +
+  'focus:border-primary focus:outline-none focus:ring-2 focus:ring-ring/25 ' +
+  'disabled:cursor-not-allowed disabled:bg-muted disabled:opacity-60 ' +
+  'aria-[invalid=true]:border-destructive aria-[invalid=true]:focus:ring-destructive/25';
+
+export interface InputProps extends React.ComponentProps<'input'> {
+  /** Icon rendered inside the field's leading edge. */
+  icon?: React.ReactNode;
+}
+
+export const Input = React.forwardRef<HTMLInputElement, InputProps>(
+  ({ className, type, icon, ...props }, ref) => {
+    const field = (
+      <input
+        ref={ref}
+        type={type}
+        className={cn(fieldBase, 'h-9 px-3 py-1.5', icon && 'pl-9', className)}
+        {...props}
+      />
+    );
+
+    if (!icon) return field;
+
+    return (
+      <div className="relative">
+        <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
+          {icon}
+        </span>
+        {field}
+      </div>
+    );
+  },
 );
 Input.displayName = 'Input';

@@ -1,42 +1,91 @@
 import * as React from 'react';
+import { Loader2 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
-type ButtonVariant = 'default' | 'secondary' | 'outline' | 'ghost' | 'destructive';
-type ButtonSize = 'sm' | 'md' | 'lg' | 'icon';
+/**
+ * `solid` variants carry the action's weight; `soft` variants are the tinted
+ * equivalents used for row-level and secondary actions, where a wall of solid
+ * colour would fight with the data. Every page should have exactly one
+ * `default` button visible at a time.
+ */
+export type ButtonVariant =
+  | 'default'
+  | 'secondary'
+  | 'outline'
+  | 'ghost'
+  | 'destructive'
+  | 'destructive-soft'
+  | 'success-soft'
+  | 'link';
+
+export type ButtonSize = 'xs' | 'sm' | 'md' | 'lg' | 'icon' | 'icon-sm';
 
 const variantClasses: Record<ButtonVariant, string> = {
-  default: 'bg-primary text-primary-foreground hover:bg-primary/90',
-  secondary: 'bg-secondary text-secondary-foreground hover:bg-secondary/80',
-  outline: 'border border-input bg-background hover:bg-accent hover:text-accent-foreground',
-  ghost: 'hover:bg-accent hover:text-accent-foreground',
-  destructive: 'bg-destructive text-destructive-foreground hover:bg-destructive/90',
+  default: 'bg-primary text-primary-foreground shadow-xs hover:bg-primary-hover active:bg-primary-hover',
+  secondary: 'bg-secondary text-secondary-foreground hover:bg-muted',
+  outline:
+    'border border-border-strong/70 bg-card text-foreground shadow-xs hover:bg-muted hover:border-border-strong',
+  ghost: 'text-muted-foreground hover:bg-muted hover:text-foreground',
+  destructive: 'bg-destructive text-destructive-foreground shadow-xs hover:bg-destructive/90',
+  'destructive-soft': 'bg-destructive-muted text-destructive hover:bg-destructive/15',
+  'success-soft': 'bg-success-muted text-success hover:bg-success/15',
+  link: 'text-primary underline-offset-4 hover:underline',
 };
 
 const sizeClasses: Record<ButtonSize, string> = {
-  sm: 'h-8 rounded-md px-3 text-xs',
-  md: 'h-9 rounded-md px-3 text-sm',
-  lg: 'h-10 rounded-md px-4 text-sm',
+  xs: 'h-7 gap-1.5 rounded-md px-2 text-xs',
+  sm: 'h-8 gap-1.5 rounded-md px-2.5 text-xs',
+  md: 'h-9 gap-2 rounded-md px-3 text-sm',
+  lg: 'h-10 gap-2 rounded-md px-4 text-sm',
   icon: 'h-9 w-9 rounded-md p-0',
+  'icon-sm': 'h-7 w-7 rounded-md p-0',
 };
 
 export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant;
   size?: ButtonSize;
+  /** Shows a spinner and blocks interaction without changing the button's width. */
+  loading?: boolean;
+  /** Icon rendered before the label. Omitted while `loading`. */
+  icon?: React.ReactNode;
 }
 
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant = 'default', size = 'md', type = 'button', ...props }, ref) => (
+  (
+    {
+      className,
+      variant = 'default',
+      size = 'md',
+      type = 'button',
+      loading = false,
+      icon,
+      disabled,
+      children,
+      ...props
+    },
+    ref,
+  ) => (
     <button
       ref={ref}
       type={type}
+      disabled={disabled || loading}
+      aria-busy={loading || undefined}
       className={cn(
-        'inline-flex items-center justify-center gap-2 whitespace-nowrap font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50',
+        'inline-flex shrink-0 items-center justify-center whitespace-nowrap font-medium transition-colors',
+        'disabled:pointer-events-none disabled:opacity-50',
         variantClasses[variant],
         sizeClasses[size],
         className,
       )}
       {...props}
-    />
+    >
+      {loading ? (
+        <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+      ) : (
+        icon
+      )}
+      {children}
+    </button>
   ),
 );
 Button.displayName = 'Button';

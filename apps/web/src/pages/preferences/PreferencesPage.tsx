@@ -56,7 +56,7 @@ export default function PreferencesPage() {
   return (
     <div className="container mx-auto px-4 py-6 max-w-3xl">
       <div className="mb-6">
-        <h1 className="text-2xl font-semibold">User Preferences</h1>
+        <h1 className="text-display">User Preferences</h1>
         <p className="text-sm text-muted-foreground mt-1">
           Personalize how dates, currency and the interface appear for your account.
         </p>

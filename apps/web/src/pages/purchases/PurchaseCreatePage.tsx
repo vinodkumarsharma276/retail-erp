@@ -526,7 +526,7 @@ export function PurchaseCreatePage() {
         >
           <ArrowLeft className="h-5 w-5" />
         </button>
-        <h1 className="text-2xl font-semibold">New Purchase</h1>
+        <h1 className="text-display">New Purchase</h1>
         </div>
         <button
           type="button"

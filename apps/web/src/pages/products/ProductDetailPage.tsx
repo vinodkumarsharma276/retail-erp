@@ -88,7 +88,7 @@ export function ProductDetailPage() {
             <ArrowLeft className="h-5 w-5" />
           </button>
           <div>
-            <h1 className="text-2xl font-semibold">
+            <h1 className="text-display">
               {product.brand} {product.modelNumber}
             </h1>
             <div className="flex items-center gap-2 mt-1">

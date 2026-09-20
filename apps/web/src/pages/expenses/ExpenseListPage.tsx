@@ -12,6 +12,8 @@ import {
   Receipt,
   Check,
 } from 'lucide-react';
+import { PageHeader } from '../../components/PageHeader';
+import { Button } from '../../components/ui/button';
 import { cn } from '../../lib/utils';
 import {
   useExpensesQuery,
@@ -262,35 +264,21 @@ export function ExpenseListPage() {
 
   return (
     <div>
-      {/* Page header */}
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-semibold">Expenses</h1>
-        {allShopsMode ? (
-          <button
-            type="button"
-            disabled
-            title="Switch to a single shop to add an expense"
-            className={cn(
-              'flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground',
-              'opacity-50 cursor-not-allowed',
-            )}
-          >
-            <Plus className="h-4 w-4" />
-            Add Expense
-          </button>
-        ) : (
-          <Link
-            to="/expenses/new"
-            className={cn(
-              'flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground',
-              'hover:bg-primary/90 transition-colors',
-            )}
-          >
-            <Plus className="h-4 w-4" />
-            Add Expense
-          </Link>
-        )}
-      </div>
+      <PageHeader
+        title="Expenses"
+        description="Shop running costs, with GST-claimable amounts tracked separately."
+        actions={
+          allShopsMode ? (
+            <Button disabled title="Switch to a single shop to add an expense" icon={<Plus className="h-3.5 w-3.5" />}>
+              Add expense
+            </Button>
+          ) : (
+            <Link to="/expenses/new">
+              <Button icon={<Plus className="h-3.5 w-3.5" />}>Add expense</Button>
+            </Link>
+          )
+        }
+      />
 
       {/* Summary cards */}
       {summary && (

@@ -32,7 +32,7 @@ export function TenantListPage() {
       {/* Header */}
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold">Tenants</h1>
+          <h1 className="text-display">Tenants</h1>
           <p className="text-sm text-muted-foreground mt-1">
             Customer organisations onboarded onto the platform.
           </p>

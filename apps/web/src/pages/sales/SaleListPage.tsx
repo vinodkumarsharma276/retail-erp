@@ -7,6 +7,12 @@ import { useSalesQuery, usePendingApprovalCountQuery, useApproveSaleMutation } f
 import type { SaleListItem } from '../../hooks/useSales';
 import { DataTable } from '../../components/DataTable';
 import type { Column, PaginationState } from '../../components/DataTable';
+import { PageHeader } from '../../components/PageHeader';
+import { FilterBar, FilterField } from '../../components/FilterBar';
+import { Button } from '../../components/ui/button';
+import { Input } from '../../components/ui/input';
+import { Select } from '../../components/ui/select';
+import { Tabs } from '../../components/ui/tabs';
 import { StatusBadge } from '../../components/StatusBadge';
 import { CompletionBadge } from '../../components/CompletionBadge';
 import { formatINR, formatDateIN, getCurrentFinancialYearRange, getLastFinancialYearRange } from '@retailerp/shared-utils';
@@ -132,6 +138,27 @@ function SaleListPageInner() {
     setSearchParams({}, { replace: true });
   };
 
+  // Which financial-year preset the current date range corresponds to. Drives
+  // the segmented control; `custom` only appears once the user has picked an
+  // arbitrary range, so the control never shows a phantom third option.
+  const currentFyRange = getCurrentFinancialYearRange();
+  const lastFyRange = getLastFinancialYearRange();
+  const fyPreset: 'current' | 'last' | 'custom' =
+    dateFrom === currentFyRange.dateFrom && dateTo === currentFyRange.dateTo
+      ? 'current'
+      : dateFrom === lastFyRange.dateFrom && dateTo === lastFyRange.dateTo
+        ? 'last'
+        : 'custom';
+
+  // Search is shown separately in the toolbar, so it isn't counted here —
+  // the badge is about filters hidden behind the disclosure.
+  const activeFilterCount = [
+    !!saleType,
+    dateFrom !== defaultDateFrom || dateTo !== defaultDateTo,
+    maxProfitPct !== undefined,
+    !!approvalFilter,
+  ].filter(Boolean).length;
+
   // ------ Resolve payment status ------
   const getPaymentStatus = (sale: SaleListItem): string => {
     switch (sale.saleType) {
@@ -207,12 +234,12 @@ function SaleListPageInner() {
         can('sales.detail') ? (
           <button
             onClick={() => navigate(`/sales/${row.id}`)}
-            className="font-mono text-xs font-medium text-primary hover:underline text-left"
+            className="whitespace-nowrap text-left font-mono text-xs font-medium text-primary hover:underline"
           >
             {row.saleNumber}
           </button>
         ) : (
-          <span className="font-mono text-xs font-medium text-left">{row.saleNumber}</span>
+          <span className="whitespace-nowrap font-mono text-xs font-medium">{row.saleNumber}</span>
         )
       ),
     },
@@ -222,7 +249,7 @@ function SaleListPageInner() {
       sortable: true,
       sortAccessor: (row) => row.ledgerNumber,
       render: (row) => (
-        <span className="font-mono text-xs">{row.ledgerNumber}</span>
+        <span className="whitespace-nowrap font-mono text-xs">{row.ledgerNumber}</span>
       ),
     },
     {
@@ -244,7 +271,7 @@ function SaleListPageInner() {
         const c = (row as any).customer;
         return (
           <div>
-            <p className="text-sm font-medium">{c?.name || row.customerName || '-'}</p>
+            <p className="max-w-[11rem] truncate text-sm font-medium">{c?.name || row.customerName || "-"}</p>
             {(c?.customerCode || row.customerCode) && (
               <p className="text-xs text-muted-foreground">{c?.customerCode || row.customerCode}</p>
             )}
@@ -311,7 +338,7 @@ function SaleListPageInner() {
       render: (row) => {
         const creator = (row as any).creator;
         return (
-          <span className="text-xs text-muted-foreground">{creator?.fullName || creator?.username || '-'}</span>
+          <span className="block max-w-[9rem] truncate text-xs text-muted-foreground" title={creator?.fullName || creator?.username || undefined}>{creator?.fullName || creator?.username || "-"}</span>
         );
       },
     },
@@ -399,231 +426,129 @@ function SaleListPageInner() {
 
   return (
     <div>
-      {/* Page header */}
-      <div className="flex items-center justify-between gap-3 mb-6">
-        <h1 className="text-2xl font-semibold">Sales</h1>
-        <button
-          onClick={() => navigate('/sales/scan-register')}
-          className={cn(
-            'flex items-center gap-2 rounded-md border px-4 py-2.5 text-sm font-medium',
-            'hover:bg-muted transition-colors',
-          )}
-        >
-          <ScanLine className="h-4 w-4" />
-          Scan Register Page
-        </button>
-        {/* Hidden for now — sales initiated from Products page "Sell" button */}
-        {/* <Link
-          to="/sales/new"
-          className={cn(
-            'flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground',
-            'hover:bg-primary/90 transition-colors',
-          )}
-        >
-          <Plus className="h-4 w-4" />
-          New Sale
-        </Link> */}
-      </div>
-
-      {/* Filters row */}
-      <div className="flex flex-wrap items-end gap-4 mb-6">
-        {/* Customer / product search */}
-        <div className="min-w-[240px] flex-1 max-w-sm">
-          <label className="block text-xs font-medium text-muted-foreground mb-1">
-            Search
-          </label>
-          <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <input
-              type="text"
-              value={customerSearch}
-              onChange={(e) => {
-                updateFilters({ customerSearch: e.target.value, page: '1' });
-              }}
-              placeholder="Ledger #, name, phone, model, or serial (min 2 chars)..."
-              className={cn(
-                'w-full rounded-md border bg-background pl-9 pr-8 py-2 text-sm',
-                'placeholder:text-muted-foreground',
-                'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-              )}
-            />
-            {customerSearch && (
-              <button
-                onClick={() => {
-                  updateFilters({ customerSearch: '', page: '1' });
-                }}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+      <PageHeader
+        title="Sales"
+        description="Every recorded sale across full-payment, installment and finance-company deals."
+        actions={
+          <>
+            {/*
+             * Approval is a review queue, not a filter. It used to sit in the
+             * filter strip between two financial-year buttons, which made a
+             * state-changing workflow look like a harmless view toggle.
+             */}
+            {canApprove && (
+              <Button
+                variant={approvalFilter === 'pending' ? 'secondary' : 'outline'}
+                onClick={() =>
+                  updateFilters({
+                    approvalStatus: approvalFilter === 'pending' ? '' : 'pending',
+                    page: '1',
+                  })
+                }
+                icon={<ShieldCheck className="h-3.5 w-3.5" />}
+                title="Show sales pending approval"
               >
-                <X className="h-4 w-4" />
-              </button>
+                Pending approval
+                {pendingCount > 0 && (
+                  <span className="tabular ml-0.5 rounded bg-warning px-1.5 text-[0.6875rem] font-semibold text-warning-foreground">
+                    {pendingCount > 99 ? '99+' : pendingCount}
+                  </span>
+                )}
+              </Button>
             )}
-          </div>
-        </div>
-
-        {/* Sale type filter */}
-        <div className="min-w-[180px]">
-          <label className="block text-xs font-medium text-muted-foreground mb-1">
-            Sale Type
-          </label>
-          <div className="relative">
-            <select
-              value={saleType}
-              onChange={(e) => {
-                updateFilters({ saleType: e.target.value, page: '1' });
-              }}
-              className={cn(
-                'w-full appearance-none rounded-md border bg-background px-3 py-2 pr-8 text-sm',
-                'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-              )}
+            <Button
+              variant="outline"
+              onClick={() => navigate('/sales/scan-register')}
+              icon={<ScanLine className="h-3.5 w-3.5" />}
             >
-              {SALE_TYPE_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-            <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          </div>
-        </div>
+              Scan register
+            </Button>
+          </>
+        }
+      />
 
-        {/* Date from */}
-        <div className="min-w-[160px]">
-          <label className="block text-xs font-medium text-muted-foreground mb-1">
-            From
-          </label>
-          <input
-            type="date"
-            value={dateFrom}
-            disabled={isSearching}
-            onChange={(e) => {
-              updateFilters({ dateFrom: e.target.value, page: '1' });
-            }}
-            className={cn(
-              'w-full rounded-md border bg-background px-3 py-2 text-sm',
-              'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-              'disabled:opacity-50 disabled:cursor-not-allowed',
-            )}
-          />
-        </div>
-
-        {/* Date to */}
-        <div className="min-w-[160px]">
-          <label className="block text-xs font-medium text-muted-foreground mb-1">
-            To
-          </label>
-          <input
-            type="date"
-            value={dateTo}
-            disabled={isSearching}
-            max={defaultDateTo}
-            onChange={(e) => {
-              updateFilters({ dateTo: e.target.value, page: '1' });
-            }}
-            className={cn(
-              'w-full rounded-md border bg-background px-3 py-2 text-sm',
-              'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-              'disabled:opacity-50 disabled:cursor-not-allowed',
-            )}
-          />
-        </div>
-
-        {/* Net-profit % filter (only if user can see profit) */}
-        {canSeeProfit && (
-          <div className="min-w-[170px]">
-            <label className="block text-xs font-medium text-muted-foreground mb-1">
-              Net Profit %
-            </label>
-            <div className="relative">
-              <select
-                value={maxProfitPctRaw}
-                onChange={(e) => {
-                  updateFilters({ maxProfitPct: e.target.value, page: '1' });
-                }}
-                className={cn(
-                  'w-full appearance-none rounded-md border bg-background px-3 py-2 pr-8 text-sm',
-                  'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                )}
-              >
-                <option value="">All</option>
-                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 18, 20].map((t) => (
-                  <option key={t} value={t}>
-                    ≤ {t}%
-                  </option>
-                ))}
-              </select>
-              <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            </div>
-          </div>
-        )}
-
-        <button
-          onClick={() => {
-            const { dateFrom: fyStart, dateTo: fyEnd } = getCurrentFinancialYearRange();
-            updateFilters({ dateFrom: fyStart, dateTo: fyEnd, customerSearch: '', page: '1' });
-          }}
-          className="rounded-md border px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-        >
-          Current Financial Year
-        </button>
-
-        <button
-          onClick={() => {
-            const { dateFrom: fyStart, dateTo: fyEnd } = getLastFinancialYearRange();
-            updateFilters({ dateFrom: fyStart, dateTo: fyEnd, customerSearch: '', page: '1' });
-          }}
-          className="rounded-md border px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-        >
-          Last Financial Year
-        </button>
-
-        {/* Approve button — gated by `sales.approve` permission. The badge
-            subscript shows the count of sales currently pending approval
-            (scoped to the caller's accessible shops). Clicking the button
-            applies the approval filter so the user sees only pending sales. */}
-        {canApprove && (
-          <button
-            type="button"
-            onClick={() =>
+      <FilterBar
+        search={customerSearch}
+        onSearchChange={(value) => updateFilters({ customerSearch: value, page: '1' })}
+        searchPlaceholder="Ledger #, name, phone, model or serial (min 2 chars)…"
+        activeCount={activeFilterCount}
+        onClear={hasFilters ? clearFilters : undefined}
+        trailing={
+          <Tabs
+            aria-label="Date range preset"
+            value={fyPreset}
+            onChange={(value) => {
+              if (value === 'custom') return;
+              const range =
+                value === 'current'
+                  ? getCurrentFinancialYearRange()
+                  : getLastFinancialYearRange();
               updateFilters({
-                approvalStatus: approvalFilter === 'pending' ? '' : 'pending',
+                dateFrom: range.dateFrom,
+                dateTo: range.dateTo,
+                customerSearch: '',
                 page: '1',
-              })
-            }
-            className={cn(
-              'relative rounded-md border px-3 py-2 text-sm font-medium transition-colors',
-              approvalFilter === 'pending'
-                ? 'bg-amber-100 border-amber-300 text-amber-700 dark:bg-amber-900/30 dark:border-amber-700 dark:text-amber-300'
-                : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+              });
+            }}
+            items={[
+              { value: 'current', label: 'This FY' },
+              { value: 'last', label: 'Last FY' },
+              ...(fyPreset === 'custom'
+                ? [{ value: 'custom' as const, label: 'Custom' }]
+                : []),
+            ]}
+          />
+        }
+        advanced={
+          <>
+            <FilterField label="From">
+              <Input
+                type="date"
+                value={dateFrom}
+                disabled={isSearching}
+                onChange={(e) => updateFilters({ dateFrom: e.target.value, page: '1' })}
+              />
+            </FilterField>
+            <FilterField label="To">
+              <Input
+                type="date"
+                value={dateTo}
+                disabled={isSearching}
+                max={defaultDateTo}
+                onChange={(e) => updateFilters({ dateTo: e.target.value, page: '1' })}
+              />
+            </FilterField>
+            {canSeeProfit && (
+              <FilterField label="Net profit %">
+                <Select
+                  value={maxProfitPctRaw}
+                  onChange={(e) => updateFilters({ maxProfitPct: e.target.value, page: '1' })}
+                >
+                  <option value="">All</option>
+                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 18, 20].map((t) => (
+                    <option key={t} value={t}>
+                      ≤ {t}%
+                    </option>
+                  ))}
+                </Select>
+              </FilterField>
             )}
-            title="Show sales pending approval"
+          </>
+        }
+      >
+        <FilterField label="Sale type">
+          <Select
+            value={saleType}
+            onChange={(e) => updateFilters({ saleType: e.target.value, page: '1' })}
           >
-            <span className="flex items-center gap-1.5">
-              <ShieldCheck className="h-4 w-4" />
-              Approve
-            </span>
-            {pendingCount > 0 && (
-              <span
-                className={cn(
-                  'absolute -top-2 -right-2 inline-flex min-w-[1.25rem] h-5 items-center justify-center rounded-full px-1.5',
-                  'bg-red-600 text-[10px] font-semibold text-white shadow',
-                )}
-              >
-                {pendingCount > 99 ? '99+' : pendingCount}
-              </span>
-            )}
-          </button>
-        )}
-
-        {/* Clear filters */}
-        {hasFilters && (
-          <button
-            onClick={clearFilters}
-            className="rounded-md border px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-          >
-            Clear Filters
-          </button>
-        )}
-      </div>
+            {SALE_TYPE_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </Select>
+        </FilterField>
+      </FilterBar>
 
       {/* Error state */}
       {salesQuery.isError && (

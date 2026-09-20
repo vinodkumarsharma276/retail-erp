@@ -60,7 +60,7 @@ export function TenantDetailPage() {
           <ArrowLeft className="h-4 w-4" />
         </Link>
         <div className="flex-1">
-          <h1 className="text-2xl font-semibold">{tenant.name}</h1>
+          <h1 className="text-display">{tenant.name}</h1>
           <p className="text-sm text-muted-foreground mt-0.5 flex items-center gap-3">
             <code className="rounded bg-muted px-1.5 py-0.5 text-xs">{tenant.slug}</code>
             <span className="text-xs">Plan: {tenant.plan?.name ?? tenant.plan?.code}</span>

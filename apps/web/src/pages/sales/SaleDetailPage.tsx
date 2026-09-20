@@ -181,7 +181,7 @@ function SaleDetailPageInner() {
           <ArrowLeft className="h-5 w-5" />
         </button>
         <div className="flex-1">
-          <h1 className="text-2xl font-semibold">
+          <h1 className="text-display">
             Sale {sale.saleNumber}
           </h1>
           <div className="flex flex-wrap items-center gap-2 mt-1">

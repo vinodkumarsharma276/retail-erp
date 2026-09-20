@@ -16,7 +16,6 @@ import {
 } from 'lucide-react';
 import { useAuthStore } from '../../stores/auth-store';
 import { useShopStore, ALL_SHOPS_SENTINEL, isAllShops } from '../../stores/shop-store';
-import { useTenantStore } from '../../stores/tenant-store';
 import { useSidebarStore } from '../../stores/sidebar-store';
 import { useToastStore } from '../../stores/toast-store';
 import { useNavigate } from 'react-router-dom';
@@ -27,7 +26,6 @@ import { useCanCheck } from '../../hooks/usePermission';
 import { queryClient } from '../../lib/query-client';
 import { cn } from '../../lib/utils';
 import { UserRole } from '@retailerp/shared-types';
-import { Breadcrumbs } from './Breadcrumbs';
 import { GlobalSearch } from './GlobalSearch';
 
 export function Header() {
@@ -37,7 +35,6 @@ export function Header() {
   const shopCode = useShopStore((s) => s.currentShopCode);
   const currentShopId = useShopStore((s) => s.currentShopId);
   const setShop = useShopStore((s) => s.setShop);
-  const tenantName = useTenantStore((s) => s.tenantName);
   const loginStore = useAuthStore((s) => s.login);
   const addToast = useToastStore((s) => s.addToast);
   const navigate = useNavigate();
@@ -224,33 +221,22 @@ export function Header() {
   };
 
   return (
-    <div className="border-b bg-card">
-      {/* Top bar */}
-      <header className="flex h-16 items-center justify-between px-4 sm:px-6">
-        <div className="flex items-center gap-3 sm:gap-4">
-          {/* Mobile menu toggle */}
-          <button
-            onClick={openSidebar}
-            className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors lg:hidden"
-            aria-label="Open menu"
-          >
-            <Menu className="h-5 w-5" />
-          </button>
+    <header className="sticky top-0 z-30 flex h-header shrink-0 items-center justify-between gap-3 border-b border-border bg-card/95 px-3 backdrop-blur supports-[backdrop-filter]:bg-card/80 sm:px-4">
+      <div className="flex min-w-0 items-center gap-2">
+        {/* Mobile menu toggle */}
+        <button
+          onClick={openSidebar}
+          className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground lg:hidden"
+          aria-label="Open menu"
+        >
+          <Menu className="h-5 w-5" />
+        </button>
 
-          {/* Tenant chrome — purely informational. Hidden on small screens
-              where the shop badge already carries enough context. */}
-          {tenantName && (
-            <div className="hidden md:flex items-center gap-2 pr-3 mr-1 border-r">
-              <span className="text-xs uppercase tracking-wider text-muted-foreground">
-                Org
-              </span>
-              <span className="text-sm font-medium text-foreground truncate max-w-[12rem]">
-                {tenantName}
-              </span>
-            </div>
-          )}
+        {/* The tenant name used to be repeated here as an "ORG …" label; it
+            now lives under the logo in the sidebar, so the header carries
+            only the thing the user actually switches: the active shop. */}
 
-          {/* Shop badge / switcher */}
+        {/* Shop badge / switcher */}
           {canSwitchShop && availableShops.length > 1 ? (
             <div className="relative" ref={shopDropdownRef}>
               <button
@@ -349,16 +335,17 @@ export function Header() {
               )}
             </span>
           ) : null}
-        </div>
+      </div>
 
-        <div className="flex items-center gap-2 sm:gap-3">
+      <div className="flex items-center gap-1 sm:gap-1.5">
           {/* Global search — hidden for now, enable when needed */}
           {/* <GlobalSearch /> */}
 
           {/* Notification bell placeholder */}
           <button
-            className="relative rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+            className="relative rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             title="Notifications"
+            aria-label="Notifications"
           >
             <Bell className="h-4 w-4" />
           </button>
@@ -366,18 +353,15 @@ export function Header() {
           {/* Dark mode toggle */}
           <button
             onClick={toggleTheme}
-            className="relative rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+            className="relative rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+            aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
           >
-            {isDark ? (
-              <Sun className="h-4 w-4" />
-            ) : (
-              <Moon className="h-4 w-4" />
-            )}
+            {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
           </button>
 
           {/* Separator */}
-          <div className="hidden sm:block h-6 w-px bg-border" />
+          <div className="mx-1 hidden h-5 w-px bg-border sm:block" />
 
           {/* User dropdown — preferences, settings, logout */}
           <div className="relative" ref={userDropdownRef}>
@@ -459,14 +443,8 @@ export function Header() {
                 </ul>
               </div>
             )}
-          </div>
         </div>
-      </header>
-
-      {/* Breadcrumbs row */}
-      <div className="px-6 pb-2">
-        <Breadcrumbs />
       </div>
-    </div>
+    </header>
   );
 }

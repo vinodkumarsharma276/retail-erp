@@ -1,5 +1,7 @@
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { Plus, Search, X, Pencil } from 'lucide-react';
+import { PageHeader } from '../../components/PageHeader';
+import { Button } from '../../components/ui/button';
 import { cn } from '../../lib/utils';
 import { useDebounce } from '../../hooks/useDebounce';
 import { useDistributorsQuery } from '../../hooks/useDistributors';
@@ -166,20 +168,15 @@ export function DistributorListPage() {
 
   return (
     <div>
-      {/* Page header */}
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-semibold">Distributors</h1>
-        <Link
-          to="/distributors/new"
-          className={cn(
-            'flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground',
-            'hover:bg-primary/90 transition-colors',
-          )}
-        >
-          <Plus className="h-4 w-4" />
-          Add Distributor
-        </Link>
-      </div>
+      <PageHeader
+        title="Distributors"
+        description="Suppliers you buy stock from, with outstanding payables."
+        actions={
+          <Link to="/distributors/new">
+            <Button icon={<Plus className="h-3.5 w-3.5" />}>Add distributor</Button>
+          </Link>
+        }
+      />
 
       {/* Filters row */}
       <div className="flex flex-wrap items-end gap-4 mb-6">

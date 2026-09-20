@@ -13,6 +13,8 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { PageHeader } from '../../components/PageHeader';
+import { Tabs } from '../../components/ui/tabs';
 import { DataTable, type Column } from '../../components/DataTable';
 import { DateInput } from '../../components/DateInput';
 import { StatusBadge } from '../../components/StatusBadge';
@@ -77,26 +79,26 @@ function TotalDueChip({
   label?: string;
   variant?: 'red' | 'amber' | 'green';
 }) {
+  // Semantic tokens rather than raw palette steps, so the chip follows the
+  // theme and stays legible in dark mode without a second set of classes.
   const palette =
     variant === 'green'
-      ? 'border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
+      ? 'border-success/30 bg-success-muted text-success'
       : variant === 'amber'
-        ? 'border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
-        : 'border-red-300 bg-red-50 text-red-800 dark:border-red-700 dark:bg-red-900/30 dark:text-red-300';
+        ? 'border-warning/30 bg-warning-muted text-warning'
+        : 'border-destructive/30 bg-destructive-muted text-destructive';
   return (
     <div
       className={cn(
-        'ml-auto inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium',
+        'inline-flex items-center gap-2 rounded-md border px-3 py-1.5',
         palette,
       )}
       title={`${label}${count !== undefined ? ` across ${count} item${count === 1 ? '' : 's'}` : ''}`}
     >
-      <span className="text-xs uppercase tracking-wider opacity-75">
+      <span className="text-[0.6875rem] font-semibold uppercase tracking-wider opacity-80">
         {label}
       </span>
-      <span className="text-base font-semibold tabular-nums">
-        {formatINR(amount)}
-      </span>
+      <span className="tabular text-sm font-semibold">{formatINR(amount)}</span>
       {count !== undefined && (
         <span className="text-xs opacity-75">
           ({count} item{count === 1 ? '' : 's'})
@@ -187,30 +189,19 @@ export function InstallmentListPage() {
 
   return (
     <div>
-      <div className="mb-6">
-        <h1 className="text-2xl font-semibold">Installments</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Manage installment schedules, track overdue payments, and record collections.
-        </p>
-      </div>
-
-      {/* Tab navigation */}
-      <div className="mb-6 flex gap-1 rounded-lg bg-muted p-1 overflow-x-auto">
-        {tabs.map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => setActiveTab(tab.key)}
-            className={cn(
-              'flex-shrink-0 rounded-md px-4 py-2 text-sm font-medium transition-colors whitespace-nowrap',
-              activeTab === tab.key
-                ? 'bg-background text-foreground shadow-sm'
-                : 'text-muted-foreground hover:text-foreground',
-            )}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
+      <PageHeader
+        title="Installments"
+        description="Schedules, overdue balances and daily collections."
+        actions={
+          <Tabs
+            aria-label="Installment view"
+            value={activeTab}
+            onChange={(key) => setActiveTab(key as TabKey)}
+            items={tabs.map((tab) => ({ value: tab.key, label: tab.label }))}
+            className="max-w-full overflow-x-auto"
+          />
+        }
+      />
 
       {/* Search tab content */}
       {activeTab === 'search' && (

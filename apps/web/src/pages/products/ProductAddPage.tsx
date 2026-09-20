@@ -154,7 +154,7 @@ export function ProductAddPage() {
         >
           <ArrowLeft className="h-5 w-5" />
         </Link>
-        <h1 className="text-2xl font-semibold">
+        <h1 className="text-display">
           {isEditMode ? 'Edit Product' : 'Add Product'}
         </h1>
       </div>

@@ -1,5 +1,7 @@
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { Plus, Search, X, Pencil } from 'lucide-react';
+import { PageHeader } from '../../components/PageHeader';
+import { Button } from '../../components/ui/button';
 import { cn } from '../../lib/utils';
 import { useDebounce } from '../../hooks/useDebounce';
 import { useCustomersQuery } from '../../hooks/useCustomers';
@@ -205,35 +207,21 @@ export function CustomerListPage() {
 
   return (
     <div>
-      {/* Page header */}
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-semibold">Customers</h1>
-        {allShopsMode ? (
-          <button
-            type="button"
-            disabled
-            title="Switch to a single shop to add a customer"
-            className={cn(
-              'flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground',
-              'opacity-50 cursor-not-allowed',
-            )}
-          >
-            <Plus className="h-4 w-4" />
-            Add Customer
-          </button>
-        ) : (
-          <Link
-            to="/customers/new"
-            className={cn(
-              'flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground',
-              'hover:bg-primary/90 transition-colors',
-            )}
-          >
-            <Plus className="h-4 w-4" />
-            Add Customer
-          </Link>
-        )}
-      </div>
+      <PageHeader
+        title="Customers"
+        description="Everyone you've sold to, including guarantors on installment sales."
+        actions={
+          allShopsMode ? (
+            <Button disabled title="Switch to a single shop to add a customer" icon={<Plus className="h-3.5 w-3.5" />}>
+              Add customer
+            </Button>
+          ) : (
+            <Link to="/customers/new">
+              <Button icon={<Plus className="h-3.5 w-3.5" />}>Add customer</Button>
+            </Link>
+          )
+        }
+      />
 
       {/* Filters row */}
       <div className="flex flex-wrap items-end gap-4 mb-6">

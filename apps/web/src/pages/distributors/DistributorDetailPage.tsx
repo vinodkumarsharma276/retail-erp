@@ -111,7 +111,7 @@ export function DistributorDetailPage() {
             <ArrowLeft className="h-5 w-5" />
           </button>
           <div>
-            <h1 className="text-2xl font-semibold">
+            <h1 className="text-display">
               {distributor.companyName}
             </h1>
             <p className="text-sm text-muted-foreground mt-0.5">

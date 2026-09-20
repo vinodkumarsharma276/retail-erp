@@ -179,7 +179,7 @@ export function TenantOnboardPage() {
           <ArrowLeft className="h-4 w-4" />
         </Link>
         <div>
-          <h1 className="text-2xl font-semibold">Onboard tenant</h1>
+          <h1 className="text-display">Onboard tenant</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
             Create a new customer organisation.
           </p>

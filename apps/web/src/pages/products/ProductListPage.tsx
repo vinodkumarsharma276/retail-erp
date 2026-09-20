@@ -19,6 +19,16 @@ import {
 } from '../../hooks/useProducts';
 import { useShopStore, isAllShops } from '../../stores/shop-store';
 import { DateInput } from '../../components/DateInput';
+import { PageHeader } from '../../components/PageHeader';
+import { FilterBar, FilterField } from '../../components/FilterBar';
+import { Select } from '../../components/ui/select';
+import { Tabs } from '../../components/ui/tabs';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuIconTrigger,
+  DropdownMenuItem,
+} from '../../components/ui/dropdown-menu';
 import { StatusBadge } from '../../components/StatusBadge';
 import { SerialPickerDialog } from '../../components/SerialPickerDialog';
 import {
@@ -114,6 +124,23 @@ export function ProductListPage() {
     setSearchParams({}, { replace: true });
   };
 
+  // Financial-year preset backing the segmented control. Unlike Sales, this
+  // page has no default range, so an empty range is also "custom".
+  const currentFyRange = getCurrentFinancialYearRange();
+  const lastFyRange = getLastFinancialYearRange();
+  const fyPreset: 'current' | 'last' | 'custom' =
+    dateFrom === currentFyRange.dateFrom && dateTo === currentFyRange.dateTo
+      ? 'current'
+      : dateFrom === lastFyRange.dateFrom && dateTo === lastFyRange.dateTo
+        ? 'last'
+        : 'custom';
+
+  const activeFilterCount = [
+    !!rootCategoryId || !!subCategoryId,
+    !!statusFilter,
+    !!dateFrom || !!dateTo,
+  ].filter(Boolean).length;
+
   // ------ Handlers ------
   const handleRootCategoryChange = (id: string) => {
     updateFilters({ rootCategoryId: id, subCategoryId: '', page: '1' });
@@ -148,176 +175,93 @@ export function ProductListPage() {
 
   return (
     <div>
-      {/* Page header */}
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-semibold">Products</h1>
-      </div>
+      <PageHeader
+        title="Products"
+        description="Stock on hand across every category, with purchase and margin detail."
+      />
 
-      {/* Filters row */}
-      <div className="flex flex-wrap items-end gap-4 mb-6">
-        {/* Root category */}
-        <div className="min-w-[180px]">
-          <label className="block text-xs font-medium text-muted-foreground mb-1">
-            Category
-          </label>
-          <div className="relative">
-            <select
-              value={rootCategoryId}
-              onChange={(e) => handleRootCategoryChange(e.target.value)}
-              className={cn(
-                'w-full appearance-none rounded-md border bg-background px-3 py-2 pr-8 text-sm',
-                'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-              )}
+      <FilterBar
+        search={searchText}
+        onSearchChange={(value) => updateFilters({ searchText: value, page: '1' })}
+        searchPlaceholder="Brand, model, serial or IMEI (min 3 chars)…"
+        activeCount={activeFilterCount}
+        onClear={hasFilters ? clearFilters : undefined}
+        trailing={
+          <Tabs
+            aria-label="Purchase date preset"
+            value={fyPreset}
+            onChange={(value) => {
+              if (value === 'custom') return;
+              const range =
+                value === 'current'
+                  ? getCurrentFinancialYearRange()
+                  : getLastFinancialYearRange();
+              updateFilters({ dateFrom: range.dateFrom, dateTo: range.dateTo, page: '1' });
+            }}
+            items={[
+              { value: 'current', label: 'This FY' },
+              { value: 'last', label: 'Last FY' },
+              ...(fyPreset === 'custom' ? [{ value: 'custom' as const, label: 'Custom' }] : []),
+            ]}
+          />
+        }
+        advanced={
+          <>
+            <FilterField label="Purchased from">
+              <DateInput
+                value={dateFrom}
+                onChange={(v) => updateFilters({ dateFrom: v, page: '1' })}
+              />
+            </FilterField>
+            <FilterField label="Purchased to">
+              <DateInput
+                value={dateTo}
+                onChange={(v) => updateFilters({ dateTo: v, page: '1' })}
+              />
+            </FilterField>
+          </>
+        }
+      >
+        <FilterField label="Category">
+          <Select
+            value={rootCategoryId}
+            onChange={(e) => handleRootCategoryChange(e.target.value)}
+          >
+            <option value="">All categories</option>
+            {rootCategories.map((cat) => (
+              <option key={cat.id} value={cat.id}>
+                {cat.name}
+              </option>
+            ))}
+          </Select>
+        </FilterField>
+
+        {rootCategoryId && subCategories.length > 0 && (
+          <FilterField label="Subcategory">
+            <Select
+              value={subCategoryId}
+              onChange={(e) => handleSubCategoryChange(e.target.value)}
             >
-              <option value="">All Categories</option>
-              {rootCategories.map((cat) => (
+              <option value="">All subcategories</option>
+              {subCategories.map((cat) => (
                 <option key={cat.id} value={cat.id}>
                   {cat.name}
                 </option>
               ))}
-            </select>
-            <ChevronDown className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          </div>
-        </div>
-
-        {/* Sub-category (only if root selected and has children) */}
-        {rootCategoryId && subCategories.length > 0 && (
-          <div className="min-w-[180px]">
-            <label className="block text-xs font-medium text-muted-foreground mb-1">
-              Subcategory
-            </label>
-            <div className="relative">
-              <select
-                value={subCategoryId}
-                onChange={(e) => handleSubCategoryChange(e.target.value)}
-                className={cn(
-                  'w-full appearance-none rounded-md border bg-background px-3 py-2 pr-8 text-sm',
-                  'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                )}
-              >
-                <option value="">All Subcategories</option>
-                {subCategories.map((cat) => (
-                  <option key={cat.id} value={cat.id}>
-                    {cat.name}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            </div>
-          </div>
+            </Select>
+          </FilterField>
         )}
 
-        {/* Status filter */}
-        <div className="min-w-[160px]">
-          <label className="block text-xs font-medium text-muted-foreground mb-1">
-            Status
-          </label>
-          <div className="relative">
-            <select
-              value={statusFilter}
-              onChange={(e) => handleStatusChange(e.target.value)}
-              className={cn(
-                'w-full appearance-none rounded-md border bg-background px-3 py-2 pr-8 text-sm',
-                'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-              )}
-            >
-              <option value="">All Statuses</option>
-              <option value={ProductStatus.IN_STOCK}>In Stock</option>
-              <option value={ProductStatus.SOLD}>Sold</option>
-              <option value={ProductStatus.TRANSFERRED}>Transferred</option>
-              <option value={ProductStatus.RETURNED}>Returned</option>
-            </select>
-            <ChevronDown className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          </div>
-        </div>
-
-        {/* Date of Purchase: From */}
-        <div>
-          <label className="block text-xs font-medium text-muted-foreground mb-1">
-            Purchased From
-          </label>
-          <DateInput
-            value={dateFrom}
-            onChange={(v) => updateFilters({ dateFrom: v, page: '1' })}
-            className="w-40"
-          />
-        </div>
-
-        {/* Date of Purchase: To */}
-        <div>
-          <label className="block text-xs font-medium text-muted-foreground mb-1">
-            Purchased To
-          </label>
-          <DateInput
-            value={dateTo}
-            onChange={(v) => updateFilters({ dateTo: v, page: '1' })}
-            className="w-40"
-          />
-        </div>
-
-        <button
-          onClick={() => {
-            const { dateFrom: fyStart, dateTo: fyEnd } = getCurrentFinancialYearRange();
-            updateFilters({ dateFrom: fyStart, dateTo: fyEnd, page: '1' });
-          }}
-          className="rounded-md border px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-        >
-          Current Financial Year
-        </button>
-
-        <button
-          onClick={() => {
-            const { dateFrom: fyStart, dateTo: fyEnd } = getLastFinancialYearRange();
-            updateFilters({ dateFrom: fyStart, dateTo: fyEnd, page: '1' });
-          }}
-          className="rounded-md border px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-        >
-          Last Financial Year
-        </button>
-
-        {/* Search input */}
-        <div className="min-w-[240px] flex-1 max-w-sm">
-          <label className="block text-xs font-medium text-muted-foreground mb-1">
-            Search
-          </label>
-          <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <input
-              type="text"
-              value={searchText}
-              onChange={(e) => {
-                updateFilters({ searchText: e.target.value, page: '1' });
-              }}
-              placeholder="Brand, model, serial, or IMEI (min 3 chars)..."
-              className={cn(
-                'w-full rounded-md border bg-background pl-9 pr-8 py-2 text-sm',
-                'placeholder:text-muted-foreground',
-                'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-              )}
-            />
-            {searchText && (
-              <button
-                onClick={() => {
-                  updateFilters({ searchText: '', page: '1' });
-                }}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Clear filters */}
-        {hasFilters && (
-          <button
-            onClick={clearFilters}
-            className="rounded-md border px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-          >
-            Clear Filters
-          </button>
-        )}
-      </div>
+        <FilterField label="Status" width="sm">
+          <Select value={statusFilter} onChange={(e) => handleStatusChange(e.target.value)}>
+            <option value="">All</option>
+            <option value={ProductStatus.IN_STOCK}>In Stock</option>
+            <option value={ProductStatus.SOLD}>Sold</option>
+            <option value={ProductStatus.TRANSFERRED}>Transferred</option>
+            <option value={ProductStatus.RETURNED}>Returned</option>
+          </Select>
+        </FilterField>
+      </FilterBar>
 
       {/* Error state */}
       {groupedQuery.isError && (
@@ -408,54 +352,60 @@ export function ProductListPage() {
                         <td className="px-3 py-3">
                           <StatusBadge status={g.status} />
                         </td>
-                        <td className="px-3 py-3 text-right" onClick={(e) => e.stopPropagation()}>
+                        {/*
+                         * Sell + Transfer used to render as two filled colour
+                         * chips on every single row, so a full page of stock
+                         * was a wall of green and blue. They now live behind a
+                         * single overflow menu — the actions are identical,
+                         * but the data is what you see first.
+                         */}
+                        <td className="px-3 py-2 text-right" onClick={(e) => e.stopPropagation()}>
                           {inStock && (
-                            <div className="flex items-center justify-end gap-2">
-                              <button
-                                onClick={() =>
-                                  setPickerState({
-                                    action: 'sell',
-                                    brand: g.brand,
-                                    modelNumber: g.modelNumber,
-                                    categoryId: g.categoryId,
-                                    shopId: g.shopId,
-                                  })
-                                }
-                                disabled={allShopsMode}
-                                className={cn(
-                                  'rounded-md px-2.5 py-1 text-xs font-medium text-green-700 dark:text-green-400 bg-green-100 dark:bg-green-900/30 hover:bg-green-200 dark:hover:bg-green-900/50 transition-colors',
-                                  'disabled:opacity-50 disabled:cursor-not-allowed',
-                                )}
-                                title={allShopsMode ? 'Switch to a single shop to record a sale' : 'Sell from this model'}
-                              >
-                                <span className="flex items-center gap-1">
-                                  <ShoppingCart className="h-3 w-3" />
-                                  Sell
-                                </span>
-                              </button>
-                              <button
-                                onClick={() =>
-                                  setPickerState({
-                                    action: 'transfer',
-                                    brand: g.brand,
-                                    modelNumber: g.modelNumber,
-                                    categoryId: g.categoryId,
-                                    shopId: g.shopId,
-                                  })
-                                }
-                                disabled={allShopsMode}
-                                className={cn(
-                                  'rounded-md px-2.5 py-1 text-xs font-medium text-blue-700 dark:text-blue-400 bg-blue-100 dark:bg-blue-900/30 hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors',
-                                  'disabled:opacity-50 disabled:cursor-not-allowed',
-                                )}
-                                title={allShopsMode ? 'Switch to a single shop to initiate a transfer' : 'Transfer from this model'}
-                              >
-                                <span className="flex items-center gap-1">
-                                  <ArrowRightLeft className="h-3 w-3" />
-                                  Transfer
-                                </span>
-                              </button>
-                            </div>
+                            <DropdownMenu>
+                              <DropdownMenuIconTrigger label="Product actions" />
+                              <DropdownMenuContent>
+                                <DropdownMenuItem
+                                  icon={<ShoppingCart className="h-3.5 w-3.5" />}
+                                  disabled={allShopsMode}
+                                  title={
+                                    allShopsMode
+                                      ? 'Switch to a single shop to record a sale'
+                                      : undefined
+                                  }
+                                  onClick={() =>
+                                    setPickerState({
+                                      action: 'sell',
+                                      brand: g.brand,
+                                      modelNumber: g.modelNumber,
+                                      categoryId: g.categoryId,
+                                      shopId: g.shopId,
+                                    })
+                                  }
+                                >
+                                  Sell this model
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  icon={<ArrowRightLeft className="h-3.5 w-3.5" />}
+                                  disabled={allShopsMode}
+                                  title={
+                                    allShopsMode
+                                      ? 'Switch to a single shop to initiate a transfer'
+                                      : undefined
+                                  }
+                                  onClick={() =>
+                                    setPickerState({
+                                      action: 'transfer',
+                                      brand: g.brand,
+                                      modelNumber: g.modelNumber,
+                                      categoryId: g.categoryId,
+                                      shopId: g.shopId,
+                                    })
+                                  }
+                                >
+                                  Transfer to shop
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
                           )}
                         </td>
                       </tr>

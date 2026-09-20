@@ -10,6 +10,8 @@ import {
   Loader2,
   CheckCircle,
 } from 'lucide-react';
+import { PageHeader } from '../../components/PageHeader';
+import { Button } from '../../components/ui/button';
 import { cn } from '../../lib/utils';
 import {
   useTransfersQuery,
@@ -197,22 +199,17 @@ export function TransferListPage() {
 
   return (
     <div>
-      {/* Page header */}
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-semibold">Transfers</h1>
-        {isAdmin && (
-          <Link
-            to="/transfers/new"
-            className={cn(
-              'flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground',
-              'hover:bg-primary/90 transition-colors',
-            )}
-          >
-            <Plus className="h-4 w-4" />
-            New Transfer
-          </Link>
-        )}
-      </div>
+      <PageHeader
+        title="Transfers"
+        description="Stock moving between shops — each transfer is a sale from one GST entity to another."
+        actions={
+          isAdmin && (
+            <Link to="/transfers/new">
+              <Button icon={<Plus className="h-3.5 w-3.5" />}>New transfer</Button>
+            </Link>
+          )
+        }
+      />
 
       {/* Tabs */}
       <div className="flex items-center gap-1 border-b mb-6">

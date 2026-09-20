@@ -34,7 +34,7 @@ export function RegisterScanPage() {
           <ArrowLeft className="h-5 w-5" />
         </button>
         <div>
-          <h1 className="text-2xl font-semibold">Scan Register Page</h1>
+          <h1 className="text-display">Scan Register Page</h1>
           <p className="text-sm text-muted-foreground">Preview extracted sale-register rows. This does not create sales yet.</p>
         </div>
       </div>
