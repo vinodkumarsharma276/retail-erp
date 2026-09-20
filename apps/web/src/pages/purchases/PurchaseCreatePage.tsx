@@ -21,8 +21,9 @@ import { DynamicAttributeFields } from '../../components/DynamicAttributeFields'
 import { ModelAutocomplete } from '../../components/ModelAutocomplete';
 import { ScanInvoiceDialog } from '../../components/ScanInvoiceDialog';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
+import { AddDistributorDialog } from '../../components/AddDistributorDialog';
 import { formatINR } from '@retailerp/shared-utils';
-import type { DistributorListItem } from '@retailerp/shared-types';
+import type { Distributor, DistributorListItem } from '@retailerp/shared-types';
 import { apiClient } from '../../lib/api-client';
 import type { InvoiceParseResult } from '../../api/ocr-api';
 import { useOcrStatusQuery } from '../../hooks/useOcr';
@@ -91,6 +92,7 @@ export function PurchaseCreatePage() {
   // Step 1: Distributor selection
   const [selectedDistributor, setSelectedDistributor] = useState<DistributorListItem | null>(null);
   const [distributorSearchText, setDistributorSearchText] = useState('');
+  const [isAddDistributorOpen, setIsAddDistributorOpen] = useState(false);
   const debouncedDistSearch = useDebounce(distributorSearchText, 300);
 
   const distributorsQuery = useDistributorsQuery({
@@ -99,6 +101,19 @@ export function PurchaseCreatePage() {
     search: debouncedDistSearch.length >= 3 ? debouncedDistSearch : undefined,
   });
   const distributorOptions = distributorsQuery.data?.data ?? [];
+
+  // A freshly created distributor has no purchase history yet, so the list-item
+  // aggregates start at zero.
+  const handleDistributorCreated = (created: Distributor) => {
+    setSelectedDistributor({
+      ...created,
+      totalProductsPurchased: 0,
+      totalPaymentPaid: 0,
+      pendingPayment: 0,
+    });
+    setDistributorSearchText(created.companyName);
+    setIsAddDistributorOpen(false);
+  };
 
   // Step 3: Category selections (one per product row)
   const [itemCategoryIds, setItemCategoryIds] = useState<(string | undefined)[]>([undefined]);
@@ -529,6 +544,14 @@ export function PurchaseCreatePage() {
         onApply={applyInvoiceParse}
       />
 
+      {isAddDistributorOpen && (
+        <AddDistributorDialog
+          initialCompanyName={distributorSearchText.trim() || undefined}
+          onCreated={handleDistributorCreated}
+          onClose={() => setIsAddDistributorOpen(false)}
+        />
+      )}
+
       {/* Step indicator */}
       <div className="flex items-center gap-2 mb-8 overflow-x-auto pb-2">
         {STEPS.map((step, idx) => (
@@ -571,19 +594,29 @@ export function PurchaseCreatePage() {
               <h2 className="text-lg font-medium mb-4">Select Distributor</h2>
 
               {/* Search */}
-              <div className="relative max-w-md mb-4">
-                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <input
-                  type="text"
-                  value={distributorSearchText}
-                  onChange={(e) => setDistributorSearchText(e.target.value)}
-                  placeholder="Search distributors by name (min 3 chars)..."
-                  className={cn(
-                    'w-full rounded-md border bg-background pl-9 pr-3 py-2.5 text-sm',
-                    'placeholder:text-muted-foreground',
-                    'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                  )}
-                />
+              <div className="mb-4 flex flex-wrap items-center gap-2">
+                <div className="relative w-full max-w-md">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <input
+                    type="text"
+                    value={distributorSearchText}
+                    onChange={(e) => setDistributorSearchText(e.target.value)}
+                    placeholder="Search distributors by name (min 3 chars)..."
+                    className={cn(
+                      'w-full rounded-md border bg-background pl-9 pr-3 py-2.5 text-sm',
+                      'placeholder:text-muted-foreground',
+                      'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                    )}
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsAddDistributorOpen(true)}
+                  className="inline-flex items-center gap-2 rounded-md border px-3 py-2.5 text-sm font-medium hover:bg-muted transition-colors"
+                >
+                  <Plus className="h-4 w-4" />
+                  New Distributor
+                </button>
               </div>
 
               {/* Distributor list */}
@@ -593,11 +626,23 @@ export function PurchaseCreatePage() {
                   Loading distributors...
                 </div>
               ) : distributorOptions.length === 0 ? (
-                <p className="text-sm text-muted-foreground py-4">
-                  {debouncedDistSearch.length >= 3
-                    ? 'No distributors found matching your search.'
-                    : 'Type at least 3 characters to search, or all distributors are shown below.'}
-                </p>
+                <div className="py-4">
+                  <p className="text-sm text-muted-foreground">
+                    {debouncedDistSearch.length >= 3
+                      ? 'No distributors found matching your search.'
+                      : 'Type at least 3 characters to search, or all distributors are shown below.'}
+                  </p>
+                  {debouncedDistSearch.length >= 3 && (
+                    <button
+                      type="button"
+                      onClick={() => setIsAddDistributorOpen(true)}
+                      className="mt-3 inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
+                    >
+                      <Plus className="h-4 w-4" />
+                      Add “{distributorSearchText.trim()}” as a new distributor
+                    </button>
+                  )}
+                </div>
               ) : null}
 
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 max-h-80 overflow-y-auto">
