@@ -13,6 +13,12 @@ import {
   ScanLine,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { FormSection, FormGrid, Field } from '../../components/ui/form';
+import { Input } from '../../components/ui/input';
+import { Select } from '../../components/ui/select';
+import { Textarea } from '../../components/ui/textarea';
+import { Button } from '../../components/ui/button';
+import { Badge } from '../../components/ui/badge';
 import { useDebounce } from '../../hooks/useDebounce';
 import { useDistributorsQuery } from '../../hooks/useDistributors';
 import { useCreatePurchaseMutation } from '../../hooks/usePurchases';
@@ -775,32 +781,36 @@ export function PurchaseCreatePage() {
           {currentStep === 2 && (
             <section className="space-y-4">
               {fields.map((field, index) => (
-                <div
+                <FormSection
                   key={field.id}
-                  className="rounded-lg border bg-card p-6"
-                >
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-base font-medium">
-                      Product {index + 1}
-                    </h3>
-                    {fields.length > 1 && (
-                      <button
-                        type="button"
+                  title={`Product ${index + 1}`}
+                  description={
+                    itemCategoryIds[index]
+                      ? undefined
+                      : 'Pick a category to enable the remaining fields.'
+                  }
+                  actions={
+                    fields.length > 1 && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
                         onClick={() => removeProductItem(index)}
-                        className="flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30 hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors"
+                        icon={<Trash2 className="h-3.5 w-3.5" />}
+                        className="text-destructive hover:bg-destructive-muted hover:text-destructive"
                       >
-                        <Trash2 className="h-3 w-3" />
                         Remove
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Category */}
+                      </Button>
+                    )
+                  }
+                >
+                  {/*
+                   * No outer "Category" label here — the cascader renders a
+                   * label per level (Category / Subcategory / Type), so an
+                   * extra one above it showed the word twice.
+                   */}
                   <div className="mb-4">
-                    <label className="block text-sm font-medium mb-1.5">
-                      Category <span className="text-destructive">*</span>
-                    </label>
                     <CategoryCascader
+                      required
                       onCategorySelect={(catId) =>
                         handleItemCategorySelect(index, catId)
                       }
@@ -808,23 +818,26 @@ export function PurchaseCreatePage() {
                     />
                   </div>
 
-                  {/* Product fields — disabled until category is selected */}
-                  {!itemCategoryIds[index] && (
-                    <div className="rounded-md border border-dashed border-muted-foreground/30 bg-muted/20 p-6 text-center mb-4">
-                      <p className="text-sm text-muted-foreground">
-                        Please select a category and subcategory above to enable product fields
-                      </p>
-                    </div>
-                  )}
-                  <div className={cn(
-                    'grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4',
-                    !itemCategoryIds[index] && 'opacity-40 pointer-events-none',
-                  )}>
+                  {/*
+                   * The dimmed state plus the section description already say
+                   * the fields are waiting on a category. The full-width
+                   * dashed banner that used to sit here repeated it a third
+                   * time and pushed everything below the fold.
+                   */}
+                  <FormGrid
+                    className={cn(
+                      'transition-opacity duration-200',
+                      !itemCategoryIds[index] && 'pointer-events-none opacity-50',
+                    )}
+                    aria-disabled={!itemCategoryIds[index]}
+                  >
                     {/* Model */}
-                    <div className="sm:col-span-2 lg:col-span-3">
-                      <label className="block text-sm font-medium mb-1.5">
-                        Model <span className="text-destructive">*</span>
-                      </label>
+                    <Field
+                      label="Model"
+                      required
+                      span={8}
+                      error={errors.items?.[index]?.modelNumber?.message}
+                    >
                       <ModelAutocomplete
                         value={watch(`items.${index}.modelNumber`) || ''}
                         onChange={(val) => {
@@ -858,96 +871,71 @@ export function PurchaseCreatePage() {
                         error={!!errors.items?.[index]?.modelNumber}
                       />
                       <input type="hidden" {...register(`items.${index}.modelNumber`, { required: 'Model is required' })} />
-                      {errors.items?.[index]?.modelNumber && (
-                        <p className="mt-1 text-xs text-destructive">
-                          {errors.items[index].modelNumber?.message}
-                        </p>
-                      )}
-                    </div>
+                    </Field>
 
-                    {/* Serial Numbers (multi-line) */}
-                    <div className="sm:col-span-2 lg:col-span-2">
-                      <label className="block text-sm font-medium mb-1.5">
-                        Serial Numbers{' '}
-                        <span className="text-xs text-muted-foreground font-normal">
-                          (one per line)
-                        </span>
-                      </label>
-                      <textarea
-                        rows={3}
-                        {...register(`items.${index}.serialNumbers`)}
-                        placeholder={'SN-00001\nSN-00002\nSN-00003'}
-                        className={cn(
-                          'w-full rounded-md border bg-field px-3 py-2.5 text-sm font-mono',
-                          'placeholder:text-muted-foreground',
-                          'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                          serialDuplicateMap.has(index) && 'border-destructive',
-                        )}
-                      />
-                      <div className="flex items-center gap-3 mt-1">
-                        {parsedSerials[index]?.length > 0 && (
-                          <span className="inline-flex items-center rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary">
-                            {parsedSerials[index].length} serial{parsedSerials[index].length !== 1 ? 's' : ''} = {parsedSerials[index].length} product{parsedSerials[index].length !== 1 ? 's' : ''} will be created
-                          </span>
-                        )}
-                        {serialDuplicateMap.has(index) && (
-                          <p className="text-xs text-destructive">
-                            {serialDuplicateMap.get(index)}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Quantity (used when no serial numbers are entered) */}
-                    <div>
-                      <label className="block text-sm font-medium mb-1.5">
-                        Quantity
-                      </label>
-                      <input
+                    {/* Quantity — sits next to Model so the two numbers that
+                        determine how many rows get created are adjacent. */}
+                    <Field
+                      label="Quantity"
+                      span={4}
+                      hint={
+                        parsedSerials[index]?.length > 0
+                          ? 'Set by serial count'
+                          : undefined
+                      }
+                    >
+                      <Input
                         type="number"
                         min={1}
                         step={1}
                         disabled={parsedSerials[index]?.length > 0}
                         {...register(`items.${index}.quantity`, { valueAsNumber: true })}
-                        className={cn(
-                          'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
-                          'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                          'disabled:cursor-not-allowed disabled:opacity-60',
-                        )}
                       />
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {parsedSerials[index]?.length > 0
-                          ? 'Set by serial count'
-                          : `${effectiveQty(index)} unit${effectiveQty(index) !== 1 ? 's' : ''} added to stock`}
-                      </p>
-                    </div>
+                    </Field>
 
-                    {/* MRP */}
-                    <div>
-                      <label className="block text-sm font-medium mb-1.5">
-                        MRP
-                      </label>
-                      <input
+                    {/* Serial Numbers (multi-line) */}
+                    <Field
+                      label="Serial numbers"
+                      span={6}
+                      hint="One per line. Leave blank to use Quantity instead."
+                      error={serialDuplicateMap.get(index)}
+                    >
+                      <Textarea
+                        rows={3}
+                        {...register(`items.${index}.serialNumbers`)}
+                        placeholder={'SN-00001\nSN-00002\nSN-00003'}
+                        aria-invalid={serialDuplicateMap.has(index) || undefined}
+                        className="font-mono"
+                      />
+                      {parsedSerials[index]?.length > 0 && (
+                        <Badge tone="primary" className="mt-1.5">
+                          {parsedSerials[index].length} serial
+                          {parsedSerials[index].length !== 1 ? 's' : ''} →{' '}
+                          {parsedSerials[index].length} product
+                          {parsedSerials[index].length !== 1 ? 's' : ''}
+                        </Badge>
+                      )}
+                    </Field>
+
+                    {/* Pricing — grouped so the money fields read as a set. */}
+                    <Field label="MRP" span={2}>
+                      <Input
                         type="number"
                         step="0.01"
                         {...register(`items.${index}.mrp`, {
                           min: { value: 0, message: 'Must be positive' },
                         })}
                         placeholder="0.00"
-                        className={cn(
-                          'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
-                          'placeholder:text-muted-foreground',
-                          'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                        )}
                       />
-                    </div>
+                    </Field>
 
-                    {/* DP (Dealer Price) */}
-                    <div>
-                      <label className="block text-sm font-medium mb-1.5">
-                        DP (Dealer Price) <span className="text-destructive">*</span>
-                      </label>
-                      <input
+                    <Field
+                      label="DP (dealer price)"
+                      required
+                      span={2}
+                      error={errors.items?.[index]?.purchasePrice?.message}
+                    >
+                      <Input
                         type="number"
                         step="0.01"
                         {...register(`items.${index}.purchasePrice`, {
@@ -955,119 +943,72 @@ export function PurchaseCreatePage() {
                           min: { value: 0, message: 'Must be positive' },
                         })}
                         placeholder="0.00"
-                        className={cn(
-                          'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
-                          'placeholder:text-muted-foreground',
-                          'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                          errors.items?.[index]?.purchasePrice && 'border-destructive',
-                        )}
+                        aria-invalid={!!errors.items?.[index]?.purchasePrice || undefined}
                       />
-                      {errors.items?.[index]?.purchasePrice && (
-                        <p className="mt-1 text-xs text-destructive">
-                          {errors.items[index].purchasePrice?.message}
-                        </p>
-                      )}
-                    </div>
+                    </Field>
 
-                    {/* GST % per product */}
-                    <div>
-                      <label className="block text-sm font-medium mb-1.5">
-                        GST %
-                      </label>
-                      <select
+                    <Field label="GST %" span={2}>
+                      <Select
                         {...register(`items.${index}.gstPercent`, { valueAsNumber: true })}
-                        className={cn(
-                          'w-full appearance-none rounded-md border bg-field px-3 py-2.5 text-sm',
-                          'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                        )}
                       >
                         {GST_SLABS.map((slab) => (
                           <option key={slab} value={slab}>
                             {slab}%
                           </option>
                         ))}
-                      </select>
-                    </div>
+                      </Select>
+                    </Field>
 
-                    {/* Color */}
-                    <div>
-                      <label className="block text-sm font-medium mb-1.5">
-                        Color
-                      </label>
-                      <input
+                    <Field label="Color" span={3}>
+                      <Input
                         type="text"
                         {...register(`items.${index}.color`)}
                         placeholder="e.g. Black"
-                        className={cn(
-                          'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
-                          'placeholder:text-muted-foreground',
-                          'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                        )}
                       />
-                    </div>
+                    </Field>
 
-                    {/* Warranty */}
-                    <div>
-                      <label className="block text-sm font-medium mb-1.5">
-                        Warranty (months)
-                      </label>
-                      <input
+                    <Field label="Warranty (months)" span={2}>
+                      <Input
                         type="number"
                         {...register(`items.${index}.warrantyMonths`, {
                           min: { value: 0, message: 'Must be positive' },
                         })}
                         placeholder="e.g. 12"
-                        className={cn(
-                          'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
-                          'placeholder:text-muted-foreground',
-                          'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                        )}
                       />
-                    </div>
+                    </Field>
 
-                    {/* Barcode */}
-                    <div>
-                      <label className="block text-sm font-medium mb-1.5">
-                        Barcode
-                      </label>
-                      <input
+                    <Field label="Barcode" span={3}>
+                      <Input
                         type="text"
                         {...register(`items.${index}.barcode`)}
                         placeholder="Scan or enter barcode"
-                        className={cn(
-                          'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
-                          'placeholder:text-muted-foreground',
-                          'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                        )}
                       />
-                    </div>
-                  </div>
+                    </Field>
+                  </FormGrid>
 
                   {/* Dynamic attributes based on selected category */}
                   {itemCategoryIds[index] && (
-                    <div className="mt-4 pt-4 border-t">
-                      <h4 className="text-sm font-medium mb-3">
-                        Category-Specific Fields
-                      </h4>
+                    <div className="mt-4 border-t border-border pt-4">
+                      <h4 className="text-overline mb-3">Category details</h4>
                       <DynamicAttributeFields
                         categoryId={itemCategoryIds[index]}
                         fieldPrefix={`items.${index}.dynamicAttributes`}
                       />
                     </div>
                   )}
-                </div>
+                </FormSection>
               ))}
 
               <button
                 type="button"
                 onClick={addProductItem}
                 className={cn(
-                  'flex items-center gap-2 rounded-md border-2 border-dashed px-4 py-3 text-sm font-medium w-full justify-center',
-                  'text-muted-foreground hover:border-primary hover:text-primary transition-colors',
+                  'flex w-full items-center justify-center gap-2 rounded-lg border-2 border-dashed border-border px-4 py-3 text-sm font-medium',
+                  'text-muted-foreground transition-colors hover:border-primary/60 hover:bg-primary-muted/40 hover:text-primary',
                 )}
               >
                 <Plus className="h-4 w-4" />
-                Add Another Product
+                Add another product
               </button>
 
               {/* Totals summary — docked to viewport bottom while user scrolls a long product list */}
