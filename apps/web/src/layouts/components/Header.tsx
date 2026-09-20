@@ -221,7 +221,7 @@ export function Header() {
   };
 
   return (
-    <header className="sticky top-0 z-30 flex h-header shrink-0 items-center justify-between gap-3 border-b border-border bg-card/95 px-3 backdrop-blur supports-[backdrop-filter]:bg-card/80 sm:px-4">
+    <header className="sticky top-0 z-30 flex h-header min-h-16 shrink-0 items-center justify-between gap-3 border-b border-border bg-card/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-card/80 sm:px-6">
       <div className="flex min-w-0 items-center gap-2">
         {/* Mobile menu toggle */}
         <button

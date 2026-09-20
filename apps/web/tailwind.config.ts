@@ -112,9 +112,13 @@ export default {
       },
       spacing: {
         // Shell dimensions referenced by the layout, sidebar and header.
-        header: '3.5rem',
-        sidebar: '15rem',
-        'sidebar-rail': '3.75rem',
+        // NOTE: these are config-level additions, so a dev server restart is
+        // required after changing them — Vite does not always hot-reload
+        // tailwind.config.ts, and a missing class silently falls back to
+        // content-driven sizing rather than erroring.
+        header: '4rem',
+        sidebar: '17rem',
+        'sidebar-rail': '4rem',
       },
       zIndex: {
         sidebar: '50',

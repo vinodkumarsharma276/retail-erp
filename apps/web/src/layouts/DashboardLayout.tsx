@@ -31,10 +31,15 @@ export function DashboardLayout() {
            * which restarts the entrance animation. Without the key React
            * reuses the node and the animation only ever plays once, on the
            * first render of the session.
+           *
+           * No max-width: the centred 1600px cap was leaving ~73px of dead
+           * space on each side at 1920 while tables below were still
+           * horizontally scrolling. On a data-dense ERP the screen real
+           * estate is worth more than an ideal line length.
            */}
           <div
             key={pathname}
-            className="animate-fade-in-up mx-auto w-full max-w-[100rem] px-3 py-4 sm:px-5 sm:py-5"
+            className="animate-fade-in-up w-full px-4 py-4 sm:px-6 sm:py-5"
           >
             <Outlet />
           </div>

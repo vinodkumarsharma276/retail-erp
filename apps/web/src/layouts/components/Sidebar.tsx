@@ -162,8 +162,8 @@ export function Sidebar() {
         {/* Brand */}
         <div
           className={cn(
-            'flex h-header shrink-0 items-center border-b border-sidebar-border',
-            railMode ? 'justify-center px-2' : 'justify-between pl-4 pr-2',
+            'flex h-header min-h-16 shrink-0 items-center border-b border-sidebar-border',
+            railMode ? 'justify-center px-2' : 'justify-between pl-5 pr-3',
           )}
         >
           <div className="flex min-w-0 items-center gap-2.5">
@@ -196,7 +196,7 @@ export function Sidebar() {
         </div>
 
         {/* Navigation */}
-        <nav className="scrollbar-auto flex-1 overflow-y-auto px-2 py-3">
+        <nav className="scrollbar-auto flex-1 overflow-y-auto px-3 py-4">
           {visibleSections.map((section, index) => {
             const sectionCollapsed = !railMode && collapsedSections.includes(section.id);
 
