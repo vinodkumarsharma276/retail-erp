@@ -6,6 +6,8 @@ import type {
   ShopListItem,
   ApiResponse,
   User,
+  AuthTenantContext,
+  TenantFeatureSnapshot,
 } from '@retailerp/shared-types';
 
 // GET /api/v1/auth/shops — public, no auth needed
@@ -50,13 +52,25 @@ export function useMeQuery(enabled = true) {
     queryKey: ['auth', 'me'],
     queryFn: async () => {
       const { data } = await apiClient.get<
-        ApiResponse<{ user: User; shops: ShopListItem[] }>
+        ApiResponse<{
+          user: User;
+          shops: ShopListItem[];
+          permissions: string[];
+          tenant: AuthTenantContext;
+          features: TenantFeatureSnapshot;
+        }>
       >('/auth/me');
       return data.data!;
     },
     enabled,
     retry: false,
-    staleTime: 5 * 60 * 1000,
+    // Always treat permissions as stale so any mount or focus refetches
+    // them. Combined with route-change invalidation in ProtectedRoute this
+    // means an admin's permission edit takes effect for the affected user
+    // on their very next navigation, not after a 30s window.
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+    refetchOnMount: 'always',
   });
 }
 

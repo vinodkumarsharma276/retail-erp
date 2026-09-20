@@ -2,19 +2,39 @@ import { prisma } from '../../config/database.js';
 import type { Prisma } from '@prisma/client';
 
 export const purchasesService = {
-  async list(shopId: string, filters: {
-    skip: number;
-    take: number;
-    page: number;
-    pageSize: number;
-    distributorId?: string;
-    dateFrom?: string;
-    dateTo?: string;
-    paymentStatus?: string;
-  }) {
-    const where: Prisma.PurchaseWhereInput = {
-      shopId,
-    };
+  /**
+   * List purchases.
+   *
+   * `scope` supports three modes:
+   *  - single shop: `{ shopId: 'x' }` (default)
+   *  - all user-accessible shops: `{ shopId, shopIds: [...] }` — set when
+   *    the user picks "All Shops" in the header dropdown (gated by
+   *    `shops.view_all` in the middleware).
+   *  - completely unscoped: `{ shopId: null }` — legacy escape hatch used
+   *    by the Distributor Detail page when an admin opens a distributor's
+   *    full purchase history across every shop.
+   */
+  async list(
+    scope: { shopId: string | null; shopIds?: string[] },
+    filters: {
+      skip: number;
+      take: number;
+      page: number;
+      pageSize: number;
+      distributorId?: string;
+      dateFrom?: string;
+      dateTo?: string;
+      paymentStatus?: string;
+      search?: string;
+    },
+  ) {
+    const where: Prisma.PurchaseWhereInput = {};
+
+    if (scope.shopIds && scope.shopIds.length > 0) {
+      where.shopId = { in: scope.shopIds };
+    } else if (scope.shopId) {
+      where.shopId = scope.shopId;
+    }
 
     if (filters.distributorId) {
       where.distributorId = filters.distributorId;
@@ -22,6 +42,10 @@ export const purchasesService = {
 
     if (filters.paymentStatus) {
       where.paymentStatus = filters.paymentStatus;
+    }
+
+    if (filters.search?.trim()) {
+      where.invoiceNumber = { contains: filters.search.trim(), mode: 'insensitive' };
     }
 
     if (filters.dateFrom || filters.dateTo) {
@@ -43,6 +67,9 @@ export const purchasesService = {
           },
           creator: {
             select: { id: true, username: true, fullName: true },
+          },
+          shop: {
+            select: { id: true, name: true, code: true },
           },
           _count: {
             select: { products: true, payments: true },
@@ -100,7 +127,64 @@ export const purchasesService = {
     return purchase;
   },
 
-  async create(shopId: string, data: {
+  /**
+   * Lightweight existence check used by the New Purchase wizard to block
+   * the user from advancing (and from submitting) when the invoice number
+   * has already been recorded for that distributor.
+   *
+   * The check is intentionally global: the same invoice number recorded under
+   * a *different* distributor (e.g. a duplicate distributor record created by
+   * OCR) is still a strong duplicate signal, so we surface it too. The caller
+   * can compare `matchedDistributorId` against the distributor it expects to
+   * decide whether to block or merely warn.
+   */
+  async checkInvoiceExists(invoiceNumber: string, distributorId?: string) {
+    const trimmed = invoiceNumber.trim();
+    if (!trimmed) return { exists: false as const };
+
+    // 1. Exact match for the supplied distributor (the blocking case).
+    if (distributorId) {
+      const sameDistributor = await prisma.purchase.findFirst({
+        where: {
+          distributorId,
+          invoiceNumber: { equals: trimmed, mode: 'insensitive' },
+        },
+        select: { id: true, invoiceDate: true, totalAmount: true },
+      });
+      if (sameDistributor) {
+        return {
+          exists: true as const,
+          sameDistributor: true as const,
+          purchase: sameDistributor,
+        };
+      }
+    }
+
+    // 2. Same invoice number under any other distributor (the warning case).
+    const anyMatch = await prisma.purchase.findFirst({
+      where: { invoiceNumber: { equals: trimmed, mode: 'insensitive' } },
+      select: {
+        id: true,
+        invoiceDate: true,
+        totalAmount: true,
+        distributorId: true,
+        distributor: { select: { companyName: true } },
+      },
+    });
+    if (anyMatch) {
+      return {
+        exists: true as const,
+        sameDistributor: false as const,
+        purchase: { id: anyMatch.id, invoiceDate: anyMatch.invoiceDate, totalAmount: anyMatch.totalAmount },
+        matchedDistributorId: anyMatch.distributorId,
+        matchedDistributorName: anyMatch.distributor?.companyName ?? null,
+      };
+    }
+
+    return { exists: false as const };
+  },
+
+  async create(shopId: string, tenantId: string, data: {
     distributorId: string;
     invoiceNumber: string;
     invoiceDate: string;
@@ -129,6 +213,32 @@ export const purchasesService = {
     });
     if (!distributor) {
       throw new Error('Distributor not found');
+    }
+
+    // Check for duplicate invoice number for the same distributor
+    const existingInvoice = await prisma.purchase.findFirst({
+      where: { invoiceNumber: data.invoiceNumber, distributorId: data.distributorId },
+    });
+    if (existingInvoice) {
+      throw new Error(`Invoice number "${data.invoiceNumber}" already exists for this distributor`);
+    }
+    // Check for duplicate serial numbers within the items array itself
+    const serialNumbers = data.items.filter(i => i.serialNumber).map(i => i.serialNumber!);
+    const duplicateSerials = serialNumbers.filter((sn, i) => serialNumbers.indexOf(sn) !== i);
+    if (duplicateSerials.length > 0) {
+      throw new Error(`Duplicate serial numbers in items: ${[...new Set(duplicateSerials)].join(', ')}`);
+    }
+
+    // Check serial numbers against existing products in DB (scoped to same category)
+    for (const item of data.items) {
+      if (item.serialNumber) {
+        const existingProduct = await prisma.product.findFirst({
+          where: { serialNumber: item.serialNumber, categoryId: item.categoryId },
+        });
+        if (existingProduct) {
+          throw new Error(`Serial number "${item.serialNumber}" already exists for this product category`);
+        }
+      }
     }
 
     // Validate all categories exist and get their attributes
@@ -173,6 +283,7 @@ export const purchasesService = {
       // Create purchase record
       const purchase = await tx.purchase.create({
         data: {
+          tenantId,
           shopId,
           distributorId: data.distributorId,
           invoiceNumber: data.invoiceNumber,
@@ -203,6 +314,7 @@ export const purchasesService = {
 
         const product = await tx.product.create({
           data: {
+            tenantId,
             shopId,
             categoryId: item.categoryId,
             brand,
@@ -227,6 +339,7 @@ export const purchasesService = {
         // Create audit trail entry
         await tx.productAuditTrail.create({
           data: {
+            tenantId,
             productId: product.id,
             eventType: 'purchased',
             toShopId: shopId,
@@ -277,6 +390,20 @@ export const purchasesService = {
     const existing = await prisma.purchase.findUnique({ where: { id } });
     if (!existing) {
       return null;
+    }
+
+    // Check for duplicate invoice number if it's being changed
+    if (data.invoiceNumber && data.invoiceNumber !== existing.invoiceNumber) {
+      const duplicateInvoice = await prisma.purchase.findFirst({
+        where: {
+          invoiceNumber: data.invoiceNumber,
+          distributorId: existing.distributorId,
+          id: { not: id },
+        },
+      });
+      if (duplicateInvoice) {
+        throw new Error(`Invoice number "${data.invoiceNumber}" already exists for this distributor`);
+      }
     }
 
     const updateData: Record<string, unknown> = {};

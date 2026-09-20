@@ -3,7 +3,6 @@ import { z } from 'zod';
 export const loginSchema = z.object({
   username: z.string().min(1, 'Username is required'),
   password: z.string().min(1, 'Password is required'),
-  shopId: z.string().uuid('Shop ID must be a valid UUID'),
 });
 
 export const refreshSchema = z.object({

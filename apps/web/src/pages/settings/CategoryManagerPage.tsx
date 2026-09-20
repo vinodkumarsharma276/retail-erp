@@ -297,6 +297,7 @@ function AddCategoryForm({
 }) {
   const [name, setName] = useState('');
   const [icon, setIcon] = useState('');
+  const [hsnCode, setHsnCode] = useState('');
   const createMutation = useCreateCategoryMutation();
 
   const handleCreate = () => {
@@ -306,6 +307,7 @@ function AddCategoryForm({
         name: name.trim(),
         parentId: parentId || undefined,
         icon: icon.trim() || undefined,
+        hsnCode: hsnCode.trim() || undefined,
       },
       { onSuccess: () => onClose() },
     );
@@ -329,6 +331,14 @@ function AddCategoryForm({
         value={icon}
         onChange={(e) => setIcon(e.target.value)}
         placeholder="Icon (optional)"
+        className="w-full rounded-md border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+      />
+      <input
+        type="text"
+        value={hsnCode}
+        onChange={(e) => setHsnCode(e.target.value)}
+        placeholder="HSN Code (e.g., 8528)"
+        maxLength={8}
         className="w-full rounded-md border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
       />
       <div className="flex items-center gap-2">
@@ -362,6 +372,7 @@ function CategoryDetail({ category }: { category: ProductCategory }) {
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState(category.name);
   const [editIcon, setEditIcon] = useState(category.icon ?? '');
+  const [editHsnCode, setEditHsnCode] = useState(category.hsnCode ?? '');
 
   const updateMutation = useUpdateCategoryMutation();
 
@@ -372,6 +383,7 @@ function CategoryDetail({ category }: { category: ProductCategory }) {
         payload: {
           name: editName.trim(),
           icon: editIcon.trim() || undefined,
+          hsnCode: editHsnCode.trim() || undefined,
         },
       },
       { onSuccess: () => setIsEditing(false) },
@@ -382,6 +394,7 @@ function CategoryDetail({ category }: { category: ProductCategory }) {
   const resetEdit = () => {
     setEditName(category.name);
     setEditIcon(category.icon ?? '');
+    setEditHsnCode(category.hsnCode ?? '');
     setIsEditing(false);
   };
 
@@ -402,6 +415,14 @@ function CategoryDetail({ category }: { category: ProductCategory }) {
               value={editIcon}
               onChange={(e) => setEditIcon(e.target.value)}
               placeholder="Icon (optional)"
+              className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+            <input
+              type="text"
+              value={editHsnCode}
+              onChange={(e) => setEditHsnCode(e.target.value)}
+              placeholder="HSN Code (e.g., 8528)"
+              maxLength={8}
               className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
             />
             <div className="flex items-center gap-2">
@@ -432,6 +453,9 @@ function CategoryDetail({ category }: { category: ProductCategory }) {
               <div className="flex items-center gap-3 mt-1 text-sm text-muted-foreground">
                 <span>Slug: {category.slug}</span>
                 <span>Level: {category.level}</span>
+                {category.hsnCode && (
+                  <span>HSN: {category.hsnCode}</span>
+                )}
                 {category.isLeaf && (
                   <span className="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700">
                     Leaf
@@ -448,6 +472,7 @@ function CategoryDetail({ category }: { category: ProductCategory }) {
               onClick={() => {
                 setEditName(category.name);
                 setEditIcon(category.icon ?? '');
+                setEditHsnCode(category.hsnCode ?? '');
                 setIsEditing(true);
               }}
               className="rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"

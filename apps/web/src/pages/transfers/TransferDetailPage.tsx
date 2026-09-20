@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
   Loader2,
@@ -21,9 +21,10 @@ import { UserRole } from '@retailerp/shared-types';
 
 export function TransferDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
   const currentShopId = useShopStore((s) => s.currentShopId);
-  const isAdmin = user?.role === UserRole.ADMIN;
+  const isAdmin = user?.role === UserRole.OWNER || user?.role === UserRole.ADMIN;
 
   const {
     data: transfer,
@@ -84,13 +85,13 @@ export function TransferDetailPage() {
         <p className="text-sm text-muted-foreground mb-4">
           The transfer you are looking for does not exist or has been removed.
         </p>
-        <Link
-          to="/transfers"
+        <button
+          onClick={() => navigate(-1)}
           className="flex items-center gap-2 text-sm text-primary hover:underline"
         >
           <ArrowLeft className="h-4 w-4" />
           Back to Transfers
-        </Link>
+        </button>
       </div>
     );
   }
@@ -100,12 +101,12 @@ export function TransferDetailPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-4">
-          <Link
-            to="/transfers"
+          <button
+            onClick={() => navigate(-1)}
             className="rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
           >
             <ArrowLeft className="h-5 w-5" />
-          </Link>
+          </button>
           <div>
             <h1 className="text-2xl font-semibold">
               Transfer #{transfer.id.slice(0, 8).toUpperCase()}
@@ -340,7 +341,7 @@ function InfoRow({
           <span
             className={cn(
               'text-sm',
-              highlight && 'text-red-600 font-semibold',
+              highlight && 'text-red-600 dark:text-red-400 font-semibold',
               mono && 'font-mono text-xs',
             )}
           >

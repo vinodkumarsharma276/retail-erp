@@ -1,184 +1,156 @@
 import type { PrismaClient, Customer, Shop, User } from '@prisma/client';
-import { generateCustomerCode } from '../../src/utils/id-generator';
+
+// ---------------------------------------------------------------------------
+// Bulk customers seed — 300 customers per shop (1200 total).
+//
+// Integrity rules enforced:
+//   - Customer is shop-scoped (shopId required)
+//   - ~10% of customers per shop are flagged `isGuarantor = true`
+//   - ~25% of non-guarantor customers are linked to a guarantor via guarantorId
+//     (the guarantor must be from the SAME shop for referential consistency)
+//   - customerCode is unique globally (CUST-NNNN)
+//   - phone is NOT unique — this models "repeat customer" / same person
+//     buying at multiple shops (each occurrence is a separate Customer row)
+// ---------------------------------------------------------------------------
+
+const FIRST_NAMES = [
+  'Rajesh', 'Amit', 'Sunil', 'Vikram', 'Rohit', 'Deepak', 'Anil', 'Sanjay',
+  'Manoj', 'Praveen', 'Arun', 'Kishore', 'Naveen', 'Tarun', 'Harish', 'Suresh',
+  'Rakesh', 'Dinesh', 'Ramesh', 'Mahesh', 'Prakash', 'Vinod', 'Nitin', 'Ashok',
+  'Priya', 'Pooja', 'Neha', 'Kavita', 'Sunita', 'Anita', 'Seema', 'Meena',
+  'Rekha', 'Geeta', 'Sita', 'Radha', 'Shalini', 'Madhuri', 'Deepika', 'Anjali',
+  'Ravi', 'Mohan', 'Sohan', 'Rohan', 'Karan', 'Arjun', 'Vijay', 'Ajay',
+  'Sachin', 'Raj', 'Gaurav', 'Pankaj', 'Yogesh', 'Mukesh', 'Naresh', 'Jitendra',
+  'Shweta', 'Divya', 'Payal', 'Ritika', 'Sneha', 'Aarti', 'Lakshmi', 'Saraswati',
+];
+
+const LAST_NAMES = [
+  'Kumar', 'Sharma', 'Verma', 'Singh', 'Gupta', 'Agarwal', 'Mehta', 'Patel',
+  'Shah', 'Joshi', 'Pandey', 'Mishra', 'Tiwari', 'Dubey', 'Srivastava', 'Saxena',
+  'Yadav', 'Rai', 'Chauhan', 'Tomar', 'Rathore', 'Choudhary', 'Jain', 'Aggarwal',
+  'Bansal', 'Goyal', 'Mittal', 'Khanna', 'Kapoor', 'Malhotra', 'Chopra', 'Bhatia',
+  'Nair', 'Menon', 'Iyer', 'Reddy', 'Rao', 'Naidu', 'Das', 'Dutta',
+];
+
+const AREAS = [
+  'Hazratganj', 'Gomti Nagar', 'Aliganj', 'Indira Nagar', 'Alambagh', 'Aminabad',
+  'Chowk', 'Mahanagar', 'Jankipuram', 'Vikas Nagar', 'Rajajipuram', 'Nishatganj',
+  'Aashiyana', 'Sarojini Nagar', 'Kapoorthala', 'Kaisarbagh', 'Charbagh',
+];
+
+function rand(seed: number): number {
+  // deterministic pseudo-random in [0, 1)
+  const x = Math.sin(seed * 9301 + 49297) * 233280;
+  return x - Math.floor(x);
+}
+
+function pick<T>(arr: T[], seed: number): T {
+  return arr[Math.floor(rand(seed) * arr.length) % arr.length];
+}
+
+function pad(n: number, width: number): string {
+  return String(n).padStart(width, '0');
+}
 
 export async function seedCustomers(
   prisma: PrismaClient,
   shops: Shop[],
-  users: User[],
+  _users: User[],
 ): Promise<Customer[]> {
-  const customers: Customer[] = [];
-
-  const shopByCode = (code: string) => shops.find((s) => s.code === code)!;
-
-  // Helper to get first admin user for a shop
-  async function getFirstAdmin(shopId: string) {
-    const userShop = await prisma.userShop.findFirst({
-      where: { shopId, isPrimary: true, user: { role: 'admin' } },
-      include: { user: true },
-    });
-    return userShop?.user;
+  const tenantId = shops[0]?.tenantId;
+  if (!tenantId) return [];
+  // Idempotency — if any customers already exist (from previous seed), append; but
+  // in most cases clear.ts will have been run first.
+  const existing = await prisma.customer.count({ where: { tenantId } });
+  if (existing >= 1200) {
+    return prisma.customer.findMany({ where: { tenantId } });
   }
 
-  const ve = shopByCode('VE');
-  const ne = shopByCode('NE');
-  const vha = shopByCode('VHA');
-  const nhe = shopByCode('NHE');
-
-  const veAdmin = await getFirstAdmin(ve.id);
-  const neAdmin = await getFirstAdmin(ne.id);
-  const vhaAdmin = await getFirstAdmin(vha.id);
-  const nheAdmin = await getFirstAdmin(nhe.id);
-
-  // Get last customer code for auto-generation
-  let lastCode: string | undefined;
+  // Get last customer code for sequential generation
   const lastCustomer = await prisma.customer.findFirst({
+    where: { tenantId },
     orderBy: { customerCode: 'desc' },
     select: { customerCode: true },
   });
-  lastCode = lastCustomer?.customerCode ?? undefined;
+  let nextCustNum = lastCustomer
+    ? parseInt(lastCustomer.customerCode.split('-')[1], 10) + 1
+    : 1;
 
-  const customerDefs = [
-    // --- Guarantors first (they are also customers, with isGuarantor = true) ---
-    {
-      name: 'Ravi Guarantor1',
-      phone: '9876543215',
-      aadhaarNumber: '234567890123',
-      addressLine1: 'Sector 5, Aliganj',
-      city: 'Lucknow',
-      state: 'Uttar Pradesh',
-      pincode: '226024',
-      isGuarantor: true,
-      shopId: ve.id,
-      createdBy: veAdmin?.id ?? null,
-    },
-    {
-      name: 'Suresh Guarantor2',
-      phone: '9876543216',
-      aadhaarNumber: '345678901234',
-      addressLine1: 'Block B, Indira Nagar',
-      city: 'Lucknow',
-      state: 'Uttar Pradesh',
-      pincode: '226016',
-      isGuarantor: true,
-      shopId: ne.id,
-      createdBy: neAdmin?.id ?? null,
-    },
-
-    // --- Regular customers ---
-    {
-      name: 'Rajesh Kumar',
-      phone: '9876543210',
-      aadhaarNumber: '123456789012',
-      addressLine1: '42 MG Road, Hazratganj',
-      city: 'Lucknow',
-      state: 'Uttar Pradesh',
-      pincode: '226001',
-      isGuarantor: false,
-      shopId: ve.id,
-      createdBy: veAdmin?.id ?? null,
-    },
-    {
-      name: 'Priya Sharma',
-      phone: '9876543211',
-      aadhaarNumber: '234567890124',
-      addressLine1: '15 Civil Lines',
-      city: 'Lucknow',
-      state: 'Uttar Pradesh',
-      pincode: '226001',
-      isGuarantor: false,
-      shopId: ne.id,
-      createdBy: neAdmin?.id ?? null,
-    },
-    {
-      name: 'Amit Verma',
-      phone: '9876543212',
-      aadhaarNumber: '345678901235',
-      addressLine1: '78 Gomti Nagar',
-      city: 'Lucknow',
-      state: 'Uttar Pradesh',
-      pincode: '226010',
-      isGuarantor: false,
-      shopId: vha.id,
-      createdBy: vhaAdmin?.id ?? null,
-    },
-    {
-      name: 'Sunita Devi',
-      phone: '9876543213',
-      aadhaarNumber: '456789012346',
-      addressLine1: '23 Aminabad',
-      city: 'Lucknow',
-      state: 'Uttar Pradesh',
-      pincode: '226018',
-      isGuarantor: false,
-      shopId: nhe.id,
-      createdBy: nheAdmin?.id ?? null,
-    },
-    {
-      name: 'Mohit Singh',
-      phone: '9876543214',
-      aadhaarNumber: '567890123457',
-      addressLine1: '56 Alambagh',
-      city: 'Lucknow',
-      state: 'Uttar Pradesh',
-      pincode: '226005',
-      isGuarantor: false,
-      shopId: ve.id,
-      createdBy: veAdmin?.id ?? null,
-    },
-  ];
-
-  for (const def of customerDefs) {
-    // Check if customer already exists by phone + shopId
-    let customer = await prisma.customer.findFirst({
-      where: { phone: def.phone, shopId: def.shopId },
+  // Resolve a shop's primary admin as createdBy
+  const shopAdminMap: Record<string, string | null> = {};
+  for (const shop of shops) {
+    const us = await prisma.userShop.findFirst({
+      where: { tenantId, shopId: shop.id, isPrimary: true, user: { role: 'admin' } },
+      include: { user: true },
     });
+    shopAdminMap[shop.id] = us?.user.id ?? null;
+  }
 
-    if (!customer) {
-      const customerCode = generateCustomerCode(lastCode);
-      lastCode = customerCode;
+  const allCustomers: Customer[] = [];
 
-      customer = await prisma.customer.create({
+  const CUSTOMERS_PER_SHOP = 300;
+  const GUARANTOR_RATIO = 0.1; // 10% of customers are guarantors (someone who CAN guarantee others)
+
+  // ---------- Phase 1: create all customers without guarantorId ----------
+  for (const shop of shops) {
+    const createdBy = shopAdminMap[shop.id];
+
+    for (let i = 0; i < CUSTOMERS_PER_SHOP; i++) {
+      const seed = shop.code.charCodeAt(0) * 1000 + i;
+      const first = pick(FIRST_NAMES, seed);
+      const last = pick(LAST_NAMES, seed + 1);
+      const area = pick(AREAS, seed + 2);
+
+      const customerCode = `CUST-${pad(nextCustNum++, 6)}`;
+      const phone = `9${pad((8000000000 + seed * 997) % 1000000000, 9)}`;
+      const isGuarantor = rand(seed + 3) < GUARANTOR_RATIO;
+
+      const customer = await prisma.customer.create({
         data: {
+          tenantId,
           customerCode,
-          name: def.name,
-          phone: def.phone,
-          aadhaarNumber: def.aadhaarNumber ?? null,
-          addressLine1: def.addressLine1 ?? null,
-          city: def.city ?? null,
-          state: def.state ?? null,
-          pincode: def.pincode ?? null,
-          isGuarantor: def.isGuarantor,
-          dynamicAttributes: {},
-          shopId: def.shopId,
-          createdBy: def.createdBy,
+          name: `${first} ${last}`,
+          phone,
+          altPhone: rand(seed + 4) < 0.3 ? `9${pad((7000000000 + seed * 131) % 1000000000, 9)}` : null,
+          aadhaarNumber: pad((100000000000 + seed * 31) % 1000000000000, 12),
+          addressLine1: `${Math.floor(rand(seed + 5) * 200) + 1}, ${area}`,
+          addressLine2: `Near ${pick(['Market', 'Park', 'School', 'Temple', 'Hospital'], seed + 6)}`,
+          city: shop.city,
+          state: shop.state,
+          pincode: shop.pincode,
+          isGuarantor,
+          shopId: shop.id,
+          createdBy,
         },
       });
+      allCustomers.push(customer);
     }
-
-    customers.push(customer);
   }
 
-  // Now set guarantorId for Rajesh (guaranteed by Ravi) and Priya (guaranteed by Suresh)
-  const ravi = customers.find((c) => c.name === 'Ravi Guarantor1')!;
-  const suresh = customers.find((c) => c.name === 'Suresh Guarantor2')!;
-  const rajesh = customers.find((c) => c.name === 'Rajesh Kumar')!;
-  const priya = customers.find((c) => c.name === 'Priya Sharma')!;
-
-  if (rajesh && ravi && !rajesh.guarantorId) {
-    await prisma.customer.update({
-      where: { id: rajesh.id },
-      data: { guarantorId: ravi.id },
-    });
-    rajesh.guarantorId = ravi.id;
+  // ---------- Phase 2: link ~25% of non-guarantor customers to a guarantor ----------
+  // A guarantor must belong to the SAME shop
+  const byShop = new Map<string, Customer[]>();
+  for (const c of allCustomers) {
+    if (!byShop.has(c.shopId)) byShop.set(c.shopId, []);
+    byShop.get(c.shopId)!.push(c);
   }
 
-  if (priya && suresh && !priya.guarantorId) {
-    await prisma.customer.update({
-      where: { id: priya.id },
-      data: { guarantorId: suresh.id },
-    });
-    priya.guarantorId = suresh.id;
+  for (const [shopId, shopCustomers] of byShop.entries()) {
+    const guarantors = shopCustomers.filter((c) => c.isGuarantor);
+    if (guarantors.length === 0) continue;
+
+    for (const c of shopCustomers) {
+      if (c.isGuarantor) continue;
+      const seed = c.customerCode.charCodeAt(c.customerCode.length - 1) * 13 + shopId.charCodeAt(0);
+      if (rand(seed) < 0.25) {
+        const g = guarantors[Math.floor(rand(seed + 1) * guarantors.length)];
+        await prisma.customer.update({
+          where: { id: c.id },
+          data: { guarantorId: g.id },
+        });
+      }
+    }
   }
 
-  return customers;
+  return prisma.customer.findMany({ where: { tenantId } });
 }

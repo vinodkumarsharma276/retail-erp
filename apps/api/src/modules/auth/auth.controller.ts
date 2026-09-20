@@ -3,29 +3,40 @@ import crypto from 'node:crypto';
 import { authService } from './auth.service.js';
 import { sendSuccess, sendError } from '../../utils/response.js';
 import { config } from '../../config/index.js';
+import { loadEffectivePermissionsForUser } from '../../middleware/permissions.js';
+import { getTenantFeatureSnapshot } from '../../middleware/feature-gate.js';
 
 export const authController = {
-  async listShops(_request: FastifyRequest, reply: FastifyReply) {
-    const shops = await authService.listShops();
+  async listShops(request: FastifyRequest, reply: FastifyReply) {
+    if (!request.tenant) {
+      return sendError(reply, 'No tenant context', 400);
+    }
+    const shops = await authService.listShops(request.tenant.id);
     return sendSuccess(reply, shops);
   },
 
   async login(
     request: FastifyRequest<{
-      Body: { username: string; password: string; shopId: string };
+      Body: { username: string; password: string };
     }>,
     reply: FastifyReply,
   ) {
-    const { username, password, shopId } = request.body;
+    if (!request.tenant) {
+      return sendError(reply, 'No tenant context', 400);
+    }
+    const tenantId = request.tenant.id;
+    const { username, password } = request.body;
 
-    const user = await authService.validateCredentials(username, password);
+    const user = await authService.validateCredentials(tenantId, username, password);
     if (!user) {
       return sendError(reply, 'Invalid username or password', 401);
     }
 
-    const hasAccess = await authService.verifyUserShopAccess(user.id, shopId);
-    if (!hasAccess) {
-      return sendError(reply, 'You do not have access to this shop', 403);
+    const selectedShop =
+      user.userShops.find((us) => us.isPrimary && us.shop.isActive)?.shop ??
+      user.userShops.find((us) => us.shop.isActive)?.shop;
+    if (!selectedShop) {
+      return sendError(reply, 'No active shop is assigned to this user', 403);
     }
 
     const accessToken = request.server.jwt.sign(
@@ -33,7 +44,8 @@ export const authController = {
         userId: user.id,
         username: user.username,
         role: user.role,
-        shopId,
+        tenantId,
+        shopId: selectedShop.id,
         isMobileOnly: user.isMobileOnly,
       },
       { expiresIn: config.jwt.accessExpiresIn },
@@ -42,7 +54,7 @@ export const authController = {
     const refreshToken = crypto.randomUUID();
     const refreshHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
 
-    await authService.storeRefreshToken(user.id, refreshHash, request.headers['user-agent']);
+    await authService.storeRefreshToken(user.id, tenantId, refreshHash, request.headers['user-agent']);
     await authService.updateLastLogin(user.id);
 
     return sendSuccess(reply, {
@@ -53,9 +65,18 @@ export const authController = {
         username: user.username,
         fullName: user.fullName,
         role: user.role,
+        roleId: (user as any).roleId ?? null,
         isMobileOnly: user.isMobileOnly,
+        preferences: (user as any).preferences ?? null,
       },
-      shop: user.userShops.find((us) => us.shopId === shopId)?.shop,
+      tenant: {
+        id: request.tenant.id,
+        slug: request.tenant.slug,
+        name: request.tenant.name,
+      },
+      features: await getTenantFeatureSnapshot(request.tenant.id),
+      permissions: Array.from(await loadEffectivePermissionsForUser(user.id)),
+      shop: { id: selectedShop.id, name: selectedShop.name, code: selectedShop.code },
     });
   },
 
@@ -63,10 +84,14 @@ export const authController = {
     request: FastifyRequest<{ Body: { refreshToken: string } }>,
     reply: FastifyReply,
   ) {
+    if (!request.tenant) {
+      return sendError(reply, 'No tenant context', 400);
+    }
+    const tenantId = request.tenant.id;
     const { refreshToken } = request.body;
     const tokenHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
 
-    const stored = await authService.findValidRefreshToken(tokenHash);
+    const stored = await authService.findValidRefreshToken(tokenHash, tenantId);
     if (!stored) {
       return sendError(reply, 'Invalid or expired refresh token', 401);
     }
@@ -75,12 +100,20 @@ export const authController = {
     await authService.revokeRefreshToken(tokenHash);
 
     // Issue new tokens
+    const selectedShop =
+      stored.user.userShops.find((us) => us.isPrimary && us.shop.isActive)?.shop ??
+      stored.user.userShops.find((us) => us.shop.isActive)?.shop;
+    if (!selectedShop) {
+      return sendError(reply, 'No active shop is assigned to this user', 403);
+    }
+
     const accessToken = request.server.jwt.sign(
       {
         userId: stored.user.id,
         username: stored.user.username,
         role: stored.user.role,
-        shopId: stored.userId, // Will be fixed with proper shop tracking
+        tenantId,
+        shopId: selectedShop.id,
         isMobileOnly: stored.user.isMobileOnly,
       },
       { expiresIn: config.jwt.accessExpiresIn },
@@ -88,7 +121,7 @@ export const authController = {
 
     const newRefreshToken = crypto.randomUUID();
     const newRefreshHash = crypto.createHash('sha256').update(newRefreshToken).digest('hex');
-    await authService.storeRefreshToken(stored.userId, newRefreshHash);
+    await authService.storeRefreshToken(stored.userId, tenantId, newRefreshHash);
 
     return sendSuccess(reply, { accessToken, refreshToken: newRefreshToken });
   },
@@ -97,9 +130,12 @@ export const authController = {
     if (!request.currentUser) {
       return sendError(reply, 'Authentication required', 401);
     }
+    if (!request.tenant) {
+      return sendError(reply, 'No tenant context', 400);
+    }
 
     // Fetch full user with shops from DB (not just JWT payload)
-    const user = await authService.getUserWithShops(request.currentUser.userId);
+    const user = await authService.getUserWithShops(request.currentUser.userId, request.tenant.id);
     if (!user) {
       return sendError(reply, 'User not found', 404);
     }
@@ -110,14 +146,45 @@ export const authController = {
         username: user.username,
         fullName: user.fullName,
         role: user.role,
+        roleId: (user as any).roleId ?? null,
         isMobileOnly: user.isMobileOnly,
+        preferences: (user as any).preferences ?? null,
       },
+      tenant: {
+        id: request.tenant.id,
+        slug: request.tenant.slug,
+        name: request.tenant.name,
+      },
+      features: await getTenantFeatureSnapshot(request.tenant.id),
+      permissions: Array.from(await loadEffectivePermissionsForUser(user.id)),
       shops: user.userShops.map((us: any) => ({
         id: us.shop.id,
         name: us.shop.name,
         code: us.shop.code,
       })),
     });
+  },
+
+  async getPreferences(request: FastifyRequest, reply: FastifyReply) {
+    if (!request.currentUser) {
+      return sendError(reply, 'Authentication required', 401);
+    }
+    const prefs = await authService.getPreferences(request.currentUser.userId);
+    return sendSuccess(reply, prefs ?? {});
+  },
+
+  async updatePreferences(
+    request: FastifyRequest<{ Body: Record<string, unknown> }>,
+    reply: FastifyReply,
+  ) {
+    if (!request.currentUser) {
+      return sendError(reply, 'Authentication required', 401);
+    }
+    // Merge with existing so partial updates don't wipe other prefs
+    const existing = (await authService.getPreferences(request.currentUser.userId)) ?? {};
+    const next = { ...existing, ...(request.body ?? {}) };
+    const saved = await authService.updatePreferences(request.currentUser.userId, next);
+    return sendSuccess(reply, saved ?? {});
   },
 
   async logout(request: FastifyRequest<{ Body: { refreshToken: string } }>, reply: FastifyReply) {
@@ -161,14 +228,23 @@ export const authController = {
     if (!request.currentUser) {
       return sendError(reply, 'Authentication required', 401);
     }
-
-    if (request.currentUser.role !== 'admin' && request.currentUser.role !== 'accountant') {
-      return sendError(reply, 'Only admins and accountants can switch shops', 403);
+    if (!request.tenant) {
+      return sendError(reply, 'No tenant context', 400);
     }
 
+    if (
+      request.currentUser.role !== 'owner' &&
+      request.currentUser.role !== 'admin' &&
+      request.currentUser.role !== 'accountant'
+    ) {
+      return sendError(reply, 'You cannot switch shops', 403);
+    }
+
+    const tenantId = request.tenant.id;
     const hasAccess = await authService.verifyUserShopAccess(
       request.currentUser.userId,
       request.body.shopId,
+      tenantId,
     );
     if (!hasAccess) {
       return sendError(reply, 'You do not have access to this shop', 403);
@@ -185,7 +261,7 @@ export const authController = {
     );
 
     // Fetch shop details to return to frontend
-    const shop = await authService.getShopById(newShopId);
+    const shop = await authService.getShopById(newShopId, tenantId);
 
     return sendSuccess(reply, {
       accessToken,

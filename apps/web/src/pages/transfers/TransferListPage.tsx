@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import {
   Plus,
   ChevronDown,
@@ -19,8 +19,9 @@ import {
 import type { Transfer } from '../../hooks/useTransfers';
 import { DataTable } from '../../components/DataTable';
 import type { Column, PaginationState } from '../../components/DataTable';
+import { DateInput } from '../../components/DateInput';
 import { StatusBadge } from '../../components/StatusBadge';
-import { formatINR, formatDateIN } from '@retailerp/shared-utils';
+import { formatINR, formatDateIN, getCurrentFinancialYearRange, getLastFinancialYearRange } from '@retailerp/shared-utils';
 import { useAuthStore } from '../../stores/auth-store';
 import { useShopStore } from '../../stores/shop-store';
 import { UserRole } from '@retailerp/shared-types';
@@ -43,16 +44,30 @@ export function TransferListPage() {
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
   const currentShopId = useShopStore((s) => s.currentShopId);
-  const isAdmin = user?.role === UserRole.ADMIN;
+  const isAdmin = user?.role === UserRole.OWNER || user?.role === UserRole.ADMIN;
 
-  // ------ Tab state ------
-  const [activeTab, setActiveTab] = useState<Tab>('all');
+  // ------ Filters state (URL search params) ------
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  // ------ Filters state (for All tab) ------
-  const [page, setPage] = useState(1);
-  const [status, setStatus] = useState('');
-  const [dateFrom, setDateFrom] = useState(getDateDaysAgo(7));
-  const [dateTo, setDateTo] = useState(getToday());
+  const activeTab = (searchParams.get('tab') as Tab) || 'all';
+  const page = Number(searchParams.get('page')) || 1;
+  const status = searchParams.get('status') || '';
+  const dateFrom = searchParams.get('dateFrom') || getDateDaysAgo(90);
+  const dateTo = searchParams.get('dateTo') || getToday();
+
+  const updateFilters = (updates: Record<string, string>) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      for (const [key, value] of Object.entries(updates)) {
+        if (value) {
+          next.set(key, value);
+        } else {
+          next.delete(key);
+        }
+      }
+      return next;
+    }, { replace: true });
+  };
 
   // All transfers query
   const transfersQuery = useTransfersQuery({
@@ -71,12 +86,10 @@ export function TransferListPage() {
   const incomingTransfers = incomingQuery.data ?? [];
 
   // ------ Clear filters ------
-  const hasFilters = status || dateFrom !== getDateDaysAgo(7) || dateTo !== getToday();
+  const hasFilters = status || dateFrom !== getDateDaysAgo(90) || dateTo !== getToday();
   const clearFilters = () => {
-    setStatus('');
-    setDateFrom(getDateDaysAgo(7));
-    setDateTo(getToday());
-    setPage(1);
+    // Keep the current tab when clearing filters
+    setSearchParams(activeTab !== 'all' ? { tab: activeTab } : {}, { replace: true });
   };
 
   // ------ Receive mutation (for incoming tab) ------
@@ -204,7 +217,7 @@ export function TransferListPage() {
       {/* Tabs */}
       <div className="flex items-center gap-1 border-b mb-6">
         <button
-          onClick={() => setActiveTab('all')}
+          onClick={() => updateFilters({ tab: '', page: '1', status: '', dateFrom: '', dateTo: '' })}
           className={cn(
             'flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px',
             activeTab === 'all'
@@ -216,7 +229,7 @@ export function TransferListPage() {
           All Transfers
         </button>
         <button
-          onClick={() => setActiveTab('incoming')}
+          onClick={() => updateFilters({ tab: 'incoming', page: '1', status: '', dateFrom: '', dateTo: '' })}
           className={cn(
             'flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px',
             activeTab === 'incoming'
@@ -248,8 +261,7 @@ export function TransferListPage() {
                 <select
                   value={status}
                   onChange={(e) => {
-                    setStatus(e.target.value);
-                    setPage(1);
+                    updateFilters({ status: e.target.value, page: '1' });
                   }}
                   className={cn(
                     'w-full appearance-none rounded-md border bg-background px-3 py-2 pr-8 text-sm',
@@ -271,21 +283,11 @@ export function TransferListPage() {
               <label className="block text-xs font-medium text-muted-foreground mb-1">
                 From
               </label>
-              <div className="relative">
-                <Calendar className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <input
-                  type="date"
-                  value={dateFrom}
-                  onChange={(e) => {
-                    setDateFrom(e.target.value);
-                    setPage(1);
-                  }}
-                  className={cn(
-                    'rounded-md border bg-background pl-9 pr-3 py-2 text-sm',
-                    'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                  )}
-                />
-              </div>
+              <DateInput
+                value={dateFrom}
+                onChange={(v) => updateFilters({ dateFrom: v, page: '1' })}
+                className="w-40"
+              />
             </div>
 
             {/* Date to */}
@@ -293,22 +295,33 @@ export function TransferListPage() {
               <label className="block text-xs font-medium text-muted-foreground mb-1">
                 To
               </label>
-              <div className="relative">
-                <Calendar className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <input
-                  type="date"
-                  value={dateTo}
-                  onChange={(e) => {
-                    setDateTo(e.target.value);
-                    setPage(1);
-                  }}
-                  className={cn(
-                    'rounded-md border bg-background pl-9 pr-3 py-2 text-sm',
-                    'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                  )}
-                />
-              </div>
+              <DateInput
+                value={dateTo}
+                onChange={(v) => updateFilters({ dateTo: v, page: '1' })}
+                className="w-40"
+              />
             </div>
+
+            {/* Quick FY filters */}
+            <button
+              onClick={() => {
+                const { dateFrom: fyStart, dateTo: fyEnd } = getCurrentFinancialYearRange();
+                updateFilters({ dateFrom: fyStart, dateTo: fyEnd, page: '1' });
+              }}
+              className="rounded-md border px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+            >
+              Current Financial Year
+            </button>
+
+            <button
+              onClick={() => {
+                const { dateFrom: fyStart, dateTo: fyEnd } = getLastFinancialYearRange();
+                updateFilters({ dateFrom: fyStart, dateTo: fyEnd, page: '1' });
+              }}
+              className="rounded-md border px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+            >
+              Last Financial Year
+            </button>
 
             {/* Clear filters */}
             {hasFilters && (
@@ -335,7 +348,7 @@ export function TransferListPage() {
             data={transfers}
             isLoading={transfersQuery.isLoading}
             pagination={paginationState}
-            onPageChange={setPage}
+            onPageChange={(p) => updateFilters({ page: String(p) })}
             emptyMessage="No transfers found matching your filters."
             rowKey={(row) => row.id}
           />

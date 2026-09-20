@@ -137,6 +137,55 @@ export function useCreateDistributorMutation() {
 }
 
 // ---------------------------------------------------------------------------
+// Record lumpsum payment to distributor
+// ---------------------------------------------------------------------------
+export interface LumpsumPaymentPayload {
+  amount: number;
+  paymentMode: string;
+  paymentDate: string;
+  referenceNumber?: string;
+  notes?: string;
+}
+
+export interface LumpsumPaymentResult {
+  totalDistributed: number;
+  invoicesPaidFull: number;
+  invoicesPaidPartial: number;
+  remainingAmount: number;
+}
+
+export function useRecordDistributorPaymentMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      id,
+      payload,
+    }: {
+      id: string;
+      payload: LumpsumPaymentPayload;
+    }) => {
+      const { data } = await apiClient.post<ApiResponse<LumpsumPaymentResult>>(
+        `/distributors/${id}/payments`,
+        payload,
+      );
+      return data.data!;
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['distributors'] });
+      queryClient.invalidateQueries({
+        queryKey: keys.distributorDetail(variables.id),
+      });
+      queryClient.invalidateQueries({
+        queryKey: keys.distributorPayments(variables.id),
+      });
+      // Also invalidate purchases since payment statuses change
+      queryClient.invalidateQueries({ queryKey: ['purchases'] });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Update distributor
 // ---------------------------------------------------------------------------
 export function useUpdateDistributorMutation() {

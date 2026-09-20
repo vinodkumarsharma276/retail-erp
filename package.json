@@ -9,7 +9,7 @@
     "dev": "turbo dev --filter=@retailerp/api --filter=@retailerp/web",
     "dev:api": "npm run dev --workspace=apps/api",
     "dev:web": "npm run dev --workspace=apps/web",
-    "dev:mobile": "cd apps/mobile && npx expo start",
+    "dev:mobile": "cd apps/mobile && npx expo start --android --port 8082",
     "dev:all": "docker compose up -d && turbo dev --filter=@retailerp/api --filter=@retailerp/web",
     "build": "turbo build",
     "lint": "turbo lint",
@@ -21,7 +21,11 @@
     "db:generate": "npm run db:generate --workspace=apps/api",
     "db:migrate": "npm run db:migrate --workspace=apps/api",
     "db:seed": "npm run db:seed --workspace=apps/api",
-    "db:studio": "npm run db:studio --workspace=apps/api"
+    "db:clear": "npm run db:clear --workspace=apps/api",
+    "db:clear:all": "npm run db:clear:all --workspace=apps/api",
+    "db:reset": "npm run db:reset --workspace=apps/api",
+    "db:studio": "npm run db:studio --workspace=apps/api",
+    "postinstall": "node scripts/patch-metro.js"
   },
   "devDependencies": {
     "turbo": "^2.4.0",

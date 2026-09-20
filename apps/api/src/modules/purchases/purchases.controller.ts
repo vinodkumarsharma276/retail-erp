@@ -13,16 +13,37 @@ export const purchasesController = {
         dateFrom?: string;
         dateTo?: string;
         paymentStatus?: string;
+        allShops?: string;
+        search?: string;
       };
     }>,
     reply: FastifyReply,
   ) {
     try {
       const { page, pageSize, skip, take } = parsePagination(request.query);
-      const { distributorId, dateFrom, dateTo, paymentStatus } = request.query;
-      const shopId = request.shopFilter!.shopId;
+      const { distributorId, dateFrom, dateTo, paymentStatus, allShops, search } = request.query;
 
-      const { purchases, totalItems } = await purchasesService.list(shopId, {
+      // Two ways to get a cross-shop view:
+      //   1. Legacy: ?allShops=true with distributorId on the Distributor
+      //      Detail page (admin-only escape hatch — lets the page show a
+      //      distributor's full purchase history across every shop).
+      //   2. Header-driven: middleware sets shopFilter.allShops=true when
+      //      the user has the `shops.view_all` permission and picks
+      //      "All Shops" in the dropdown.
+      const legacyAllShops =
+        allShops === 'true' &&
+        request.currentUser?.role === 'admin' &&
+        !!distributorId;
+
+      const { shopId, shopIds, allShops: scopeAllShops } = request.shopFilter!;
+
+      const scope = legacyAllShops
+        ? { shopId: null }
+        : scopeAllShops
+          ? { shopId, shopIds }
+          : { shopId };
+
+      const { purchases, totalItems } = await purchasesService.list(scope, {
         page,
         pageSize,
         skip,
@@ -31,6 +52,7 @@ export const purchasesController = {
         dateFrom,
         dateTo,
         paymentStatus,
+        search,
       });
 
       return sendPaginated(reply, purchases, { page, pageSize, totalItems });
@@ -52,6 +74,25 @@ export const purchasesController = {
       return sendSuccess(reply, purchase);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to fetch purchase';
+      return sendError(reply, message, 500);
+    }
+  },
+
+  async checkInvoice(
+    request: FastifyRequest<{
+      Querystring: { distributorId?: string; invoiceNumber?: string };
+    }>,
+    reply: FastifyReply,
+  ) {
+    try {
+      const { distributorId, invoiceNumber } = request.query;
+      if (!invoiceNumber) {
+        return sendError(reply, 'invoiceNumber is required', 400);
+      }
+      const result = await purchasesService.checkInvoiceExists(invoiceNumber, distributorId);
+      return sendSuccess(reply, result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to check invoice';
       return sendError(reply, message, 500);
     }
   },
@@ -87,8 +128,9 @@ export const purchasesController = {
     try {
       const shopId = request.shopFilter!.shopId;
       const userId = request.currentUser!.userId;
+      const tenantId = request.currentUser!.tenantId;
 
-      const purchase = await purchasesService.create(shopId, request.body, userId);
+      const purchase = await purchasesService.create(shopId, tenantId, request.body, userId);
       return sendSuccess(reply, purchase, 201);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to create purchase';
@@ -100,6 +142,9 @@ export const purchasesController = {
       }
       if (message.startsWith('Required attribute')) {
         return sendError(reply, message, 400);
+      }
+      if (message.includes('already exists')) {
+        return sendError(reply, message, 409);
       }
       return sendError(reply, message, 500);
     }
@@ -127,6 +172,9 @@ export const purchasesController = {
       return sendSuccess(reply, updated);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to update purchase';
+      if (message.includes('already exists')) {
+        return sendError(reply, message, 409);
+      }
       return sendError(reply, message, 500);
     }
   },

@@ -1,6 +1,7 @@
 import { NavLink, Outlet, Navigate, useLocation } from 'react-router-dom';
-import { FileText, FolderTree } from 'lucide-react';
+import { FileText, FolderTree, Shield } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { useAnyPermission } from '../../hooks/usePermission';
 
 const settingsNavItems = [
   {
@@ -8,21 +9,41 @@ const settingsNavItems = [
     label: 'Form Builder',
     icon: FileText,
     description: 'Configure dynamic form fields',
+    perms: ['forms.view'],
   },
   {
     to: '/settings/categories',
     label: 'Category Manager',
     icon: FolderTree,
     description: 'Manage product categories & attributes',
+    perms: ['categories.list'],
+  },
+  {
+    to: '/settings/roles',
+    label: 'Roles & Users',
+    icon: Shield,
+    description: 'Manage roles, permissions, and user assignments',
+    perms: ['roles.list', 'users.list'],
   },
 ];
 
 export function SettingsPage() {
   const location = useLocation();
+  const canRoles = useAnyPermission('roles.list', 'users.list');
+  const canForms = useAnyPermission('forms.view');
+  const canCategories = useAnyPermission('categories.list');
 
-  // If at /settings exactly, redirect to first child
+  const visibleItems = settingsNavItems.filter((it) => {
+    if (it.to.endsWith('/roles')) return canRoles;
+    if (it.to.endsWith('/forms')) return canForms;
+    if (it.to.endsWith('/categories')) return canCategories;
+    return true;
+  });
+
+  // If at /settings exactly, redirect to first available child
   if (location.pathname === '/settings') {
-    return <Navigate to="/settings/forms" replace />;
+    const first = visibleItems[0]?.to ?? '/settings/forms';
+    return <Navigate to={first} replace />;
   }
 
   return (
@@ -37,7 +58,7 @@ export function SettingsPage() {
 
       {/* Tab navigation */}
       <div className="flex items-center gap-1 border-b mb-6">
-        {settingsNavItems.map((item) => (
+        {visibleItems.map((item) => (
           <NavLink
             key={item.to}
             to={item.to}

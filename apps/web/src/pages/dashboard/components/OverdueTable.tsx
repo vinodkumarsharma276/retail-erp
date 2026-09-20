@@ -1,15 +1,20 @@
 import { useNavigate } from 'react-router-dom';
-import { Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Loader2, CheckCircle2, AlertCircle, ArrowRight, AlertTriangle } from 'lucide-react';
 import { cn } from '../../../lib/utils';
-import { formatINR, formatDateIN } from '@retailerp/shared-utils';
-import {
-  useOverdueInstallmentsQuery,
-  type OverdueInstallmentDashItem,
-} from '../../../hooks/useDashboard';
+import { formatINR } from '@retailerp/shared-utils';
+import { useOverdueInstallmentsQuery } from '../../../hooks/useDashboard';
 
 export function OverdueTable() {
   const navigate = useNavigate();
   const { data, isLoading, isError } = useOverdueInstallmentsQuery();
+
+  const count = data?.length ?? 0;
+  const totalAmount = (data ?? []).reduce(
+    (sum, item) => sum + Number(item.amountDue ?? 0),
+    0,
+  );
+
+  const goToOverdue = () => navigate('/installments?tab=overdue');
 
   return (
     <div className="rounded-xl border bg-card p-5 shadow-sm">
@@ -21,11 +26,6 @@ export function OverdueTable() {
             Installments past their due date
           </p>
         </div>
-        {data && data.length > 0 && (
-          <span className="rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-semibold text-red-700">
-            {data.length} overdue
-          </span>
-        )}
       </div>
 
       {/* Loading state */}
@@ -44,7 +44,7 @@ export function OverdueTable() {
       )}
 
       {/* Empty state */}
-      {!isLoading && !isError && data && data.length === 0 && (
+      {!isLoading && !isError && count === 0 && (
         <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
           <CheckCircle2 className="h-12 w-12 mb-2 text-green-500 opacity-70" />
           <p className="text-sm font-medium">No overdue installments</p>
@@ -52,93 +52,44 @@ export function OverdueTable() {
         </div>
       )}
 
-      {/* Table */}
-      {!isLoading && !isError && data && data.length > 0 && (
-        <div className="overflow-x-auto -mx-5">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b bg-muted/50">
-                <th className="px-5 py-2.5 text-left font-medium text-muted-foreground">
-                  Customer
-                </th>
-                <th className="px-3 py-2.5 text-left font-medium text-muted-foreground">
-                  Phone
-                </th>
-                <th className="px-3 py-2.5 text-left font-medium text-muted-foreground">
-                  Product
-                </th>
-                <th className="px-3 py-2.5 text-center font-medium text-muted-foreground">
-                  EMI #
-                </th>
-                <th className="px-3 py-2.5 text-right font-medium text-muted-foreground">
-                  Amount Due
-                </th>
-                <th className="px-3 py-2.5 text-left font-medium text-muted-foreground">
-                  Due Date
-                </th>
-                <th className="px-5 py-2.5 text-right font-medium text-muted-foreground">
-                  Overdue
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.map((item) => (
-                <tr
-                  key={item.installmentId}
-                  onClick={() => navigate(`/installments/${item.scheduleId}`)}
-                  className="border-b last:border-0 cursor-pointer hover:bg-muted/30 transition-colors"
-                >
-                  <td className="px-5 py-3 font-medium">{item.customerName}</td>
-                  <td className="px-3 py-3">
-                    <a
-                      href={`tel:${item.customerPhone}`}
-                      onClick={(e) => e.stopPropagation()}
-                      className="text-primary hover:underline"
-                    >
-                      {item.customerPhone}
-                    </a>
-                  </td>
-                  <td className="px-3 py-3 text-muted-foreground max-w-[150px] truncate">
-                    {item.productName}
-                  </td>
-                  <td className="px-3 py-3 text-center font-medium">
-                    #{item.installmentNumber}
-                  </td>
-                  <td className="px-3 py-3 text-right font-semibold text-red-600">
-                    {formatINR(item.amountDue)}
-                  </td>
-                  <td className="px-3 py-3 text-muted-foreground">
-                    {formatDateIN(item.dueDate)}
-                  </td>
-                  <td className="px-5 py-3 text-right">
-                    <OverdueBadge days={item.daysOverdue} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      {/* Summary button */}
+      {!isLoading && !isError && count > 0 && (
+        <button
+          type="button"
+          onClick={goToOverdue}
+          className={cn(
+            'w-full flex items-center justify-between rounded-lg border border-red-200 dark:border-red-900/50',
+            'bg-red-50 dark:bg-red-900/20 px-4 py-4 text-left',
+            'hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors',
+          )}
+        >
+          <div className="flex items-center gap-3">
+            <div className="rounded-lg bg-red-100 dark:bg-red-900/40 p-2.5">
+              <AlertTriangle className="h-5 w-5 text-red-600 dark:text-red-400" />
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-red-700 dark:text-red-400 leading-tight">
+                {count}
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                overdue
+                {totalAmount > 0 && (
+                  <>
+                    {' \u00b7 Total due: '}
+                    <span className="font-medium text-red-600 dark:text-red-400">
+                      {formatINR(totalAmount)}
+                    </span>
+                  </>
+                )}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-1 text-sm font-medium text-red-700 dark:text-red-400">
+            View all
+            <ArrowRight className="h-4 w-4" />
+          </div>
+        </button>
       )}
     </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Overdue severity badge
-// ---------------------------------------------------------------------------
-function OverdueBadge({ days }: { days: number }) {
-  return (
-    <span
-      className={cn(
-        'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold',
-        days > 30
-          ? 'bg-red-100 text-red-700'
-          : days > 7
-            ? 'bg-amber-100 text-amber-700'
-            : 'bg-blue-100 text-blue-700',
-      )}
-    >
-      {days}d
-    </span>
   );
 }

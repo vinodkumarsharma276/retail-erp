@@ -1,5 +1,4 @@
-import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { Plus, Search, X, Pencil } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useDebounce } from '../../hooks/useDebounce';
@@ -13,11 +12,26 @@ const PAGE_SIZE = 20;
 
 export function DistributorListPage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  // ------ Filters state ------
-  const [page, setPage] = useState(1);
-  const [searchText, setSearchText] = useState('');
+  // ------ Filters state (URL search params) ------
+  const page = Number(searchParams.get('page')) || 1;
+  const searchText = searchParams.get('search') || '';
   const debouncedSearch = useDebounce(searchText, 300);
+
+  const updateFilters = (updates: Record<string, string>) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      for (const [key, value] of Object.entries(updates)) {
+        if (value) {
+          next.set(key, value);
+        } else {
+          next.delete(key);
+        }
+      }
+      return next;
+    }, { replace: true });
+  };
 
   // Distributors query
   const distributorsQuery = useDistributorsQuery({
@@ -32,8 +46,7 @@ export function DistributorListPage() {
   // ------ Clear filters ------
   const hasFilters = !!searchText;
   const clearFilters = () => {
-    setSearchText('');
-    setPage(1);
+    setSearchParams({}, { replace: true });
   };
 
   // ------ Table columns ------
@@ -50,6 +63,8 @@ export function DistributorListPage() {
     {
       key: 'companyName',
       header: 'Company Name',
+      sortable: true,
+      sortAccessor: (row) => row.companyName,
       render: (row) => (
         <button
           onClick={() => navigate(`/distributors/${row.id}`)}
@@ -62,16 +77,27 @@ export function DistributorListPage() {
     {
       key: 'contactPerson',
       header: 'Contact Person',
+      sortable: true,
+      sortAccessor: (row) => row.contactPerson ?? '',
       render: (row) => row.contactPerson,
     },
     {
       key: 'phone',
       header: 'Phone',
-      render: (row) => row.phone,
+      sortable: true,
+      sortAccessor: (row) => row.phone ?? '',
+      render: (row) => (
+        <div>
+          <p>{row.phone}</p>
+          {row.altPhone && <p className="text-xs text-muted-foreground">{row.altPhone}</p>}
+        </div>
+      ),
     },
     {
       key: 'gstNumber',
       header: 'GST Number',
+      sortable: true,
+      sortAccessor: (row) => row.gstNumber ?? '',
       render: (row) => (
         <span className="font-mono text-xs">{row.gstNumber || '-'}</span>
       ),
@@ -80,18 +106,24 @@ export function DistributorListPage() {
       key: 'totalProducts',
       header: 'Products Purchased',
       align: 'right',
+      sortable: true,
+      sortAccessor: (row) => Number(row.totalProductsPurchased) || 0,
       render: (row) => row.totalProductsPurchased,
     },
     {
       key: 'totalPaid',
       header: 'Total Paid',
       align: 'right',
+      sortable: true,
+      sortAccessor: (row) => Number(row.totalPaymentPaid) || 0,
       render: (row) => formatINR(row.totalPaymentPaid),
     },
     {
       key: 'pending',
       header: 'Pending',
       align: 'right',
+      sortable: true,
+      sortAccessor: (row) => Number(row.pendingPayment) || 0,
       render: (row) => (
         <span
           className={cn(
@@ -162,8 +194,7 @@ export function DistributorListPage() {
               type="text"
               value={searchText}
               onChange={(e) => {
-                setSearchText(e.target.value);
-                setPage(1);
+                updateFilters({ search: e.target.value, page: '1' });
               }}
               placeholder="Company name, phone, or GST (min 3 chars)..."
               className={cn(
@@ -175,8 +206,7 @@ export function DistributorListPage() {
             {searchText && (
               <button
                 onClick={() => {
-                  setSearchText('');
-                  setPage(1);
+                  updateFilters({ search: '', page: '1' });
                 }}
                 className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
               >
@@ -210,7 +240,7 @@ export function DistributorListPage() {
         data={distributors}
         isLoading={distributorsQuery.isLoading}
         pagination={paginationState}
-        onPageChange={setPage}
+        onPageChange={(p) => updateFilters({ page: String(p) })}
         emptyMessage="No distributors found matching your search."
         rowKey={(row) => row.id}
       />

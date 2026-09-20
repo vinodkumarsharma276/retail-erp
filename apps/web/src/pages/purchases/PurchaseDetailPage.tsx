@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import {
   ArrowLeft,
@@ -16,6 +16,7 @@ import { StatusBadge } from '../../components/StatusBadge';
 import { formatINR, formatDateIN } from '@retailerp/shared-utils';
 import { PaymentMode } from '@retailerp/shared-types';
 import type { PurchaseProduct, PurchasePayment } from '@retailerp/shared-types';
+import { usePermission } from '../../hooks/usePermission';
 
 // ---------------------------------------------------------------------------
 // Payment form values
@@ -33,7 +34,9 @@ interface PaymentFormValues {
 // ---------------------------------------------------------------------------
 export function PurchaseDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
+  const canRecordPayment = usePermission('purchases.record_payment');
 
   const { data: purchase, isLoading, isError } = usePurchaseDetailQuery(id);
 
@@ -55,13 +58,13 @@ export function PurchaseDetailPage() {
         <p className="text-sm text-muted-foreground mb-4">
           The purchase you are looking for does not exist or has been removed.
         </p>
-        <Link
-          to="/purchases"
+        <button
+          onClick={() => navigate(-1)}
           className="flex items-center gap-2 text-sm text-primary hover:underline"
         >
           <ArrowLeft className="h-4 w-4" />
           Back to Purchases
-        </Link>
+        </button>
       </div>
     );
   }
@@ -71,12 +74,12 @@ export function PurchaseDetailPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-4">
-          <Link
-            to="/purchases"
+          <button
+            onClick={() => navigate(-1)}
             className="rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
           >
             <ArrowLeft className="h-5 w-5" />
-          </Link>
+          </button>
           <div>
             <h1 className="text-2xl font-semibold">
               Purchase #{purchase.invoiceNumber}
@@ -115,8 +118,8 @@ export function PurchaseDetailPage() {
           <InfoRow label="Amount Paid" value={formatINR(purchase.amountPaid)} />
           <InfoRow
             label="Pending"
-            value={formatINR(purchase.pendingAmount)}
-            highlight={purchase.pendingAmount > 0}
+            value={formatINR((Number(purchase.netAmount) || 0) - (Number(purchase.amountPaid) || 0))}
+            highlight={(Number(purchase.netAmount) || 0) - (Number(purchase.amountPaid) || 0) > 0}
           />
           {purchase.notes && (
             <div className="sm:col-span-2 lg:col-span-4">
@@ -160,13 +163,17 @@ export function PurchaseDetailPage() {
                   <th className="px-4 py-3 text-right font-medium text-muted-foreground">
                     Purchase Price
                   </th>
+                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                    Status
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 {purchase.products.map((product: PurchaseProduct, idx: number) => (
                   <tr
                     key={product.id}
-                    className="border-b last:border-0 hover:bg-muted/30 transition-colors"
+                    className="border-b last:border-0 hover:bg-muted/30 transition-colors cursor-pointer"
+                    onClick={() => navigate(`/products/${product.id}`)}
                   >
                     <td className="px-4 py-3">{idx + 1}</td>
                     <td className="px-4 py-3 font-medium">{product.brand}</td>
@@ -185,6 +192,9 @@ export function PurchaseDetailPage() {
                     <td className="px-4 py-3 text-right font-medium">
                       {formatINR(product.purchasePrice)}
                     </td>
+                    <td className="px-4 py-3">
+                      <StatusBadge status={(product as any).status ?? 'in_stock'} />
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -197,7 +207,7 @@ export function PurchaseDetailPage() {
       <div className="rounded-lg border bg-card p-6">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-medium">Payment History</h2>
-          {purchase.paymentStatus !== 'paid' && (
+          {canRecordPayment && purchase.paymentStatus !== 'paid' && (
             <button
               onClick={() => setShowPaymentDialog(true)}
               className={cn(
@@ -270,7 +280,7 @@ export function PurchaseDetailPage() {
       {showPaymentDialog && (
         <RecordPaymentDialog
           purchaseId={id!}
-          pendingAmount={purchase.pendingAmount}
+          pendingAmount={(Number(purchase.netAmount) || 0) - (Number(purchase.amountPaid) || 0)}
           onClose={() => setShowPaymentDialog(false)}
         />
       )}

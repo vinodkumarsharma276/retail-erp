@@ -46,18 +46,18 @@ const FIELD_TYPE_OPTIONS: { value: FormFieldType; label: string }[] = [
 ];
 
 const FIELD_TYPE_COLORS: Record<string, string> = {
-  text: 'bg-blue-100 text-blue-700',
-  number: 'bg-green-100 text-green-700',
-  select: 'bg-purple-100 text-purple-700',
-  multi_select: 'bg-purple-100 text-purple-700',
-  date: 'bg-orange-100 text-orange-700',
-  tel: 'bg-blue-100 text-blue-700',
-  email: 'bg-blue-100 text-blue-700',
-  textarea: 'bg-gray-100 text-gray-700',
-  checkbox: 'bg-yellow-100 text-yellow-700',
-  radio: 'bg-yellow-100 text-yellow-700',
-  file: 'bg-pink-100 text-pink-700',
-  hidden: 'bg-gray-100 text-gray-500',
+  text: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+  number: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+  select: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
+  multi_select: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
+  date: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
+  tel: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+  email: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+  textarea: 'bg-gray-100 text-gray-700 dark:bg-gray-800/50 dark:text-gray-400',
+  checkbox: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
+  radio: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
+  file: 'bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-400',
+  hidden: 'bg-gray-100 text-gray-500 dark:bg-gray-800/50 dark:text-gray-500',
 };
 
 // ---------------------------------------------------------------------------
@@ -408,7 +408,7 @@ function FieldEditor({ definition }: { definition: FormDefinition }) {
                   <span
                     className={cn(
                       'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium',
-                      FIELD_TYPE_COLORS[field.fieldType] ?? 'bg-gray-100 text-gray-700',
+                      FIELD_TYPE_COLORS[field.fieldType] ?? 'bg-gray-100 text-gray-700 dark:bg-gray-800/50 dark:text-gray-400',
                     )}
                   >
                     {field.fieldType}

@@ -145,7 +145,7 @@ export function ProductAddPage() {
   }
 
   return (
-    <div className="max-w-4xl">
+    <div className="max-w-6xl">
       {/* Page header */}
       <div className="flex items-center gap-4 mb-6">
         <Link
@@ -179,7 +179,7 @@ export function ProductAddPage() {
           <section className="rounded-lg border bg-card p-6">
             <h2 className="text-lg font-medium mb-4">Product Details</h2>
 
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {/* Brand */}
               <div>
                 <label htmlFor="brand" className="block text-sm font-medium mb-1.5">

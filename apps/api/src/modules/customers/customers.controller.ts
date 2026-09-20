@@ -1,5 +1,8 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { customersService } from './customers.service.js';
+import { prisma } from '../../config/database.js';
+import { computeCustomerReliability } from './customers.reliability.js';
+import { mergeInstallmentSettings } from '../installments/installments.derivations.js';
 import { sendSuccess, sendError, sendPaginated } from '../../utils/response.js';
 import { parsePagination } from '../../utils/pagination.js';
 
@@ -10,22 +13,27 @@ export const customersController = {
         page?: string;
         pageSize?: string;
         search?: string;
+        zone?: string;
       };
     }>,
     reply: FastifyReply,
   ) {
     try {
       const { page, pageSize, skip, take } = parsePagination(request.query);
-      const { search } = request.query;
-      const shopId = request.shopFilter!.shopId;
+      const { search, zone } = request.query;
+      const { shopId, shopIds, allShops } = request.shopFilter!;
 
-      const { customers, totalItems } = await customersService.list(shopId, {
-        page,
-        pageSize,
-        skip,
-        take,
-        search,
-      });
+      const { customers, totalItems } = await customersService.list(
+        { shopId, shopIds: allShops ? shopIds : undefined },
+        {
+          page,
+          pageSize,
+          skip,
+          take,
+          search,
+          zone: zone || undefined,
+        },
+      );
 
       return sendPaginated(reply, customers, { page, pageSize, totalItems });
     } catch (error) {
@@ -71,6 +79,26 @@ export const customersController = {
     }
   },
 
+  async getReliability(
+    request: FastifyRequest<{ Params: { id: string } }>,
+    reply: FastifyReply,
+  ) {
+    try {
+      const settings = mergeInstallmentSettings(request.tenant?.settings);
+      const metrics = await computeCustomerReliability(
+        prisma,
+        request.params.id,
+        request.tenant!.id,
+        settings.reliabilityWindowDays,
+      );
+      if (!metrics) return sendError(reply, 'Customer not found', 404);
+      return sendSuccess(reply, metrics);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to fetch reliability metrics';
+      return sendError(reply, message, 500);
+    }
+  },
+
   async create(
     request: FastifyRequest<{
       Body: {
@@ -83,6 +111,10 @@ export const customersController = {
         city?: string | null;
         state?: string | null;
         pincode?: string | null;
+        zone?: string | null;
+        customerType?: 'individual' | 'business';
+        businessName?: string | null;
+        gstNumber?: string | null;
         isGuarantor?: boolean;
         guarantorId?: string | null;
         dynamicAttributes?: Record<string, unknown>;
@@ -118,6 +150,10 @@ export const customersController = {
         city?: string | null;
         state?: string | null;
         pincode?: string | null;
+        zone?: string | null;
+        customerType?: 'individual' | 'business';
+        businessName?: string | null;
+        gstNumber?: string | null;
         isGuarantor?: boolean;
         guarantorId?: string | null;
         dynamicAttributes?: Record<string, unknown>;
@@ -152,6 +188,23 @@ export const customersController = {
       return sendSuccess(reply, sales);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to fetch customer sales';
+      return sendError(reply, message, 500);
+    }
+  },
+
+  async getInstallmentHistory(
+    request: FastifyRequest<{ Params: { id: string } }>,
+    reply: FastifyReply,
+  ) {
+    try {
+      const summary = await customersService.getInstallmentHistory(request.params.id);
+      if (summary === null) {
+        return sendError(reply, 'Customer not found', 404);
+      }
+      return sendSuccess(reply, summary);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Failed to fetch installment history';
       return sendError(reply, message, 500);
     }
   },

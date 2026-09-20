@@ -3,11 +3,14 @@ import { ArrowLeft, Loader2, Pencil, AlertCircle, Shield, User } from 'lucide-re
 import { cn } from '../../lib/utils';
 import { useCustomerDetailQuery, useCustomerSalesQuery } from '../../hooks/useCustomers';
 import { StatusBadge } from '../../components/StatusBadge';
+import { CustomerReliabilityCard } from '../../components/CustomerReliabilityCard';
 import { formatINR, formatDateIN, formatPhone, formatAadhaar } from '@retailerp/shared-utils';
+import { usePermission } from '../../hooks/usePermission';
 
 export function CustomerDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const canSeeZone = usePermission('view.customer.address.zone');
 
   const { data: customer, isLoading, isError } = useCustomerDetailQuery(id);
   const { data: sales, isLoading: isSalesLoading } = useCustomerSalesQuery(id);
@@ -30,13 +33,13 @@ export function CustomerDetailPage() {
         <p className="text-sm text-muted-foreground mb-4">
           The customer you are looking for does not exist or has been removed.
         </p>
-        <Link
-          to="/customers"
+        <button
+          onClick={() => navigate(-1)}
           className="flex items-center gap-2 text-sm text-primary hover:underline"
         >
           <ArrowLeft className="h-4 w-4" />
           Back to Customers
-        </Link>
+        </button>
       </div>
     );
   }
@@ -60,12 +63,12 @@ export function CustomerDetailPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-4">
-          <Link
-            to="/customers"
+          <button
+            onClick={() => navigate(-1)}
             className="rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
           >
             <ArrowLeft className="h-5 w-5" />
-          </Link>
+          </button>
           <div>
             <h1 className="text-2xl font-semibold">{customer.name}</h1>
             <div className="flex items-center gap-2 mt-1">
@@ -116,6 +119,27 @@ export function CustomerDetailPage() {
                   <dt className="text-sm font-medium text-muted-foreground">Address</dt>
                   <dd className="mt-0.5 text-sm">{fullAddress}</dd>
                 </div>
+              )}
+              {/* Zone — visibility gated by `view.customer.address.zone`. */}
+              {canSeeZone && (
+                <InfoRow label="Zone" value={customer.zone || '—'} />
+              )}
+              {/* B2B fields — only render the Type when business; that pattern
+                  also surfaces business name + GSTIN that are needed on the
+                  invoice for input-credit reporting. */}
+              <InfoRow
+                label="Customer Type"
+                value={customer.customerType === 'business' ? 'Business (B2B)' : 'Individual'}
+              />
+              {customer.customerType === 'business' && (
+                <>
+                  {customer.businessName && (
+                    <InfoRow label="Business Name" value={customer.businessName} />
+                  )}
+                  {customer.gstNumber && (
+                    <InfoRow label="GSTIN" value={customer.gstNumber} />
+                  )}
+                </>
               )}
               <InfoRow label="Created" value={formatDateIN(customer.createdAt)} />
             </dl>
@@ -171,7 +195,8 @@ export function CustomerDetailPage() {
         </div>
 
         {/* Right: Sales History (40%) */}
-        <div className="lg:col-span-2">
+        <div className="lg:col-span-2 space-y-4">
+          <CustomerReliabilityCard customerId={id!} />
           <div className="rounded-lg border bg-card p-6">
             <h2 className="text-lg font-medium mb-4">Sales History</h2>
 

@@ -15,15 +15,25 @@ export const createSaleSchema = z.object({
   paymentMode: z.enum(['cash', 'credit_card', 'debit_card', 'upi', 'bank_transfer', 'cheque'], {
     errorMap: () => ({ message: 'Invalid payment mode' }),
   }),
+  paymentBreakdown: z.array(z.object({
+    mode: z.enum(['cash', 'credit_card', 'debit_card', 'upi', 'bank_transfer', 'cheque']),
+    amount: z.number().min(0),
+  })).max(3).optional(),
   // Partial with promise
   promiseDate: z.string().nullable().optional(),
   // Self finance
   interestRate: z.number().min(0).max(100).nullable().optional(),
   fileCharge: z.number().min(0).nullable().optional(),
   numInstallments: z.number().int().min(1).max(60).nullable().optional(),
-  guarantorId: z.string().uuid('Guarantor ID must be a valid UUID').nullable().optional(),
+  guarantorId: z.preprocess(
+    (v) => (v === '' || v === null ? undefined : v),
+    z.string().uuid('Guarantor ID must be a valid UUID').optional(),
+  ),
   // Company finance
-  financeCompanyId: z.string().uuid('Finance company ID must be a valid UUID').nullable().optional(),
+  financeCompanyId: z.preprocess(
+    (v) => (v === '' || v === null ? undefined : v),
+    z.string().uuid('Finance company ID must be a valid UUID').optional(),
+  ),
   financedAmount: z.number().min(0).nullable().optional(),
   expectedPaymentDate: z.string().nullable().optional(),
   // Notes
@@ -37,6 +47,12 @@ export const saleListQuerySchema = z.object({
   dateTo: z.string().optional(),
   saleType: z.enum(['full_payment', 'partial_with_promise', 'self_finance', 'company_finance']).optional(),
   customerSearch: z.string().optional(),
+  /** Filter sales whose net-profit % is at most this value (inclusive). */
+  maxProfitPct: z.string().optional(),
+  /** Filter sales whose net-profit % is at least this value (inclusive). */
+  minProfitPct: z.string().optional(),
+  /** Filter by approval state (pending / approved). */
+  approvalStatus: z.enum(['pending', 'approved']).optional(),
 });
 
 export const recordFinancePaymentSchema = z.object({
@@ -45,4 +61,16 @@ export const recordFinancePaymentSchema = z.object({
   }),
   financePaymentReceivedDate: z.string().nullable().optional(),
   financeReferenceNumber: z.string().max(100).nullable().optional(),
+});
+
+export const recordPendingPaymentSchema = z.object({
+  amount: z.number().positive('Amount must be positive'),
+  paymentMode: z.enum(['cash', 'credit_card', 'debit_card', 'upi', 'bank_transfer', 'cheque'], {
+    errorMap: () => ({ message: 'Invalid payment mode' }),
+  }),
+  paymentBreakdown: z.array(z.object({
+    mode: z.enum(['cash', 'credit_card', 'debit_card', 'upi', 'bank_transfer', 'cheque']),
+    amount: z.number().min(0),
+  })).max(3).optional(),
+  notes: z.string().nullable().optional(),
 });

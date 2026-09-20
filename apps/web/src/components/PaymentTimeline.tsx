@@ -11,9 +11,23 @@ import {
   CalendarDays,
   User,
   CreditCard,
+  History,
+  GitMerge,
+  GitBranch,
+  FileText,
+  Flag,
+  CalendarClock,
+  Shuffle,
+  Undo2,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { useScheduleTimelineQuery, type TimelineEvent } from '../hooks/useInstallments';
+import {
+  useScheduleTimelineQuery,
+  useScheduleRollLogQuery,
+  type TimelineEvent,
+  type RollLogEvent,
+} from '../hooks/useInstallments';
+import { formatInstallmentLabel } from '../lib/installment-label';
 import { formatINR, formatDateIN } from '@retailerp/shared-utils';
 import { InstallmentStatus } from '@retailerp/shared-types';
 
@@ -39,50 +53,50 @@ const statusConfig: Record<
   }
 > = {
   [InstallmentStatus.PAID]: {
-    color: 'text-green-600',
-    bgColor: 'bg-green-100',
-    borderColor: 'border-green-300',
-    lineColor: 'bg-green-300',
+    color: 'text-green-600 dark:text-green-400',
+    bgColor: 'bg-green-100 dark:bg-green-900/30',
+    borderColor: 'border-green-300 dark:border-green-700',
+    lineColor: 'bg-green-300 dark:bg-green-700',
     icon: <CheckCircle2 className="h-5 w-5" />,
     label: 'Paid',
   },
   [InstallmentStatus.OVERDUE]: {
-    color: 'text-red-600',
-    bgColor: 'bg-red-100',
-    borderColor: 'border-red-300',
-    lineColor: 'bg-red-300',
+    color: 'text-red-600 dark:text-red-400',
+    bgColor: 'bg-red-100 dark:bg-red-900/30',
+    borderColor: 'border-red-300 dark:border-red-700',
+    lineColor: 'bg-red-300 dark:bg-red-700',
     icon: <AlertTriangle className="h-5 w-5" />,
     label: 'Overdue',
   },
   [InstallmentStatus.DUE_TODAY]: {
-    color: 'text-blue-600',
-    bgColor: 'bg-blue-100',
-    borderColor: 'border-blue-300',
-    lineColor: 'bg-blue-300',
+    color: 'text-blue-600 dark:text-blue-400',
+    bgColor: 'bg-blue-100 dark:bg-blue-900/30',
+    borderColor: 'border-blue-300 dark:border-blue-700',
+    lineColor: 'bg-blue-300 dark:bg-blue-700',
     icon: <Clock className="h-5 w-5" />,
     label: 'Due Today',
   },
   [InstallmentStatus.UPCOMING]: {
-    color: 'text-blue-500',
-    bgColor: 'bg-blue-50',
-    borderColor: 'border-blue-200',
-    lineColor: 'bg-blue-200',
+    color: 'text-blue-500 dark:text-blue-400',
+    bgColor: 'bg-blue-50 dark:bg-blue-900/20',
+    borderColor: 'border-blue-200 dark:border-blue-800',
+    lineColor: 'bg-blue-200 dark:bg-blue-800',
     icon: <Circle className="h-5 w-5" />,
     label: 'Upcoming',
   },
   [InstallmentStatus.PARTIALLY_PAID]: {
-    color: 'text-yellow-600',
-    bgColor: 'bg-yellow-100',
-    borderColor: 'border-yellow-300',
-    lineColor: 'bg-yellow-300',
+    color: 'text-yellow-600 dark:text-yellow-400',
+    bgColor: 'bg-yellow-100 dark:bg-yellow-900/30',
+    borderColor: 'border-yellow-300 dark:border-yellow-700',
+    lineColor: 'bg-yellow-300 dark:bg-yellow-700',
     icon: <IndianRupee className="h-5 w-5" />,
     label: 'Partially Paid',
   },
   [InstallmentStatus.RESCHEDULED]: {
-    color: 'text-gray-500',
-    bgColor: 'bg-gray-100',
-    borderColor: 'border-gray-300',
-    lineColor: 'bg-gray-300',
+    color: 'text-gray-500 dark:text-gray-400',
+    bgColor: 'bg-gray-100 dark:bg-gray-800/50',
+    borderColor: 'border-gray-300 dark:border-gray-700',
+    lineColor: 'bg-gray-300 dark:bg-gray-700',
     icon: <Ban className="h-5 w-5" />,
     label: 'Rescheduled',
   },
@@ -91,10 +105,10 @@ const statusConfig: Record<
 function getStatusConfig(status: string) {
   return (
     statusConfig[status] ?? {
-      color: 'text-gray-500',
-      bgColor: 'bg-gray-50',
-      borderColor: 'border-gray-200',
-      lineColor: 'bg-gray-200',
+      color: 'text-gray-500 dark:text-gray-400',
+      bgColor: 'bg-gray-50 dark:bg-gray-800/50',
+      borderColor: 'border-gray-200 dark:border-gray-700',
+      lineColor: 'bg-gray-200 dark:bg-gray-700',
       icon: <Circle className="h-5 w-5" />,
       label: status.replace(/_/g, ' '),
     }
@@ -108,6 +122,139 @@ function wasPaidLate(event: TimelineEvent): boolean {
   const dueDate = new Date(event.dueDate);
   const paymentDate = new Date(event.payments[0].paymentDate);
   return paymentDate > dueDate;
+}
+
+// ---------------------------------------------------------------------------
+// Roll-log event icons + colors
+// ---------------------------------------------------------------------------
+const rollLogConfig: Record<
+  RollLogEvent['eventType'],
+  { icon: React.ReactNode; color: string; bg: string }
+> = {
+  installment_due: {
+    icon: <Clock className="h-4 w-4" />,
+    color: 'text-blue-600 dark:text-blue-400',
+    bg: 'bg-blue-100 dark:bg-blue-900/30',
+  },
+  sub_created: {
+    icon: <GitBranch className="h-4 w-4" />,
+    color: 'text-purple-600 dark:text-purple-400',
+    bg: 'bg-purple-100 dark:bg-purple-900/30',
+  },
+  payment_recorded: {
+    icon: <CheckCircle2 className="h-4 w-4" />,
+    color: 'text-green-600 dark:text-green-400',
+    bg: 'bg-green-100 dark:bg-green-900/30',
+  },
+  partial_payment: {
+    icon: <IndianRupee className="h-4 w-4" />,
+    color: 'text-yellow-600 dark:text-yellow-400',
+    bg: 'bg-yellow-100 dark:bg-yellow-900/30',
+  },
+  chain_absorbed: {
+    icon: <GitMerge className="h-4 w-4" />,
+    color: 'text-red-600 dark:text-red-400',
+    bg: 'bg-red-100 dark:bg-red-900/30',
+  },
+  chain_closed_manual: {
+    icon: <Ban className="h-4 w-4" />,
+    color: 'text-gray-600 dark:text-gray-400',
+    bg: 'bg-gray-100 dark:bg-gray-800/50',
+  },
+  schedule_completed: {
+    icon: <Flag className="h-4 w-4" />,
+    color: 'text-green-700 dark:text-green-500',
+    bg: 'bg-green-100 dark:bg-green-900/30',
+  },
+  rescheduled: {
+    icon: <CalendarClock className="h-4 w-4" />,
+    color: 'text-amber-600 dark:text-amber-400',
+    bg: 'bg-amber-100 dark:bg-amber-900/30',
+  },
+  reschedule_undone: {
+    icon: <Undo2 className="h-4 w-4" />,
+    color: 'text-red-600 dark:text-red-400',
+    bg: 'bg-red-100 dark:bg-red-900/30',
+  },
+  redistributed: {
+    icon: <Shuffle className="h-4 w-4" />,
+    color: 'text-indigo-600 dark:text-indigo-400',
+    bg: 'bg-indigo-100 dark:bg-indigo-900/30',
+  },
+  payment_reverted: {
+    icon: <AlertCircle className="h-4 w-4" />,
+    color: 'text-red-600 dark:text-red-400',
+    bg: 'bg-red-100 dark:bg-red-900/30',
+  },
+  payment_moved: {
+    icon: <Shuffle className="h-4 w-4" />,
+    color: 'text-purple-600 dark:text-purple-400',
+    bg: 'bg-purple-100 dark:bg-purple-900/30',
+  },
+  early_collection_scheduled: {
+    icon: <CalendarDays className="h-4 w-4" />,
+    color: 'text-blue-600 dark:text-blue-400',
+    bg: 'bg-blue-100 dark:bg-blue-900/30',
+  },
+  note_added: {
+    icon: <FileText className="h-4 w-4" />,
+    color: 'text-gray-600 dark:text-gray-400',
+    bg: 'bg-gray-100 dark:bg-gray-800/50',
+  },
+};
+
+function RollLogSection({ scheduleId }: { scheduleId: string }) {
+  const { data: events, isLoading } = useScheduleRollLogQuery(scheduleId);
+
+  if (isLoading || !events || events.length === 0) return null;
+
+  return (
+    <div className="mt-6 border-t pt-4">
+      <div className="flex items-center gap-2 mb-3 text-sm font-semibold text-foreground">
+        <History className="h-4 w-4" />
+        Activity Log ({events.length})
+      </div>
+      <div className="space-y-2">
+        {events.map((e) => {
+          const cfg = rollLogConfig[e.eventType] ?? rollLogConfig.note_added;
+          return (
+            <div
+              key={e.id}
+              className="flex gap-3 items-start text-xs rounded-md px-3 py-2 bg-muted/30"
+            >
+              <div
+                className={cn(
+                  'flex h-6 w-6 shrink-0 items-center justify-center rounded-full',
+                  cfg.bg,
+                  cfg.color,
+                )}
+              >
+                {cfg.icon}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-foreground">{e.displayMessage}</p>
+                <div className="mt-0.5 flex items-center gap-3 text-muted-foreground">
+                  <span className="flex items-center gap-1">
+                    <CalendarDays className="h-3 w-3" />
+                    {formatDateIN(e.eventDate)}
+                  </span>
+                  {e.actor && (
+                    <span className="flex items-center gap-1">
+                      <User className="h-3 w-3" />
+                      {e.actor.fullName}
+                    </span>
+                  )}
+                  <span className="uppercase tracking-wide text-[10px] text-muted-foreground/80">
+                    {e.eventType.replace(/_/g, ' ')}
+                  </span>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -143,7 +290,7 @@ export function PaymentTimeline({ scheduleId }: PaymentTimelineProps) {
   }
 
   return (
-    <div className="max-h-[500px] overflow-y-auto pr-2">
+    <div>
       <div className="relative">
         {timeline.map((event, idx) => {
           const config = getStatusConfig(event.status);
@@ -151,10 +298,10 @@ export function PaymentTimeline({ scheduleId }: PaymentTimelineProps) {
           const paidLate = wasPaidLate(event);
 
           // Override color if paid late
-          const nodeColor = paidLate ? 'text-yellow-600' : config.color;
-          const nodeBg = paidLate ? 'bg-yellow-100' : config.bgColor;
-          const nodeBorder = paidLate ? 'border-yellow-300' : config.borderColor;
-          const lineCol = paidLate ? 'bg-yellow-300' : config.lineColor;
+          const nodeColor = paidLate ? 'text-yellow-600 dark:text-yellow-400' : config.color;
+          const nodeBg = paidLate ? 'bg-yellow-100 dark:bg-yellow-900/30' : config.bgColor;
+          const nodeBorder = paidLate ? 'border-yellow-300 dark:border-yellow-700' : config.borderColor;
+          const lineCol = paidLate ? 'bg-yellow-300 dark:bg-yellow-700' : config.lineColor;
 
           return (
             <div key={event.id} className="relative flex gap-4">
@@ -186,7 +333,7 @@ export function PaymentTimeline({ scheduleId }: PaymentTimelineProps) {
                 {/* Header */}
                 <div className="flex items-center gap-2 mb-1">
                   <span className={cn('text-sm font-semibold', nodeColor)}>
-                    EMI #{event.installmentNumber}
+                    EMI {formatInstallmentLabel(event)}
                   </span>
                   <span
                     className={cn(
@@ -197,6 +344,11 @@ export function PaymentTimeline({ scheduleId }: PaymentTimelineProps) {
                   >
                     {paidLate ? 'Paid Late' : config.label}
                   </span>
+                  {event.isClosed && (
+                    <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300">
+                      Chain closed
+                    </span>
+                  )}
                 </div>
 
                 {/* Due date + amount */}
@@ -218,7 +370,7 @@ export function PaymentTimeline({ scheduleId }: PaymentTimelineProps) {
                         key={payment.id}
                         className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground bg-muted/50 rounded-md px-3 py-2"
                       >
-                        <span className="flex items-center gap-1 font-medium text-green-600">
+                        <span className="flex items-center gap-1 font-medium text-green-600 dark:text-green-400">
                           <IndianRupee className="h-3 w-3" />
                           {formatINR(payment.amount)}
                         </span>
@@ -233,7 +385,7 @@ export function PaymentTimeline({ scheduleId }: PaymentTimelineProps) {
                         {payment.collectedBy && (
                           <span className="flex items-center gap-1">
                             <User className="h-3 w-3" />
-                            {payment.collectedBy}
+                            {payment.collectorName ?? payment.collectedBy}
                           </span>
                         )}
                       </div>
@@ -243,7 +395,7 @@ export function PaymentTimeline({ scheduleId }: PaymentTimelineProps) {
 
                 {/* Rescheduled info */}
                 {event.isRescheduled && (
-                  <div className="mt-1.5 flex items-center gap-2 text-xs text-gray-500">
+                  <div className="mt-1.5 flex items-center gap-2 text-xs text-muted-foreground">
                     <ArrowRight className="h-3.5 w-3.5" />
                     <span>Rescheduled to a new date</span>
                   </div>
@@ -252,7 +404,7 @@ export function PaymentTimeline({ scheduleId }: PaymentTimelineProps) {
                 {/* Partially paid remaining */}
                 {event.status === InstallmentStatus.PARTIALLY_PAID &&
                   event.remainingAmount > 0 && (
-                    <div className="mt-1.5 text-xs text-yellow-600">
+                    <div className="mt-1.5 text-xs text-yellow-600 dark:text-yellow-400">
                       Remaining: {formatINR(event.remainingAmount)}
                     </div>
                   )}
@@ -268,6 +420,7 @@ export function PaymentTimeline({ scheduleId }: PaymentTimelineProps) {
           );
         })}
       </div>
+      <RollLogSection scheduleId={scheduleId} />
     </div>
   );
 }

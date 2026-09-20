@@ -1,5 +1,27 @@
 import { prisma } from '../../config/database.js';
 import type { Prisma } from '@prisma/client';
+import { computeNetProfit, computeNetProfitPct } from '../sales/sales.service.js';
+
+/**
+ * Scope for read endpoints. `shopId` is always set; `shopIds` is set when
+ * the user picks "All Shops" in the header (gated by `shops.view_all`).
+ */
+type ReadScope = { shopId: string; shopIds?: string[] };
+
+/**
+ * Returns the Prisma `shopId` filter fragment for a scope:
+ *   single shop  →  string
+ *   all shops    →  { in: string[] }
+ *
+ * Cast to the shared type so it works for SaleRecord, Product, Expense,
+ * etc. — every shop-scoped table has the same column shape.
+ */
+function shopIdFilter(scope: ReadScope): string | { in: string[] } {
+  if (scope.shopIds && scope.shopIds.length > 0) {
+    return { in: scope.shopIds };
+  }
+  return scope.shopId;
+}
 
 /**
  * Helper: generate an array of date strings (YYYY-MM-DD) between two dates, inclusive.
@@ -55,13 +77,38 @@ function previousMonthRange() {
   return { firstDay, lastDay };
 }
 
+function dateOnlyUtc(year: number, month: number, day: number) {
+  return new Date(Date.UTC(year, month - 1, day));
+}
+
+function todayInIndiaDateOnly() {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+  const value = (type: string) => Number(parts.find((part) => part.type === type)?.value);
+  return dateOnlyUtc(value('year'), value('month'), value('day'));
+}
+
+function currentFinancialYearRange() {
+  const today = todayInIndiaDateOnly();
+  const year = today.getUTCFullYear();
+  const startYear = today.getUTCMonth() >= 3 ? year : year - 1;
+  return {
+    firstDay: dateOnlyUtc(startYear, 4, 1),
+    lastDay: dateOnlyUtc(startYear + 1, 3, 31),
+  };
+}
+
 export const dashboardService = {
   /**
    * Sales Graph Data — daily aggregated sale totals for a date range.
    * Returns array of { date, totalAmount, count } with zero-fill for missing days.
    */
   async getSalesGraph(
-    shopId: string,
+    scope: ReadScope,
     dateFrom?: string,
     dateTo?: string,
   ) {
@@ -73,7 +120,7 @@ export const dashboardService = {
     const salesByDate = await prisma.saleRecord.groupBy({
       by: ['saleDate'],
       where: {
-        shopId,
+        shopId: shopIdFilter(scope) as any,
         saleDate: {
           gte: from,
           lte: to,
@@ -115,7 +162,7 @@ export const dashboardService = {
    * Top N Products Sold — products with highest sale count in a date range.
    */
   async getTopProducts(
-    shopId: string,
+    scope: ReadScope,
     dateFrom?: string,
     dateTo?: string,
     limit = 10,
@@ -128,7 +175,7 @@ export const dashboardService = {
     const salesByProduct = await prisma.saleRecord.groupBy({
       by: ['productId'],
       where: {
-        shopId,
+        shopId: shopIdFilter(scope) as any,
         saleDate: {
           gte: from,
           lte: to,
@@ -187,7 +234,7 @@ export const dashboardService = {
    * Groups by product (brand + model) for comparison.
    */
   async getYoYComparison(
-    shopId: string,
+    scope: ReadScope,
     dateFrom?: string,
     dateTo?: string,
   ) {
@@ -206,7 +253,7 @@ export const dashboardService = {
       prisma.saleRecord.groupBy({
         by: ['productId'],
         where: {
-          shopId,
+          shopId: shopIdFilter(scope) as any,
           saleDate: { gte: from, lte: to },
         },
         _count: { id: true },
@@ -216,7 +263,7 @@ export const dashboardService = {
       prisma.saleRecord.groupBy({
         by: ['productId'],
         where: {
-          shopId,
+          shopId: shopIdFilter(scope) as any,
           saleDate: { gte: lastYearFrom, lte: lastYearTo },
         },
         _count: { id: true },
@@ -277,7 +324,7 @@ export const dashboardService = {
    * Joins through schedule -> sale -> customer + product.
    */
   async getOverdueInstallments(
-    shopId: string,
+    scope: ReadScope,
     dateFrom?: string,
     dateTo?: string,
   ) {
@@ -311,7 +358,7 @@ export const dashboardService = {
         status: { notIn: ['paid', 'rescheduled'] },
         isRescheduled: false,
         schedule: {
-          sale: { shopId },
+          sale: { shopId: shopIdFilter(scope) as any },
           status: 'active',
         },
       },
@@ -382,14 +429,12 @@ export const dashboardService = {
    * Summary Metrics — key numbers for dashboard header cards.
    * Uses Promise.all for parallel execution of independent queries.
    */
-  async getSummary(shopId: string) {
+  async getSummary(scope: ReadScope) {
     const { firstDay: thisMonthStart, lastDay: thisMonthEnd } = currentMonthRange();
     const { firstDay: lastMonthStart, lastDay: lastMonthEnd } = previousMonthRange();
-
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const todayEnd = new Date(today);
-    todayEnd.setHours(23, 59, 59, 999);
+    const { firstDay: fyStart, lastDay: fyEnd } = currentFinancialYearRange();
+    const today = todayInIndiaDateOnly();
+    const shopFilter = shopIdFilter(scope) as any;
 
     const [
       thisMonthSales,
@@ -398,11 +443,12 @@ export const dashboardService = {
       stockValue,
       todaysExpectedCollections,
       todaysActualCollections,
+      totalExpensesCurrentFY,
     ] = await Promise.all([
       // 1. Total sales this month
       prisma.saleRecord.aggregate({
         where: {
-          shopId,
+          shopId: shopFilter,
           saleDate: { gte: thisMonthStart, lte: thisMonthEnd },
         },
         _sum: { totalAmount: true },
@@ -412,7 +458,7 @@ export const dashboardService = {
       // 2. Total sales last month (for percent change)
       prisma.saleRecord.aggregate({
         where: {
-          shopId,
+          shopId: shopFilter,
           saleDate: { gte: lastMonthStart, lte: lastMonthEnd },
         },
         _sum: { totalAmount: true },
@@ -426,7 +472,7 @@ export const dashboardService = {
           status: { notIn: ['paid', 'rescheduled'] },
           isRescheduled: false,
           schedule: {
-            sale: { shopId },
+            sale: { shopId: shopFilter },
             status: 'active',
           },
         },
@@ -437,7 +483,7 @@ export const dashboardService = {
       // 4. Stock value — sum of sellingPrice for all in_stock products
       prisma.product.aggregate({
         where: {
-          shopId,
+          shopId: shopFilter,
           status: 'in_stock',
         },
         _sum: { sellingPrice: true },
@@ -451,7 +497,7 @@ export const dashboardService = {
           status: { notIn: ['paid', 'rescheduled'] },
           isRescheduled: false,
           schedule: {
-            sale: { shopId },
+            sale: { shopId: shopFilter },
             status: 'active',
           },
         },
@@ -462,18 +508,24 @@ export const dashboardService = {
       // 5b. Today's actual collections — payments recorded today
       prisma.installmentPayment.aggregate({
         where: {
-          paymentDate: {
-            gte: today,
-            lte: todayEnd,
-          },
+          paymentDate: today,
           installment: {
             schedule: {
-              sale: { shopId },
+              sale: { shopId: shopFilter },
             },
           },
         },
         _sum: { amount: true },
         _count: { id: true },
+      }),
+
+      // 6. Expenses in the current Indian financial year (April-March)
+      prisma.expense.aggregate({
+        where: {
+          shopId: shopFilter,
+          expenseDate: { gte: fyStart, lte: fyEnd },
+        },
+        _sum: { amount: true },
       }),
     ]);
 
@@ -488,25 +540,75 @@ export const dashboardService = {
     }
 
     return {
-      totalSalesThisMonth: {
-        amount: thisMonthTotal,
-        count: thisMonthSales._count.id,
-      },
+      totalSalesThisMonth: thisMonthTotal,
+      salesCountThisMonth: thisMonthSales._count.id,
       salesChangePercent: Math.round(salesChangePercent * 100) / 100,
       pendingInstallments: {
         count: overdueInstallments._count.id,
         totalAmount: Number(overdueInstallments._sum.remainingAmount ?? 0),
       },
-      stockValue: {
-        amount: Number(stockValue._sum.sellingPrice ?? 0),
-        count: stockValue._count.id,
-      },
+      stockValue: Number(stockValue._sum.sellingPrice ?? 0),
+      stockCount: stockValue._count.id,
       todaysCollections: {
-        expectedAmount: Number(todaysExpectedCollections._sum.remainingAmount ?? 0),
+        expected: Number(todaysExpectedCollections._sum.remainingAmount ?? 0),
         expectedCount: todaysExpectedCollections._count.id,
-        collectedAmount: Number(todaysActualCollections._sum.amount ?? 0),
+        collected: Number(todaysActualCollections._sum.amount ?? 0),
         collectedCount: todaysActualCollections._count.id,
       },
+      totalExpensesCurrentFY: Number(totalExpensesCurrentFY._sum.amount ?? 0),
+    };
+  },
+
+  /**
+   * Sales whose net-profit percentage falls below the given threshold for a
+   * date range. Used by the dashboard "Low Margin Sales" tile.
+   * Returns { count, totalAmount, totalProfit, threshold } so the tile can
+   * render a single number without a follow-up call.
+   */
+  async getLowMarginSales(
+    scope: ReadScope,
+    args: { threshold: number; dateFrom?: string; dateTo?: string },
+  ) {
+    const where: Prisma.SaleRecordWhereInput = { shopId: shopIdFilter(scope) as any };
+    if (args.dateFrom || args.dateTo) {
+      where.saleDate = {};
+      if (args.dateFrom) (where.saleDate as Prisma.DateTimeFilter).gte = new Date(args.dateFrom);
+      if (args.dateTo) (where.saleDate as Prisma.DateTimeFilter).lte = new Date(args.dateTo);
+    }
+
+    // Profit% is derived — fetch matching sales (capped) and reduce in memory.
+    const sales = await prisma.saleRecord.findMany({
+      where,
+      select: {
+        id: true,
+        sellingPrice: true,
+        gstAmount: true,
+        purchasePrice: true,
+        purchaseGstAmount: true,
+        saleDate: true,
+      },
+      take: 50000,
+    });
+
+    let count = 0;
+    let totalAmount = 0;
+    let totalProfit = 0;
+    for (const s of sales) {
+      const pct = computeNetProfitPct(s);
+      if (pct === null) continue;
+      if (pct > args.threshold) continue;
+      count += 1;
+      totalAmount += Number(s.sellingPrice ?? 0);
+      totalProfit += computeNetProfit(s);
+    }
+
+    return {
+      threshold: args.threshold,
+      dateFrom: args.dateFrom ?? null,
+      dateTo: args.dateTo ?? null,
+      count,
+      totalAmount: Math.round(totalAmount * 100) / 100,
+      totalProfit: Math.round(totalProfit * 100) / 100,
     };
   },
 };

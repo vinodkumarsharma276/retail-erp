@@ -4,6 +4,7 @@ import type {
   ApiResponse,
   PaginatedResponse,
   Customer,
+  ReliabilityMetrics,
 } from '@retailerp/shared-types';
 
 // ---------------------------------------------------------------------------
@@ -23,6 +24,7 @@ export interface CustomerFilters {
   page?: number;
   pageSize?: number;
   search?: string;
+  zone?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -36,6 +38,7 @@ export function useCustomersQuery(filters: CustomerFilters) {
       if (filters.page) params.set('page', String(filters.page));
       if (filters.pageSize) params.set('pageSize', String(filters.pageSize));
       if (filters.search) params.set('search', filters.search);
+      if (filters.zone) params.set('zone', filters.zone);
 
       const { data } = await apiClient.get<PaginatedResponse<Customer>>(
         `/customers?${params.toString()}`,
@@ -87,6 +90,54 @@ export function useCustomerSalesQuery(id: string | undefined) {
     queryFn: async () => {
       const { data } = await apiClient.get<ApiResponse<CustomerSaleItem[]>>(
         `/customers/${id}/sales`,
+      );
+      return data.data!;
+    },
+    enabled: !!id,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Customer installment reliability history
+// ---------------------------------------------------------------------------
+export interface CustomerInstallmentHistory {
+  customer: { id: string; name: string; customerCode: string };
+  totalSchedules: number;
+  completedOnTime: number;
+  completedLate: number;
+  active: number;
+  totalInstallments: number;
+  paidOnTime: number;
+  paidLate: number;
+  absorbed: number;
+  reschedulesCreated: number;
+  averageDelayDays: number;
+  longestOverdueDays: number;
+  lifetimeFinancedAmount: number;
+  lifetimePaid: number;
+  reliabilityScore: number;
+  rating: 'excellent' | 'good' | 'fair' | 'poor';
+}
+
+export function useCustomerInstallmentHistoryQuery(id: string | undefined) {
+  return useQuery({
+    queryKey: ['customers', id, 'installment-history'],
+    queryFn: async () => {
+      const { data } = await apiClient.get<ApiResponse<CustomerInstallmentHistory>>(
+        `/customers/${id}/installment-history`,
+      );
+      return data.data!;
+    },
+    enabled: !!id,
+  });
+}
+
+export function useCustomerReliabilityQuery(id: string | undefined) {
+  return useQuery({
+    queryKey: ['customers', id, 'reliability'],
+    queryFn: async () => {
+      const { data } = await apiClient.get<ApiResponse<ReliabilityMetrics>>(
+        `/customers/${id}/reliability`,
       );
       return data.data!;
     },

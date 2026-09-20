@@ -2,19 +2,26 @@ import { prisma } from '../../config/database.js';
 import type { Prisma, ExpenseCategory } from '@prisma/client';
 
 export const expensesService = {
-  async list(shopId: string, filters: {
-    skip: number;
-    take: number;
-    page: number;
-    pageSize: number;
-    category?: string;
-    dateFrom?: string;
-    dateTo?: string;
-    search?: string;
-  }) {
-    const where: Prisma.ExpenseWhereInput = {
-      shopId,
-    };
+  /**
+   * List expenses for a shop (or all shops in All-Shops mode).
+   */
+  async list(
+    scope: { shopId: string; shopIds?: string[] },
+    filters: {
+      skip: number;
+      take: number;
+      page: number;
+      pageSize: number;
+      category?: string;
+      dateFrom?: string;
+      dateTo?: string;
+      search?: string;
+    },
+  ) {
+    const where: Prisma.ExpenseWhereInput =
+      scope.shopIds && scope.shopIds.length > 0
+        ? { shopId: { in: scope.shopIds } }
+        : { shopId: scope.shopId };
 
     if (filters.category) {
       where.category = filters.category as ExpenseCategory;
@@ -43,6 +50,9 @@ export const expensesService = {
         include: {
           creator: {
             select: { id: true, username: true, fullName: true },
+          },
+          shop: {
+            select: { id: true, name: true, code: true },
           },
         },
         orderBy: { expenseDate: 'desc' },
@@ -175,8 +185,15 @@ export const expensesService = {
     return true;
   },
 
-  async getSummary(shopId: string, dateFrom?: string, dateTo?: string) {
-    const where: Prisma.ExpenseWhereInput = { shopId };
+  async getSummary(
+    scope: { shopId: string; shopIds?: string[] },
+    dateFrom?: string,
+    dateTo?: string,
+  ) {
+    const where: Prisma.ExpenseWhereInput =
+      scope.shopIds && scope.shopIds.length > 0
+        ? { shopId: { in: scope.shopIds } }
+        : { shopId: scope.shopId };
 
     if (dateFrom || dateTo) {
       where.expenseDate = {};
@@ -227,13 +244,15 @@ export const expensesService = {
     return {
       byCategory: byCategory.map((cat) => ({
         category: cat.category,
-        totalAmount: cat._sum.amount,
-        totalGst: cat._sum.gstAmount,
+        total: Number(cat._sum.amount ?? 0),
+        totalAmount: Number(cat._sum.amount ?? 0),
+        totalGst: Number(cat._sum.gstAmount ?? 0),
         count: cat._count.id,
       })),
-      totalGstClaimable: gstClaimable._sum.gstAmount,
-      grandTotal: grandTotal._sum.amount,
-      grandTotalGst: grandTotal._sum.gstAmount,
+      totalExpenses: Number(grandTotal._sum.amount ?? 0),
+      totalGstClaimable: Number(gstClaimable._sum.gstAmount ?? 0),
+      grandTotal: Number(grandTotal._sum.amount ?? 0),
+      grandTotalGst: Number(grandTotal._sum.gstAmount ?? 0),
       totalCount: grandTotal._count.id,
     };
   },

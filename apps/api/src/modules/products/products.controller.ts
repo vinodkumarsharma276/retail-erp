@@ -13,29 +13,68 @@ export const productsController = {
         status?: string;
         brand?: string;
         search?: string;
+        dateFrom?: string;
+        dateTo?: string;
       };
     }>,
     reply: FastifyReply,
   ) {
     try {
       const { page, pageSize, skip, take } = parsePagination(request.query);
-      const { categoryId, status, brand, search } = request.query;
-      const shopId = request.shopFilter!.shopId;
+      const { categoryId, status, brand, search, dateFrom, dateTo } = request.query;
+      const { shopId, shopIds, allShops } = request.shopFilter!;
 
-      const { products, totalItems } = await productsService.list(shopId, {
-        page,
-        pageSize,
-        skip,
-        take,
-        categoryId,
-        status,
-        brand,
-        search,
-      });
+      const { products, totalItems } = await productsService.list(
+        { shopId, shopIds: allShops ? shopIds : undefined },
+        {
+          page,
+          pageSize,
+          skip,
+          take,
+          categoryId,
+          status,
+          brand,
+          search,
+          dateFrom,
+          dateTo,
+        },
+      );
 
       return sendPaginated(reply, products, { page, pageSize, totalItems });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to fetch products';
+      return sendError(reply, message, 500);
+    }
+  },
+
+  async listGrouped(
+    request: FastifyRequest<{
+      Querystring: {
+        page?: string;
+        pageSize?: string;
+        categoryId?: string;
+        status?: string;
+        brand?: string;
+        search?: string;
+        dateFrom?: string;
+        dateTo?: string;
+      };
+    }>,
+    reply: FastifyReply,
+  ) {
+    try {
+      const { page, pageSize, skip, take } = parsePagination(request.query);
+      const { categoryId, status, brand, search, dateFrom, dateTo } = request.query;
+      const { shopId, shopIds, allShops } = request.shopFilter!;
+
+      const { groups, totalItems } = await productsService.listGrouped(
+        { shopId, shopIds: allShops ? shopIds : undefined },
+        { page, pageSize, skip, take, categoryId, status, brand, search, dateFrom, dateTo },
+      );
+
+      return sendPaginated(reply, groups, { page, pageSize, totalItems });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to fetch grouped products';
       return sendError(reply, message, 500);
     }
   },
@@ -47,14 +86,17 @@ export const productsController = {
     reply: FastifyReply,
   ) {
     try {
-      const shopId = request.shopFilter!.shopId;
+      const { shopId, shopIds, allShops } = request.shopFilter!;
       const { query } = request.query;
 
       if (!query || query.length < 3) {
         return sendError(reply, 'Search query must be at least 3 characters', 400);
       }
 
-      const products = await productsService.globalSearch(shopId, query);
+      const products = await productsService.globalSearch(
+        { shopId, shopIds: allShops ? shopIds : undefined },
+        query,
+      );
       return sendSuccess(reply, products);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to search products';
@@ -150,6 +192,9 @@ export const productsController = {
       const message = error instanceof Error ? error.message : 'Failed to update product';
       if (message === 'Category not found' || message === 'Distributor not found') {
         return sendError(reply, message, 404);
+      }
+      if (message.includes('already exists')) {
+        return sendError(reply, message, 409);
       }
       return sendError(reply, message, 500);
     }

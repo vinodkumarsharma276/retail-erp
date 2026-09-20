@@ -1,42 +1,64 @@
-import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { Plus, Search, X, Pencil } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useDebounce } from '../../hooks/useDebounce';
 import { useCustomersQuery } from '../../hooks/useCustomers';
 import { DataTable } from '../../components/DataTable';
 import type { Column, PaginationState } from '../../components/DataTable';
-import { formatDateIN } from '@retailerp/shared-utils';
+import { formatDateIN, formatPhone } from '@retailerp/shared-utils';
 import type { Customer } from '@retailerp/shared-types';
+import { useShopStore, isAllShops } from '../../stores/shop-store';
+import { usePermission } from '../../hooks/usePermission';
 
 const PAGE_SIZE = 20;
 
+const ZONE_OPTIONS = ['East', 'West', 'North', 'South', 'Delhi', 'Ghaziabad', 'Noida'] as const;
+
 export function CustomerListPage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const canSeeZone = usePermission('view.customer.address.zone');
 
-  // ------ Filters state ------
-  const [page, setPage] = useState(1);
-  const [searchText, setSearchText] = useState('');
+  // ------ Filters state (URL search params) ------
+  const page = Number(searchParams.get('page')) || 1;
+  const searchText = searchParams.get('search') || '';
+  const zoneFilter = searchParams.get('zone') || '';
   const debouncedSearch = useDebounce(searchText, 300);
+
+  const updateFilters = (updates: Record<string, string>) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      for (const [key, value] of Object.entries(updates)) {
+        if (value) {
+          next.set(key, value);
+        } else {
+          next.delete(key);
+        }
+      }
+      return next;
+    }, { replace: true });
+  };
 
   // Customers query
   const customersQuery = useCustomersQuery({
     page,
     pageSize: PAGE_SIZE,
     search: debouncedSearch.length >= 2 ? debouncedSearch : undefined,
+    zone: zoneFilter || undefined,
   });
 
   const customers = customersQuery.data?.data ?? [];
   const pagination = customersQuery.data?.pagination;
 
   // ------ Clear filters ------
-  const hasFilters = !!searchText;
+  const hasFilters = !!searchText || !!zoneFilter;
   const clearFilters = () => {
-    setSearchText('');
-    setPage(1);
+    setSearchParams({}, { replace: true });
   };
 
   // ------ Table columns ------
+  const allShopsMode = isAllShops(useShopStore((s) => s.currentShopId));
+
   const columns: Column<Customer>[] = [
     {
       key: 'sno',
@@ -47,6 +69,27 @@ export function CustomerListPage() {
           : idx + 1,
       className: 'w-16',
     },
+    // Shop column — only in "All Shops" mode so the user can tell which
+    // GST entity each customer belongs to.
+    ...(allShopsMode
+      ? ([
+          {
+            key: 'shop' as keyof Customer,
+            header: 'Shop',
+            sortable: true,
+            sortAccessor: (row: Customer) => row.shop?.code ?? '',
+            render: (row: Customer) =>
+              row.shop ? (
+                <span className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-xs font-medium">
+                  {row.shop.code}
+                </span>
+              ) : (
+                <span className="text-muted-foreground">-</span>
+              ),
+            className: 'w-20',
+          },
+        ] as Column<Customer>[])
+      : []),
     {
       key: 'customerCode',
       header: 'Customer Code',
@@ -74,19 +117,45 @@ export function CustomerListPage() {
     {
       key: 'phone',
       header: 'Phone',
-      render: (row) => row.phone,
+      render: (row) => (
+        <div>
+          <p>{formatPhone(row.phone)}</p>
+          {row.altPhone && (
+            <p className="text-xs text-muted-foreground">{formatPhone(row.altPhone)}</p>
+          )}
+        </div>
+      ),
     },
     {
       key: 'city',
       header: 'City',
       render: (row) => row.city || '-',
     },
+    ...(canSeeZone
+      ? ([
+          {
+            key: 'zone' as keyof Customer,
+            header: 'Zone',
+            sortable: true,
+            sortAccessor: (row: Customer) => row.zone ?? '',
+            render: (row: Customer) =>
+              row.zone ? (
+                <span className="inline-flex items-center rounded-full bg-blue-100 dark:bg-blue-900/30 px-2 py-0.5 text-xs font-medium text-blue-700 dark:text-blue-400">
+                  {row.zone}
+                </span>
+              ) : (
+                <span className="text-muted-foreground">-</span>
+              ),
+            className: 'w-24',
+          },
+        ] as Column<Customer>[])
+      : []),
     {
       key: 'guarantor',
       header: 'Guarantor',
       render: (row) =>
         row.isGuarantor ? (
-          <span className="inline-flex items-center rounded-full bg-purple-100 px-2 py-0.5 text-xs font-medium text-purple-700">
+          <span className="inline-flex items-center rounded-full bg-purple-100 dark:bg-purple-900/30 px-2 py-0.5 text-xs font-medium text-purple-700 dark:text-purple-400">
             Is Guarantor
           </span>
         ) : row.guarantorId ? (
@@ -139,16 +208,31 @@ export function CustomerListPage() {
       {/* Page header */}
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-semibold">Customers</h1>
-        <Link
-          to="/customers/new"
-          className={cn(
-            'flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground',
-            'hover:bg-primary/90 transition-colors',
-          )}
-        >
-          <Plus className="h-4 w-4" />
-          Add Customer
-        </Link>
+        {allShopsMode ? (
+          <button
+            type="button"
+            disabled
+            title="Switch to a single shop to add a customer"
+            className={cn(
+              'flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground',
+              'opacity-50 cursor-not-allowed',
+            )}
+          >
+            <Plus className="h-4 w-4" />
+            Add Customer
+          </button>
+        ) : (
+          <Link
+            to="/customers/new"
+            className={cn(
+              'flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground',
+              'hover:bg-primary/90 transition-colors',
+            )}
+          >
+            <Plus className="h-4 w-4" />
+            Add Customer
+          </Link>
+        )}
       </div>
 
       {/* Filters row */}
@@ -164,8 +248,7 @@ export function CustomerListPage() {
               type="text"
               value={searchText}
               onChange={(e) => {
-                setSearchText(e.target.value);
-                setPage(1);
+                updateFilters({ search: e.target.value, page: '1' });
               }}
               placeholder="Name, phone, or customer code (min 2 chars)..."
               className={cn(
@@ -177,8 +260,7 @@ export function CustomerListPage() {
             {searchText && (
               <button
                 onClick={() => {
-                  setSearchText('');
-                  setPage(1);
+                  updateFilters({ search: '', page: '1' });
                 }}
                 className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
               >
@@ -187,6 +269,28 @@ export function CustomerListPage() {
             )}
           </div>
         </div>
+
+        {/* Zone filter — only when permitted to see zones */}
+        {canSeeZone && (
+          <div className="min-w-[140px]">
+            <label className="block text-xs font-medium text-muted-foreground mb-1">
+              Zone
+            </label>
+            <select
+              value={zoneFilter}
+              onChange={(e) => updateFilters({ zone: e.target.value, page: '1' })}
+              className={cn(
+                'w-full appearance-none rounded-md border bg-background px-3 py-2 text-sm',
+                'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+              )}
+            >
+              <option value="">All Zones</option>
+              {ZONE_OPTIONS.map((z) => (
+                <option key={z} value={z}>{z}</option>
+              ))}
+            </select>
+          </div>
+        )}
 
         {/* Clear filters */}
         {hasFilters && (
@@ -212,7 +316,7 @@ export function CustomerListPage() {
         data={customers}
         isLoading={customersQuery.isLoading}
         pagination={paginationState}
-        onPageChange={setPage}
+        onPageChange={(p) => updateFilters({ page: String(p) })}
         emptyMessage="No customers found matching your search."
         rowKey={(row) => row.id}
       />

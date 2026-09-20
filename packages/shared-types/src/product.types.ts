@@ -10,6 +10,7 @@ export interface ProductCategory {
   displayOrder: number;
   isLeaf: boolean;
   icon?: string;
+  hsnCode?: string | null;
   isActive: boolean;
   children?: ProductCategory[];
 }
@@ -50,6 +51,18 @@ export interface Product {
   createdBy?: string;
   createdAt: string;
   updatedAt: string;
+  purchase?: {
+    id: string;
+    invoiceDate?: string;
+    gstAmount?: number;
+    totalAmount?: number;
+    discountAmount?: number;
+  } | null;
+  shop?: {
+    id: string;
+    name: string;
+    code: string;
+  } | null;
 }
 
 export interface ProductAuditTrailEntry {
@@ -62,5 +75,10 @@ export interface ProductAuditTrailEntry {
   referenceType?: 'sale' | 'transfer' | 'purchase' | 'return';
   notes?: string;
   performedBy?: string;
+  performer?: {
+    id: string;
+    username: string;
+    fullName?: string | null;
+  } | null;
   createdAt: string;
 }

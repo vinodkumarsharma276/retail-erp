@@ -58,6 +58,7 @@ export interface DashboardSummary {
     expected: number;
     collected: number;
   };
+  totalExpensesCurrentFY: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -73,6 +74,8 @@ const keys = {
     ['dashboard', 'yoy-comparison', dateFrom, dateTo] as const,
   overdueInstallments: (dateFrom?: string, dateTo?: string) =>
     ['dashboard', 'overdue-installments', dateFrom, dateTo] as const,
+  lowMarginSales: (threshold: number, dateFrom?: string, dateTo?: string) =>
+    ['dashboard', 'low-margin-sales', threshold, dateFrom, dateTo] as const,
 };
 
 // ---------------------------------------------------------------------------
@@ -164,5 +167,41 @@ export function useOverdueInstallmentsQuery(dateFrom?: string, dateTo?: string) 
       return data.data ?? [];
     },
     staleTime: 60_000,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Low-margin sales tile — count + total profit for sales whose net-profit %
+// is at most `threshold`. Optionally scoped to a date range.
+// ---------------------------------------------------------------------------
+export interface LowMarginSalesData {
+  threshold: number;
+  dateFrom: string | null;
+  dateTo: string | null;
+  count: number;
+  totalAmount: number;
+  totalProfit: number;
+}
+
+export function useLowMarginSalesQuery(
+  threshold: number,
+  dateFrom?: string,
+  dateTo?: string,
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: keys.lowMarginSales(threshold, dateFrom, dateTo),
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      params.set('threshold', String(threshold));
+      if (dateFrom) params.set('dateFrom', dateFrom);
+      if (dateTo) params.set('dateTo', dateTo);
+      const { data } = await apiClient.get<ApiResponse<LowMarginSalesData>>(
+        `/dashboard/low-margin-sales?${params.toString()}`,
+      );
+      return data.data!;
+    },
+    staleTime: 60_000,
+    enabled,
   });
 }

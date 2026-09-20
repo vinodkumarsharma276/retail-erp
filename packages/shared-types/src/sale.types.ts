@@ -15,15 +15,19 @@ export interface SaleRecord {
   netAmount: number;
   gstRate: number;
   gstAmount: number;
+  purchasePrice: number;
+  purchaseGstAmount: number;
   totalAmount: number;
   downPayment: number;
   paymentMode: PaymentMode;
+  paymentBreakdown?: Array<{mode: string; amount: number}> | null;
   // Partial with promise
   promiseDate?: string;
   pendingAmount: number;
   // Self finance
   interestRate?: number;
   fileCharge: number;
+  effectiveMonthlyRate?: number | null;
   totalFinancedAmount?: number;
   numInstallments?: number;
   emiAmount?: number;
@@ -35,6 +39,12 @@ export interface SaleRecord {
   financePaymentStatus?: FinancePaymentStatus;
   financePaymentReceivedDate?: string;
   financeReferenceNumber?: string;
+  // Completion
+  completedAt?: string | null;
+  // Approval workflow
+  approvalStatus?: 'pending' | 'approved';
+  approvedById?: string | null;
+  approvedAt?: string | null;
   // Metadata
   notes?: string;
   createdBy: string;
@@ -68,6 +78,7 @@ export interface CreateSaleRequest {
   gstRate?: number;
   downPayment?: number;
   paymentMode: PaymentMode;
+  paymentBreakdown?: Array<{mode: string; amount: number}> | null;
   // Partial with promise
   promiseDate?: string;
   // Self finance

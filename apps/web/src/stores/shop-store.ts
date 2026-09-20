@@ -1,5 +1,21 @@
 import { create } from 'zustand';
 
+/**
+ * Sentinel value the frontend stores in `currentShopId` when the user
+ * has chosen "All Shops" in the header dropdown. The api-client request
+ * interceptor forwards this verbatim as the `X-Shop-Id` header; the
+ * backend `shopScope` middleware recognises it and (if the user has the
+ * `shops.view_all` permission) fans the request out across every
+ * accessible shop.
+ *
+ * Real shop IDs are UUIDs so collision with `'all'` is impossible.
+ */
+export const ALL_SHOPS_SENTINEL = 'all';
+
+export function isAllShops(shopId: string | null | undefined): boolean {
+  return shopId === ALL_SHOPS_SENTINEL;
+}
+
 interface ShopState {
   currentShopId: string | null;
   currentShopName: string | null;

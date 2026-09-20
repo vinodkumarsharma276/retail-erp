@@ -17,6 +17,7 @@ export interface Expense {
   isGstClaimable: boolean;
   createdAt: string;
   updatedAt: string;
+  shop?: { id: string; name: string; code: string } | null;
 }
 
 export interface ExpenseSummary {

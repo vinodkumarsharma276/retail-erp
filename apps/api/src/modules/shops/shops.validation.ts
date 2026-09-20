@@ -9,7 +9,7 @@ export const updateShopSchema = z.object({
   city: z.string().max(100).optional(),
   state: z.string().max(100).optional(),
   pincode: z.string().max(6).optional(),
-  phone: z.string().max(15).optional(),
+  phone: z.string().max(200).optional(),
   email: z.string().email('Invalid email format').max(255).nullable().optional(),
   bankName: z.string().max(200).nullable().optional(),
   bankAccountNumber: z.string().max(20).nullable().optional(),

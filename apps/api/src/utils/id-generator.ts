@@ -2,9 +2,18 @@
  * Generates a customer code like CUST-0001, CUST-0002, etc.
  */
 export function generateCustomerCode(lastCode?: string): string {
-  if (!lastCode) return 'CUST-0001';
-  const num = parseInt(lastCode.split('-')[1], 10);
-  return `CUST-${String(num + 1).padStart(4, '0')}`;
+  // Only consume the numeric suffix when the code matches the canonical
+  // `CUST-<digits>` pattern. Inter-shop transfer customers use `SHOP-XX-YY`
+  // codes and would otherwise produce `CUST-0NaN`.
+  if (lastCode) {
+    const m = /^CUST-(\d+)$/.exec(lastCode);
+    if (m) {
+      const num = parseInt(m[1], 10);
+      const width = Math.max(4, m[1].length);
+      return `CUST-${String(num + 1).padStart(width, '0')}`;
+    }
+  }
+  return 'CUST-0001';
 }
 
 /**

@@ -129,8 +129,38 @@ export const distributorsService = {
     paymentTerms?: string | null;
     creditLimit?: number;
     categoryIds?: string[];
-  }, userId: string) {
+  }, userId: string, tenantId: string) {
     const { categoryIds, ...distributorData } = data;
+
+    // Check for duplicate GST number (scoped to tenant)
+    if (distributorData.gstNumber) {
+      const existingGst = await prisma.distributor.findFirst({
+        where: { tenantId, gstNumber: distributorData.gstNumber },
+      });
+      if (existingGst) {
+        throw new Error(`A distributor with GST number "${distributorData.gstNumber}" already exists (${existingGst.companyName})`);
+      }
+    }
+
+    // Check for duplicate PAN number (scoped to tenant)
+    if (distributorData.panNumber) {
+      const existingPan = await prisma.distributor.findFirst({
+        where: { tenantId, panNumber: distributorData.panNumber },
+      });
+      if (existingPan) {
+        throw new Error(`A distributor with PAN number "${distributorData.panNumber}" already exists (${existingPan.companyName})`);
+      }
+    }
+
+    // Check for duplicate bank account number (scoped to tenant)
+    if (distributorData.bankAccountNumber) {
+      const existingBank = await prisma.distributor.findFirst({
+        where: { tenantId, bankAccountNumber: distributorData.bankAccountNumber },
+      });
+      if (existingBank) {
+        throw new Error(`A distributor with bank account "${distributorData.bankAccountNumber}" already exists (${existingBank.companyName})`);
+      }
+    }
 
     // Validate categories exist if provided
     if (categoryIds && categoryIds.length > 0) {
@@ -162,7 +192,8 @@ export const distributorsService = {
         bankBranch: distributorData.bankBranch ?? null,
         paymentTerms: distributorData.paymentTerms ?? null,
         creditLimit: distributorData.creditLimit ?? 0,
-        createdBy: userId,
+        tenant: { connect: { id: tenantId } },
+        creator: { connect: { id: userId } },
         categories: categoryIds && categoryIds.length > 0
           ? {
               create: categoryIds.map((categoryId) => ({
@@ -213,6 +244,36 @@ export const distributorsService = {
     }
 
     const { categoryIds, ...updateData } = data;
+
+    // Check for duplicate GST number (exclude self)
+    if (updateData.gstNumber) {
+      const existingGst = await prisma.distributor.findFirst({
+        where: { gstNumber: updateData.gstNumber, id: { not: id } },
+      });
+      if (existingGst) {
+        throw new Error(`A distributor with GST number "${updateData.gstNumber}" already exists (${existingGst.companyName})`);
+      }
+    }
+
+    // Check for duplicate PAN number (exclude self)
+    if (updateData.panNumber) {
+      const existingPan = await prisma.distributor.findFirst({
+        where: { panNumber: updateData.panNumber, id: { not: id } },
+      });
+      if (existingPan) {
+        throw new Error(`A distributor with PAN number "${updateData.panNumber}" already exists (${existingPan.companyName})`);
+      }
+    }
+
+    // Check for duplicate bank account number (exclude self)
+    if (updateData.bankAccountNumber) {
+      const existingBank = await prisma.distributor.findFirst({
+        where: { bankAccountNumber: updateData.bankAccountNumber, id: { not: id } },
+      });
+      if (existingBank) {
+        throw new Error(`A distributor with bank account "${updateData.bankAccountNumber}" already exists (${existingBank.companyName})`);
+      }
+    }
 
     // Validate categories exist if provided
     if (categoryIds && categoryIds.length > 0) {
@@ -322,6 +383,102 @@ export const distributorsService = {
     ]);
 
     return { products, totalItems };
+  },
+
+  async recordLumpsumPayment(
+    distributorId: string,
+    data: {
+      amount: number;
+      paymentMode: string;
+      paymentDate: string;
+      referenceNumber?: string;
+      notes?: string;
+    },
+    userId: string,
+  ) {
+    // Verify distributor exists
+    const distributor = await prisma.distributor.findUnique({
+      where: { id: distributorId },
+    });
+    if (!distributor) {
+      throw new Error('Distributor not found');
+    }
+
+    // Find all unpaid/partial purchases, oldest first (FIFO)
+    const pendingPurchases = await prisma.purchase.findMany({
+      where: {
+        distributorId,
+        paymentStatus: { not: 'paid' },
+      },
+      orderBy: { invoiceDate: 'asc' },
+    });
+
+    if (pendingPurchases.length === 0) {
+      throw new Error('No pending invoices found for this distributor');
+    }
+
+    let remaining = data.amount;
+    let invoicesPaidFull = 0;
+    let invoicesPaidPartial = 0;
+    let totalDistributed = 0;
+
+    const result = await prisma.$transaction(async (tx) => {
+      for (const purchase of pendingPurchases) {
+        if (remaining <= 0) break;
+
+        const pending = Number(purchase.netAmount) - Number(purchase.amountPaid);
+        if (pending <= 0) continue;
+
+        const payAmount = Math.min(remaining, pending);
+
+        // Create PurchasePayment record
+        await tx.purchasePayment.create({
+          data: {
+            purchaseId: purchase.id,
+            amount: payAmount,
+            paymentMode: data.paymentMode as any,
+            paymentDate: new Date(data.paymentDate),
+            referenceNumber: data.referenceNumber ?? null,
+            notes: data.notes ?? null,
+            createdBy: userId,
+          },
+        });
+
+        const newAmountPaid = Number(purchase.amountPaid) + payAmount;
+        const netAmount = Number(purchase.netAmount);
+
+        // Determine new payment status
+        let paymentStatus: string;
+        if (newAmountPaid >= netAmount) {
+          paymentStatus = 'paid';
+          invoicesPaidFull++;
+        } else {
+          paymentStatus = 'partial';
+          invoicesPaidPartial++;
+        }
+
+        // Update purchase
+        await tx.purchase.update({
+          where: { id: purchase.id },
+          data: {
+            amountPaid: newAmountPaid,
+            paymentStatus,
+          },
+        });
+
+        totalDistributed += payAmount;
+        remaining -= payAmount;
+      }
+
+      return {
+        totalDistributed,
+        invoicesPaidFull,
+        invoicesPaidPartial,
+        remainingAmount: remaining,
+      };
+    });
+
+    return result;
   },
 
   async getPayments(distributorId: string) {

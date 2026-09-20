@@ -20,6 +20,22 @@ const labelMap: Record<string, string> = {
   settings: 'Settings',
 };
 
+/** Singular display names for parent segments (used for detail labels). */
+const singularLabelMap: Record<string, string> = {
+  products: 'Product',
+  distributors: 'Distributor',
+  purchases: 'Purchase',
+  customers: 'Customer',
+  sales: 'Sale',
+  installments: 'Schedule',
+  transfers: 'Transfer',
+  expenses: 'Expense',
+  employees: 'Employee',
+};
+
+/** Check whether a path segment looks like a UUID. */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-/i;
+
 interface Crumb {
   label: string;
   path: string;
@@ -32,10 +48,38 @@ export function Breadcrumbs() {
 
   if (segments.length === 0) return null;
 
-  const crumbs: Crumb[] = segments.map((seg, idx) => ({
-    label: labelMap[seg] ?? seg.charAt(0).toUpperCase() + seg.slice(1),
-    path: '/' + segments.slice(0, idx + 1).join('/'),
-  }));
+  const crumbs: Crumb[] = segments.map((seg, idx) => {
+    // If this segment is a UUID, replace it with a meaningful label
+    if (UUID_RE.test(seg)) {
+      const parentSeg = idx > 0 ? segments[idx - 1] : '';
+      const nextSeg = idx < segments.length - 1 ? segments[idx + 1] : '';
+      const singularName = singularLabelMap[parentSeg] ?? 'Details';
+
+      // If the next segment is "edit", this UUID segment should show "Edit"
+      if (nextSeg === 'edit') {
+        return {
+          label: `Edit ${singularName}`,
+          path: '/' + segments.slice(0, idx + 1).join('/'),
+        };
+      }
+
+      return {
+        label: `${singularName} Details`,
+        path: '/' + segments.slice(0, idx + 1).join('/'),
+      };
+    }
+
+    // If this segment is "edit" and previous segment was a UUID, skip it
+    // (the UUID crumb already shows "Edit ...")
+    if (seg === 'edit' && idx > 0 && UUID_RE.test(segments[idx - 1])) {
+      return null as unknown as Crumb; // will be filtered out below
+    }
+
+    return {
+      label: labelMap[seg] ?? seg.charAt(0).toUpperCase() + seg.slice(1),
+      path: '/' + segments.slice(0, idx + 1).join('/'),
+    };
+  }).filter(Boolean);
 
   return (
     <nav aria-label="Breadcrumb" className="flex items-center gap-1 text-sm text-muted-foreground mb-4">

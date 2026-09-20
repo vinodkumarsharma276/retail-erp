@@ -4,9 +4,13 @@ import { SalesChart } from './components/SalesChart';
 import { TopProductsChart } from './components/TopProductsChart';
 import { YoYComparison } from './components/YoYComparison';
 import { OverdueTable } from './components/OverdueTable';
+import { LowMarginSalesCard } from './components/LowMarginSalesCard';
+import { useCanCheck } from '../../hooks/usePermission';
 
 export function DashboardPage() {
   const { data: summary, isLoading: summaryLoading } = useDashboardSummaryQuery();
+  const can = useCanCheck();
+  const canSeeProfit = can('sales.section.profit');
 
   return (
     <div className="space-y-6">
@@ -20,6 +24,13 @@ export function DashboardPage() {
 
       {/* Summary cards row */}
       <SummaryCards data={summary} isLoading={summaryLoading} />
+
+      {/* Profitability tile (only for users who can see profit numbers) */}
+      {canSeeProfit && (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+          <LowMarginSalesCard />
+        </div>
+      )}
 
       {/* Charts row: Sales trend (60%) + Top products (40%) */}
       <div className="grid grid-cols-1 xl:grid-cols-5 gap-6">

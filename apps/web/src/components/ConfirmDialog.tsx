@@ -83,7 +83,7 @@ export function ConfirmDialog({
             </h2>
             <p
               id="confirm-message"
-              className="mt-2 text-sm text-muted-foreground"
+              className="mt-2 whitespace-pre-line text-sm text-muted-foreground"
             >
               {message}
             </p>

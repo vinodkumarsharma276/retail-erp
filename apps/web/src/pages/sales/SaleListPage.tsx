@@ -1,26 +1,41 @@
 import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
-import { Plus, Search, X, ChevronDown } from 'lucide-react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Search, X, ChevronDown, Download, Loader2, ScanLine, ShieldCheck, CheckCircle2 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useDebounce } from '../../hooks/useDebounce';
-import { useSalesQuery } from '../../hooks/useSales';
+import { useSalesQuery, usePendingApprovalCountQuery, useApproveSaleMutation } from '../../hooks/useSales';
 import type { SaleListItem } from '../../hooks/useSales';
 import { DataTable } from '../../components/DataTable';
 import type { Column, PaginationState } from '../../components/DataTable';
 import { StatusBadge } from '../../components/StatusBadge';
-import { formatINR, formatDateIN } from '@retailerp/shared-utils';
+import { CompletionBadge } from '../../components/CompletionBadge';
+import { formatINR, formatDateIN, getCurrentFinancialYearRange, getLastFinancialYearRange } from '@retailerp/shared-utils';
 import { SaleType } from '@retailerp/shared-types';
+import { handleInvoiceDownload } from '../../lib/invoice-utils';
+import { InvoiceConfirmDialog } from '../../components/InvoiceConfirmDialog';
+import { usePermission, useCanCheck } from '../../hooks/usePermission';
+import { AccessDenied } from '../../routes/RoleGuard';
+import { useShopStore, isAllShops } from '../../stores/shop-store';
 
 const PAGE_SIZE = 20;
 
-function getDateDaysAgo(days: number): string {
+function getLastMonthStart(): string {
   const d = new Date();
-  d.setDate(d.getDate() - days);
-  return d.toISOString().split('T')[0];
+  // One month back from today (same day-of-month, handles month rollover).
+  const start = new Date(d.getFullYear(), d.getMonth() - 1, d.getDate());
+  const y = start.getFullYear();
+  const m = String(start.getMonth() + 1).padStart(2, '0');
+  const day = String(start.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
-function getToday(): string {
-  return new Date().toISOString().split('T')[0];
+/** Today (YYYY-MM-DD). */
+function getLastMonthEnd(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
 const SALE_TYPE_OPTIONS = [
@@ -32,15 +47,57 @@ const SALE_TYPE_OPTIONS = [
 ];
 
 export function SaleListPage() {
-  const navigate = useNavigate();
+  const canListSales = usePermission('sales.list');
+  if (!canListSales) return <AccessDenied />;
+  return <SaleListPageInner />;
+}
 
-  // ------ Filters state ------
-  const [page, setPage] = useState(1);
-  const [customerSearch, setCustomerSearch] = useState('');
+function SaleListPageInner() {
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const can = useCanCheck();
+  const canApprove = can('sales.approve');
+
+  // ------ Filters state (URL search params) ------
+  const page = Number(searchParams.get('page')) || 1;
+  const customerSearch = searchParams.get('customerSearch') || '';
   const debouncedCustomerSearch = useDebounce(customerSearch, 300);
-  const [saleType, setSaleType] = useState('');
-  const [dateFrom, setDateFrom] = useState(getDateDaysAgo(7));
-  const [dateTo, setDateTo] = useState(getToday());
+  const saleType = searchParams.get('saleType') || '';
+  // Approval filter — when 'pending' the list is restricted to sales
+  // awaiting approval (the list view used by the "Approve" button).
+  const approvalFilterRaw = searchParams.get('approvalStatus') || '';
+  const approvalFilter: 'pending' | 'approved' | undefined =
+    approvalFilterRaw === 'pending' || approvalFilterRaw === 'approved'
+      ? (approvalFilterRaw as 'pending' | 'approved')
+      : undefined;
+  const defaultDateFrom = getLastMonthStart();
+  const defaultDateTo = getLastMonthEnd();
+  const dateFrom = searchParams.get('dateFrom') || defaultDateFrom;
+  const dateTo = searchParams.get('dateTo') || defaultDateTo;
+  // Profit% filter (only meaningful for users who can see profit numbers).
+  const canSeeProfit = can('sales.section.profit');
+  const maxProfitPctRaw = searchParams.get('maxProfitPct') || '';
+  const maxProfitPct =
+    canSeeProfit && maxProfitPctRaw !== '' && Number.isFinite(Number(maxProfitPctRaw))
+      ? Number(maxProfitPctRaw)
+      : undefined;
+  // When user is actively searching, ignore the date range so matches aren't hidden.
+  const isSearching = customerSearch.trim().length > 0;
+
+  const updateFilters = (updates: Record<string, string>) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      for (const [key, value] of Object.entries(updates)) {
+        if (value) {
+          next.set(key, value);
+        } else {
+          next.delete(key);
+        }
+      }
+      return next;
+    }, { replace: true });
+  };
 
   // Sales query
   const salesQuery = useSalesQuery({
@@ -48,31 +105,67 @@ export function SaleListPage() {
     pageSize: PAGE_SIZE,
     saleType: saleType || undefined,
     customerSearch: debouncedCustomerSearch.length >= 2 ? debouncedCustomerSearch : undefined,
-    dateFrom: dateFrom || undefined,
-    dateTo: dateTo || undefined,
+    dateFrom: isSearching ? undefined : dateFrom || undefined,
+    dateTo: isSearching ? undefined : dateTo || undefined,
+    maxProfitPct,
+    approvalStatus: approvalFilter,
   });
 
   const sales = salesQuery.data?.data ?? [];
   const pagination = salesQuery.data?.pagination;
 
+  // Pending-approval count for the badge subscript on the "Approve" button.
+  // Only fetched if the user can approve (otherwise the button is hidden).
+  const pendingCountQuery = usePendingApprovalCountQuery(canApprove);
+  const pendingCount = pendingCountQuery.data ?? 0;
+  const approveMutation = useApproveSaleMutation();
+
   // ------ Clear filters ------
-  const hasFilters = !!customerSearch || !!saleType || dateFrom !== getDateDaysAgo(7) || dateTo !== getToday();
+  const hasFilters =
+    !!customerSearch ||
+    !!saleType ||
+    dateFrom !== defaultDateFrom ||
+    dateTo !== defaultDateTo ||
+    maxProfitPct !== undefined ||
+    !!approvalFilter;
   const clearFilters = () => {
-    setCustomerSearch('');
-    setSaleType('');
-    setDateFrom(getDateDaysAgo(7));
-    setDateTo(getToday());
-    setPage(1);
+    setSearchParams({}, { replace: true });
   };
 
   // ------ Resolve payment status ------
   const getPaymentStatus = (sale: SaleListItem): string => {
-    if (sale.financePaymentStatus) return sale.financePaymentStatus;
-    if (sale.pendingAmount > 0) return 'pending';
-    return 'paid';
+    switch (sale.saleType) {
+      case 'full_payment':
+        return 'paid';
+      case 'partial_with_promise':
+        return sale.pendingAmount > 0 ? 'pending' : 'paid';
+      case 'self_finance': {
+        const schedule = (sale as any).installmentSchedule;
+        return schedule?.status || 'active';
+      }
+      case 'company_finance':
+        return sale.financePaymentStatus || 'pending';
+      default:
+        return 'paid';
+    }
+  };
+
+  // ------ Download invoice handler ------
+  // Opens the confirm-and-edit dialog so the user can verify shop +
+  // (B2B) customer details before the PDF is generated. The legacy
+  // direct-download helper is retained for reference and is also used
+  // by the dialog under the hood.
+  void handleInvoiceDownload;
+  const [invoiceTargetId, setInvoiceTargetId] = useState<string | null>(null);
+  const onDownloadInvoice = (saleId: string) => {
+    void downloadingId;
+    setInvoiceTargetId(saleId);
   };
 
   // ------ Table columns ------
+  const currentShopId = useShopStore((s) => s.currentShopId);
+  const allShopsMode = isAllShops(currentShopId);
+
   const columns: Column<SaleListItem>[] = [
     {
       key: 'sno',
@@ -83,21 +176,51 @@ export function SaleListPage() {
           : idx + 1,
       className: 'w-12',
     },
+    // Shop column — only shown in "All Shops" mode so users can tell
+    // which GST entity each row came from. In single-shop mode this is
+    // implicit from the header badge so omitting it keeps the table tight.
+    ...(allShopsMode
+      ? ([
+          {
+            key: 'shop' as keyof SaleListItem,
+            header: 'Shop',
+            sortable: true,
+            sortAccessor: (row: SaleListItem) => row.shop?.code ?? '',
+            render: (row: SaleListItem) =>
+              row.shop ? (
+                <span className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-xs font-medium">
+                  {row.shop.code}
+                </span>
+              ) : (
+                <span className="text-muted-foreground">-</span>
+              ),
+            className: 'w-20',
+          },
+        ] as Column<SaleListItem>[])
+      : []),
     {
       key: 'saleNumber',
       header: 'Sale #',
+      sortable: true,
+      sortAccessor: (row) => row.saleNumber,
       render: (row) => (
-        <button
-          onClick={() => navigate(`/sales/${row.id}`)}
-          className="font-mono text-xs font-medium text-primary hover:underline text-left"
-        >
-          {row.saleNumber}
-        </button>
+        can('sales.detail') ? (
+          <button
+            onClick={() => navigate(`/sales/${row.id}`)}
+            className="font-mono text-xs font-medium text-primary hover:underline text-left"
+          >
+            {row.saleNumber}
+          </button>
+        ) : (
+          <span className="font-mono text-xs font-medium text-left">{row.saleNumber}</span>
+        )
       ),
     },
     {
       key: 'ledgerNumber',
       header: 'Ledger #',
+      sortable: true,
+      sortAccessor: (row) => row.ledgerNumber,
       render: (row) => (
         <span className="font-mono text-xs">{row.ledgerNumber}</span>
       ),
@@ -105,38 +228,60 @@ export function SaleListPage() {
     {
       key: 'saleDate',
       header: 'Date',
+      sortable: true,
+      sortAccessor: (row) => new Date(row.saleDate),
       render: (row) => formatDateIN(row.saleDate),
     },
     {
       key: 'customer',
       header: 'Customer',
-      render: (row) => (
-        <div>
-          <p className="text-sm font-medium">{row.customerName || '-'}</p>
-          {row.customerCode && (
-            <p className="text-xs text-muted-foreground">{row.customerCode}</p>
-          )}
-        </div>
-      ),
+      sortable: true,
+      sortAccessor: (row) => {
+        const c = (row as any).customer;
+        return c?.name || row.customerName || '';
+      },
+      render: (row) => {
+        const c = (row as any).customer;
+        return (
+          <div>
+            <p className="text-sm font-medium">{c?.name || row.customerName || '-'}</p>
+            {(c?.customerCode || row.customerCode) && (
+              <p className="text-xs text-muted-foreground">{c?.customerCode || row.customerCode}</p>
+            )}
+          </div>
+        );
+      },
     },
     {
       key: 'product',
       header: 'Product',
-      render: (row) => (
-        <span className="text-sm">
-          {row.productBrand} {row.productModel}
-        </span>
-      ),
+      sortable: true,
+      sortAccessor: (row) => {
+        const p = (row as any).product;
+        return `${p?.brand || row.productBrand || ''} ${p?.modelNumber || row.productModel || ''}`.trim();
+      },
+      render: (row) => {
+        const p = (row as any).product;
+        return (
+          <span className="text-sm">
+            {p?.brand || row.productBrand || ''} {p?.modelNumber || row.productModel || '-'}
+          </span>
+        );
+      },
     },
     {
       key: 'saleType',
       header: 'Sale Type',
+      sortable: true,
+      sortAccessor: (row) => row.saleType,
       render: (row) => <StatusBadge status={row.saleType} />,
     },
     {
       key: 'totalAmount',
       header: 'Total',
       align: 'right',
+      sortable: true,
+      sortAccessor: (row) => Number(row.totalAmount) || 0,
       render: (row) => (
         <span className="font-medium">{formatINR(row.totalAmount)}</span>
       ),
@@ -144,15 +289,102 @@ export function SaleListPage() {
     {
       key: 'paymentStatus',
       header: 'Payment',
+      sortable: true,
+      sortAccessor: (row) => getPaymentStatus(row),
       render: (row) => <StatusBadge status={getPaymentStatus(row)} />,
+    },
+    {
+      key: 'completion',
+      header: 'Status',
+      sortable: true,
+      sortAccessor: (row) => (row.completedAt ? 1 : 0),
+      render: (row) => <CompletionBadge completedAt={row.completedAt} />,
     },
     {
       key: 'createdBy',
       header: 'Created By',
-      render: (row) => (
-        <span className="text-xs text-muted-foreground">{row.createdBy}</span>
-      ),
+      sortable: true,
+      sortAccessor: (row) => {
+        const creator = (row as any).creator;
+        return creator?.fullName || creator?.username || '';
+      },
+      render: (row) => {
+        const creator = (row as any).creator;
+        return (
+          <span className="text-xs text-muted-foreground">{creator?.fullName || creator?.username || '-'}</span>
+        );
+      },
     },
+    // Approval status — shown as a small badge. Approvers (who have
+    // `sales.approve`) get an inline "Approve" button on pending rows so
+    // they can clear them without opening the detail page.
+    {
+      key: 'approvalStatus' as keyof SaleListItem,
+      header: 'Approval',
+      sortable: true,
+      sortAccessor: (row) => row.approvalStatus ?? 'approved',
+      render: (row) => {
+        const status = row.approvalStatus ?? 'approved';
+        if (status === 'pending') {
+          return (
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center rounded-full bg-amber-100 dark:bg-amber-900/30 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-400">
+                Pending
+              </span>
+              {canApprove && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    approveMutation.mutate(row.id);
+                  }}
+                  disabled={approveMutation.isPending}
+                  title="Approve this sale"
+                  className={cn(
+                    'flex items-center gap-1 rounded-md bg-green-600 px-2 py-1 text-xs font-medium text-white',
+                    'hover:bg-green-700 transition-colors',
+                    'disabled:opacity-50 disabled:cursor-not-allowed',
+                  )}
+                >
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  Approve
+                </button>
+              )}
+            </div>
+          );
+        }
+        return (
+          <span className="inline-flex items-center rounded-full bg-green-100 dark:bg-green-900/30 px-2 py-0.5 text-xs font-medium text-green-700 dark:text-green-400">
+            Approved
+          </span>
+        );
+      },
+    },
+    // Invoice download — only if user has invoice permission
+    ...(can('sales.invoice.download_pdf') ? [{
+      key: 'actions' as keyof SaleListItem,
+      header: '',
+      className: 'w-10',
+      render: (row: SaleListItem) => (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onDownloadInvoice(row.id);
+          }}
+          disabled={downloadingId === row.id}
+          title="Download Invoice"
+          className={cn(
+            'rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors',
+            'disabled:opacity-50 disabled:cursor-not-allowed',
+          )}
+        >
+          {downloadingId === row.id ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Download className="h-4 w-4" />
+          )}
+        </button>
+      ),
+    }] : []),
   ];
 
   // ------ Pagination state for DataTable ------
@@ -168,9 +400,20 @@ export function SaleListPage() {
   return (
     <div>
       {/* Page header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between gap-3 mb-6">
         <h1 className="text-2xl font-semibold">Sales</h1>
-        <Link
+        <button
+          onClick={() => navigate('/sales/scan-register')}
+          className={cn(
+            'flex items-center gap-2 rounded-md border px-4 py-2.5 text-sm font-medium',
+            'hover:bg-muted transition-colors',
+          )}
+        >
+          <ScanLine className="h-4 w-4" />
+          Scan Register Page
+        </button>
+        {/* Hidden for now — sales initiated from Products page "Sell" button */}
+        {/* <Link
           to="/sales/new"
           className={cn(
             'flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground',
@@ -179,15 +422,15 @@ export function SaleListPage() {
         >
           <Plus className="h-4 w-4" />
           New Sale
-        </Link>
+        </Link> */}
       </div>
 
       {/* Filters row */}
       <div className="flex flex-wrap items-end gap-4 mb-6">
-        {/* Customer search */}
+        {/* Customer / product search */}
         <div className="min-w-[240px] flex-1 max-w-sm">
           <label className="block text-xs font-medium text-muted-foreground mb-1">
-            Customer
+            Search
           </label>
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -195,10 +438,9 @@ export function SaleListPage() {
               type="text"
               value={customerSearch}
               onChange={(e) => {
-                setCustomerSearch(e.target.value);
-                setPage(1);
+                updateFilters({ customerSearch: e.target.value, page: '1' });
               }}
-              placeholder="Name or phone (min 2 chars)..."
+              placeholder="Ledger #, name, phone, model, or serial (min 2 chars)..."
               className={cn(
                 'w-full rounded-md border bg-background pl-9 pr-8 py-2 text-sm',
                 'placeholder:text-muted-foreground',
@@ -208,8 +450,7 @@ export function SaleListPage() {
             {customerSearch && (
               <button
                 onClick={() => {
-                  setCustomerSearch('');
-                  setPage(1);
+                  updateFilters({ customerSearch: '', page: '1' });
                 }}
                 className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
               >
@@ -228,8 +469,7 @@ export function SaleListPage() {
             <select
               value={saleType}
               onChange={(e) => {
-                setSaleType(e.target.value);
-                setPage(1);
+                updateFilters({ saleType: e.target.value, page: '1' });
               }}
               className={cn(
                 'w-full appearance-none rounded-md border bg-background px-3 py-2 pr-8 text-sm',
@@ -254,13 +494,14 @@ export function SaleListPage() {
           <input
             type="date"
             value={dateFrom}
+            disabled={isSearching}
             onChange={(e) => {
-              setDateFrom(e.target.value);
-              setPage(1);
+              updateFilters({ dateFrom: e.target.value, page: '1' });
             }}
             className={cn(
               'w-full rounded-md border bg-background px-3 py-2 text-sm',
               'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+              'disabled:opacity-50 disabled:cursor-not-allowed',
             )}
           />
         </div>
@@ -273,16 +514,105 @@ export function SaleListPage() {
           <input
             type="date"
             value={dateTo}
+            disabled={isSearching}
+            max={defaultDateTo}
             onChange={(e) => {
-              setDateTo(e.target.value);
-              setPage(1);
+              updateFilters({ dateTo: e.target.value, page: '1' });
             }}
             className={cn(
               'w-full rounded-md border bg-background px-3 py-2 text-sm',
               'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+              'disabled:opacity-50 disabled:cursor-not-allowed',
             )}
           />
         </div>
+
+        {/* Net-profit % filter (only if user can see profit) */}
+        {canSeeProfit && (
+          <div className="min-w-[170px]">
+            <label className="block text-xs font-medium text-muted-foreground mb-1">
+              Net Profit %
+            </label>
+            <div className="relative">
+              <select
+                value={maxProfitPctRaw}
+                onChange={(e) => {
+                  updateFilters({ maxProfitPct: e.target.value, page: '1' });
+                }}
+                className={cn(
+                  'w-full appearance-none rounded-md border bg-background px-3 py-2 pr-8 text-sm',
+                  'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                )}
+              >
+                <option value="">All</option>
+                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 18, 20].map((t) => (
+                  <option key={t} value={t}>
+                    ≤ {t}%
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            </div>
+          </div>
+        )}
+
+        <button
+          onClick={() => {
+            const { dateFrom: fyStart, dateTo: fyEnd } = getCurrentFinancialYearRange();
+            updateFilters({ dateFrom: fyStart, dateTo: fyEnd, customerSearch: '', page: '1' });
+          }}
+          className="rounded-md border px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+        >
+          Current Financial Year
+        </button>
+
+        <button
+          onClick={() => {
+            const { dateFrom: fyStart, dateTo: fyEnd } = getLastFinancialYearRange();
+            updateFilters({ dateFrom: fyStart, dateTo: fyEnd, customerSearch: '', page: '1' });
+          }}
+          className="rounded-md border px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+        >
+          Last Financial Year
+        </button>
+
+        {/* Approve button — gated by `sales.approve` permission. The badge
+            subscript shows the count of sales currently pending approval
+            (scoped to the caller's accessible shops). Clicking the button
+            applies the approval filter so the user sees only pending sales. */}
+        {canApprove && (
+          <button
+            type="button"
+            onClick={() =>
+              updateFilters({
+                approvalStatus: approvalFilter === 'pending' ? '' : 'pending',
+                page: '1',
+              })
+            }
+            className={cn(
+              'relative rounded-md border px-3 py-2 text-sm font-medium transition-colors',
+              approvalFilter === 'pending'
+                ? 'bg-amber-100 border-amber-300 text-amber-700 dark:bg-amber-900/30 dark:border-amber-700 dark:text-amber-300'
+                : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+            )}
+            title="Show sales pending approval"
+          >
+            <span className="flex items-center gap-1.5">
+              <ShieldCheck className="h-4 w-4" />
+              Approve
+            </span>
+            {pendingCount > 0 && (
+              <span
+                className={cn(
+                  'absolute -top-2 -right-2 inline-flex min-w-[1.25rem] h-5 items-center justify-center rounded-full px-1.5',
+                  'bg-red-600 text-[10px] font-semibold text-white shadow',
+                )}
+              >
+                {pendingCount > 99 ? '99+' : pendingCount}
+              </span>
+            )}
+          </button>
+        )}
 
         {/* Clear filters */}
         {hasFilters && (
@@ -308,10 +638,17 @@ export function SaleListPage() {
         data={sales}
         isLoading={salesQuery.isLoading}
         pagination={paginationState}
-        onPageChange={setPage}
+        onPageChange={(p) => updateFilters({ page: String(p) })}
         emptyMessage="No sales found matching your filters."
         rowKey={(row) => row.id}
       />
+
+      {invoiceTargetId && (
+        <InvoiceConfirmDialog
+          saleId={invoiceTargetId}
+          onClose={() => setInvoiceTargetId(null)}
+        />
+      )}
     </div>
   );
 }

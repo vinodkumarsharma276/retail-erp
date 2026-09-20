@@ -77,12 +77,16 @@ export const distributorsController = {
   ) {
     try {
       const userId = request.currentUser!.userId;
-      const distributor = await distributorsService.create(request.body, userId);
+      const tenantId = request.currentUser!.tenantId;
+      const distributor = await distributorsService.create(request.body, userId, tenantId);
       return sendSuccess(reply, distributor, 201);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to create distributor';
       if (message === 'One or more category IDs are invalid') {
         return sendError(reply, message, 400);
+      }
+      if (message.includes('already exists')) {
+        return sendError(reply, message, 409);
       }
       return sendError(reply, message, 500);
     }
@@ -127,6 +131,9 @@ export const distributorsController = {
       if (message === 'One or more category IDs are invalid') {
         return sendError(reply, message, 400);
       }
+      if (message.includes('already exists')) {
+        return sendError(reply, message, 409);
+      }
       return sendError(reply, message, 500);
     }
   },
@@ -163,6 +170,39 @@ export const distributorsController = {
       return sendPaginated(reply, result.products, { page, pageSize, totalItems: result.totalItems });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to fetch distributor products';
+      return sendError(reply, message, 500);
+    }
+  },
+
+  async recordLumpsumPayment(
+    request: FastifyRequest<{
+      Params: { id: string };
+      Body: {
+        amount: number;
+        paymentMode: string;
+        paymentDate: string;
+        referenceNumber?: string;
+        notes?: string;
+      };
+    }>,
+    reply: FastifyReply,
+  ) {
+    try {
+      const userId = request.currentUser!.userId;
+      const result = await distributorsService.recordLumpsumPayment(
+        request.params.id,
+        request.body,
+        userId,
+      );
+      return sendSuccess(reply, result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to record payment';
+      if (message === 'Distributor not found') {
+        return sendError(reply, message, 404);
+      }
+      if (message === 'No pending invoices found for this distributor') {
+        return sendError(reply, message, 400);
+      }
       return sendError(reply, message, 500);
     }
   },

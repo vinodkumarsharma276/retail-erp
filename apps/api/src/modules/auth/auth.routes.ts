@@ -24,6 +24,10 @@ export async function authRoutes(app: FastifyInstance) {
   // Protected routes
   app.get('/me', { preHandler: [authenticate] }, authController.me);
 
+  // User preferences (current user, any role)
+  app.get('/preferences', { preHandler: [authenticate] }, authController.getPreferences as any);
+  app.put('/preferences', { preHandler: [authenticate] }, authController.updatePreferences as any);
+
   app.post('/logout', {
     preHandler: [authenticate, validate(refreshSchema)],
   }, authController.logout as any);

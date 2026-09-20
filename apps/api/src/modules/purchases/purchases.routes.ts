@@ -22,6 +22,9 @@ export async function purchaseRoutes(app: FastifyInstance) {
   // List purchases (paginated, filtered, shop-scoped)
   app.get('/', { preHandler: adminAccountantShopScoped }, purchasesController.list as any);
 
+  // Check whether an invoice number already exists for a distributor
+  app.get('/check-invoice', { preHandler: adminAccountant }, purchasesController.checkInvoice as any);
+
   // Create purchase with products (shop-scoped)
   app.post('/', {
     preHandler: [...adminAccountantShopScoped, validate(createPurchaseSchema)],

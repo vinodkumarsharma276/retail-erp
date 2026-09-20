@@ -4,53 +4,237 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
-    --primary: 221.2 83.2% 53.3%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 221.2 83.2% 53.3%;
+    /* Light theme — inspired by SAP Fiori / Zoho One / Odoo:
+       soft tinted canvas so white cards visually lift off the background. */
+    --background: 220 20% 96.5%;       /* soft cool gray canvas #F1F3F7 */
+    --foreground: 222 47% 11%;         /* dark slate #0F172A */
+    --card: 0 0% 100%;                 /* pure white card */
+    --card-foreground: 222 47% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+    --primary: 221 83% 53%;            /* blue-600 #2563EB — classic ERP blue */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 16% 93%;          /* subtle cool gray */
+    --secondary-foreground: 222 30% 22%;
+    --muted: 220 16% 93%;              /* #E7EAEF */
+    --muted-foreground: 220 12% 42%;   /* slate-500-ish */
+    --accent: 220 16% 93%;
+    --accent-foreground: 222 30% 22%;
+    --destructive: 0 72% 51%;          /* red-600 */
+    --destructive-foreground: 0 0% 100%;
+    --success: 142 71% 45%;            /* emerald-600 */
+    --warning: 38 92% 50%;             /* amber-500 */
+    --border: 220 14% 88%;             /* visible but gentle #DADFE6 */
+    --input: 220 14% 88%;
+    --ring: 221 83% 53%;               /* matches primary */
     --radius: 0.5rem;
+
+    /* Sidebar — slightly tinted to sit between canvas and content */
+    --sidebar: 0 0% 100%;
+    --sidebar-foreground: 222 47% 11%;
+    --sidebar-border: 220 14% 88%;
+    --sidebar-active: 221 83% 53%;
+    --sidebar-active-foreground: 0 0% 100%;
+    --sidebar-hover: 220 16% 93%;
   }
 
   .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
-    --primary: 217.2 91.2% 59.8%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 30.6%;
+    --background: 222 47% 7%;         /* very dark slate #0F172A */
+    --foreground: 210 40% 90%;        /* light text */
+    --card: 222 47% 10%;              /* slightly lighter card */
+    --card-foreground: 210 40% 90%;
+    --popover: 222 47% 10%;
+    --popover-foreground: 210 40% 90%;
+    --primary: 217 91% 60%;           /* blue-500 for dark */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 217 33% 17%;
+    --secondary-foreground: 210 40% 90%;
+    --muted: 217 33% 17%;
+    --muted-foreground: 215 20% 55%;
+    --accent: 217 33% 17%;
+    --accent-foreground: 210 40% 90%;
+    --destructive: 0 63% 45%;
     --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 224.3 76.3% 48%;
+    --success: 142 71% 45%;
+    --warning: 38 92% 50%;
+    --border: 217 33% 17%;
+    --input: 217 33% 17%;
+    --ring: 217 91% 60%;
+
+    /* Sidebar-specific dark */
+    --sidebar: 222 47% 10%;
+    --sidebar-foreground: 210 40% 90%;
+    --sidebar-border: 217 33% 17%;
+    --sidebar-active: 217 91% 60%;
+    --sidebar-active-foreground: 0 0% 100%;
+    --sidebar-hover: 217 33% 17%;
   }
 }
 
 @layer base {
-  * {
+  *,
+  *::before,
+  *::after {
     @apply border-border;
+    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
   }
+
   body {
     @apply bg-background text-foreground;
+    font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
     margin: 0;
   }
+
+  /* Disable transitions for theme-switching on elements that animate position/size */
+  .no-theme-transition,
+  .no-theme-transition *,
+  .no-theme-transition *::before,
+  .no-theme-transition *::after {
+    transition: none !important;
+  }
+}
+
+@layer components {
+  .density-compact input:not([type='checkbox']):not([type='radio']),
+  .density-compact select {
+    @apply min-h-0 py-1.5 text-sm;
+  }
+
+  .density-compact textarea {
+    @apply py-2 text-sm;
+  }
+
+  .density-compact button {
+    @apply text-sm;
+  }
+
+  .density-compact label {
+    @apply text-xs;
+  }
+
+  .density-compact section,
+  .density-compact .erp-card-padding {
+    @apply p-4;
+  }
+
+  .density-compact h1 {
+    @apply text-xl;
+  }
+
+  .density-compact h2 {
+    @apply text-lg;
+  }
+
+  /* Numeric inputs (prices, quantities, EMIs) — left-aligned to match the
+     rest of the app and avoid the "value flies to the right edge" pattern.
+     Tabular figures keep digit columns from jumping in dense forms. */
+  .density-compact input[type='number'] {
+    @apply text-left;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Custom scrollbar styling */
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    @apply bg-border rounded-full;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    @apply bg-muted-foreground/30;
+  }
+
+  /* Hide scrollbars entirely while keeping the element scrollable. */
+  .scrollbar-hide {
+    -ms-overflow-style: none; /* IE / old Edge */
+    scrollbar-width: none;    /* Firefox */
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none; /* Chromium, Safari */
+  }
+
+  /*
+   * Auto-hiding scrollbar — transparent by default, becomes visible on
+   * hover/focus/scroll. Best of both worlds: chrome stays clean while idle
+   * but remains discoverable when the user actually interacts with the area.
+   *
+   * Note: Firefox doesn't support hover-state scrollbars natively, so the
+   * thin scrollbar shows up there permanently using `scrollbar-width: thin`.
+   */
+  .scrollbar-auto {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+    transition: scrollbar-color 0.2s ease;
+  }
+  .scrollbar-auto:hover,
+  .scrollbar-auto:focus-within,
+  .scrollbar-auto:active {
+    scrollbar-color: hsl(var(--muted-foreground) / 0.35) transparent;
+  }
+  .scrollbar-auto::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .scrollbar-auto::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scrollbar-auto::-webkit-scrollbar-thumb {
+    background-color: transparent;
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+    transition: background-color 0.2s ease;
+  }
+  .scrollbar-auto:hover::-webkit-scrollbar-thumb,
+  .scrollbar-auto:focus-within::-webkit-scrollbar-thumb,
+  .scrollbar-auto:active::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--muted-foreground) / 0.35);
+  }
+  .scrollbar-auto::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(var(--muted-foreground) / 0.55);
+  }
+}
+
+/* Subtle sheen that sweeps across the completion badge on render */
+@keyframes badge-shine {
+  0% {
+    background-position: -120% 50%;
+  }
+  55% {
+    background-position: 220% 50%;
+  }
+  100% {
+    background-position: 220% 50%;
+  }
+}
+
+.animate-badge-shine {
+  background-image: linear-gradient(
+    100deg,
+    rgba(16, 185, 129, 0) 0%,
+    rgba(16, 185, 129, 0) 40%,
+    rgba(16, 185, 129, 0.18) 50%,
+    rgba(16, 185, 129, 0) 60%,
+    rgba(16, 185, 129, 0) 100%
+  ),
+    linear-gradient(to right, rgb(236 253 245), rgb(240 253 250));
+  background-size: 220% 100%, 100% 100%;
+  background-repeat: no-repeat;
+  animation: badge-shine 3.2s ease-in-out infinite;
 }

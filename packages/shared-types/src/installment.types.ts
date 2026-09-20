@@ -11,6 +11,7 @@ export interface InstallmentSchedule {
   emiAmount: number;
   startDate: string;
   status: 'active' | 'completed' | 'defaulted';
+  creditBalance?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -19,6 +20,8 @@ export interface Installment {
   id: string;
   scheduleId: string;
   installmentNumber: number;
+  parentInstallmentNumber?: number | null;
+  subSequence?: number | null;
   dueDate: string;
   amountDue: number;
   amountPaid: number;
@@ -38,6 +41,7 @@ export interface InstallmentPayment {
   paymentMode: PaymentMode;
   paymentDate: string;
   collectedBy?: string;
+  collectorName?: string;
   referenceNumber?: string;
   notes?: string;
   createdAt: string;
@@ -67,4 +71,48 @@ export interface RecordPaymentRequest {
   paymentMode?: PaymentMode;
   newDate?: string;
   notes?: string;
+}
+
+export interface TenantInstallmentSettings {
+  defaultPenalRateMonthly: number;
+  defaultPaymentAllocation: 'oldest_first' | 'manual';
+  defaultThresholdDays: number;
+  reliabilityWindowDays: number;
+}
+
+export const DEFAULT_TENANT_INSTALLMENT_SETTINGS: TenantInstallmentSettings = {
+  defaultPenalRateMonthly: 1.0,
+  defaultPaymentAllocation: 'oldest_first',
+  defaultThresholdDays: 60,
+  reliabilityWindowDays: 365,
+};
+
+export interface ReliabilityMetrics {
+  customerId: string;
+  promisesMade: number;
+  promisesKept: number;
+  promisesPartiallyKept: number;
+  promisesBroken: number;
+  promisesBrokenEmiCount: number;
+  activeOverdueEmiCount: number;
+  totalOutstanding: number;
+  avgDpdAtPayment: number | null;
+  riskBand: 'low' | 'medium' | 'high';
+}
+
+export interface PatternBRecordPaymentRequest {
+  scheduleId: string;
+  amount: number;
+  paymentMode: PaymentMode;
+  paymentDate: string;
+  collectedBy?: string;
+  referenceNumber?: string;
+  notes?: string;
+  explicitInstallmentId?: string;
+  applyInterest?: {
+    installmentId: string;
+    appliedAmount: number;
+    daysOverdue: number;
+    notes?: string;
+  };
 }

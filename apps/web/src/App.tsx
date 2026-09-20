@@ -18,6 +18,7 @@ import { CustomerDetailPage } from './pages/customers/CustomerDetailPage';
 import { SaleListPage } from './pages/sales/SaleListPage';
 import { SaleCreatePage } from './pages/sales/SaleCreatePage';
 import { SaleDetailPage } from './pages/sales/SaleDetailPage';
+import { RegisterScanPage } from './pages/sales/RegisterScanPage';
 import { InstallmentListPage } from './pages/installments/InstallmentListPage';
 import { InstallmentDetailPage } from './pages/installments/InstallmentDetailPage';
 import { TransferListPage } from './pages/transfers/TransferListPage';
@@ -31,14 +32,27 @@ import { EmployeeFormPage } from './pages/employees/EmployeeFormPage';
 import { SettingsPage } from './pages/settings/SettingsPage';
 import { FormBuilderPage } from './pages/settings/FormBuilderPage';
 import { CategoryManagerPage } from './pages/settings/CategoryManagerPage';
+import RolesUsersPage from './pages/settings/RolesUsersPage';
+import PreferencesPage from './pages/preferences/PreferencesPage';
 import { ProtectedRoute, getDefaultRoute } from './routes/ProtectedRoute';
 import { RoleGuard } from './routes/RoleGuard';
+import { PermissionGuard } from './routes/PermissionGuard';
 import { useAuthStore } from './stores/auth-store';
+import { usePreferencesStore } from './stores/preferences-store';
 import { UserRole } from '@retailerp/shared-types';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ToastContainer } from './components/Toast';
+import { isPlatformAdminHost } from './lib/host';
+import { PlatformApp } from './PlatformApp';
 
 function App() {
+  // Hostname-based router branch: `admin.*` renders the platform-admin
+  // app; everything else renders the per-tenant app. The decision is made
+  // once per page load (hostname doesn't change without a full reload).
+  if (isPlatformAdminHost()) {
+    return <PlatformApp />;
+  }
+
   return (
     <ErrorBoundary>
     <ToastContainer />
@@ -51,8 +65,11 @@ function App() {
       {/* Protected routes — require authentication */}
       <Route element={<ProtectedRoute />}>
         <Route element={<DashboardLayout />}>
+          {/* Available to every authenticated user */}
+          <Route path="/preferences" element={<PreferencesPage />} />
+
           {/* Admin-only routes */}
-          <Route element={<RoleGuard allowedRoles={[UserRole.ADMIN]} />}>
+          <Route element={<RoleGuard allowedRoles={[UserRole.OWNER, UserRole.ADMIN]} />}>
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/employees" element={<EmployeeListPage />} />
             <Route path="/employees/new" element={<EmployeeFormPage />} />
@@ -60,6 +77,7 @@ function App() {
             <Route path="/settings" element={<SettingsPage />}>
               <Route path="forms" element={<FormBuilderPage />} />
               <Route path="categories" element={<CategoryManagerPage />} />
+              <Route path="roles" element={<RolesUsersPage />} />
             </Route>
           </Route>
 
@@ -67,7 +85,7 @@ function App() {
           <Route
             element={
               <RoleGuard
-                allowedRoles={[UserRole.ADMIN, UserRole.ACCOUNTANT]}
+                allowedRoles={[UserRole.OWNER, UserRole.ADMIN, UserRole.ACCOUNTANT]}
               />
             }
           >
@@ -76,9 +94,15 @@ function App() {
             <Route path="/distributors/new" element={<DistributorFormPage />} />
             <Route path="/distributors/:id" element={<DistributorDetailPage />} />
             <Route path="/distributors/:id/edit" element={<DistributorFormPage />} />
-            <Route path="/purchases" element={<PurchaseListPage />} />
-            <Route path="/purchases/new" element={<PurchaseCreatePage />} />
-            <Route path="/purchases/:id" element={<PurchaseDetailPage />} />
+            <Route element={<PermissionGuard anyOf={['purchases.list']} />}>
+              <Route path="/purchases" element={<PurchaseListPage />} />
+            </Route>
+            <Route element={<PermissionGuard anyOf={['purchases.create']} />}>
+              <Route path="/purchases/new" element={<PurchaseCreatePage />} />
+            </Route>
+            <Route element={<PermissionGuard anyOf={['purchases.detail']} />}>
+              <Route path="/purchases/:id" element={<PurchaseDetailPage />} />
+            </Route>
             <Route path="/installments" element={<InstallmentListPage />} />
             <Route
               path="/installments/:scheduleId"
@@ -113,9 +137,32 @@ function App() {
             <Route path="/customers/new" element={<CustomerFormPage />} />
             <Route path="/customers/:id" element={<CustomerDetailPage />} />
             <Route path="/customers/:id/edit" element={<CustomerFormPage />} />
-            <Route path="/sales" element={<SaleListPage />} />
-            <Route path="/sales/new" element={<SaleCreatePage />} />
-            <Route path="/sales/:id" element={<SaleDetailPage />} />
+            <Route element={<PermissionGuard anyOf={['sales.list']} />}>
+              <Route path="/sales" element={<SaleListPage />} />
+            </Route>
+            <Route element={<PermissionGuard anyOf={['sales.list']} />}>
+              <Route path="/sales/scan-register" element={<RegisterScanPage />} />
+            </Route>
+            <Route
+              element={
+                <PermissionGuard
+                  anyOf={[
+                    'sales.create_full_payment',
+                    'sales.create_partial_with_promise',
+                    'sales.create_self_finance',
+                    'sales.create_company_finance',
+                  ]}
+                />
+              }
+            >
+              <Route path="/sales/new" element={<SaleCreatePage />} />
+            </Route>
+            <Route element={<PermissionGuard anyOf={['sales.edit']} />}>
+              <Route path="/sales/:id/edit" element={<SaleCreatePage />} />
+            </Route>
+            <Route element={<PermissionGuard anyOf={['sales.detail']} />}>
+              <Route path="/sales/:id" element={<SaleDetailPage />} />
+            </Route>
             <Route path="/transfers" element={<TransferListPage />} />
             <Route path="/transfers/:id" element={<TransferDetailPage />} />
           </Route>
@@ -138,12 +185,17 @@ function App() {
 function RootRedirect() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const user = useAuthStore((s) => s.user);
+  const preferredLanding = usePreferencesStore(
+    (s) => s.preferences.defaultLandingPage,
+  );
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
   }
 
-  const target = user ? getDefaultRoute(user.role) : '/products';
+  const target = user
+    ? getDefaultRoute(user.role, preferredLanding)
+    : '/products';
   return <Navigate to={target} replace />;
 }
 

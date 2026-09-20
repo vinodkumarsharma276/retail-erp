@@ -1,193 +1,134 @@
-import type { PrismaClient, Distributor, ProductCategory } from '@prisma/client';
+﻿import type { PrismaClient, Distributor, ProductCategory } from '@prisma/client';
+
+// ---------------------------------------------------------------------------
+// Bulk distributors seed â€” 40 distributors total (10 per shop).
+// Distributors are global (no shop_id); each is linked to 2-5 leaf categories.
+// ---------------------------------------------------------------------------
+
+const COMPANY_PREFIXES = [
+  'Samsung', 'LG', 'Sony', 'Xiaomi', 'OnePlus', 'Vivo', 'Oppo', 'Realme',
+  'Whirlpool', 'Godrej', 'Haier', 'Bosch', 'Panasonic', 'TCL', 'Hisense',
+  'Blue Star', 'Voltas', 'Carrier', 'Daikin', 'Hitachi', 'Lloyd', 'IFB',
+  'Nilkamal', 'Durian', 'Wakefit', 'Urban Ladder', 'Bajaj', 'Philips',
+  'Havells', 'Usha', 'Crompton', 'Kent', 'Aquaguard', 'Pureit',
+  'Preethi', 'Butterfly', 'Morphy Richards', 'Maharaja', 'Nokia', 'Lava',
+];
+
+const SUFFIXES = [
+  'India Electronics Pvt. Ltd.',
+  'Distributors Pvt. Ltd.',
+  'India Pvt. Ltd.',
+  'Sales & Distribution Ltd.',
+  'Trading Corporation',
+  'Agencies Pvt. Ltd.',
+  'Enterprises Pvt. Ltd.',
+  'Marketing Pvt. Ltd.',
+];
+
+const CONTACT_NAMES = [
+  'Rajesh Kumar', 'Amit Sharma', 'Sunil Mehta', 'Vikram Singh', 'Rohit Gupta',
+  'Deepak Verma', 'Anil Kapoor', 'Sanjay Patel', 'Manoj Reddy', 'Praveen Joshi',
+  'Arun Nair', 'Kishore Das', 'Naveen Rao', 'Tarun Bansal', 'Harish Yadav',
+];
+
+const CITIES = [
+  { city: 'Mumbai', state: 'Maharashtra', pincode: '400001', gstPrefix: '27' },
+  { city: 'Delhi', state: 'Delhi', pincode: '110001', gstPrefix: '07' },
+  { city: 'Bangalore', state: 'Karnataka', pincode: '560001', gstPrefix: '29' },
+  { city: 'Chennai', state: 'Tamil Nadu', pincode: '600001', gstPrefix: '33' },
+  { city: 'Kolkata', state: 'West Bengal', pincode: '700001', gstPrefix: '19' },
+  { city: 'Hyderabad', state: 'Telangana', pincode: '500001', gstPrefix: '36' },
+  { city: 'Pune', state: 'Maharashtra', pincode: '411001', gstPrefix: '27' },
+  { city: 'Noida', state: 'Uttar Pradesh', pincode: '201301', gstPrefix: '09' },
+  { city: 'Gurgaon', state: 'Haryana', pincode: '122001', gstPrefix: '06' },
+  { city: 'Ahmedabad', state: 'Gujarat', pincode: '380001', gstPrefix: '24' },
+];
+
+const BANKS = [
+  { bankName: 'HDFC Bank', bankIfsc: 'HDFC0001234', bankBranch: 'Main Branch' },
+  { bankName: 'ICICI Bank', bankIfsc: 'ICIC0001234', bankBranch: 'Central Branch' },
+  { bankName: 'State Bank of India', bankIfsc: 'SBIN0001234', bankBranch: 'Corporate Branch' },
+  { bankName: 'Axis Bank', bankIfsc: 'UTIB0001234', bankBranch: 'Head Office Branch' },
+  { bankName: 'Kotak Mahindra Bank', bankIfsc: 'KKBK0001234', bankBranch: 'Business Branch' },
+];
+
+function pick<T>(arr: T[], idx: number): T {
+  return arr[idx % arr.length];
+}
+
+function pad(n: number, width: number): string {
+  return String(n).padStart(width, '0');
+}
 
 export async function seedDistributors(
   prisma: PrismaClient,
   categories: ProductCategory[],
 ): Promise<Distributor[]> {
-  const distributors: Distributor[] = [];
+  const leafCategories = categories.filter((c) => c.isLeaf);
+  const tenantId = categories[0]?.tenantId;
+  if (!tenantId) return [];
 
-  // Helper to find category by slug
-  const catBySlug = (slug: string) => categories.find((c) => c.slug === slug);
+  const existingCount = await prisma.distributor.count({ where: { tenantId } });
+  if (existingCount >= 40) {
+    return prisma.distributor.findMany({ where: { tenantId } });
+  }
 
-  // Get the first admin user to use as createdBy
-  const firstAdmin = await prisma.user.findFirst({
-    where: { role: 'admin' },
-  });
+  const firstAdmin = await prisma.user.findFirst({ where: { tenantId, role: 'admin' } });
   const createdBy = firstAdmin?.id ?? null;
 
-  const distributorDefs = [
-    {
-      companyName: 'Samsung India Electronics Pvt. Ltd.',
-      contactPerson: 'Rajesh Kumar Mehta',
-      phone: '9811234567',
-      altPhone: '9811234568',
-      email: 'distribution@samsung-india.com',
-      gstNumber: '07AABCS1429B1ZK',
-      panNumber: 'AABCS1429B',
-      addressLine1: 'Plot No. 2A, Sector 126, Noida-Greater Noida Expressway',
-      addressLine2: 'Samsung Digital City',
-      city: 'Noida',
-      state: 'Uttar Pradesh',
-      pincode: '201304',
-      bankName: 'HDFC Bank',
-      bankAccountNumber: '50100087654321',
-      bankIfsc: 'HDFC0001234',
-      bankBranch: 'Noida Sector 18',
-      paymentTerms: 'Net 30',
-      creditLimit: 2500000,
-      categorySlugs: ['tv', 'mobile', 'ac', 'refrigerator', 'washing-machine'],
-    },
-    {
-      companyName: 'LG Electronics India Pvt. Ltd.',
-      contactPerson: 'Sunil Sharma',
-      phone: '9822345678',
-      altPhone: '9822345679',
-      email: 'dealer-support@lg-india.com',
-      gstNumber: '27AABCL6789M1ZX',
-      panNumber: 'AABCL6789M',
-      addressLine1: 'A-Wing, 6th Floor, Marathon Futurex',
-      addressLine2: 'N.M. Joshi Marg, Lower Parel',
-      city: 'Mumbai',
-      state: 'Maharashtra',
-      pincode: '400013',
-      bankName: 'ICICI Bank',
-      bankAccountNumber: '012805000123',
-      bankIfsc: 'ICIC0000128',
-      bankBranch: 'Lower Parel Mumbai',
-      paymentTerms: 'Net 45',
-      creditLimit: 2000000,
-      categorySlugs: ['tv', 'ac', 'refrigerator', 'washing-machine'],
-    },
-    {
-      companyName: 'Xiaomi Technology India Pvt. Ltd.',
-      contactPerson: 'Priya Nair',
-      phone: '9833456789',
-      altPhone: null,
-      email: 'partners@xiaomi-india.com',
-      gstNumber: '29AABCX5432N1ZW',
-      panNumber: 'AABCX5432N',
-      addressLine1: '3rd Floor, Embassy Tech Village',
-      addressLine2: 'Outer Ring Road, Devarabisanahalli',
-      city: 'Bangalore',
-      state: 'Karnataka',
-      pincode: '560103',
-      bankName: 'Kotak Mahindra Bank',
-      bankAccountNumber: '7611234567890',
-      bankIfsc: 'KKBK0007611',
-      bankBranch: 'Whitefield Bangalore',
-      paymentTerms: 'COD',
-      creditLimit: 1500000,
-      categorySlugs: ['mobile', 'tv'],
-    },
-    {
-      companyName: 'Godrej Interio (Godrej & Boyce Mfg. Co. Ltd.)',
-      contactPerson: 'Amit Deshmukh',
-      phone: '9844567890',
-      altPhone: '9844567891',
-      email: 'dealer.interio@godrej.com',
-      gstNumber: '27AABCG1234P1ZY',
-      panNumber: 'AABCG1234P',
-      addressLine1: 'Godrej One, 4th Floor, Eastern Express Highway',
-      addressLine2: 'Vikhroli (East)',
-      city: 'Mumbai',
-      state: 'Maharashtra',
-      pincode: '400079',
-      bankName: 'Bank of Baroda',
-      bankAccountNumber: '32190100012345',
-      bankIfsc: 'BARB0VIKHRO',
-      bankBranch: 'Vikhroli East Mumbai',
-      paymentTerms: 'Net 60',
-      creditLimit: 1800000,
-      categorySlugs: ['furniture'],
-    },
-    {
-      companyName: 'Whirlpool of India Ltd.',
-      contactPerson: 'Kavita Joshi',
-      phone: '9855678901',
-      altPhone: null,
-      email: 'trade.partners@whirlpool.com',
-      gstNumber: '27AABCW9876Q1ZV',
-      panNumber: 'AABCW9876Q',
-      addressLine1: 'Plot No. A-4/1, MIDC Industrial Area',
-      addressLine2: 'Ranjangaon, Taluka Shirur',
-      city: 'Pune',
-      state: 'Maharashtra',
-      pincode: '412220',
-      bankName: 'State Bank of India',
-      bankAccountNumber: '37621098765432',
-      bankIfsc: 'SBIN0005943',
-      bankBranch: 'Ranjangaon MIDC Pune',
-      paymentTerms: 'Net 30',
-      creditLimit: 1200000,
-      categorySlugs: ['washing-machine', 'refrigerator', 'ac'],
-    },
-  ];
+  const distributors: Distributor[] = [];
 
-  for (const def of distributorDefs) {
-    const { categorySlugs, ...distributorData } = def;
+  for (let i = 0; i < 40; i++) {
+    const companyPrefix = pick(COMPANY_PREFIXES, i);
+    const suffix = pick(SUFFIXES, i);
+    const contact = pick(CONTACT_NAMES, i);
+    const city = pick(CITIES, i);
+    const bank = pick(BANKS, i);
 
-    // Check if distributor already exists by company name + phone
-    let distributor = await prisma.distributor.findFirst({
-      where: {
-        companyName: distributorData.companyName,
-        phone: distributorData.phone,
+    const companyName = `${companyPrefix} ${suffix} (${pad(i + 1, 2)})`;
+    const panLetters = (companyPrefix.replace(/\s+/g, '').toUpperCase().slice(0, 3) + 'AAA').slice(0, 3);
+    const panNumber = `AA${panLetters}${pad(1000 + i, 4)}A`;
+    const gstNumber = `${city.gstPrefix}${panNumber}1Z${i % 10}`;
+
+    const phone = `98${pad((10000000 + i * 137) % 100000000, 8)}`;
+    const altPhone = `98${pad((20000000 + i * 241) % 100000000, 8)}`;
+
+    const distributor = await prisma.distributor.create({
+      data: {
+        tenantId,
+        companyName,
+        contactPerson: contact,
+        phone,
+        altPhone,
+        email: `${companyPrefix.toLowerCase().replace(/\s+/g, '')}-${i + 1}@distributor.com`,
+        gstNumber,
+        panNumber,
+        addressLine1: `Plot ${100 + i}, Industrial Area`,
+        addressLine2: `${city.city} Zone ${(i % 5) + 1}`,
+        city: city.city,
+        state: city.state,
+        pincode: city.pincode,
+        bankName: bank.bankName,
+        bankAccountNumber: pad((50000000000 + i * 17) % 1000000000000, 12),
+        bankIfsc: bank.bankIfsc,
+        bankBranch: bank.bankBranch,
+        paymentTerms: pick(['Net 30', 'Net 45', 'Net 15', 'Net 60'], i),
+        creditLimit: [500000, 1000000, 1500000, 2000000, 2500000][i % 5],
+        createdBy,
       },
     });
-
-    if (!distributor) {
-      distributor = await prisma.distributor.create({
-        data: {
-          companyName: distributorData.companyName,
-          contactPerson: distributorData.contactPerson,
-          phone: distributorData.phone,
-          altPhone: distributorData.altPhone ?? null,
-          email: distributorData.email ?? null,
-          gstNumber: distributorData.gstNumber ?? null,
-          panNumber: distributorData.panNumber ?? null,
-          addressLine1: distributorData.addressLine1,
-          addressLine2: distributorData.addressLine2 ?? null,
-          city: distributorData.city,
-          state: distributorData.state,
-          pincode: distributorData.pincode,
-          bankName: distributorData.bankName ?? null,
-          bankAccountNumber: distributorData.bankAccountNumber ?? null,
-          bankIfsc: distributorData.bankIfsc ?? null,
-          bankBranch: distributorData.bankBranch ?? null,
-          paymentTerms: distributorData.paymentTerms ?? null,
-          creditLimit: distributorData.creditLimit,
-          createdBy: createdBy,
-        },
-      });
-    }
-
-    // Create category associations (upsert-like — skip if exists)
-    for (const slug of categorySlugs) {
-      const category = catBySlug(slug);
-      if (!category) {
-        console.warn(`  Category "${slug}" not found for distributor ${distributorData.companyName}`);
-        continue;
-      }
-
-      const existing = await prisma.distributorCategory.findUnique({
-        where: {
-          distributorId_categoryId: {
-            distributorId: distributor.id,
-            categoryId: category.id,
-          },
-        },
-      });
-
-      if (!existing) {
-        await prisma.distributorCategory.create({
-          data: {
-            distributorId: distributor.id,
-            categoryId: category.id,
-          },
-        });
-      }
-    }
-
     distributors.push(distributor);
+
+    const numCats = 2 + (i % 4);
+    const linkedCatIds = new Set<string>();
+    for (let k = 0; k < numCats; k++) {
+      const cat = leafCategories[(i * 7 + k * 13) % leafCategories.length];
+      if (linkedCatIds.has(cat.id)) continue;
+      linkedCatIds.add(cat.id);
+      await prisma.distributorCategory.create({
+        data: { tenantId, distributorId: distributor.id, categoryId: cat.id },
+      });
+    }
   }
 
   return distributors;

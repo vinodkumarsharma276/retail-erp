@@ -6,9 +6,19 @@ export const bankService = {
   // BANK ACCOUNTS
   // =========================================================================
 
-  async listAccounts(shopId: string) {
+  async listAccounts(scope: { shopId: string; shopIds?: string[] }) {
+    const where: Prisma.BankAccountWhereInput =
+      scope.shopIds && scope.shopIds.length > 0
+        ? { shopId: { in: scope.shopIds } }
+        : { shopId: scope.shopId };
+
     const accounts = await prisma.bankAccount.findMany({
-      where: { shopId },
+      where,
+      include: {
+        shop: {
+          select: { id: true, name: true, code: true },
+        },
+      },
       orderBy: { createdAt: 'desc' },
     });
 
@@ -181,10 +191,15 @@ export const bankService = {
   // RECONCILIATION
   // =========================================================================
 
-  async getUnmatched(shopId: string) {
-    // Get all bank accounts for the shop, then find unmatched transactions
+  async getUnmatched(scope: { shopId: string; shopIds?: string[] }) {
+    // Get all bank accounts for the shop(s), then find unmatched transactions
+    const accountWhere: Prisma.BankAccountWhereInput =
+      scope.shopIds && scope.shopIds.length > 0
+        ? { shopId: { in: scope.shopIds } }
+        : { shopId: scope.shopId };
+
     const accounts = await prisma.bankAccount.findMany({
-      where: { shopId },
+      where: accountWhere,
       select: { id: true },
     });
 
@@ -201,7 +216,7 @@ export const bankService = {
       },
       include: {
         bankAccount: {
-          select: { id: true, bankName: true, accountNumber: true, accountType: true },
+          select: { id: true, bankName: true, accountNumber: true, accountType: true, shopId: true },
         },
       },
       orderBy: { transactionDate: 'desc' },

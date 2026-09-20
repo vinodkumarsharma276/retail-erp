@@ -30,6 +30,11 @@ export interface Purchase {
     contactPerson: string;
     phone: string;
   };
+  shop?: {
+    id: string;
+    name: string;
+    code: string;
+  };
   products?: PurchaseProduct[];
   payments?: PurchasePayment[];
 }
@@ -103,8 +108,19 @@ export interface DistributorProduct {
   categoryId: string;
   categoryName?: string;
   purchasePrice: number;
-  purchaseDate: string;
-  invoiceNumber: string;
+  purchaseDate?: string;
+  invoiceNumber?: string;
+  category?: {
+    id: string;
+    name: string;
+    slug: string;
+    path?: string;
+  };
+  purchase?: {
+    id: string;
+    invoiceNumber: string;
+    invoiceDate: string;
+  };
 }
 
 export interface DistributorPayment {
@@ -113,8 +129,15 @@ export interface DistributorPayment {
   paymentMode: PaymentMode;
   paymentDate: string;
   referenceNumber?: string;
-  invoiceNumber: string;
+  invoiceNumber?: string;
   createdAt: string;
+  purchase?: {
+    id: string;
+    invoiceNumber: string;
+    invoiceDate: string;
+    netAmount: number;
+    shop?: { id: string; name: string; code: string };
+  };
 }
 
 export interface PendingInvoice {

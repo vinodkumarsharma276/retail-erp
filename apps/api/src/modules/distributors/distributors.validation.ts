@@ -57,3 +57,11 @@ export const distributorProductsQuerySchema = z.object({
   dateFrom: z.string().optional(),
   dateTo: z.string().optional(),
 });
+
+export const lumpsumPaymentSchema = z.object({
+  amount: z.number().positive('Amount must be a positive number'),
+  paymentMode: z.string().min(1, 'Payment mode is required'),
+  paymentDate: z.string().min(1, 'Payment date is required'),
+  referenceNumber: z.string().max(100).optional(),
+  notes: z.string().optional(),
+});

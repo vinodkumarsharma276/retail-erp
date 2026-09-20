@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   Plus,
   ChevronDown,
@@ -20,11 +20,13 @@ import {
 } from '../../hooks/useExpenses';
 import type { Expense } from '../../hooks/useExpenses';
 import { DataTable } from '../../components/DataTable';
+import { DateInput } from '../../components/DateInput';
 import type { Column, PaginationState } from '../../components/DataTable';
 import { StatusBadge } from '../../components/StatusBadge';
-import { formatINR, formatDateIN } from '@retailerp/shared-utils';
+import { formatINR, formatDateIN, getCurrentFinancialYearRange, getLastFinancialYearRange } from '@retailerp/shared-utils';
 import { ExpenseCategory, UserRole } from '@retailerp/shared-types';
 import { useAuthStore } from '../../stores/auth-store';
+import { useShopStore, isAllShops } from '../../stores/shop-store';
 
 const PAGE_SIZE = 20;
 
@@ -53,15 +55,31 @@ const CATEGORY_LABELS: Record<string, string> = {
 
 export function ExpenseListPage() {
   const user = useAuthStore((s) => s.user);
-  const isAdmin = user?.role === UserRole.ADMIN;
+  const isAdmin = user?.role === UserRole.OWNER || user?.role === UserRole.ADMIN;
 
-  // ------ Filters state ------
-  const [page, setPage] = useState(1);
-  const [category, setCategory] = useState('');
-  const [dateFrom, setDateFrom] = useState(getDateDaysAgo(7));
-  const [dateTo, setDateTo] = useState(getToday());
-  const [search, setSearch] = useState('');
-  const [searchInput, setSearchInput] = useState('');
+  // ------ Filters state (URL search params) ------
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const page = Number(searchParams.get('page')) || 1;
+  const category = searchParams.get('category') || '';
+  const dateFrom = searchParams.get('dateFrom') || getDateDaysAgo(90);
+  const dateTo = searchParams.get('dateTo') || getToday();
+  const search = searchParams.get('search') || '';
+  const [searchInput, setSearchInput] = useState(search);
+
+  const updateFilters = (updates: Record<string, string>) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      for (const [key, value] of Object.entries(updates)) {
+        if (value) {
+          next.set(key, value);
+        } else {
+          next.delete(key);
+        }
+      }
+      return next;
+    }, { replace: true });
+  };
 
   // ------ Delete state ------
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -89,19 +107,14 @@ export function ExpenseListPage() {
 
   // ------ Search handler ------
   const handleSearch = () => {
-    setSearch(searchInput.trim());
-    setPage(1);
+    updateFilters({ search: searchInput.trim(), page: '1' });
   };
 
   // ------ Clear filters ------
-  const hasFilters = category || search || dateFrom !== getDateDaysAgo(7) || dateTo !== getToday();
+  const hasFilters = category || search || dateFrom !== getDateDaysAgo(90) || dateTo !== getToday();
   const clearFilters = () => {
-    setCategory('');
-    setDateFrom(getDateDaysAgo(7));
-    setDateTo(getToday());
-    setSearch('');
     setSearchInput('');
-    setPage(1);
+    setSearchParams({}, { replace: true });
   };
 
   // ------ Delete handler ------
@@ -114,6 +127,8 @@ export function ExpenseListPage() {
   };
 
   // ------ Table columns ------
+  const allShopsMode = isAllShops(useShopStore((s) => s.currentShopId));
+
   const columns: Column<Expense>[] = [
     {
       key: 'sno',
@@ -124,6 +139,24 @@ export function ExpenseListPage() {
           : idx + 1,
       className: 'w-16',
     },
+    // Shop column — only visible in "All Shops" mode.
+    ...(allShopsMode
+      ? ([
+          {
+            key: 'shop' as keyof Expense,
+            header: 'Shop',
+            render: (row: Expense) =>
+              row.shop ? (
+                <span className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-xs font-medium">
+                  {row.shop.code}
+                </span>
+              ) : (
+                <span className="text-muted-foreground">-</span>
+              ),
+            className: 'w-20',
+          },
+        ] as Column<Expense>[])
+      : []),
     {
       key: 'date',
       header: 'Date',
@@ -232,16 +265,31 @@ export function ExpenseListPage() {
       {/* Page header */}
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-semibold">Expenses</h1>
-        <Link
-          to="/expenses/new"
-          className={cn(
-            'flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground',
-            'hover:bg-primary/90 transition-colors',
-          )}
-        >
-          <Plus className="h-4 w-4" />
-          Add Expense
-        </Link>
+        {allShopsMode ? (
+          <button
+            type="button"
+            disabled
+            title="Switch to a single shop to add an expense"
+            className={cn(
+              'flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground',
+              'opacity-50 cursor-not-allowed',
+            )}
+          >
+            <Plus className="h-4 w-4" />
+            Add Expense
+          </button>
+        ) : (
+          <Link
+            to="/expenses/new"
+            className={cn(
+              'flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground',
+              'hover:bg-primary/90 transition-colors',
+            )}
+          >
+            <Plus className="h-4 w-4" />
+            Add Expense
+          </Link>
+        )}
       </div>
 
       {/* Summary cards */}
@@ -249,8 +297,8 @@ export function ExpenseListPage() {
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 mb-6">
           <div className="rounded-lg border bg-card p-4">
             <div className="flex items-center gap-3">
-              <div className="rounded-md bg-red-100 p-2">
-                <IndianRupee className="h-5 w-5 text-red-600" />
+              <div className="rounded-md bg-red-100 dark:bg-red-900/30 p-2">
+                <IndianRupee className="h-5 w-5 text-red-600 dark:text-red-400" />
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Total Expenses</p>
@@ -262,8 +310,8 @@ export function ExpenseListPage() {
           </div>
           <div className="rounded-lg border bg-card p-4">
             <div className="flex items-center gap-3">
-              <div className="rounded-md bg-green-100 p-2">
-                <Receipt className="h-5 w-5 text-green-600" />
+              <div className="rounded-md bg-green-100 dark:bg-green-900/30 p-2">
+                <Receipt className="h-5 w-5 text-green-600 dark:text-green-400" />
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">
@@ -277,8 +325,8 @@ export function ExpenseListPage() {
           </div>
           <div className="rounded-lg border bg-card p-4">
             <div className="flex items-center gap-3">
-              <div className="rounded-md bg-blue-100 p-2">
-                <Receipt className="h-5 w-5 text-blue-600" />
+              <div className="rounded-md bg-blue-100 dark:bg-blue-900/30 p-2">
+                <Receipt className="h-5 w-5 text-blue-600 dark:text-blue-400" />
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Categories</p>
@@ -302,8 +350,7 @@ export function ExpenseListPage() {
             <select
               value={category}
               onChange={(e) => {
-                setCategory(e.target.value);
-                setPage(1);
+                updateFilters({ category: e.target.value, page: '1' });
               }}
               className={cn(
                 'w-full appearance-none rounded-md border bg-background px-3 py-2 pr-8 text-sm',
@@ -326,21 +373,11 @@ export function ExpenseListPage() {
           <label className="block text-xs font-medium text-muted-foreground mb-1">
             From
           </label>
-          <div className="relative">
-            <Calendar className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <input
-              type="date"
-              value={dateFrom}
-              onChange={(e) => {
-                setDateFrom(e.target.value);
-                setPage(1);
-              }}
-              className={cn(
-                'rounded-md border bg-background pl-9 pr-3 py-2 text-sm',
-                'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-              )}
-            />
-          </div>
+          <DateInput
+            value={dateFrom}
+            onChange={(v) => updateFilters({ dateFrom: v, page: '1' })}
+            className="w-40"
+          />
         </div>
 
         {/* Date to */}
@@ -348,22 +385,32 @@ export function ExpenseListPage() {
           <label className="block text-xs font-medium text-muted-foreground mb-1">
             To
           </label>
-          <div className="relative">
-            <Calendar className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <input
-              type="date"
-              value={dateTo}
-              onChange={(e) => {
-                setDateTo(e.target.value);
-                setPage(1);
-              }}
-              className={cn(
-                'rounded-md border bg-background pl-9 pr-3 py-2 text-sm',
-                'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-              )}
-            />
-          </div>
+          <DateInput
+            value={dateTo}
+            onChange={(v) => updateFilters({ dateTo: v, page: '1' })}
+            className="w-40"
+          />
         </div>
+
+        <button
+          onClick={() => {
+            const { dateFrom: fyStart, dateTo: fyEnd } = getCurrentFinancialYearRange();
+            updateFilters({ dateFrom: fyStart, dateTo: fyEnd, page: '1' });
+          }}
+          className="rounded-md border px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+        >
+          Current Financial Year
+        </button>
+
+        <button
+          onClick={() => {
+            const { dateFrom: fyStart, dateTo: fyEnd } = getLastFinancialYearRange();
+            updateFilters({ dateFrom: fyStart, dateTo: fyEnd, page: '1' });
+          }}
+          className="rounded-md border px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+        >
+          Last Financial Year
+        </button>
 
         {/* Search */}
         <div className="min-w-[220px]">
@@ -422,7 +469,7 @@ export function ExpenseListPage() {
         data={expenses}
         isLoading={expensesQuery.isLoading}
         pagination={paginationState}
-        onPageChange={setPage}
+        onPageChange={(p) => updateFilters({ page: String(p) })}
         emptyMessage="No expenses found matching your filters."
         rowKey={(row) => row.id}
       />

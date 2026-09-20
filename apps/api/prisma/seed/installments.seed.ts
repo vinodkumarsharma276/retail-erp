@@ -1,209 +1,137 @@
-import type { PrismaClient, SaleRecord, InstallmentSchedule } from '@prisma/client';
+import type { PrismaClient, InstallmentSchedule } from '@prisma/client';
+import { randomUUID } from 'crypto';
+
+// ---------------------------------------------------------------------------
+// Bulk installments payment-history seed.
+//
+// For each self_finance InstallmentSchedule, simulate realistic payment
+// progression based on schedule age:
+//   - Older schedules (>9 months):   60-90% of past-due EMIs paid
+//   - Mid-age schedules (3-9 months): 40-70% of past-due EMIs paid
+//   - Newer schedules (<3 months):    0-40% of past-due EMIs paid
+//
+// For paid installments: creates one InstallmentPayment, sets status = 'paid'.
+// Some past-due remain unpaid → status = 'overdue' (already set by sales seed).
+// ---------------------------------------------------------------------------
+
+function rand(seed: number): number {
+  const x = Math.sin(seed * 9301 + 49297) * 233280;
+  return x - Math.floor(x);
+}
+
+function pad(n: number, width: number): string {
+  return String(n).padStart(width, '0');
+}
 
 export async function seedInstallments(
   prisma: PrismaClient,
-  sales: SaleRecord[],
+  _sales: unknown,
 ): Promise<InstallmentSchedule[]> {
-  if (sales.length === 0) {
-    return [];
-  }
-
-  const selfFinanceSaleIds = sales
-    .filter((s) => s.saleType === 'self_finance')
-    .map((s) => s.id);
-
-  if (selfFinanceSaleIds.length === 0) {
-    return [];
-  }
-
   const schedules = await prisma.installmentSchedule.findMany({
-    where: { saleId: { in: selfFinanceSaleIds } },
     include: {
-      installments: {
-        orderBy: { installmentNumber: 'asc' },
-      },
-      sale: {
-        select: {
-          saleNumber: true,
-          shopId: true,
-          ledgerNumber: true,
-        },
-      },
+      installments: { orderBy: { installmentNumber: 'asc' } },
+      sale: { select: { shopId: true, saleDate: true, ledgerNumber: true } },
     },
   });
+  if (schedules.length === 0) return [];
 
-  // Find VHA employee user (vha_emp1) for collection recording
-  const vhaEmp = await prisma.user.findUnique({
-    where: { username: 'vha_emp1' },
-  });
+  // Skip if payments already exist
+  const existingPayments = await prisma.installmentPayment.count();
+  if (existingPayments > 100) return schedules;
 
-  // Find VE employee user (ve_emp1) for collection recording
-  const veEmp = await prisma.user.findUnique({
-    where: { username: 've_emp1' },
-  });
+  // Find a collector (employee) per shop
+  const shopCollectorMap: Record<string, string | null> = {};
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const paymentRows: any[] = [];
+  const installmentUpdates: Array<{ id: string; data: any }> = [];
+
+  let seedBase = 20000;
 
   for (const schedule of schedules) {
-    // Determine which schedule this is by checking the sale's ledger number
-    const isAmitSchedule = schedule.sale.ledgerNumber === 'VHA-2026-001'; // Amit's 12-month (VHA)
-    const isMohitSchedule = schedule.sale.ledgerNumber === 'VE-2026-002'; // Mohit's 6-month (VE)
+    const scheduleAgeDays = Math.floor(
+      (today.getTime() - new Date(schedule.sale.saleDate).getTime()) / (1000 * 60 * 60 * 24),
+    );
 
-    // Check if we already have any payments (idempotent seeding)
-    const existingPayments = await prisma.installmentPayment.findFirst({
-      where: { installment: { scheduleId: schedule.id } },
-    });
-    if (existingPayments) {
-      continue; // Already seeded payment history
+    let paidRatio: number;
+    if (scheduleAgeDays > 270) paidRatio = 0.6 + rand(seedBase++) * 0.3;
+    else if (scheduleAgeDays > 90) paidRatio = 0.4 + rand(seedBase++) * 0.3;
+    else paidRatio = rand(seedBase++) * 0.4;
+
+    // Ensure collector resolved (cached per shop)
+    if (!(schedule.sale.shopId in shopCollectorMap)) {
+      const shop = await prisma.shop.findUnique({ where: { id: schedule.sale.shopId } });
+      if (shop) {
+        const emp = await prisma.user.findUnique({
+          where: {
+            tenantId_username: {
+              tenantId: schedule.tenantId,
+              username: `${shop.code.toLowerCase()}_emp1`,
+            },
+          },
+        });
+        shopCollectorMap[schedule.sale.shopId] = emp?.id ?? null;
+      }
     }
+    const collectorId = shopCollectorMap[schedule.sale.shopId];
 
-    if (isAmitSchedule && schedule.installments.length >= 3) {
-      const inst1 = schedule.installments[0]; // Installment #1
-      const inst2 = schedule.installments[1]; // Installment #2
-      const inst3 = schedule.installments[2]; // Installment #3
+    for (const inst of schedule.installments) {
+      const dueTime = new Date(inst.dueDate).getTime();
+      const isPastDue = dueTime <= today.getTime();
+      if (!isPastDue) continue; // upcoming stays upcoming
 
-      // --- Installment #1: Fully paid (cash, collected by vha_emp1) ---
-      await prisma.installment.update({
-        where: { id: inst1.id },
+      const shouldPay = rand(seedBase++) < paidRatio;
+      if (!shouldPay) {
+        // Leave as overdue/due_today (already set)
+        continue;
+      }
+
+      // Payment date: between dueDate - 2 and dueDate + 14 (some on time, some late)
+      const dayOffset = Math.floor(rand(seedBase++) * 16) - 2;
+      const paymentDate = new Date(inst.dueDate);
+      paymentDate.setDate(paymentDate.getDate() + dayOffset);
+      if (paymentDate.getTime() > today.getTime()) paymentDate.setTime(today.getTime());
+
+      const modes = ['cash', 'upi', 'bank_transfer'] as const;
+      const mode = modes[Math.floor(rand(seedBase++) * modes.length)];
+
+      paymentRows.push({
+        id: randomUUID(),
+        tenantId: schedule.tenantId,
+        installmentId: inst.id,
+        amount: inst.amountDue,
+        paymentMode: mode,
+        paymentDate,
+        collectedBy: collectorId,
+        referenceNumber: `COLL-${pad(seedBase, 8)}`,
+      });
+
+      installmentUpdates.push({
+        id: inst.id,
         data: {
-          amountPaid: inst1.amountDue,
+          amountPaid: inst.amountDue,
           remainingAmount: 0,
           status: 'paid',
-          notes: 'Paid in full on due date.',
-        },
-      });
-
-      await prisma.installmentPayment.create({
-        data: {
-          installmentId: inst1.id,
-          amount: Number(inst1.amountDue),
-          paymentMode: 'cash',
-          paymentDate: inst1.dueDate,
-          collectedBy: vhaEmp?.id ?? null,
-          referenceNumber: null,
-          notes: 'Collected on time by employee visit.',
-        },
-      });
-
-      // --- Installment #2: Partially paid + rescheduled remainder ---
-      const partialAmount = Math.round(Number(inst2.amountDue) * 0.6); // 60% paid
-      const remainderAmount = Number(inst2.amountDue) - partialAmount;
-
-      await prisma.installment.update({
-        where: { id: inst2.id },
-        data: {
-          amountPaid: partialAmount,
-          remainingAmount: remainderAmount,
-          status: 'partially_paid',
-          notes: `Partial payment of ${partialAmount}. Remaining ${remainderAmount} rescheduled.`,
-        },
-      });
-
-      await prisma.installmentPayment.create({
-        data: {
-          installmentId: inst2.id,
-          amount: partialAmount,
-          paymentMode: 'cash',
-          paymentDate: inst2.dueDate,
-          collectedBy: vhaEmp?.id ?? null,
-          referenceNumber: null,
-          notes: `Partial payment. Customer promised remainder on rescheduled date.`,
-        },
-      });
-
-      // Create rescheduled installment for the remainder — 5 days after original due date
-      const rescheduledDate = new Date(inst2.dueDate);
-      rescheduledDate.setDate(rescheduledDate.getDate() + 5);
-
-      await prisma.installment.create({
-        data: {
-          scheduleId: schedule.id,
-          installmentNumber: inst2.installmentNumber,
-          dueDate: rescheduledDate,
-          amountDue: remainderAmount,
-          amountPaid: 0,
-          remainingAmount: remainderAmount,
-          status: 'upcoming',
+          isClosed: false,
           isRescheduled: false,
-          rescheduledFromId: inst2.id,
-          notes: `Remainder from partial payment on installment #${inst2.installmentNumber}. Original due: ${new Date(inst2.dueDate).toISOString().split('T')[0]}.`,
         },
       });
-
-      // --- Installment #3: Overdue ---
-      await prisma.installment.update({
-        where: { id: inst3.id },
-        data: {
-          status: 'overdue',
-          notes: 'Customer did not pay on due date. Follow up required.',
-        },
-      });
-
-      // Create employee collection assignment for VHA schedule
-      if (vhaEmp) {
-        const existingAssignment = await prisma.employeeCollectionAssignment.findFirst({
-          where: { employeeId: vhaEmp.id, scheduleId: schedule.id },
-        });
-        if (!existingAssignment) {
-          await prisma.employeeCollectionAssignment.create({
-            data: {
-              employeeId: vhaEmp.id,
-              scheduleId: schedule.id,
-              shopId: schedule.sale.shopId,
-              isActive: true,
-            },
-          });
-        }
-      }
-    }
-
-    if (isMohitSchedule && schedule.installments.length >= 1) {
-      const inst1 = schedule.installments[0]; // Installment #1
-
-      // --- Installment #1: Fully paid (UPI, collected by ve_emp1) ---
-      await prisma.installment.update({
-        where: { id: inst1.id },
-        data: {
-          amountPaid: inst1.amountDue,
-          remainingAmount: 0,
-          status: 'paid',
-          notes: 'Paid in full via UPI.',
-        },
-      });
-
-      await prisma.installmentPayment.create({
-        data: {
-          installmentId: inst1.id,
-          amount: Number(inst1.amountDue),
-          paymentMode: 'upi',
-          paymentDate: inst1.dueDate,
-          collectedBy: veEmp?.id ?? null,
-          referenceNumber: 'UPI-VE-202604-001',
-          notes: 'Collected via UPI during employee visit.',
-        },
-      });
-
-      // Create employee collection assignment for VE schedule
-      if (veEmp) {
-        const existingAssignment = await prisma.employeeCollectionAssignment.findFirst({
-          where: { employeeId: veEmp.id, scheduleId: schedule.id },
-        });
-        if (!existingAssignment) {
-          await prisma.employeeCollectionAssignment.create({
-            data: {
-              employeeId: veEmp.id,
-              scheduleId: schedule.id,
-              shopId: schedule.sale.shopId,
-              isActive: true,
-            },
-          });
-        }
-      }
     }
   }
 
-  // Re-fetch to return updated schedules
-  const updatedSchedules = await prisma.installmentSchedule.findMany({
-    where: { saleId: { in: selfFinanceSaleIds } },
-  });
+  console.log(`  Inserting ${paymentRows.length} installment payments...`);
+  const CHUNK = 500;
+  for (let i = 0; i < paymentRows.length; i += CHUNK) {
+    await prisma.installmentPayment.createMany({ data: paymentRows.slice(i, i + CHUNK) });
+  }
 
-  return updatedSchedules;
+  // Apply installment updates in batches
+  console.log(`  Updating ${installmentUpdates.length} installment statuses...`);
+  for (const u of installmentUpdates) {
+    await prisma.installment.update({ where: { id: u.id }, data: u.data });
+  }
+
+  return schedules;
 }

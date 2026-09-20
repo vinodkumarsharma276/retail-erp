@@ -5,6 +5,7 @@ import {
   Package,
   Banknote,
   Loader2,
+  Receipt,
 } from 'lucide-react';
 import { cn } from '../../../lib/utils';
 import { formatINR } from '@retailerp/shared-utils';
@@ -18,8 +19,8 @@ interface SummaryCardsProps {
 export function SummaryCards({ data, isLoading }: SummaryCardsProps) {
   if (isLoading) {
     return (
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {Array.from({ length: 4 }).map((_, i) => (
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        {Array.from({ length: 5 }).map((_, i) => (
           <SummaryCardSkeleton key={i} />
         ))}
       </div>
@@ -37,15 +38,15 @@ export function SummaryCards({ data, isLoading }: SummaryCardsProps) {
       : 0;
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
       {/* Total Sales This Month */}
       <div className="rounded-xl border bg-card p-5 shadow-sm">
         <div className="flex items-center justify-between mb-3">
           <span className="text-sm font-medium text-muted-foreground">
             Sales This Month
           </span>
-          <div className="rounded-lg bg-blue-50 p-2">
-            <TrendingUp className="h-4 w-4 text-blue-600" />
+          <div className="rounded-lg bg-blue-100 dark:bg-blue-900/30 p-2">
+            <TrendingUp className="h-4 w-4 text-blue-600 dark:text-blue-400" />
           </div>
         </div>
         <p className="text-2xl font-bold tracking-tight">
@@ -53,14 +54,14 @@ export function SummaryCards({ data, isLoading }: SummaryCardsProps) {
         </p>
         <div className="mt-2 flex items-center gap-1 text-sm">
           {salesUp ? (
-            <TrendingUp className="h-3.5 w-3.5 text-green-600" />
+            <TrendingUp className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
           ) : (
-            <TrendingDown className="h-3.5 w-3.5 text-red-600" />
+            <TrendingDown className="h-3.5 w-3.5 text-red-600 dark:text-red-400" />
           )}
           <span
             className={cn(
               'font-medium',
-              salesUp ? 'text-green-600' : 'text-red-600',
+              salesUp ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400',
             )}
           >
             {salesUp ? '+' : ''}
@@ -76,8 +77,8 @@ export function SummaryCards({ data, isLoading }: SummaryCardsProps) {
           <span className="text-sm font-medium text-muted-foreground">
             Pending Installments
           </span>
-          <div className="rounded-lg bg-amber-50 p-2">
-            <AlertTriangle className="h-4 w-4 text-amber-600" />
+          <div className="rounded-lg bg-amber-100 dark:bg-amber-900/30 p-2">
+            <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
           </div>
         </div>
         <p className="text-2xl font-bold tracking-tight">
@@ -85,7 +86,7 @@ export function SummaryCards({ data, isLoading }: SummaryCardsProps) {
         </p>
         <p className="mt-2 text-sm text-muted-foreground">
           Overdue amount:{' '}
-          <span className="font-medium text-red-600">
+          <span className="font-medium text-red-600 dark:text-red-400">
             {formatINR(data.pendingInstallments.totalAmount)}
           </span>
         </p>
@@ -97,8 +98,8 @@ export function SummaryCards({ data, isLoading }: SummaryCardsProps) {
           <span className="text-sm font-medium text-muted-foreground">
             Stock Value
           </span>
-          <div className="rounded-lg bg-purple-50 p-2">
-            <Package className="h-4 w-4 text-purple-600" />
+          <div className="rounded-lg bg-purple-100 dark:bg-purple-900/30 p-2">
+            <Package className="h-4 w-4 text-purple-600 dark:text-purple-400" />
           </div>
         </div>
         <p className="text-2xl font-bold tracking-tight">
@@ -113,8 +114,8 @@ export function SummaryCards({ data, isLoading }: SummaryCardsProps) {
           <span className="text-sm font-medium text-muted-foreground">
             Today's Collections
           </span>
-          <div className="rounded-lg bg-green-50 p-2">
-            <Banknote className="h-4 w-4 text-green-600" />
+          <div className="rounded-lg bg-green-100 dark:bg-green-900/30 p-2">
+            <Banknote className="h-4 w-4 text-green-600 dark:text-green-400" />
           </div>
         </div>
         <p className="text-2xl font-bold tracking-tight">
@@ -142,6 +143,22 @@ export function SummaryCards({ data, isLoading }: SummaryCardsProps) {
             />
           </div>
         </div>
+      </div>
+
+      {/* Expenses Current FY */}
+      <div className="rounded-xl border bg-card p-5 shadow-sm">
+        <div className="flex items-center justify-between mb-3">
+          <span className="text-sm font-medium text-muted-foreground">
+            Expenses Current FY
+          </span>
+          <div className="rounded-lg bg-rose-100 dark:bg-rose-900/30 p-2">
+            <Receipt className="h-4 w-4 text-rose-600 dark:text-rose-400" />
+          </div>
+        </div>
+        <p className="text-2xl font-bold tracking-tight">
+          {formatINR(data.totalExpensesCurrentFY)}
+        </p>
+        <p className="mt-2 text-sm text-muted-foreground">April to March</p>
       </div>
     </div>
   );

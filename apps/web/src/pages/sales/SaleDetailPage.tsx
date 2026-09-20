@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -7,34 +7,114 @@ import {
   Shield,
   CreditCard,
   CheckCircle,
+  Download,
+  Banknote,
+  Eye,
+  Pencil,
 } from 'lucide-react';
+import { handleInvoiceDownload } from '../../lib/invoice-utils';
+import { InvoiceConfirmDialog } from '../../components/InvoiceConfirmDialog';
 import { cn } from '../../lib/utils';
 import {
   useSaleDetailQuery,
   useSaleInstallmentsQuery,
   useRecordFinancePaymentMutation,
+  useRecordPendingPaymentMutation,
+  useSaleActivityQuery,
 } from '../../hooks/useSales';
-import { useAuthStore } from '../../stores/auth-store';
+import { usePermission, useCanCheck } from '../../hooks/usePermission';
 import { StatusBadge } from '../../components/StatusBadge';
+import { CompletionBadge } from '../../components/CompletionBadge';
+import { RecordPaymentDialog } from '../../components/RecordPaymentDialog';
+import { FinalSettlementCard } from '../../components/FinalSettlementCard';
+import { AccessDenied } from '../../routes/RoleGuard';
 import { formatINR, formatDateIN } from '@retailerp/shared-utils';
-import { UserRole, SaleType, FinancePaymentStatus } from '@retailerp/shared-types';
+import { SaleType, FinancePaymentStatus, InstallmentStatus } from '@retailerp/shared-types';
 
 export function SaleDetailPage() {
+  const canViewDetail = usePermission('sales.detail');
+  if (!canViewDetail) return <AccessDenied />;
+  return <SaleDetailPageInner />;
+}
+
+function SaleDetailPageInner() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const user = useAuthStore((s) => s.user);
-  const userRole = user?.role;
+  const can = useCanCheck();
 
-  const isAdminOrAccountant =
-    userRole === UserRole.ADMIN || userRole === UserRole.ACCOUNTANT;
+  // Permission-based section visibility
+  const canViewProfit = can('sales.section.profit');
+  const canViewPurchasePrice = can('sales.section.purchase_price');
+  const canViewSelfFinance = can('sales.section.self_finance');
+  const canViewCompanyFinance = can('sales.section.company_finance');
+  const canViewGuarantor = can('sales.section.guarantor');
+  const canViewPaymentBreakdown = can('sales.section.payment_breakdown');
+  const canViewFinancials = can('sales.section.financials');
+  const canRecordCompanyPayment = can('sales.record_company_finance_payment');
+  const canMarkPartialSettled = can('sales.mark_partial_settled');
+  const canDownloadInvoice = can('sales.invoice.download_pdf');
+  const canViewInvoice = can('sales.invoice.view');
+  const canEditSale = can('sales.edit');
+  const canViewSaleHistory = can('sales.view_history');
 
   const { data: sale, isLoading, isError } = useSaleDetailQuery(id);
 
-  // Only fetch installments for admin/accountant on self-finance sales
+  // Only fetch installments when user has self-finance perm on self-finance sales
   const shouldFetchInstallments =
-    isAdminOrAccountant && sale?.saleType === SaleType.SELF_FINANCE;
+    canViewSelfFinance && sale?.saleType === SaleType.SELF_FINANCE;
   const { data: installmentData, isLoading: isInstallmentsLoading } =
     useSaleInstallmentsQuery(id, shouldFetchInstallments);
+
+  // Activity / audit log — Owner-only by default (Owner can grant
+  // `sales.view_history` to other roles via Roles & Users).
+  const { data: activityLog } = useSaleActivityQuery(id, canViewSaleHistory);
+
+  // Invoice download state — opens the confirm-and-edit dialog so the
+  // user can verify shop / B2B fields before generating the PDF.
+  void handleInvoiceDownload;
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [showInvoiceDialog, setShowInvoiceDialog] = useState(false);
+
+  const onDownloadInvoice = () => {
+    if (!id) return;
+    void isDownloading;
+    void setIsDownloading;
+    setShowInvoiceDialog(true);
+  };
+
+  // Record pending payment dialog state
+  const [showPaymentDialog, setShowPaymentDialog] = useState(false);
+  const [paymentAmount, setPaymentAmount] = useState<number | ''>('');
+  const [paymentMode, setPaymentMode] = useState('cash');
+  const [paymentNotes, setPaymentNotes] = useState('');
+  const recordPaymentMutation = useRecordPendingPaymentMutation();
+
+  // Per-installment "Pay" dialog state (for advance payments + overpayments)
+  const [installmentPaymentTarget, setInstallmentPaymentTarget] = useState<
+    { id: string; amount: number; number: number; scheduleId?: string } | null
+  >(null);
+
+  const handleRecordPayment = () => {
+    if (!id || !paymentAmount || paymentAmount <= 0) return;
+
+    recordPaymentMutation.mutate(
+      { saleId: id, data: { amount: Number(paymentAmount), paymentMode, notes: paymentNotes.trim() || undefined } },
+      {
+        onSuccess: () => {
+          setShowPaymentDialog(false);
+          setPaymentAmount('');
+          setPaymentMode('cash');
+          setPaymentNotes('');
+        },
+      },
+    );
+  };
+
+  useEffect(() => {
+    if (showPaymentDialog && sale) {
+      setPaymentAmount(Number(sale.pendingAmount));
+    }
+  }, [showPaymentDialog, sale]);
 
   // Finance payment dialog state
   const [showFinanceDialog, setShowFinanceDialog] = useState(false);
@@ -79,13 +159,13 @@ export function SaleDetailPage() {
         <p className="text-sm text-muted-foreground mb-4">
           The sale record you are looking for does not exist.
         </p>
-        <Link
-          to="/sales"
+        <button
+          onClick={() => navigate(-1)}
           className="flex items-center gap-2 text-sm text-primary hover:underline"
         >
           <ArrowLeft className="h-4 w-4" />
           Back to Sales
-        </Link>
+        </button>
       </div>
     );
   }
@@ -94,28 +174,59 @@ export function SaleDetailPage() {
     <div>
       {/* Header */}
       <div className="flex items-center gap-4 mb-6">
-        <Link
-          to="/sales"
+        <button
+          onClick={() => navigate(-1)}
           className="rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
         >
           <ArrowLeft className="h-5 w-5" />
-        </Link>
-        <div>
+        </button>
+        <div className="flex-1">
           <h1 className="text-2xl font-semibold">
             Sale {sale.saleNumber}
           </h1>
-          <div className="flex items-center gap-2 mt-1">
+          <div className="flex flex-wrap items-center gap-2 mt-1">
             <StatusBadge status={sale.saleType} />
             {sale.pendingAmount > 0 && (
               <StatusBadge status="pending" />
             )}
+            <CompletionBadge completedAt={(sale as any).completedAt} variant="hero" />
           </div>
         </div>
+        {canEditSale && (
+          <Link
+            to={`/sales/${sale.id}/edit`}
+            className={cn(
+              'flex items-center gap-2 rounded-md border px-4 py-2 text-sm font-medium',
+              'hover:bg-muted transition-colors',
+            )}
+          >
+            <Pencil className="h-4 w-4" />
+            Edit Sale
+          </Link>
+        )}
+        {(canDownloadInvoice || canViewInvoice) && (
+        <button
+          onClick={onDownloadInvoice}
+          disabled={isDownloading}
+          className={cn(
+            'flex items-center gap-2 rounded-md border px-4 py-2 text-sm font-medium',
+            'hover:bg-muted transition-colors',
+            'disabled:opacity-50 disabled:cursor-not-allowed',
+          )}
+        >
+          {isDownloading ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Download className="h-4 w-4" />
+          )}
+          Download Invoice
+        </button>
+        )}
       </div>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
-        {/* Left column (60%) */}
-        <div className="lg:col-span-3 space-y-6">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        {/* Left column (67%) */}
+        <div className="lg:col-span-2 space-y-6">
           {/* Sale Info Card */}
           <div className="rounded-lg border bg-card p-6">
             <h2 className="text-lg font-medium mb-4">Sale Information</h2>
@@ -128,61 +239,47 @@ export function SaleDetailPage() {
                 value={sale.saleType.replace(/_/g, ' ')}
               />
               <InfoRow label="MRP" value={formatINR(sale.mrp)} />
-              <InfoRow label="Selling Price" value={formatINR(sale.sellingPrice)} />
-              {sale.product && (
-                <>
-                  <InfoRow
-                    label="DP (Dealer Price)"
-                    value={formatINR(sale.product.purchasePrice)}
-                  />
-                  <InfoRow
-                    label="Discount (MRP - SP)"
-                    value={formatINR(sale.mrp - sale.sellingPrice)}
-                  />
-                  <InfoRow
-                    label="Profit (SP - DP)"
-                    value={formatINR(sale.sellingPrice - sale.product.purchasePrice)}
-                  />
-                  <InfoRow
-                    label="Profit %"
-                    value={
-                      sale.product.purchasePrice > 0
-                        ? `${(((sale.sellingPrice - sale.product.purchasePrice) / sale.product.purchasePrice) * 100).toFixed(1)}%`
-                        : '0.0%'
-                    }
-                  />
-                </>
+              <InfoRow label="Selling Price (incl. GST)" value={formatINR(sale.sellingPrice)} />
+              {canViewFinancials && sale.gstAmount > 0 && (
+                <InfoRow label={`GST ${sale.gstRate}% (included)`} value={formatINR(sale.gstAmount)} />
               )}
-              {sale.discountAmount > 0 && (
-                <InfoRow
-                  label="Discount"
-                  value={formatINR(sale.discountAmount)}
-                />
-              )}
-              <InfoRow label="Net Amount" value={formatINR(sale.netAmount)} />
-              {sale.gstAmount > 0 && (
-                <>
-                  <InfoRow label="GST Rate" value={`${sale.gstRate}%`} />
-                  <InfoRow label="GST Amount" value={formatINR(sale.gstAmount)} />
-                </>
-              )}
-              <InfoRow
-                label="Total Amount"
-                value={formatINR(sale.totalAmount)}
-              />
+              <InfoRow label="Total Amount" value={formatINR(sale.totalAmount)} />
               <InfoRow
                 label="Down Payment"
                 value={formatINR(sale.downPayment)}
               />
               <InfoRow
                 label="Payment Mode"
-                value={sale.paymentMode.replace(/_/g, ' ')}
+                value={
+                  canViewPaymentBreakdown && sale.paymentBreakdown && sale.paymentBreakdown.length > 0
+                    ? sale.paymentBreakdown
+                        .map((p: {mode: string; amount: number}) =>
+                          `${p.mode.replace(/_/g, ' ')}: ${formatINR(p.amount)}`
+                        )
+                        .join(' + ')
+                    : sale.paymentMode.replace(/_/g, ' ')
+                }
               />
               {sale.pendingAmount > 0 && (
                 <InfoRow
                   label="Pending Amount"
                   value={formatINR(sale.pendingAmount)}
                 />
+              )}
+              {sale.pendingAmount > 0 && canMarkPartialSettled && (
+                <div className="sm:col-span-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowPaymentDialog(true)}
+                    className={cn(
+                      'flex items-center gap-2 rounded-md bg-green-600 px-4 py-2 text-sm font-medium text-white',
+                      'hover:bg-green-700 transition-colors',
+                    )}
+                  >
+                    <CreditCard className="h-4 w-4" />
+                    Record Payment
+                  </button>
+                </div>
               )}
               {sale.promiseDate && (
                 <InfoRow
@@ -202,7 +299,11 @@ export function SaleDetailPage() {
               )}
               <InfoRow
                 label="Created By"
-                value={sale.createdBy}
+                value={
+                  (sale as any).creator?.fullName ||
+                  (sale as any).creator?.username ||
+                  sale.createdBy
+                }
               />
               <InfoRow
                 label="Created"
@@ -211,8 +312,30 @@ export function SaleDetailPage() {
             </dl>
           </div>
 
-          {/* Self Finance details (admin/accountant only) */}
-          {isAdminOrAccountant &&
+          {/* Profit & GST Breakdown Card (permission-gated) */}
+          {(canViewProfit || canViewPurchasePrice) && sale.product && (
+            <ProfitBreakdownCard
+              sellingPrice={sale.sellingPrice}
+              purchasePrice={sale.product.purchasePrice}
+              mrp={sale.mrp}
+              gstRate={sale.gstRate}
+              gstAmount={sale.gstAmount}
+              purchaseGstAmount={sale.purchaseGstAmount ?? 0}
+            />
+          )}
+
+          {/* Final Settlement quote (self-finance schedules with unpaid rows) */}
+          {canViewSelfFinance &&
+            sale.saleType === SaleType.SELF_FINANCE &&
+            installmentData?.schedule?.id && (
+              <FinalSettlementCard
+                scheduleId={installmentData.schedule.id}
+                canSettle={can('installments.final_settlement')}
+              />
+            )}
+
+          {/* Self Finance details (permission-gated) */}
+          {canViewSelfFinance &&
             sale.saleType === SaleType.SELF_FINANCE && (
               <div className="rounded-lg border bg-card p-6">
                 <h2 className="text-lg font-medium mb-4">
@@ -241,8 +364,76 @@ export function SaleDetailPage() {
                   />
                 </dl>
 
+                {/* Total Earnings — product profit + financing income */}
+                {sale.product && (() => {
+                  const sp = Number(sale.sellingPrice);
+                  const dp = Number(sale.product.purchasePrice);
+                  const outGst = Number(sale.gstAmount);
+                  const inGst = Number(sale.purchaseGstAmount ?? 0);
+                  const netProductProfit = (sp - outGst) - (dp - inGst);
+                  const principal = sp - Number(sale.downPayment);
+                  const rate = Number(sale.interestRate ?? 0);
+                  const months = Number(sale.numInstallments ?? 0);
+                  const totalInterest = principal * (rate / 100) * months;
+                  const fc = Number(sale.fileCharge ?? 0);
+                  const totalEarnings = netProductProfit + totalInterest + fc;
+                  // Margin % is earnings over cost basis (DP ex-ITC).
+                  const costBasis = dp - inGst;
+                  const earningsPct = costBasis > 0 ? (totalEarnings / costBasis) * 100 : 0;
+
+                  return (
+                    <div className="mt-4 pt-4 border-t">
+                      <h3 className="text-sm font-medium mb-3">Total Earnings from this Sale</h3>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                        <div>
+                          <p className="text-xs text-muted-foreground">Net Product Profit</p>
+                          <p className={cn('text-sm font-semibold', netProductProfit >= 0 ? 'text-green-600' : 'text-red-600')}>
+                            {formatINR(netProductProfit)}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">Interest Earned</p>
+                          <p className="text-sm font-semibold text-green-600">
+                            {formatINR(totalInterest)}
+                          </p>
+                        </div>
+                        {fc > 0 && (
+                          <div>
+                            <p className="text-xs text-muted-foreground">File Charge</p>
+                            <p className="text-sm font-semibold text-green-600">
+                              {formatINR(fc)}
+                            </p>
+                          </div>
+                        )}
+                        <div>
+                          <p className="text-xs text-muted-foreground">Total Earnings</p>
+                          <div className="flex items-baseline gap-2">
+                            <p className={cn('text-lg font-bold', totalEarnings >= 0 ? 'text-green-600' : 'text-red-600')}>
+                              {formatINR(totalEarnings)}
+                            </p>
+                            {costBasis > 0 && (
+                              <span
+                                className={cn(
+                                  'text-xs font-semibold px-1.5 py-0.5 rounded-md',
+                                  earningsPct >= 0
+                                    ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                                    : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+                                )}
+                                title="Total earnings as a % of cost basis (DP excluding input GST)"
+                              >
+                                {earningsPct >= 0 ? '+' : ''}
+                                {earningsPct.toFixed(1)}%
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
                 {/* Guarantor */}
-                {sale.guarantor && (
+                {canViewGuarantor && sale.guarantor && (
                   <div className="mt-4 pt-4 border-t">
                     <h3 className="text-sm font-medium mb-3 flex items-center gap-2">
                       <Shield className="h-4 w-4 text-purple-600" />
@@ -272,9 +463,23 @@ export function SaleDetailPage() {
                   </div>
                 ) : installmentData ? (
                   <div className="mt-4 pt-4 border-t">
-                    <h3 className="text-sm font-medium mb-3">
-                      Installment Schedule
-                    </h3>
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-sm font-medium">
+                        Installment Schedule
+                      </h3>
+                      {installmentData.schedule?.id && (
+                        <Link
+                          to={`/installments/${installmentData.schedule.id}`}
+                          className={cn(
+                            'flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs font-medium',
+                            'hover:bg-muted transition-colors',
+                          )}
+                        >
+                          <Eye className="h-3.5 w-3.5" />
+                          View Timeline
+                        </Link>
+                      )}
+                    </div>
                     <div className="overflow-x-auto">
                       <table className="w-full text-sm">
                         <thead>
@@ -294,31 +499,88 @@ export function SaleDetailPage() {
                             <th className="px-3 py-2 text-left font-medium text-muted-foreground">
                               Status
                             </th>
+                            <th className="px-3 py-2 text-right font-medium text-muted-foreground">
+                              Action
+                            </th>
                           </tr>
                         </thead>
                         <tbody>
-                          {installmentData.installments.map((inst) => (
-                            <tr
-                              key={inst.id}
-                              className="border-b last:border-0"
-                            >
-                              <td className="px-3 py-2">
-                                {inst.installmentNumber}
-                              </td>
-                              <td className="px-3 py-2">
-                                {formatDateIN(inst.dueDate)}
-                              </td>
-                              <td className="px-3 py-2 text-right font-medium">
-                                {formatINR(inst.amountDue)}
-                              </td>
-                              <td className="px-3 py-2 text-right">
-                                {formatINR(inst.amountPaid)}
-                              </td>
-                              <td className="px-3 py-2">
-                                <StatusBadge status={inst.status} />
-                              </td>
-                            </tr>
-                          ))}
+                          {[...installmentData.installments]
+                            .sort((a, b) => {
+                              const ap = a.parentInstallmentNumber ?? a.installmentNumber;
+                              const bp = b.parentInstallmentNumber ?? b.installmentNumber;
+                              if (ap !== bp) return ap - bp;
+                              // primary first, then subs by subSequence
+                              const aSub = a.subSequence ?? 0;
+                              const bSub = b.subSequence ?? 0;
+                              return aSub - bSub;
+                            })
+                            .map((inst) => {
+                              const isSub =
+                                inst.parentInstallmentNumber != null &&
+                                inst.subSequence != null;
+                              const canPay =
+                                !inst.isRescheduled &&
+                                (inst.status === InstallmentStatus.UPCOMING ||
+                                  inst.status === InstallmentStatus.DUE_TODAY ||
+                                  inst.status === InstallmentStatus.OVERDUE ||
+                                  inst.status === InstallmentStatus.PARTIALLY_PAID);
+                              return (
+                                <tr
+                                  key={inst.id}
+                                  className={cn(
+                                    'border-b last:border-0',
+                                    isSub && 'bg-muted/30',
+                                  )}
+                                >
+                                  <td className="px-3 py-2">
+                                    <span
+                                      className={cn(
+                                        isSub &&
+                                          'ml-5 text-muted-foreground',
+                                      )}
+                                    >
+                                      {isSub
+                                        ? `↳ ${inst.parentInstallmentNumber}.${inst.subSequence}`
+                                        : inst.installmentNumber}
+                                    </span>
+                                  </td>
+                                  <td className="px-3 py-2">
+                                    {formatDateIN(inst.dueDate)}
+                                  </td>
+                                  <td className="px-3 py-2 text-right font-medium">
+                                    {formatINR(inst.amountDue)}
+                                  </td>
+                                  <td className="px-3 py-2 text-right">
+                                    {formatINR(inst.amountPaid)}
+                                  </td>
+                                  <td className="px-3 py-2">
+                                    <StatusBadge status={inst.status} />
+                                  </td>
+                                  <td className="px-3 py-2 text-right">
+                                    {canPay && can('installments.record_payment') ? (
+                                      <button
+                                        onClick={() =>
+                                          setInstallmentPaymentTarget({
+                                            id: inst.id,
+                                            amount: Number(inst.remainingAmount),
+                                            number: inst.installmentNumber,
+                                            scheduleId: installmentData?.schedule?.id,
+                                          })
+                                        }
+                                        className={cn(
+                                          'inline-flex items-center gap-1 rounded-md bg-green-600 px-2 py-1 text-xs font-medium text-white',
+                                          'hover:bg-green-700 transition-colors',
+                                        )}
+                                      >
+                                        <Banknote className="h-3 w-3" />
+                                        Pay
+                                      </button>
+                                    ) : null}
+                                  </td>
+                                </tr>
+                              );
+                            })}
                         </tbody>
                       </table>
                     </div>
@@ -327,8 +589,8 @@ export function SaleDetailPage() {
               </div>
             )}
 
-          {/* Company Finance details (admin/accountant only) */}
-          {isAdminOrAccountant &&
+          {/* Company Finance details (permission-gated) */}
+          {canViewCompanyFinance &&
             sale.saleType === SaleType.COMPANY_FINANCE && (
               <div className="rounded-lg border bg-card p-6">
                 <h2 className="text-lg font-medium mb-4 flex items-center gap-2">
@@ -371,7 +633,7 @@ export function SaleDetailPage() {
                 </dl>
 
                 {/* Record payment button */}
-                {sale.financePaymentStatus !== FinancePaymentStatus.RECEIVED && (
+                {canRecordCompanyPayment && sale.financePaymentStatus !== FinancePaymentStatus.RECEIVED && (
                   <div className="mt-4 pt-4 border-t">
                     {showFinanceDialog ? (
                       <div className="space-y-3">
@@ -434,8 +696,8 @@ export function SaleDetailPage() {
             )}
         </div>
 
-        {/* Right column (40%) */}
-        <div className="lg:col-span-2 space-y-6">
+        {/* Right column (33%) */}
+        <div className="lg:col-span-1 space-y-6">
           {/* Product Card */}
           {sale.product && (
             <div className="rounded-lg border bg-card p-6">
@@ -450,7 +712,9 @@ export function SaleDetailPage() {
                   />
                 )}
                 <InfoRow label="MRP" value={formatINR(sale.product.mrp)} />
-                <InfoRow label="DP (Dealer Price)" value={formatINR(sale.product.purchasePrice)} />
+                {canViewPurchasePrice && (
+                  <InfoRow label="DP (Dealer Price)" value={formatINR(sale.product.purchasePrice)} />
+                )}
               </dl>
               <Link
                 to={`/products/${sale.product.id}`}
@@ -483,6 +747,151 @@ export function SaleDetailPage() {
           )}
         </div>
       </div>
+
+      {/* Activity Log — Owner-only audit trail of every modification */}
+      {canViewSaleHistory && activityLog && activityLog.length > 0 && (
+        <div className="rounded-lg border bg-card p-4 sm:p-6">
+          <h2 className="text-sm font-semibold mb-4 flex items-center gap-2 text-muted-foreground uppercase tracking-wide">
+            Activity Log
+          </h2>
+          <ol className="relative border-l border-border ml-2">
+            {activityLog.map((entry) => (
+              <li key={entry.id} className="ml-4 pb-4">
+                <div className="absolute -left-1.5 mt-1.5 h-3 w-3 rounded-full bg-primary" />
+                <div className="flex flex-wrap items-baseline gap-2">
+                  <span className="text-sm font-medium">
+                    {entry.action === 'update_sale_type'
+                      ? 'Sale type changed'
+                      : entry.action === 'update'
+                      ? 'Sale edited'
+                      : entry.action}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    by {entry.user?.fullName ?? entry.user?.username ?? 'system'}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {formatDateIN(new Date(entry.createdAt))}{' '}
+                    {new Date(entry.createdAt).toLocaleTimeString('en-IN', {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </span>
+                </div>
+                <SaleActivityDiff
+                  before={entry.oldValues}
+                  after={entry.newValues}
+                />
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+
+      {/* Record Payment Dialog */}
+      {showPaymentDialog && sale.pendingAmount > 0 && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="rounded-lg border bg-card p-6 shadow-xl w-full max-w-md mx-4">
+            <h3 className="text-lg font-medium mb-4">Record Payment</h3>
+
+            <div className="space-y-4">
+              <div>
+                <p className="text-sm text-muted-foreground mb-2">
+                  Pending Amount: <span className="font-semibold text-red-600">{formatINR(sale.pendingAmount)}</span>
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1.5">Amount</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  max={Number(sale.pendingAmount)}
+                  value={paymentAmount}
+                  onChange={(e) => setPaymentAmount(Number(e.target.value) || '')}
+                  placeholder="Enter amount"
+                  className="w-full rounded-md border bg-background px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1.5">Payment Mode</label>
+                <select
+                  value={paymentMode}
+                  onChange={(e) => setPaymentMode(e.target.value)}
+                  className="w-full appearance-none rounded-md border bg-background px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                >
+                  <option value="cash">Cash</option>
+                  <option value="upi">UPI</option>
+                  <option value="credit_card">Credit Card</option>
+                  <option value="debit_card">Debit Card</option>
+                  <option value="bank_transfer">Bank Transfer</option>
+                  <option value="cheque">Cheque</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1.5">Notes (optional)</label>
+                <input
+                  type="text"
+                  value={paymentNotes}
+                  onChange={(e) => setPaymentNotes(e.target.value)}
+                  placeholder="e.g., Remaining amount collected"
+                  className="w-full rounded-md border bg-background px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                />
+              </div>
+
+              {recordPaymentMutation.error && (
+                <p className="text-xs text-destructive">
+                  {(recordPaymentMutation.error as any)?.response?.data?.error ?? 'Failed to record payment'}
+                </p>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-3 mt-6">
+              <button
+                type="button"
+                onClick={() => { setShowPaymentDialog(false); recordPaymentMutation.reset(); }}
+                className="rounded-md border px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-muted transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleRecordPayment}
+                disabled={!paymentAmount || paymentAmount <= 0 || paymentAmount > Number(sale.pendingAmount) || recordPaymentMutation.isPending}
+                className="flex items-center gap-2 rounded-md bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {recordPaymentMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <CheckCircle className="h-4 w-4" />
+                )}
+                Confirm Payment
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Per-installment Pay dialog (advance + overpayment) */}
+      {installmentPaymentTarget && (
+        <RecordPaymentDialog
+          installmentId={installmentPaymentTarget.id}
+          amountDue={installmentPaymentTarget.amount}
+          scheduleId={installmentPaymentTarget.scheduleId}
+          installmentNumber={installmentPaymentTarget.number}
+          onSuccess={() => setInstallmentPaymentTarget(null)}
+          onClose={() => setInstallmentPaymentTarget(null)}
+        />
+      )}
+
+      {/* Confirm-and-edit invoice dialog */}
+      {showInvoiceDialog && id && (
+        <InvoiceConfirmDialog
+          saleId={id}
+          onClose={() => setShowInvoiceDialog(false)}
+        />
+      )}
     </div>
   );
 }
@@ -496,6 +905,152 @@ function InfoRow({ label, value }: { label: string; value: string }) {
     <div>
       <dt className="text-sm font-medium text-muted-foreground">{label}</dt>
       <dd className="mt-0.5 text-sm capitalize">{value}</dd>
+    </div>
+  );
+}
+
+// Renders a compact list of changed fields between two snapshots.
+function SaleActivityDiff({
+  before,
+  after,
+}: {
+  before: Record<string, unknown> | null;
+  after: Record<string, unknown> | null;
+}) {
+  if (!before && !after) return null;
+  const keys = new Set<string>([
+    ...Object.keys(before ?? {}),
+    ...Object.keys(after ?? {}),
+  ]);
+  const fmt = (v: unknown) => {
+    if (v === null || v === undefined || v === '') return '—';
+    if (typeof v === 'number') return String(v);
+    if (typeof v === 'string') {
+      // Try to detect ISO date strings
+      const d = new Date(v);
+      if (!Number.isNaN(d.getTime()) && /\d{4}-\d{2}-\d{2}/.test(v)) {
+        return formatDateIN(d);
+      }
+      return v;
+    }
+    if (typeof v === 'boolean') return v ? 'true' : 'false';
+    try {
+      return JSON.stringify(v);
+    } catch {
+      return String(v);
+    }
+  };
+  const changed: Array<{ key: string; before: unknown; after: unknown }> = [];
+  keys.forEach((k) => {
+    const b = before?.[k];
+    const a = after?.[k];
+    if (JSON.stringify(b) !== JSON.stringify(a)) {
+      changed.push({ key: k, before: b, after: a });
+    }
+  });
+  if (changed.length === 0) {
+    return (
+      <p className="mt-1 text-xs text-muted-foreground">No field changes recorded.</p>
+    );
+  }
+  return (
+    <ul className="mt-2 space-y-1 text-xs">
+      {changed.map(({ key, before: b, after: a }) => (
+        <li key={key} className="flex flex-wrap items-baseline gap-1">
+          <span className="font-medium text-muted-foreground">{key}:</span>
+          <span className="line-through text-muted-foreground">{fmt(b)}</span>
+          <span className="text-muted-foreground">→</span>
+          <span className="text-foreground">{fmt(a)}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function ProfitBreakdownCard({
+  sellingPrice,
+  purchasePrice,
+  mrp,
+  gstRate,
+  gstAmount,
+  purchaseGstAmount,
+}: {
+  sellingPrice: number;
+  purchasePrice: number;
+  mrp: number;
+  gstRate: number;
+  gstAmount: number;
+  purchaseGstAmount: number;
+}) {
+  const spExclGst = sellingPrice - gstAmount;
+  const dpExclGst = purchasePrice - purchaseGstAmount;
+  const discount = mrp - sellingPrice;
+  const discountPct = mrp > 0 ? ((discount / mrp) * 100).toFixed(1) : '0.0';
+  const gstPayable = gstAmount - purchaseGstAmount;
+  const netProfit = spExclGst - dpExclGst;
+  const netProfitPct = dpExclGst > 0 ? ((netProfit / dpExclGst) * 100).toFixed(1) : '0.0';
+
+  return (
+    <div className="rounded-lg border bg-card p-6">
+      <h2 className="text-lg font-medium mb-4">Profit & GST Breakdown</h2>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b text-left">
+              <th className="pb-2 font-medium text-muted-foreground"></th>
+              <th className="pb-2 font-medium text-muted-foreground text-right">Sale (to Customer)</th>
+              <th className="pb-2 font-medium text-muted-foreground text-right">Purchase (from Distributor)</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y">
+            <tr>
+              <td className="py-2 text-muted-foreground">Price (incl. GST)</td>
+              <td className="py-2 text-right font-medium">{formatINR(sellingPrice)}</td>
+              <td className="py-2 text-right font-medium">{formatINR(purchasePrice)}</td>
+            </tr>
+            {gstRate > 0 && (
+              <tr>
+                <td className="py-2 text-muted-foreground">GST @ {gstRate}% (extracted)</td>
+                <td className="py-2 text-right">{formatINR(gstAmount)}</td>
+                <td className="py-2 text-right">{formatINR(purchaseGstAmount)}</td>
+              </tr>
+            )}
+            <tr>
+              <td className="py-2 text-muted-foreground">Base Price (excl. GST)</td>
+              <td className="py-2 text-right font-medium">{formatINR(spExclGst)}</td>
+              <td className="py-2 text-right font-medium">{formatINR(dpExclGst)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      {/* Summary metrics */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-4 pt-4 border-t">
+        <div>
+          <p className="text-xs text-muted-foreground">Discount (MRP - SP)</p>
+          <p className={cn('text-sm font-semibold', discount >= 0 ? 'text-green-600' : 'text-red-600')}>
+            {formatINR(discount)} <span className="text-xs font-normal">({discountPct}%)</span>
+          </p>
+        </div>
+        {gstRate > 0 && (
+          <div>
+            <p className="text-xs text-muted-foreground">GST Payable to Govt</p>
+            <p className="text-sm font-semibold text-amber-600">{formatINR(gstPayable)}</p>
+          </div>
+        )}
+        <div>
+          <p className="text-xs text-muted-foreground">Net Profit</p>
+          <p className={cn('text-sm font-semibold', netProfit >= 0 ? 'text-green-600' : 'text-red-600')}>
+            {formatINR(netProfit)}
+          </p>
+        </div>
+        <div>
+          <p className="text-xs text-muted-foreground">Net Profit %</p>
+          <p className={cn('text-sm font-semibold', netProfit >= 0 ? 'text-green-600' : 'text-red-600')}>
+            {netProfitPct}%
+          </p>
+        </div>
+      </div>
     </div>
   );
 }

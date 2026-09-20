@@ -13,6 +13,12 @@ export async function transferRoutes(app: FastifyInstance) {
     authorize([UserRole.ADMIN, UserRole.ACCOUNTANT]),
   ];
 
+  const adminAccountantShopScoped = [
+    authenticate,
+    authorize([UserRole.ADMIN, UserRole.ACCOUNTANT]),
+    shopScope,
+  ];
+
   const adminOnly = [
     authenticate,
     authorize([UserRole.ADMIN]),
@@ -24,8 +30,10 @@ export async function transferRoutes(app: FastifyInstance) {
     shopScope,
   ];
 
-  // List all transfers (admin, accountant — NOT shop-scoped)
-  app.get('/', { preHandler: adminAccountant }, transfersController.list as any);
+  // List transfers involving the currently selected shop (as source or
+  // destination). Shop-scoped so switching shops via the header dropdown
+  // immediately changes the visible transfer book.
+  app.get('/', { preHandler: adminAccountantShopScoped }, transfersController.list as any);
 
   // Get incoming transfers for current shop (admin — shop-scoped)
   app.get('/incoming', { preHandler: adminOnlyShopScoped }, transfersController.getIncoming as any);

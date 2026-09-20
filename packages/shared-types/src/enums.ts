@@ -1,4 +1,5 @@
 export enum UserRole {
+  OWNER = 'owner',
   ADMIN = 'admin',
   ACCOUNTANT = 'accountant',
   OTHERS = 'others',
@@ -76,6 +77,7 @@ export enum FormFieldType {
   RADIO = 'radio',
   FILE = 'file',
   HIDDEN = 'hidden',
+  AUTOCOMPLETE = 'autocomplete',
 }
 
 export enum BankTxnType {

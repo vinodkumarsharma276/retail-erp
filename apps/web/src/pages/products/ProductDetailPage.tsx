@@ -33,7 +33,7 @@ export function ProductDetailPage() {
   const { data: categoryTree } = useCategoryTreeQuery();
 
   const canEdit =
-    user?.role === UserRole.ADMIN || user?.role === UserRole.ACCOUNTANT;
+    user?.role === UserRole.OWNER || user?.role === UserRole.ADMIN || user?.role === UserRole.ACCOUNTANT;
 
   // Loading
   if (isLoading) {
@@ -53,19 +53,22 @@ export function ProductDetailPage() {
         <p className="text-sm text-muted-foreground mb-4">
           The product you are looking for does not exist or has been removed.
         </p>
-        <Link
-          to="/products"
+        <button
+          onClick={() => navigate(-1)}
           className="flex items-center gap-2 text-sm text-primary hover:underline"
         >
           <ArrowLeft className="h-4 w-4" />
           Back to Products
-        </Link>
+        </button>
       </div>
     );
   }
 
   const categoryName = categoryTree
     ? findCategoryName(categoryTree, product.categoryId)
+    : null;
+  const categoryHsnCode = categoryTree
+    ? findCategoryHsnCode(categoryTree, product.categoryId)
     : null;
 
   // Determine dynamic attribute entries
@@ -78,12 +81,12 @@ export function ProductDetailPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-4">
-          <Link
-            to="/products"
+          <button
+            onClick={() => navigate(-1)}
             className="rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
           >
             <ArrowLeft className="h-5 w-5" />
-          </Link>
+          </button>
           <div>
             <h1 className="text-2xl font-semibold">
               {product.brand} {product.modelNumber}
@@ -155,6 +158,7 @@ export function ProductDetailPage() {
               <InfoRow label="Model Number" value={product.modelNumber} />
               <InfoRow label="Serial Number" value={product.serialNumber ?? '-'} />
               <InfoRow label="Category" value={categoryName ?? '-'} />
+              <InfoRow label="HSN Code" value={categoryHsnCode ?? '-'} />
               <InfoRow label="MRP" value={formatINR(product.mrp)} />
               <InfoRow
                 label="DP (Dealer Price)"
@@ -183,6 +187,14 @@ export function ProductDetailPage() {
               )}
               <InfoRow label="Barcode" value={product.barcode ?? '-'} />
               <InfoRow
+                label="Invoice Date"
+                value={
+                  product.purchase?.invoiceDate
+                    ? formatDateIN(product.purchase.invoiceDate)
+                    : '-'
+                }
+              />
+              <InfoRow
                 label="Created"
                 value={formatDateIN(product.createdAt)}
               />
@@ -209,19 +221,47 @@ export function ProductDetailPage() {
                 Category-Specific Details
               </h2>
               <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                {dynamicEntries.map(([key, value]) => (
-                  <InfoRow
-                    key={key}
-                    label={formatAttributeLabel(key)}
-                    value={
-                      typeof value === 'boolean'
-                        ? value
-                          ? 'Yes'
-                          : 'No'
-                        : String(value ?? '-')
-                    }
-                  />
-                ))}
+                {dynamicEntries.map(([key, value]) => {
+                  // Arrays of strings (e.g. IMEI numbers) get rendered as
+                  // a vertical list of monospace chips so each entry is
+                  // easy to read and copy.
+                  if (Array.isArray(value)) {
+                    return (
+                      <div key={key}>
+                        <dt className="text-sm font-medium text-muted-foreground">
+                          {formatAttributeLabel(key)}
+                        </dt>
+                        <dd className="mt-1 flex flex-col gap-1">
+                          {value.length === 0 ? (
+                            <span className="text-sm">-</span>
+                          ) : (
+                            value.map((entry, idx) => (
+                              <span
+                                key={`${key}-${idx}`}
+                                className="inline-flex w-fit items-center rounded-md border bg-muted/50 px-2 py-0.5 font-mono text-xs"
+                              >
+                                {String(entry ?? '')}
+                              </span>
+                            ))
+                          )}
+                        </dd>
+                      </div>
+                    );
+                  }
+                  return (
+                    <InfoRow
+                      key={key}
+                      label={formatAttributeLabel(key)}
+                      value={
+                        typeof value === 'boolean'
+                          ? value
+                            ? 'Yes'
+                            : 'No'
+                          : String(value ?? '-')
+                      }
+                    />
+                  );
+                })}
               </dl>
             </div>
           )}
@@ -279,32 +319,32 @@ const eventConfig: Record<
 > = {
   purchased: {
     icon: Package,
-    color: 'text-green-600',
-    bgColor: 'bg-green-100',
+    color: 'text-green-600 dark:text-green-400',
+    bgColor: 'bg-green-100 dark:bg-green-900/30',
     label: 'Purchased',
   },
   transferred_out: {
     icon: Truck,
-    color: 'text-blue-600',
-    bgColor: 'bg-blue-100',
+    color: 'text-blue-600 dark:text-blue-400',
+    bgColor: 'bg-blue-100 dark:bg-blue-900/30',
     label: 'Transferred Out',
   },
   transferred_in: {
     icon: Truck,
-    color: 'text-blue-600',
-    bgColor: 'bg-blue-100',
+    color: 'text-blue-600 dark:text-blue-400',
+    bgColor: 'bg-blue-100 dark:bg-blue-900/30',
     label: 'Transferred In',
   },
   sold: {
     icon: ReceiptText,
-    color: 'text-red-600',
-    bgColor: 'bg-red-100',
+    color: 'text-red-600 dark:text-red-400',
+    bgColor: 'bg-red-100 dark:bg-red-900/30',
     label: 'Sold',
   },
   returned: {
     icon: RotateCcw,
-    color: 'text-yellow-600',
-    bgColor: 'bg-yellow-100',
+    color: 'text-yellow-600 dark:text-yellow-400',
+    bgColor: 'bg-yellow-100 dark:bg-yellow-900/30',
     label: 'Returned',
   },
 };
@@ -318,8 +358,8 @@ function TimelineNode({
 }) {
   const config = eventConfig[entry.eventType] ?? {
     icon: Package,
-    color: 'text-gray-600',
-    bgColor: 'bg-gray-100',
+    color: 'text-gray-600 dark:text-gray-400',
+    bgColor: 'bg-gray-100 dark:bg-gray-800/50',
     label: entry.eventType,
   };
   const Icon = config.icon;
@@ -348,7 +388,11 @@ function TimelineNode({
         )}
         <p className="text-xs text-muted-foreground mt-1">
           {formatDateIN(entry.createdAt)}
-          {entry.performedBy && <span> &middot; by {entry.performedBy}</span>}
+          {entry.performer && (
+            <span>
+              {' '}&middot; by {entry.performer.fullName || entry.performer.username}
+            </span>
+          )}
         </p>
       </div>
     </div>
@@ -367,6 +411,20 @@ function findCategoryName(
     if (node.id === targetId) return node.name;
     if (node.children?.length) {
       const found = findCategoryName(node.children, targetId);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+function findCategoryHsnCode(
+  nodes: ProductCategory[],
+  targetId: string,
+): string | null {
+  for (const node of nodes) {
+    if (node.id === targetId) return node.hsnCode ?? null;
+    if (node.children?.length) {
+      const found = findCategoryHsnCode(node.children, targetId);
       if (found) return found;
     }
   }

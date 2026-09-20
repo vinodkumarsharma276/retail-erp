@@ -2,6 +2,7 @@ import type { FastifyRequest, FastifyReply } from 'fastify';
 import { salesService } from './sales.service.js';
 import { sendSuccess, sendError, sendPaginated } from '../../utils/response.js';
 import { parsePagination } from '../../utils/pagination.js';
+import { getCurrentUserPermissions } from '../../middleware/permissions.js';
 
 export const salesController = {
   async list(
@@ -13,26 +14,46 @@ export const salesController = {
         dateTo?: string;
         saleType?: string;
         customerSearch?: string;
+        maxProfitPct?: string;
+        minProfitPct?: string;
+        approvalStatus?: 'pending' | 'approved';
       };
     }>,
     reply: FastifyReply,
   ) {
     try {
       const { page, pageSize, skip, take } = parsePagination(request.query);
-      const { dateFrom, dateTo, saleType, customerSearch } = request.query;
-      const shopId = request.shopFilter!.shopId;
+      const { dateFrom, dateTo, saleType, customerSearch, maxProfitPct, minProfitPct, approvalStatus } = request.query;
+      // shopFilter is set by the shopScope middleware. When `allShops`
+      // is true (user picked "All Shops" in the header and has the
+      // `shops.view_all` permission) we forward `shopIds` so the service
+      // queries across every accessible shop.
+      const { shopId, shopIds, allShops } = request.shopFilter!;
       const userRole = request.currentUser!.role;
 
-      const { sales, totalItems } = await salesService.list(shopId, userRole, {
-        page,
-        pageSize,
-        skip,
-        take,
-        dateFrom,
-        dateTo,
-        saleType,
-        customerSearch,
-      });
+      const parsePct = (v?: string) => {
+        if (v === undefined || v === '') return undefined;
+        const n = Number(v);
+        return Number.isFinite(n) ? n : undefined;
+      };
+
+      const { sales, totalItems } = await salesService.list(
+        { shopId, shopIds: allShops ? shopIds : undefined },
+        userRole,
+        {
+          page,
+          pageSize,
+          skip,
+          take,
+          dateFrom,
+          dateTo,
+          saleType,
+          customerSearch,
+          maxProfitPct: parsePct(maxProfitPct),
+          minProfitPct: parsePct(minProfitPct),
+          approvalStatus,
+        },
+      );
 
       return sendPaginated(reply, sales, { page, pageSize, totalItems });
     } catch (error) {
@@ -54,6 +75,7 @@ export const salesController = {
         gstRate?: number;
         downPayment?: number;
         paymentMode: string;
+        paymentBreakdown?: Array<{mode: string; amount: number}> | null;
         promiseDate?: string | null;
         interestRate?: number | null;
         fileCharge?: number | null;
@@ -71,7 +93,13 @@ export const salesController = {
       const shopId = request.shopFilter!.shopId;
       const userId = request.currentUser!.userId;
 
-      const sale = await salesService.create(shopId, request.body, userId);
+      // Sales created by users with `sales.approve` are auto-approved;
+      // others land in 'pending' awaiting review.
+      const perms = await getCurrentUserPermissions(request);
+      const autoApprove =
+        request.currentUser?.role === 'owner' || perms.includes('sales.approve');
+
+      const sale = await salesService.create(shopId, request.body, userId, { autoApprove });
       return sendSuccess(reply, sale, 201);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to create sale';
@@ -114,6 +142,65 @@ export const salesController = {
     }
   },
 
+  async update(
+    request: FastifyRequest<{
+      Params: { id: string };
+      Body: {
+        productId: string;
+        customerId: string;
+        ledgerNumber: string;
+        saleDate?: string;
+        saleType: 'full_payment' | 'partial_with_promise' | 'self_finance' | 'company_finance';
+        sellingPrice: number;
+        discountAmount?: number;
+        gstRate?: number;
+        downPayment?: number;
+        paymentMode: string;
+        paymentBreakdown?: Array<{mode: string; amount: number}> | null;
+        promiseDate?: string | null;
+        interestRate?: number | null;
+        fileCharge?: number | null;
+        numInstallments?: number | null;
+        guarantorId?: string | null;
+        financeCompanyId?: string | null;
+        financedAmount?: number | null;
+        expectedPaymentDate?: string | null;
+        notes?: string | null;
+      };
+    }>,
+    reply: FastifyReply,
+  ) {
+    try {
+      const shopId = request.shopFilter!.shopId;
+      const userId = request.currentUser!.userId;
+      const sale = await salesService.update(request.params.id, shopId, request.body, userId);
+      return sendSuccess(reply, sale);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to update sale';
+      if (
+        message === 'Sale not found' ||
+        message === 'Customer not found' ||
+        message === 'Guarantor not found' ||
+        message === 'Finance company not found'
+      ) {
+        return sendError(reply, message, 404);
+      }
+      if (
+        message === 'Sale does not belong to this shop' ||
+        message === 'Product cannot be changed when editing a sale' ||
+        message === 'Guarantor is required for self-finance sales' ||
+        message === 'Number of installments is required for self-finance sales' ||
+        message === 'Interest rate is required for self-finance sales' ||
+        message === 'Finance company is required for company-finance sales' ||
+        message === 'Sale date cannot be in the future' ||
+        message.startsWith('Sale date cannot be before')
+      ) {
+        return sendError(reply, message, 400);
+      }
+      return sendError(reply, message, 500);
+    }
+  },
+
   async getInstallments(
     request: FastifyRequest<{ Params: { id: string } }>,
     reply: FastifyReply,
@@ -129,6 +216,22 @@ export const salesController = {
       return sendSuccess(reply, schedule);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to fetch installments';
+      return sendError(reply, message, 500);
+    }
+  },
+
+  async getActivity(
+    request: FastifyRequest<{ Params: { id: string } }>,
+    reply: FastifyReply,
+  ) {
+    try {
+      const logs = await salesService.getActivity(request.params.id);
+      if (logs === null) {
+        return sendError(reply, 'Sale not found', 404);
+      }
+      return sendSuccess(reply, logs);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to fetch activity';
       return sendError(reply, message, 500);
     }
   },
@@ -157,6 +260,83 @@ export const salesController = {
       }
       if (message === 'Finance payment can only be recorded for company-finance sales') {
         return sendError(reply, message, 400);
+      }
+      return sendError(reply, message, 500);
+    }
+  },
+
+  async recordPendingPayment(
+    request: FastifyRequest<{
+      Params: { id: string };
+      Body: {
+        amount: number;
+        paymentMode: string;
+        paymentBreakdown?: Array<{mode: string; amount: number}> | null;
+        notes?: string | null;
+      };
+    }>,
+    reply: FastifyReply,
+  ) {
+    try {
+      const updated = await salesService.recordPendingPayment(
+        request.params.id,
+        request.body,
+      );
+      return sendSuccess(reply, updated);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to record payment';
+      if (message === 'Sale not found') {
+        return sendError(reply, message, 404);
+      }
+      if (message.includes('pending') || message.includes('exceeds')) {
+        return sendError(reply, message, 400);
+      }
+      return sendError(reply, message, 500);
+    }
+  },
+
+  async listFinanceCompanies(
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ) {
+    try {
+      const companies = await salesService.listFinanceCompanies();
+      return sendSuccess(reply, companies);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to fetch finance companies';
+      return sendError(reply, message, 500);
+    }
+  },
+
+  async getPendingApprovalCount(
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ) {
+    try {
+      const { shopId, shopIds, allShops } = request.shopFilter!;
+      const count = await salesService.getPendingApprovalCount({
+        shopId,
+        shopIds: allShops ? shopIds : undefined,
+      });
+      return sendSuccess(reply, { count });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to fetch pending count';
+      return sendError(reply, message, 500);
+    }
+  },
+
+  async approveSale(
+    request: FastifyRequest<{ Params: { id: string } }>,
+    reply: FastifyReply,
+  ) {
+    try {
+      const userId = request.currentUser!.userId;
+      const updated = await salesService.approveSale(request.params.id, userId);
+      return sendSuccess(reply, updated);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to approve sale';
+      if (message === 'Sale not found') {
+        return sendError(reply, message, 404);
       }
       return sendError(reply, message, 500);
     }
