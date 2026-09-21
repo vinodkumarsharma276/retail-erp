@@ -26,13 +26,15 @@ function round2(value: number): number {
 export interface LatePenaltyInput {
   /** Rupees per day for this sale. */
   perDay: number;
-  dueDate: Date | string;
+  /**
+   * Due date of the OLDEST EMI on this sale that still has money owing, or
+   * null when nothing is owed. The penalty clock runs from here.
+   */
+  oldestUnpaidDueDate: Date | string | null;
   /** Date the penalty is being worked out for — the payment date, or today. */
   asOf: Date | string;
-  /** Unpaid balance on the EMI. No balance, no penalty. */
-  remainingAmount: number;
   /**
-   * Last day already covered by an earlier penalty charge on this EMI.
+   * Last day already covered by an earlier penalty charge on this sale.
    * Charging again only covers the days after it, so a customer is never
    * charged twice for the same day.
    */
@@ -43,27 +45,31 @@ export interface LatePenaltyResult {
   perDay: number;
   days: number;
   amount: number;
+  /** The date the uncharged period starts from, or null when nothing is late. */
+  from: Date | null;
 }
 
 /**
- * Flat per-day penalty on one late EMI.
+ * Flat per-day late penalty for ONE SALE.
  *
- * Counts from the day after the due date — 5 Oct due, paid 20 Oct is 15 days.
- * No grace period. It does not depend on the EMI's size or on penalty already
- * charged, so there is never penalty on penalty.
+ * The sale accrues `perDay` for every day it has at least one overdue EMI —
+ * ₹2 a day whether one EMI is late or three. The clock starts the day after
+ * the oldest unpaid EMI's due date (5 Oct due, paid 20 Oct is 15 days), with
+ * no grace period. It never depends on how much is owed, so there is never
+ * penalty on penalty.
  */
 export function computeLatePenalty(input: LatePenaltyInput): LatePenaltyResult {
   const perDay = Math.max(0, Number(input.perDay) || 0);
-  if (!(input.remainingAmount > 0) || perDay === 0) {
-    return { perDay, days: 0, amount: 0 };
+  if (!input.oldestUnpaidDueDate || perDay === 0) {
+    return { perDay, days: 0, amount: 0, from: null };
   }
 
-  const due = toUtcDay(input.dueDate);
+  const due = toUtcDay(input.oldestUnpaidDueDate);
   const covered = input.chargedThrough ? toUtcDay(input.chargedThrough) : null;
   const start = covered !== null && covered > due ? covered : due;
   const days = Math.max(0, Math.floor((toUtcDay(input.asOf) - start) / DAY_MS));
 
-  return { perDay, days, amount: round2(perDay * days) };
+  return { perDay, days, amount: round2(perDay * days), from: days > 0 ? new Date(start) : null };
 }
 
 // ---------------------------------------------------------------------------

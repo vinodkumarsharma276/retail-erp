@@ -157,12 +157,20 @@ export function RecordPaymentDialog({
       ? Math.min(deductionTotal, baseDue + penaltyCharged)
       : 0;
   const toCollect = round2(baseDue + penaltyCharged - deductionOnThisEmi);
-  const daysLate = preview ? Math.max(0, daysBetweenIso(preview.dueDate, preview.asOf)) : 0;
+  // How long this SALE has been behind — from its oldest unpaid EMI, which may
+  // not be the one being paid.
+  const daysLate =
+    preview?.penalty.overdueSince
+      ? Math.max(0, daysBetweenIso(preview.penalty.overdueSince, preview.asOf))
+      : 0;
 
-  // --- Undo the most recent penalty charge on this EMI ---------------------
+  // --- Undo the most recent penalty charge on this sale --------------------
+  // Penalty is per sale, so the latest charge may sit on a different EMI.
   const { data: accrualList } = useInterestAccrualQuery(scheduleId, !!scheduleId);
   const lastCharge =
-    accrualList?.find((a) => a.installmentId === installmentId)?.applications?.[0] ?? null;
+    accrualList
+      ?.flatMap((a) => a.applications ?? [])
+      .sort((a, b) => new Date(b.appliedAt).getTime() - new Date(a.appliedAt).getTime())[0] ?? null;
   const [undoReason, setUndoReason] = useState('');
   const rollbackMutation = useRollbackInterestApplicationMutation();
 
@@ -417,8 +425,14 @@ export function RecordPaymentDialog({
                 <div className="rounded-lg border border-warning/30 bg-warning-muted p-3">
                   <p className="flex items-center gap-1.5 text-sm font-semibold text-warning">
                     <Clock className="h-3.5 w-3.5" />
-                    {daysLate > 0 ? `Late by ${daysLate} day${daysLate === 1 ? '' : 's'}` : 'Late penalty'}
+                    {daysLate > 0 ? `Behind by ${daysLate} day${daysLate === 1 ? '' : 's'}` : 'Late penalty'}
                   </p>
+                  {preview.penalty.overdueSince && (
+                    <p className="text-xs text-muted-foreground">
+                      Oldest unpaid EMI was due {preview.penalty.overdueSince}. Penalty is per sale,
+                      however many EMIs are late.
+                    </p>
+                  )}
 
                   {preview.penalty.applicable ? (
                     <p className="mt-1 text-xs text-foreground/80">

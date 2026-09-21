@@ -976,7 +976,8 @@ model SaleRecord {
   interestRate               Decimal?              @map("interest_rate") @db.Decimal(4, 2)
   /// @deprecated Percentage penalty; superseded by `penaltyPerDay`.
   penalRate                  Decimal?              @map("penal_rate") @db.Decimal(4, 2)
-  /// Flat late penalty in rupees per day, per late EMI, for this sale. Set on
+  /// Flat late penalty in rupees per day for this SALE — the same amount however
+  /// many of its EMIs are late. Set on
   /// the sale form and editable afterwards. Null falls back to the tenant's
   /// `installment.defaultPenaltyPerDay` (₹2).
   penaltyPerDay              Decimal?              @map("penalty_per_day") @db.Decimal(10, 2)

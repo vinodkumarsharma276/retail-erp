@@ -22,7 +22,7 @@ export const salesService = {
     paymentBreakdown?: Array<{mode: string; amount: number}> | null;
     promiseDate?: string | null;
     interestRate?: number | null;
-    /** Late penalty in ₹ per day per late EMI. Null/omitted = shop default. */
+    /** Late penalty in ₹ per day per sale (not per EMI). Null/omitted = shop default. */
     penaltyPerDay?: number | null;
     fileCharge?: number | null;
     numInstallments?: number | null;
@@ -419,7 +419,7 @@ export const salesService = {
     paymentBreakdown?: Array<{mode: string; amount: number}> | null;
     promiseDate?: string | null;
     interestRate?: number | null;
-    /** Late penalty in ₹ per day per late EMI. Null/omitted = shop default. */
+    /** Late penalty in ₹ per day per sale (not per EMI). Null/omitted = shop default. */
     penaltyPerDay?: number | null;
     fileCharge?: number | null;
     numInstallments?: number | null;

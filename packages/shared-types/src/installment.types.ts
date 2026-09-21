@@ -77,9 +77,10 @@ export interface TenantInstallmentSettings {
   /** @deprecated Percentage-based penalty; superseded by `defaultPenaltyPerDay`. */
   defaultPenalRateMonthly: number;
   /**
-   * Flat late penalty in rupees per day, per late EMI. Used when a sale has no
-   * `penaltyPerDay` of its own. Charged from the day after the due date — no
-   * grace period — and only when the collector ticks "apply penalty".
+   * Flat late penalty in rupees per day, per SALE — the same amount whether
+   * one EMI is late or several. Used when a sale has no `penaltyPerDay` of its
+   * own. Runs from the day after the oldest unpaid EMI's due date, with no
+   * grace period, and is charged only when the collector ticks "apply penalty".
    */
   defaultPenaltyPerDay: number;
   /**
@@ -113,14 +114,19 @@ export interface PaymentPreview {
   asOf: string;
   remainingAmount: number;
   penalty: {
-    /** Rupees per day in force for this sale. */
+    /** Rupees per day in force for this sale (per sale, not per EMI). */
     perDay: number;
-    /** Days not yet charged (from the later of the due date or the last charge). */
+    /**
+     * Due date of the oldest unpaid EMI on the sale when it is overdue —
+     * how long the customer has been behind. Null when nothing is late.
+     */
+    overdueSince: string | null;
+    /** Days not yet charged (from the later of `overdueSince` or the last charge). */
     days: number;
     amount: number;
-    /** False when the EMI isn't overdue or has nothing left to pay. */
+    /** False when nothing on the sale is overdue, or every late day is already charged. */
     applicable: boolean;
-    /** Penalty already charged on this EMI and still active. */
+    /** Penalty already charged on this sale and still active. */
     alreadyCharged: number;
   };
   earlyPayment: {

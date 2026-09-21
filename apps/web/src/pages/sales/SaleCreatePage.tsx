@@ -72,7 +72,7 @@ interface SaleFormValues {
   promiseDate: string;
   // Self finance
   interestRate: number;
-  /** ₹ per day per late EMI; blank = shop default. */
+  /** ₹ per day per sale while any EMI is late; blank = shop default. */
   penaltyPerDay: number | '';
   fileCharge: number | '';
   numInstallments: number;
@@ -1360,7 +1360,7 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
                   </div>
                 </div>
 
-                {/* Late penalty — ₹ per day per late EMI. Defaults to the shop
+                {/* Late penalty — ₹ per day per SALE (not per EMI). Defaults to the shop
                     standard; can be changed per sale here, or later from the
                     installment page. */}
                 <div>
@@ -1388,7 +1388,7 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
                     <p className="mt-1 text-xs text-destructive">{errors.penaltyPerDay.message}</p>
                   ) : (
                     <p className="mt-1 text-xs text-muted-foreground">
-                      Per late EMI. Charged only when the collector ticks it.
+                      Per sale, however many EMIs are late. Charged only when the collector ticks it.
                     </p>
                   )}
                 </div>

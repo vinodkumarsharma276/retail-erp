@@ -1727,7 +1727,7 @@ function PenaltyRateRow({
       ) : (
         <dd className="mt-0.5 flex items-center gap-2 text-sm">
           <span>
-            {formatINR(perDay)} / day per late EMI
+            {formatINR(perDay)} / day while any EMI is late
             {isDefault && <span className="text-muted-foreground"> (shop default)</span>}
           </span>
           <button

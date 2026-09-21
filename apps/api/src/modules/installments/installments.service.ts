@@ -2758,7 +2758,7 @@ export const installmentsService = {
     });
     if (!schedule) return null;
 
-    // Flat ₹/day per late EMI — the sale's own rate, else the shop default.
+    // Flat ₹/day per SALE while any EMI is late — the sale's own rate, else the shop default.
     // (Previously this used the loan's monthly interest rate, which is not a
     // penalty rate at all.)
     const settings = mergeInstallmentSettings(schedule.tenant.settings);
@@ -2768,24 +2768,33 @@ export const installmentsService = {
         : settings.defaultPenaltyPerDay;
     const today = new Date();
 
-    return schedule.installments.map((inst) => {
-      // Start from the last day already charged so nothing is charged twice.
-      let chargedThrough: Date | null = null;
+    // Penalty is per SALE: one clock for the whole schedule, starting at the
+    // oldest EMI still owing and resuming after the last day already charged.
+    let chargedThrough: Date | null = null;
+    for (const inst of schedule.installments) {
       for (const app of inst.interestApplications) {
         const covered = app.chargedThrough ?? app.appliedAt;
         if (!chargedThrough || covered > chargedThrough) chargedThrough = covered;
       }
-      const penalty = computeLatePenalty({
-        perDay,
-        dueDate: inst.dueDate,
-        asOf: today,
-        remainingAmount: Number(inst.remainingAmount),
-        chargedThrough,
-      });
+    }
+    const oldestUnpaid = schedule.installments
+      .filter((i) => Number(i.remainingAmount) > 0 && i.parentInstallmentNumber === null)
+      .sort((a, b) => a.dueDate.getTime() - b.dueDate.getTime())[0];
+    const salePenalty = computeLatePenalty({
+      perDay,
+      oldestUnpaidDueDate: oldestUnpaid?.dueDate ?? null,
+      asOf: today,
+      chargedThrough,
+    });
+
+    return schedule.installments.map((inst) => {
       const appliedActive = inst.interestApplications.reduce(
         (s, a) => s + Number(a.appliedAmount),
         0,
       );
+      // The sale-level figure is reported once, on the oldest unpaid row, so
+      // anything that adds rows up can't count it several times.
+      const carriesSalePenalty = oldestUnpaid?.id === inst.id;
       return {
         installmentId: inst.id,
         installmentNumber: inst.installmentNumber,
@@ -2796,8 +2805,10 @@ export const installmentsService = {
         status: inst.status,
         daysOverdue: computeDaysOverdue(inst.dueDate, today),
         penaltyPerDay: perDay,
-        uncharged: { days: penalty.days, amount: penalty.amount },
-        suggestedInterest: penalty.amount,
+        uncharged: carriesSalePenalty
+          ? { days: salePenalty.days, amount: salePenalty.amount }
+          : { days: 0, amount: 0 },
+        suggestedInterest: carriesSalePenalty ? salePenalty.amount : 0,
         appliedInterest: Math.round(appliedActive * 100) / 100,
         applications: inst.interestApplications,
       };

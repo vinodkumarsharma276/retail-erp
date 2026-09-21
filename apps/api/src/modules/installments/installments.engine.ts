@@ -54,10 +54,6 @@ async function loadAdjustmentContext(client: Client, installmentId: string, tena
   const installment = await client.installment.findFirst({
     where: { id: installmentId, tenantId },
     include: {
-      interestApplications: {
-        where: { rolledBackAt: null },
-        select: { appliedAmount: true, appliedAt: true, chargedThrough: true },
-      },
       schedule: {
         select: {
           id: true,
@@ -65,6 +61,19 @@ async function loadAdjustmentContext(client: Client, installmentId: string, tena
           numInstallments: true,
           sale: { select: { penaltyPerDay: true } },
           tenant: { select: { settings: true } },
+          // Penalty is per SALE, so the history that matters is the whole
+          // schedule's, not just this EMI's.
+          interestApplications: {
+            where: { rolledBackAt: null },
+            select: { appliedAmount: true, appliedAt: true, chargedThrough: true },
+          },
+          // The oldest EMI that still has money owing starts the clock.
+          installments: {
+            where: { parentInstallmentNumber: null, isClosed: false, remainingAmount: { gt: 0 } },
+            orderBy: [{ dueDate: 'asc' }, { installmentNumber: 'asc' }],
+            take: 1,
+            select: { dueDate: true },
+          },
         },
       },
     },
@@ -77,19 +86,20 @@ async function loadAdjustmentContext(client: Client, installmentId: string, tena
     ? Number(salePerDay)
     : settings.defaultPenaltyPerDay;
 
-  // The last day an earlier penalty already covered. Legacy charges predate
-  // `chargedThrough`, so their applied date stands in for it.
+  // The last day an earlier penalty on this sale already covered. Legacy
+  // charges predate `chargedThrough`, so their applied date stands in for it.
   let chargedThrough: Date | null = null;
-  for (const app of installment.interestApplications) {
+  for (const app of installment.schedule.interestApplications) {
     const covered = app.chargedThrough ?? toDateOnly(app.appliedAt);
     if (!chargedThrough || covered > chargedThrough) chargedThrough = covered;
   }
-  const alreadyCharged = installment.interestApplications.reduce(
+  const alreadyCharged = installment.schedule.interestApplications.reduce(
     (sum, app) => sum.plus(app.appliedAmount),
     D(0),
   );
+  const oldestUnpaidDueDate = installment.schedule.installments[0]?.dueDate ?? null;
 
-  return { installment, settings, perDay, chargedThrough, alreadyCharged };
+  return { installment, settings, perDay, chargedThrough, alreadyCharged, oldestUnpaidDueDate };
 }
 
 /**
@@ -186,11 +196,14 @@ export async function buildPaymentPreview(
 
   const penalty = computeLatePenalty({
     perDay: adj.perDay,
-    dueDate: installment.dueDate,
+    oldestUnpaidDueDate: adj.oldestUnpaidDueDate,
     asOf,
-    remainingAmount: remaining,
     chargedThrough: adj.chargedThrough,
   });
+  const overdueSince =
+    adj.oldestUnpaidDueDate && toDateOnly(adj.oldestUnpaidDueDate) < asOf
+      ? adj.oldestUnpaidDueDate.toISOString().slice(0, 10)
+      : null;
 
   const early = await earlyDeductionBlocker(prisma, adj, asOf, ctx.tenantId);
   const targets = early.reason
@@ -205,6 +218,7 @@ export async function buildPaymentPreview(
     remainingAmount: remaining,
     penalty: {
       perDay: penalty.perDay,
+      overdueSince,
       days: penalty.days,
       amount: penalty.amount,
       applicable: penalty.amount > 0,
@@ -263,8 +277,9 @@ export async function recordPayment(
     const paymentDay = toDateOnly(paymentDate);
 
     // --- Late penalty (opt-in) ---------------------------------------------
-    // Worked out here from the sale's ₹/day rate, never taken from the client,
-    // and only for days not already charged.
+    // Per SALE: the sale's ₹/day for each day it has had an overdue EMI and
+    // not yet been charged — never per late EMI, never taken from the client.
+    // It is added to the EMI being paid so it is collected in this entry.
     if (input.applyPenalty && sourceInstallmentId) {
       const adj = await loadAdjustmentContext(tx, sourceInstallmentId, ctx.tenantId);
       if (adj.installment.scheduleId !== schedule.id) {
@@ -272,9 +287,8 @@ export async function recordPayment(
       }
       const penalty = computeLatePenalty({
         perDay: adj.perDay,
-        dueDate: adj.installment.dueDate,
+        oldestUnpaidDueDate: adj.oldestUnpaidDueDate,
         asOf: paymentDay,
-        remainingAmount: Number(adj.installment.remainingAmount),
         chargedThrough: adj.chargedThrough,
       });
       if (penalty.amount > 0) {
