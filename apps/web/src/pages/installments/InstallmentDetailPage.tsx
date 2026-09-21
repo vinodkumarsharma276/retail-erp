@@ -5,7 +5,6 @@ import {
   Loader2,
   AlertCircle,
   Banknote,
-  CalendarClock,
   Phone,
   ExternalLink,
   Eye,
@@ -19,7 +18,8 @@ import {
   Info,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { useScheduleDetailQuery, useRevertPaymentMutation, useMovePaymentMutation, useCorrectPaymentMutation, useUndoReschedulePreviewQuery, useUndoRescheduleMutation, useInstallmentPromisesQuery } from '../../hooks/useInstallments';
+import { useScheduleDetailQuery, useRevertPaymentMutation, useMovePaymentMutation, useCorrectPaymentMutation, useUndoReschedulePreviewQuery, useUndoRescheduleMutation, useInstallmentPromisesQuery, useUpdatePenaltyPerDayMutation } from '../../hooks/useInstallments';
+import { useToastStore } from '../../stores/toast-store';
 import { StatusBadge } from '../../components/StatusBadge';
 import { PaymentTimeline } from '../../components/PaymentTimeline';
 import { RecordPaymentDialog } from '../../components/RecordPaymentDialog';
@@ -202,27 +202,6 @@ export function InstallmentDetailPage() {
     InstallmentStatus.PARTIALLY_PAID,
   ];
 
-  // "Frontline" due date: the latest dueDate among non-rescheduled,
-  // non-paid rows whose dueDate is on or before today. Any row whose
-  // dueDate is strictly earlier than this is a *past* installment whose
-  // obligation has already been absorbed into later installments by the
-  // rollover engine — it must not show the Reschedule button. Future
-  // installments (dueDate > today) remain reschedulable as before.
-  const todayMidnight = new Date();
-  todayMidnight.setHours(0, 0, 0, 0);
-  const frontlineDueTime: number | null = installments.reduce<number | null>(
-    (acc: number | null, i: any) => {
-      if (i.isRescheduled) return acc;
-      if (i.status === InstallmentStatus.PAID) return acc;
-      const d = new Date(i.dueDate);
-      d.setHours(0, 0, 0, 0);
-      if (d.getTime() > todayMidnight.getTime()) return acc;
-      if (acc == null || d.getTime() > acc) return d.getTime();
-      return acc;
-    },
-    null,
-  );
-
   return (
     <div>
       {/* Header */}
@@ -266,6 +245,11 @@ export function InstallmentDetailPage() {
             <InfoRow
               label="Interest Rate"
               value={`${sale.interestRate}% / month`}
+            />
+            <PenaltyRateRow
+              scheduleId={schedule.id}
+              perDay={sale.effectivePenaltyPerDay}
+              isDefault={sale.penaltyPerDayIsDefault}
             />
             <InfoRow label="File Charge" value={formatINR(sale.fileCharge)} />
             <InfoRow label="EMI Amount" value={formatINR(sale.emiAmount)} />
@@ -421,23 +405,6 @@ export function InstallmentDetailPage() {
                 const statusActionable = actionableStatuses.includes(inst.status);
                 const isAbsorbed = statusActionable && remNum <= 0;
                 const canPay = statusActionable && (remNum > 0 || manuallyEnabled.has(inst.id));
-                // Reschedule is only valid on the "frontline" row (latest
-                // row with dueDate <= today) and on future upcoming rows.
-                // Past installments whose dueDate has already been
-                // superseded by a later overdue/due-today row are
-                // considered absorbed and must not show the button.
-                const instDueTime = (() => {
-                  const d = new Date(inst.dueDate);
-                  d.setHours(0, 0, 0, 0);
-                  return d.getTime();
-                })();
-                const isPastFrontline =
-                  frontlineDueTime != null && instDueTime < frontlineDueTime;
-                const canReschedule =
-                  !isPastFrontline &&
-                  (inst.status === InstallmentStatus.UPCOMING ||
-                    inst.status === InstallmentStatus.OVERDUE ||
-                    inst.status === InstallmentStatus.DUE_TODAY);
                 const lastPayment =
                   inst.payments?.length > 0
                     ? inst.payments[inst.payments.length - 1]
@@ -529,25 +496,12 @@ export function InstallmentDetailPage() {
                             Pay
                           </button>
                         )}
-                        {canReschedule && (
-                          <button
-                            onClick={() =>
-                              setPaymentTarget({
-                                id: inst.id,
-                                amount: inst.remainingAmount,
-                                number: inst.installmentNumber,
-                                initialScenario: 'reschedule',
-                              })
-                            }
-                            className={cn(
-                              'flex items-center gap-1 rounded-md border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 px-2 py-1 text-xs font-medium text-amber-700 dark:text-amber-400',
-                              'hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors',
-                            )}
-                          >
-                            <CalendarClock className="h-3 w-3" />
-                            Reschedule
-                          </button>
-                        )}
+                        {/*
+                         * "Reschedule" removed. EMIs are never moved any more, and
+                         * its endpoint no longer exists. A customer's new date is
+                         * recorded as a promise instead (see Part payment, and the
+                         * planned "Record promise" action for no-payment cases).
+                         */}
                         {inst.isRescheduled && inst.rescheduledTo && (
                           <span className="text-xs text-muted-foreground flex items-center gap-1">
                             <ExternalLink className="h-3 w-3" />
@@ -1687,6 +1641,111 @@ export function InstallmentDetailPage() {
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
+/**
+ * Late-penalty rate for this sale, editable in place. A change applies to
+ * penalty charged from now on — charges already made keep the rate they used.
+ */
+function PenaltyRateRow({
+  scheduleId,
+  perDay,
+  isDefault,
+}: {
+  scheduleId: string;
+  perDay: number;
+  isDefault: boolean;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(String(perDay));
+  const mutation = useUpdatePenaltyPerDayMutation();
+  const addToast = useToastStore((s) => s.addToast);
+
+  const parsed = Number(value);
+  const valid = value.trim() !== '' && Number.isFinite(parsed) && parsed >= 0 && parsed <= 10000;
+
+  const save = () => {
+    if (!valid) return;
+    mutation.mutate(
+      { scheduleId, penaltyPerDay: Math.round(parsed * 100) / 100 },
+      {
+        onSuccess: () => {
+          addToast({ type: 'success', message: `Late penalty set to ${formatINR(parsed)} per day` });
+          setEditing(false);
+        },
+        onError: (err: unknown) =>
+          addToast({
+            type: 'error',
+            message:
+              (err as { response?: { data?: { error?: string } } })?.response?.data?.error ??
+              'Could not update the penalty rate',
+          }),
+      },
+    );
+  };
+
+  return (
+    <div>
+      <dt className="text-sm font-medium text-muted-foreground">Late penalty</dt>
+      {editing ? (
+        <dd className="mt-0.5 flex items-center gap-1.5">
+          <span className="text-sm text-muted-foreground">₹</span>
+          <input
+            id="penalty-per-day"
+            type="number"
+            min={0}
+            step="0.5"
+            value={value}
+            autoFocus
+            onChange={(e) => setValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') save();
+              if (e.key === 'Escape') setEditing(false);
+            }}
+            aria-invalid={!valid || undefined}
+            aria-label="Late penalty in rupees per day"
+            className="h-8 w-20 rounded-md border border-input bg-field px-2 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-ring/25"
+          />
+          <span className="text-sm text-muted-foreground">/ day</span>
+          <button
+            type="button"
+            onClick={save}
+            disabled={!valid || mutation.isPending}
+            className="ml-1 text-sm font-medium text-primary hover:underline disabled:opacity-50"
+          >
+            {mutation.isPending ? 'Saving…' : 'Save'}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setValue(String(perDay));
+              setEditing(false);
+            }}
+            className="text-sm text-muted-foreground hover:underline"
+          >
+            Cancel
+          </button>
+        </dd>
+      ) : (
+        <dd className="mt-0.5 flex items-center gap-2 text-sm">
+          <span>
+            {formatINR(perDay)} / day per late EMI
+            {isDefault && <span className="text-muted-foreground"> (shop default)</span>}
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              setValue(String(perDay));
+              setEditing(true);
+            }}
+            className="text-xs font-medium text-primary hover:underline"
+          >
+            Edit
+          </button>
+        </dd>
+      )}
+    </div>
+  );
+}
+
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
     <div>

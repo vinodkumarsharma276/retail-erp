@@ -23,6 +23,8 @@ export const createSaleSchema = z.object({
   promiseDate: z.string().nullable().optional(),
   // Self finance
   interestRate: z.number().min(0).max(100).nullable().optional(),
+  /** Late penalty, ₹ per day per late EMI. Omit or null to use the shop default. */
+  penaltyPerDay: z.number().min(0, 'Penalty cannot be negative').max(10000).nullable().optional(),
   fileCharge: z.number().min(0).nullable().optional(),
   numInstallments: z.number().int().min(1).max(60).nullable().optional(),
   guarantorId: z.preprocess(

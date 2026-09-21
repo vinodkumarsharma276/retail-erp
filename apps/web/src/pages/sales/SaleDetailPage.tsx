@@ -26,7 +26,6 @@ import { usePermission, useCanCheck } from '../../hooks/usePermission';
 import { StatusBadge } from '../../components/StatusBadge';
 import { CompletionBadge } from '../../components/CompletionBadge';
 import { RecordPaymentDialog } from '../../components/RecordPaymentDialog';
-import { FinalSettlementCard } from '../../components/FinalSettlementCard';
 import { AccessDenied } from '../../routes/RoleGuard';
 import { formatINR, formatDateIN } from '@retailerp/shared-utils';
 import { SaleType, FinancePaymentStatus, InstallmentStatus } from '@retailerp/shared-types';
@@ -325,14 +324,14 @@ function SaleDetailPageInner() {
           )}
 
           {/* Final Settlement quote (self-finance schedules with unpaid rows) */}
-          {canViewSelfFinance &&
-            sale.saleType === SaleType.SELF_FINANCE &&
-            installmentData?.schedule?.id && (
-              <FinalSettlementCard
-                scheduleId={installmentData.schedule.id}
-                canSettle={can('installments.final_settlement')}
-              />
-            )}
+          {/*
+           * Final-settlement card removed: it waived interest on every unpaid
+           * EMI automatically, which the shop does not want — an early-payment
+           * deduction is always the collector's choice. Early closure is now
+           * done by recording the remaining EMIs; each one paid well ahead of
+           * time offers its own opt-in deduction off the last installment.
+           * The component and its API route are kept for reference.
+           */}
 
           {/* Self Finance details (permission-gated) */}
           {canViewSelfFinance &&

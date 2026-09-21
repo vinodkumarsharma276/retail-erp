@@ -157,7 +157,12 @@ interface RecordPaymentInput {
   paymentDate?: string;
   newDate?: string;
   notes?: string;
+  /** Legacy caller-supplied penalty amount. Prefer `applyPenalty`. */
   applyInterest?: { amount: number; notes?: string };
+  /** Charge the late penalty; the server computes it from the sale's ₹/day rate. */
+  applyPenalty?: boolean;
+  /** Give the early-payment deduction off the last installment. */
+  applyEarlyPaymentDeduction?: boolean;
 }
 
 export function useRecordPaymentMutation() {

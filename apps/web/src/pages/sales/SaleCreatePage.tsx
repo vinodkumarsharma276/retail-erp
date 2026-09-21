@@ -44,6 +44,7 @@ import {
   UserRole,
   SaleType,
   PaymentMode,
+  DEFAULT_TENANT_INSTALLMENT_SETTINGS,
 } from '@retailerp/shared-types';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import type { Customer, Product } from '@retailerp/shared-types';
@@ -71,6 +72,8 @@ interface SaleFormValues {
   promiseDate: string;
   // Self finance
   interestRate: number;
+  /** ₹ per day per late EMI; blank = shop default. */
+  penaltyPerDay: number | '';
   fileCharge: number | '';
   numInstallments: number;
   // Company finance
@@ -90,6 +93,7 @@ const defaultValues: SaleFormValues = {
   downPayment: '',
   promiseDate: getDateDaysFromNow(7),
   interestRate: 0,
+  penaltyPerDay: DEFAULT_TENANT_INSTALLMENT_SETTINGS.defaultPenaltyPerDay,
   fileCharge: '',
   numInstallments: 6,
   financeCompanyId: '',
@@ -415,6 +419,8 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
     }
     if (s.saleType === SaleType.SELF_FINANCE) {
       setValue('interestRate', Number(s.interestRate ?? 0));
+      // Blank means the sale uses the shop default rate.
+      setValue('penaltyPerDay', s.penaltyPerDay !== null && s.penaltyPerDay !== undefined ? Number(s.penaltyPerDay) : '');
       setValue('fileCharge', Number(s.fileCharge ?? 0));
       setValue('numInstallments', Number(s.numInstallments ?? 6));
     }
@@ -605,6 +611,10 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
       case SaleType.SELF_FINANCE:
         payload.downPayment = Number(formData.downPayment) || 0;
         payload.interestRate = formData.interestRate;
+        payload.penaltyPerDay =
+          formData.penaltyPerDay === '' || formData.penaltyPerDay === undefined
+            ? null
+            : Number(formData.penaltyPerDay);
         payload.fileCharge = Number(formData.fileCharge) || 0;
         payload.numInstallments = formData.numInstallments;
         payload.guarantorId = selectedGuarantor?.id;
@@ -1348,6 +1358,39 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
                     </select>
                     <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   </div>
+                </div>
+
+                {/* Late penalty — ₹ per day per late EMI. Defaults to the shop
+                    standard; can be changed per sale here, or later from the
+                    installment page. */}
+                <div>
+                  <label htmlFor="penaltyPerDay" className="block text-sm font-medium mb-1.5">
+                    Late Penalty (₹ per day)
+                  </label>
+                  <input
+                    id="penaltyPerDay"
+                    type="number"
+                    step="0.5"
+                    min={0}
+                    {...register('penaltyPerDay', {
+                      min: { value: 0, message: 'Cannot be negative' },
+                      max: { value: 10000, message: 'Looks too high' },
+                    })}
+                    placeholder={String(DEFAULT_TENANT_INSTALLMENT_SETTINGS.defaultPenaltyPerDay)}
+                    className={cn(
+                      'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
+                      'placeholder:text-muted-foreground',
+                      'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                      errors.penaltyPerDay && 'border-destructive',
+                    )}
+                  />
+                  {errors.penaltyPerDay ? (
+                    <p className="mt-1 text-xs text-destructive">{errors.penaltyPerDay.message}</p>
+                  ) : (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Per late EMI. Charged only when the collector ticks it.
+                    </p>
+                  )}
                 </div>
 
                 {/* File Charge */}

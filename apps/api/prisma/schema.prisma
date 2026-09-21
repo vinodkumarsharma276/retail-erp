@@ -192,6 +192,7 @@ model Tenant {
   installmentInterestApplications InstallmentInterestApplication[]
   installmentRollLogs             InstallmentRollLog[]
   installmentPromises             InstallmentPromise[]
+  installmentRebates              InstallmentRebate[]
   collectionAssignments           EmployeeCollectionAssignment[]
   interShopTransfers              InterShopTransfer[]
   expenses                        Expense[]
@@ -973,8 +974,12 @@ model SaleRecord {
   pendingAmount              Decimal               @default(0) @map("pending_amount") @db.Decimal(12, 2)
   // Self finance
   interestRate               Decimal?              @map("interest_rate") @db.Decimal(4, 2)
-  /// Per-sale override for monthly penal interest rate. Null uses tenant settings.
+  /// @deprecated Percentage penalty; superseded by `penaltyPerDay`.
   penalRate                  Decimal?              @map("penal_rate") @db.Decimal(4, 2)
+  /// Flat late penalty in rupees per day, per late EMI, for this sale. Set on
+  /// the sale form and editable afterwards. Null falls back to the tenant's
+  /// `installment.defaultPenaltyPerDay` (₹2).
+  penaltyPerDay              Decimal?              @map("penalty_per_day") @db.Decimal(10, 2)
   fileCharge                 Decimal               @default(0) @map("file_charge") @db.Decimal(12, 2)
   /// Computed: interestRate + (fileCharge / principal / numInstallments) × 100.
   /// Shown in UI so users see the true monthly finance cost when a flat fee and
@@ -1102,6 +1107,7 @@ model InstallmentSchedule {
   rollLogEvents        InstallmentRollLog[]             @relation("RollLogSchedule")
   interestApplications InstallmentInterestApplication[] @relation("ScheduleInterestApps")
   promises             InstallmentPromise[]
+  rebates              InstallmentRebate[]
 
   @@index([tenantId])
   @@index([saleId])
@@ -1140,6 +1146,7 @@ model Installment {
   payments             InstallmentPayment[]
   rollLogEvents        InstallmentRollLog[]             @relation("RollLogInstallment")
   interestApplications InstallmentInterestApplication[] @relation("InstallmentInterestApps")
+  rebatesReceived      InstallmentRebate[]
 
   @@index([tenantId])
   @@index([scheduleId])
@@ -1195,6 +1202,13 @@ model InstallmentInterestApplication {
   appliedAmount  Decimal   @map("applied_amount") @db.Decimal(12, 2)
   appliedAt      DateTime  @default(now()) @map("applied_at") @db.Timestamptz()
   appliedBy      String    @map("applied_by")
+  /// Last day this charge covers. The next charge on the same EMI starts the
+  /// day after, so no day is ever charged twice. Null on legacy rows, which
+  /// fall back to the date part of `appliedAt`.
+  chargedThrough DateTime? @map("charged_through") @db.Date
+  /// Flat rupees-per-day rate this charge used. `dailyRate` above is the legacy
+  /// percentage model and is 0 on flat charges.
+  perDay         Decimal?  @map("per_day") @db.Decimal(10, 2)
   notes          String?   @db.Text
   rolledBackAt   DateTime? @map("rolled_back_at") @db.Timestamptz()
   rolledBackBy   String?   @map("rolled_back_by")
@@ -1245,6 +1259,42 @@ model InstallmentRollLog {
   @@index([installmentId])
   @@index([eventType])
   @@map("installment_roll_log")
+}
+
+/// An opt-in early-payment deduction. When an EMI is paid well before its due
+/// date, the collector may tick a box to take that EMI's share of the sale-time
+/// interest off the customer's LAST installment. One row per installment
+/// reduced (a large deduction can spill from the last EMI to the one before).
+/// Rolled back automatically if the payment that earned it is reverted.
+model InstallmentRebate {
+  id       String @id @default(uuid())
+  tenantId String @map("tenant_id")
+
+  scheduleId          String    @map("schedule_id")
+  /// The installment whose amount was reduced (the last unpaid one).
+  installmentId       String    @map("installment_id")
+  /// The installment that was paid early and earned the deduction.
+  sourceInstallmentId String    @map("source_installment_id")
+  /// Payment rows recorded in the same entry — reverting any of them undoes this.
+  paymentIds          String[]  @map("payment_ids")
+  amount              Decimal   @db.Decimal(12, 2)
+  daysEarly           Int       @map("days_early")
+  appliedBy           String    @map("applied_by")
+  appliedAt           DateTime  @default(now()) @map("applied_at") @db.Timestamptz()
+  notes               String?   @db.Text
+  rolledBackAt        DateTime? @map("rolled_back_at") @db.Timestamptz()
+  rolledBackBy        String?   @map("rolled_back_by")
+  rollbackReason      String?   @map("rollback_reason") @db.Text
+
+  tenant      Tenant              @relation(fields: [tenantId], references: [id])
+  schedule    InstallmentSchedule @relation(fields: [scheduleId], references: [id])
+  installment Installment         @relation(fields: [installmentId], references: [id])
+
+  @@index([tenantId])
+  @@index([scheduleId])
+  @@index([installmentId])
+  @@index([sourceInstallmentId])
+  @@map("installment_rebates")
 }
 
 enum InstallmentPromiseStatus {

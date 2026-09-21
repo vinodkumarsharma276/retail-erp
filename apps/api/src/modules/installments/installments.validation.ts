@@ -21,6 +21,10 @@ export const recordPaymentSchema = z.object({
   explicitInstallmentId: z.string().uuid().optional(),
   referenceNumber: z.string().max(100).optional(),
   notes: z.string().optional(),
+  // Declared explicitly: Zod strips unknown keys, so an undeclared flag would
+  // silently disappear before reaching the controller.
+  applyPenalty: z.boolean().optional(),
+  applyEarlyPaymentDeduction: z.boolean().optional(),
   applyInterest: z
     .object({
       installmentId: z.string().uuid().optional(),
@@ -74,6 +78,14 @@ export const applyInterestSchema = z.object({
   /** Amount of overdue interest to apply. Employee may override the suggestion. */
   amount: z.number().positive('Amount must be positive'),
   notes: z.string().optional(),
+});
+
+/** Body for `PATCH /installments/schedules/:scheduleId/penalty-per-day`. */
+export const penaltyPerDaySchema = z.object({
+  penaltyPerDay: z
+    .number({ invalid_type_error: 'Penalty must be a number' })
+    .min(0, 'Penalty cannot be negative')
+    .max(10000, 'Penalty per day looks too high'),
 });
 
 /** Body for `POST /installments/interest-applications/:appId/rollback`. */

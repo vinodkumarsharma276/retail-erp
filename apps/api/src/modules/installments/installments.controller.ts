@@ -3,6 +3,7 @@ import { PaymentMode } from '@prisma/client';
 import { prisma } from '../../config/database.js';
 import {
   applyInterest,
+  buildPaymentPreview,
   recordPayment as recordPatternBPayment,
   revertPayment as revertPatternBPayment,
   rollbackInterest,
@@ -265,6 +266,10 @@ export const installmentsController = {
         referenceNumber?: string;
         notes?: string;
         applyInterest?: { installmentId?: string; amount?: number; appliedAmount?: number; daysOverdue?: number; notes?: string };
+        /** Collector ticked "apply late penalty" — server computes the amount. */
+        applyPenalty?: boolean;
+        /** Collector ticked "deduct early-payment interest from last installment". */
+        applyEarlyPaymentDeduction?: boolean;
       };
     }>,
     reply: FastifyReply,
@@ -292,6 +297,8 @@ export const installmentsController = {
               notes: request.body.applyInterest?.notes,
             }
           : undefined,
+        applyPenalty: request.body.applyPenalty === true,
+        applyEarlyPaymentDeduction: request.body.applyEarlyPaymentDeduction === true,
       }, { tenantId: request.tenant!.id, actorUserId: userId });
 
       let promise = null;
@@ -328,10 +335,75 @@ export const installmentsController = {
         message === 'Installment is already fully paid' ||
         message === 'Installment has been rescheduled. Pay the rescheduled installment instead.' ||
         message.startsWith('Amount') ||
-        message.startsWith('Partial amount')
+        message.startsWith('Partial amount') ||
+        message.startsWith('Early-payment deduction') ||
+        message.startsWith('The early-payment deduction') ||
+        message === 'Schedule is already fully paid' ||
+        message === 'Installment does not belong to this schedule'
       ) {
         return sendError(reply, message, 400);
       }
+      return sendError(reply, message, 500);
+    }
+  },
+
+  /**
+   * GET /installments/:installmentId/payment-preview?paymentDate=YYYY-MM-DD
+   * The penalty the collector may charge and the early-payment deduction they
+   * may give, for one EMI on a given date. Read-only.
+   */
+  async getPaymentPreview(
+    request: FastifyRequest<{
+      Params: { installmentId: string };
+      Querystring: { paymentDate?: string };
+    }>,
+    reply: FastifyReply,
+  ) {
+    try {
+      const raw = request.query.paymentDate;
+      if (raw && !/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+        return sendError(reply, 'paymentDate must be YYYY-MM-DD', 400);
+      }
+      const preview = await buildPaymentPreview(
+        prisma,
+        request.params.installmentId,
+        { paymentDate: raw ? new Date(raw) : undefined },
+        { tenantId: request.tenant!.id },
+      );
+      return sendSuccess(reply, preview);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to build payment preview';
+      return sendError(reply, message, message === 'Installment not found' ? 404 : 500);
+    }
+  },
+
+  /**
+   * PATCH /installments/schedules/:scheduleId/penalty-per-day
+   * Change the late-penalty rate (₹/day) on an existing sale. Affects only
+   * penalty charged from now on; charges already made are untouched.
+   */
+  async updatePenaltyPerDay(
+    request: FastifyRequest<{
+      Params: { scheduleId: string };
+      Body: { penaltyPerDay: number };
+    }>,
+    reply: FastifyReply,
+  ) {
+    try {
+      const schedule = await prisma.installmentSchedule.findFirst({
+        where: { id: request.params.scheduleId, tenantId: request.tenant!.id },
+        select: { saleId: true },
+      });
+      if (!schedule) return sendError(reply, 'Installment schedule not found', 404);
+
+      const sale = await prisma.saleRecord.update({
+        where: { id: schedule.saleId },
+        data: { penaltyPerDay: request.body.penaltyPerDay },
+        select: { id: true, penaltyPerDay: true },
+      });
+      return sendSuccess(reply, { saleId: sale.id, penaltyPerDay: Number(sale.penaltyPerDay) });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to update penalty rate';
       return sendError(reply, message, 500);
     }
   },

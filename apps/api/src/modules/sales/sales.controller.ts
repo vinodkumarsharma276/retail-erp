@@ -193,7 +193,8 @@ export const salesController = {
         message === 'Interest rate is required for self-finance sales' ||
         message === 'Finance company is required for company-finance sales' ||
         message === 'Sale date cannot be in the future' ||
-        message.startsWith('Sale date cannot be before')
+        message.startsWith('Sale date cannot be before') ||
+        message.startsWith('This sale already has installment activity')
       ) {
         return sendError(reply, message, 400);
       }

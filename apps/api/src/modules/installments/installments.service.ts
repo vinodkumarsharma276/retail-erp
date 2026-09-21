@@ -1,7 +1,8 @@
 import { prisma } from '../../config/database.js';
 import type { Prisma } from '@prisma/client';
 import { ensureRolledForToday, applyPartialWithPromise, syncScheduleAndSale, distributeOverpayment, resolveScheduleTenantId } from './installments.rules.js';
-import { computeSettlementQuote, computeAccruedInterest } from '@retailerp/shared-utils';
+import { computeSettlementQuote, computeAccruedInterest, computeLatePenalty } from '@retailerp/shared-utils';
+import { computeDaysOverdue, mergeInstallmentSettings } from './installments.derivations.js';
 
 /**
  * Scope object passed to read endpoints. `shopId` is always set (the user's
@@ -719,6 +720,7 @@ export const installmentsService = {
             totalAmount: true,
             downPayment: true,
             interestRate: true,
+            penaltyPerDay: true,
             fileCharge: true,
             numInstallments: true,
             emiAmount: true,
@@ -804,10 +806,22 @@ export const installmentsService = {
     // { schedule, installments, sale, customer, product, guarantor, shop, collectionAssigns }
     const { sale, installments, collectionAssigns, ...scheduleCore } = schedule;
     const { customer, product, guarantor, shop, ...saleCore } = sale;
+
+    // The rate actually in force, so the screen never has to guess the shop
+    // default. `penaltyPerDayIsDefault` tells it whether the sale set its own.
+    const tenant = await prisma.tenant.findUnique({
+      where: { id: scheduleCore.tenantId },
+      select: { settings: true },
+    });
+    const penaltyPerDayIsDefault = saleCore.penaltyPerDay === null;
+    const effectivePenaltyPerDay = penaltyPerDayIsDefault
+      ? mergeInstallmentSettings(tenant?.settings).defaultPenaltyPerDay
+      : Number(saleCore.penaltyPerDay);
+
     return {
       schedule: scheduleCore,
       installments,
-      sale: saleCore,
+      sale: { ...saleCore, effectivePenaltyPerDay, penaltyPerDayIsDefault },
       customer,
       product,
       guarantor,
@@ -2712,7 +2726,8 @@ export const installmentsService = {
     const schedule = await prisma.installmentSchedule.findUnique({
       where: { id: scheduleId },
       include: {
-        sale: { select: { id: true, interestRate: true } },
+        sale: { select: { id: true, interestRate: true, penaltyPerDay: true } },
+        tenant: { select: { settings: true } },
         installments: {
           where: { isRescheduled: false, isClosed: false },
           select: {
@@ -2732,6 +2747,7 @@ export const installmentsService = {
                 appliedAmount: true,
                 appliedAt: true,
                 appliedBy: true,
+                chargedThrough: true,
                 notes: true,
               },
             },
@@ -2742,15 +2758,29 @@ export const installmentsService = {
     });
     if (!schedule) return null;
 
-    const monthlyRate = Number(schedule.sale.interestRate ?? 0);
+    // Flat ₹/day per late EMI — the sale's own rate, else the shop default.
+    // (Previously this used the loan's monthly interest rate, which is not a
+    // penalty rate at all.)
+    const settings = mergeInstallmentSettings(schedule.tenant.settings);
+    const perDay =
+      schedule.sale.penaltyPerDay !== null && schedule.sale.penaltyPerDay !== undefined
+        ? Number(schedule.sale.penaltyPerDay)
+        : settings.defaultPenaltyPerDay;
     const today = new Date();
 
     return schedule.installments.map((inst) => {
-      const accrual = computeAccruedInterest({
-        remainingAmount: Number(inst.remainingAmount),
+      // Start from the last day already charged so nothing is charged twice.
+      let chargedThrough: Date | null = null;
+      for (const app of inst.interestApplications) {
+        const covered = app.chargedThrough ?? app.appliedAt;
+        if (!chargedThrough || covered > chargedThrough) chargedThrough = covered;
+      }
+      const penalty = computeLatePenalty({
+        perDay,
         dueDate: inst.dueDate,
         asOf: today,
-        monthlyInterestRate: monthlyRate,
+        remainingAmount: Number(inst.remainingAmount),
+        chargedThrough,
       });
       const appliedActive = inst.interestApplications.reduce(
         (s, a) => s + Number(a.appliedAmount),
@@ -2764,8 +2794,10 @@ export const installmentsService = {
         dueDate: inst.dueDate,
         remainingAmount: Number(inst.remainingAmount),
         status: inst.status,
-        daysOverdue: accrual.daysOverdue,
-        suggestedInterest: accrual.accruedInterest,
+        daysOverdue: computeDaysOverdue(inst.dueDate, today),
+        penaltyPerDay: perDay,
+        uncharged: { days: penalty.days, amount: penalty.amount },
+        suggestedInterest: penalty.amount,
         appliedInterest: Math.round(appliedActive * 100) / 100,
         applications: inst.interestApplications,
       };

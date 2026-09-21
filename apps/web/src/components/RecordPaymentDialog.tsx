@@ -1,42 +1,50 @@
 import { useState, useEffect, useMemo } from 'react';
 import {
   X,
-  Loader2,
   AlertCircle,
   CheckCircle,
-  CalendarClock,
   ArrowRightLeft,
   Undo2,
-  Info,
   Plus,
   Trash2,
+  Clock,
+  BadgePercent,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import {
   useRecordInstallmentPaymentMutation,
   useInterestAccrualQuery,
   useRollbackInterestApplicationMutation,
-  useSettlementQuoteQuery,
+  usePaymentPreviewQuery,
 } from '../hooks/useInstallments';
 import { formatINR } from '@retailerp/shared-utils';
 import { PaymentMode } from '@retailerp/shared-types';
 import { useCanCheck } from '../hooks/usePermission';
 import { useToastStore } from '../stores/toast-store';
 import { DateInput } from './DateInput';
+import { Button } from './ui/button';
+import { Input } from './ui/input';
+import { Label } from './ui/label';
+import { Textarea } from './ui/textarea';
+import { Tabs } from './ui/tabs';
 
 // ---------------------------------------------------------------------------
 // Props
 // ---------------------------------------------------------------------------
 interface RecordPaymentDialogProps {
   installmentId: string;
+  /** Unpaid balance on the EMI, used until the live preview loads. */
   amountDue: number;
   installmentNumber?: number;
-  defaultDate?: string; // ISO date string for the installment due date
-  initialScenario?: 'full_payment' | 'reschedule' | 'partial_reschedule';
   /**
-   * Pass the schedule id to enable the overdue-interest accrual banner —
-   * dialog will fetch suggested + applied interest for this installment.
+   * @deprecated Ignored. The payment date always starts at today — defaulting
+   * it to the EMI's due date silently backdated late payments, which hid the
+   * lateness and zeroed the penalty.
    */
+  defaultDate?: string;
+  /** `'reschedule'` is accepted for old callers and opens the part-payment tab. */
+  initialScenario?: 'full_payment' | 'reschedule' | 'partial_reschedule';
+  /** Enables "undo last penalty" for this EMI. */
   scheduleId?: string;
   onSuccess: () => void;
   onClose: () => void;
@@ -52,7 +60,7 @@ const paymentModes = [
   { value: PaymentMode.UPI, label: 'UPI' },
 ] as const;
 
-type Scenario = 'full_payment' | 'reschedule' | 'partial_reschedule';
+type Scenario = 'full_payment' | 'partial_reschedule';
 
 interface Split {
   mode: PaymentMode;
@@ -63,6 +71,38 @@ function sumSplits(splits: Split[]): number {
   return splits.reduce((s, x) => s + (Number(x.amount) || 0), 0);
 }
 
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/**
+ * Today in the user's own timezone. `toISOString()` is UTC, which in India
+ * reports yesterday's date until 5:30 am — and a payment date one day off
+ * changes the penalty.
+ */
+function localTodayIso(): string {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function daysBetweenIso(fromIso: string, toIso: string): number {
+  const a = Date.UTC(+fromIso.slice(0, 4), +fromIso.slice(5, 7) - 1, +fromIso.slice(8, 10));
+  const b = Date.UTC(+toIso.slice(0, 4), +toIso.slice(5, 7) - 1, +toIso.slice(8, 10));
+  return Math.round((b - a) / 86_400_000);
+}
+
+/** Last split takes the residue so the parts always sum to the total exactly. */
+function buildBreakdown(
+  splits: Split[],
+  total: number,
+): Array<{ mode: string; amount: number }> | undefined {
+  if (splits.length <= 1) return undefined;
+  const others = splits.slice(0, -1).reduce((acc, x) => acc + (Number(x.amount) || 0), 0);
+  return splits.map((s, i) => ({
+    mode: s.mode,
+    amount: i === splits.length - 1 ? round2(total - others) : Number(s.amount),
+  }));
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -70,199 +110,130 @@ export function RecordPaymentDialog({
   installmentId,
   amountDue,
   installmentNumber,
-  defaultDate,
   initialScenario = 'full_payment',
   scheduleId,
   onSuccess,
   onClose,
 }: RecordPaymentDialogProps) {
-  const todayStr = new Date().toISOString().split('T')[0];
-  const [scenario, setScenario] = useState<Scenario>(initialScenario);
   const can = useCanCheck();
   const addToast = useToastStore((s) => s.addToast);
+  const canChargePenalty = can('installments.interest.apply');
+  const canUndoPenalty = can('installments.interest.rollback');
 
-  // Overdue interest accrual (optional — only when scheduleId provided)
+  const [scenario, setScenario] = useState<Scenario>(
+    initialScenario === 'full_payment' ? 'full_payment' : 'partial_reschedule',
+  );
+  const [paymentDate, setPaymentDate] = useState<string>(localTodayIso());
+
+  // Everything money-related comes from the server for the chosen date, so
+  // what the collector sees is exactly what will be saved.
+  const previewQuery = usePaymentPreviewQuery(installmentId, paymentDate || undefined);
+  const preview = previewQuery.data;
+
+  // Both adjustments start OFF. The collector decides; the system never
+  // charges or gives anything on its own.
+  const [chargePenalty, setChargePenalty] = useState(false);
+  const [giveDeduction, setGiveDeduction] = useState(false);
+
+  const penaltyAvailable = !!preview?.penalty.applicable && canChargePenalty;
+  const deductionAvailable = !!preview?.earlyPayment.applicable && scenario === 'full_payment';
+
+  // If a date change makes an adjustment unavailable, drop the tick with it.
+  useEffect(() => {
+    if (!penaltyAvailable) setChargePenalty(false);
+  }, [penaltyAvailable]);
+  useEffect(() => {
+    if (!deductionAvailable) setGiveDeduction(false);
+  }, [deductionAvailable]);
+
+  // --- The arithmetic the collector sees -----------------------------------
+  const baseDue = preview?.remainingAmount ?? (Number(amountDue) || 0);
+  const penaltyCharged = chargePenalty && preview ? preview.penalty.amount : 0;
+  const deductionTotal = giveDeduction && preview ? preview.earlyPayment.amount : 0;
+  // The deduction comes off the LAST installment. Only when that is this very
+  // EMI does it change what's collected today.
+  const deductionOnThisEmi =
+    giveDeduction && preview && preview.earlyPayment.targetInstallmentNumbers.includes(preview.installmentNumber)
+      ? Math.min(deductionTotal, baseDue + penaltyCharged)
+      : 0;
+  const toCollect = round2(baseDue + penaltyCharged - deductionOnThisEmi);
+  const daysLate = preview ? Math.max(0, daysBetweenIso(preview.dueDate, preview.asOf)) : 0;
+
+  // --- Undo the most recent penalty charge on this EMI ---------------------
   const { data: accrualList } = useInterestAccrualQuery(scheduleId, !!scheduleId);
-  const accrualForRow = accrualList?.find((a) => a.installmentId === installmentId) ?? null;
-  const activeApp = accrualForRow?.applications?.[0] ?? null;
-  const rollbackInterestMutation = useRollbackInterestApplicationMutation();
-  const canApplyInterest = can('installments.interest.apply');
-  const canRollbackInterest = can('installments.interest.rollback');
+  const lastCharge =
+    accrualList?.find((a) => a.installmentId === installmentId)?.applications?.[0] ?? null;
+  const [undoReason, setUndoReason] = useState('');
+  const rollbackMutation = useRollbackInterestApplicationMutation();
 
-  // Settlement quote — for prepayment preview (excess waiver)
-  const { data: settlementQuote } = useSettlementQuoteQuery(scheduleId, !!scheduleId);
-
-  // Client-side discretionary interest selection (NOT yet committed to DB).
-  // Will be sent as part of the payment payload so the API applies it
-  // atomically. If user closes the dialog without recording payment, no
-  // server-side change is made.
-  const [includeInterest, setIncludeInterest] = useState<boolean>(false);
-  const [interestAmount, setInterestAmount] = useState<string>('');
-  const [interestNotes, setInterestNotes] = useState<string>('');
-  const [rollbackReason, setRollbackReason] = useState<string>('');
-  // Excess-payment interest waiver toggle. Off by default: legacy behavior
-  // (excess just decrements future installments). When on, the API waives
-  // baked-in interest on every future installment the excess fully clears.
-  const [waiveExcessInterest, setWaiveExcessInterest] = useState<boolean>(false);
-
-  // Seed interest amount when accrual becomes available
-  useEffect(() => {
-    if (accrualForRow && accrualForRow.daysOverdue > 0 && interestAmount === '') {
-      setInterestAmount(String(accrualForRow.suggestedInterest));
-    }
-  }, [accrualForRow, interestAmount]);
-
-  const interestNum =
-    includeInterest && Number(interestAmount) > 0 ? Number(interestAmount) : 0;
-  // Coerce defensively — Prisma Decimal columns serialise to strings, and
-  // some call sites forward `inst.remainingAmount` directly without
-  // wrapping in Number(). String + number triggers JS string concat
-  // (`"2860" + 0 = "28600"`) so we normalise once here.
-  const amountDueNum = Number(amountDue) || 0;
-  const effectiveAmountDue = useMemo(() => {
-    return Math.round((amountDueNum + interestNum) * 100) / 100;
-  }, [amountDueNum, interestNum]);
-
-  // Full payment state
-  const [fullAmount, setFullAmount] = useState<string>(String(amountDueNum));
-  const [fullSplits, setFullSplits] = useState<Split[]>([
-    { mode: PaymentMode.CASH, amount: '' },
-  ]);
-  const [fullDate, setFullDate] = useState<string>(defaultDate || todayStr);
-  const [fullNotes, setFullNotes] = useState('');
-  const [earlyCollectionDate, setEarlyCollectionDate] = useState('');
-  // Tracks whether the user has manually edited fullAmount; while false we
-  // keep mirroring effectiveAmountDue (base + selected interest).
+  // --- Full payment ---------------------------------------------------------
+  const [fullAmount, setFullAmount] = useState<string>(String(baseDue));
   const [fullAmountTouched, setFullAmountTouched] = useState(false);
+  const [fullSplits, setFullSplits] = useState<Split[]>([{ mode: PaymentMode.CASH, amount: '' }]);
+  const [fullNotes, setFullNotes] = useState('');
 
+  // Keep the amount in step with the ticks until the collector types their own.
   useEffect(() => {
-    if (fullAmountTouched) return;
-    setFullAmount(String(effectiveAmountDue));
-  }, [effectiveAmountDue, fullAmountTouched]);
+    if (!fullAmountTouched) setFullAmount(String(toCollect));
+  }, [toCollect, fullAmountTouched]);
 
-  // Reschedule state
-  const [rescheduleDate, setRescheduleDate] = useState('');
-  const [rescheduleNotes, setRescheduleNotes] = useState('');
-
-  // Partial + reschedule state
+  // --- Part payment ---------------------------------------------------------
   const [partialAmount, setPartialAmount] = useState<string>('');
-  const [partialSplits, setPartialSplits] = useState<Split[]>([
-    { mode: PaymentMode.CASH, amount: '' },
-  ]);
+  const [partialSplits, setPartialSplits] = useState<Split[]>([{ mode: PaymentMode.CASH, amount: '' }]);
   const [partialDate, setPartialDate] = useState('');
   const [partialNotes, setPartialNotes] = useState('');
 
   const mutation = useRecordInstallmentPaymentMutation();
 
-  const partialRemaining = effectiveAmountDue - (Number(partialAmount) || 0);
+  const splitsValid = (splits: Split[], total: number) =>
+    splits.length === 1 ||
+    (splits.every((s) => Number(s.amount) > 0) && Math.abs(sumSplits(splits) - total) <= 0.5);
 
-  // Splits-aware validity. The split sum must equal the entered amount
-  // (within ₹0.50). When only one split exists we send a single paymentMode
-  // (no breakdown) for backward compatibility.
-  const fullSplitSum = sumSplits(fullSplits);
-  const fullSplitsValid =
-    fullSplits.length === 1
-      ? true
-      : fullSplits.every((s) => Number(s.amount) > 0) &&
-        Math.abs(fullSplitSum - Number(fullAmount)) <= 0.5;
-  const partialSplitSum = sumSplits(partialSplits);
-  const partialSplitsValid =
-    partialSplits.length === 1
-      ? true
-      : partialSplits.every((s) => Number(s.amount) > 0) &&
-        Math.abs(partialSplitSum - Number(partialAmount)) <= 0.5;
-
-  // Validation
-  // When amountDue === 0 (e.g. an absorbed-overdue row that the user has
-  // manually re-enabled), accept any positive payment — the server will
-  // treat the entire amount as overpayment and distribute it via R7.
+  const fullAmountNum = Number(fullAmount) || 0;
+  const overBy = round2(fullAmountNum - toCollect);
   const isFullValid =
-    effectiveAmountDue > 0
-      ? Number(fullAmount) >= effectiveAmountDue && fullSplitsValid
-      : Number(fullAmount) > 0 && fullSplitsValid;
-  const isRescheduleValid = !!rescheduleDate;
-  const isPartialValid =
-    Number(partialAmount) > 0 &&
-    (effectiveAmountDue === 0 || Number(partialAmount) < effectiveAmountDue) &&
-    !!partialDate &&
-    partialSplitsValid;
+    !!paymentDate && fullAmountNum > 0 && fullAmountNum >= toCollect && splitsValid(fullSplits, fullAmountNum);
 
-  /** Build the multi-mode breakdown payload from a Split[] state. */
-  const buildBreakdown = (
-    splits: Split[],
-    fallbackTotal: number,
-  ): Array<{ mode: string; amount: number }> | undefined => {
-    if (splits.length <= 1) return undefined;
-    return splits.map((s, i) => {
-      // For the last split, use the residue so the sum is exact even with
-      // user rounding. The validation guarantees the residue is positive.
-      const otherSum = splits
-        .slice(0, splits.length - 1)
-        .reduce((acc, x) => acc + (Number(x.amount) || 0), 0);
-      const amount =
-        i === splits.length - 1
-          ? Math.round((fallbackTotal - otherSum) * 100) / 100
-          : Number(s.amount);
-      return { mode: s.mode, amount };
-    });
-  };
+  const partialAmountNum = Number(partialAmount) || 0;
+  const partialLeft = round2(toCollect - partialAmountNum);
+  const isPartialValid =
+    !!paymentDate &&
+    partialAmountNum > 0 &&
+    partialAmountNum < toCollect &&
+    !!partialDate &&
+    splitsValid(partialSplits, partialAmountNum);
 
   const handleSubmit = () => {
-    let payload: {
-      scenario: Scenario;
-      amountPaid?: number;
-      paymentMode?: string;
-      paymentBreakdown?: Array<{ mode: string; amount: number }>;
-      paymentDate?: string;
-      newDate?: string;
-      notes?: string;
-      earlyCollectionDate?: string;
-      applyInterest?: { amount: number; notes?: string };
-      waiveExcessInterest?: boolean;
-    };
-
-    const interestPayload =
-      includeInterest && interestNum > 0
-        ? { amount: interestNum, notes: interestNotes.trim() || undefined }
-        : undefined;
-
-    if (scenario === 'full_payment') {
-      const breakdown = buildBreakdown(fullSplits, Number(fullAmount));
-      payload = {
-        scenario: 'full_payment',
-        amountPaid: Number(fullAmount),
-        paymentMode: breakdown ? breakdown[0].mode : fullSplits[0].mode,
-        paymentBreakdown: breakdown,
-        paymentDate: fullDate || undefined,
-        notes: fullNotes.trim() || undefined,
-        earlyCollectionDate: earlyCollectionDate || undefined,
-        applyInterest: interestPayload,
-        waiveExcessInterest:
-          Number(fullAmount) > effectiveAmountDue ? waiveExcessInterest : undefined,
-      };
-    } else if (scenario === 'reschedule') {
-      payload = {
-        scenario: 'reschedule',
-        newDate: rescheduleDate,
-        notes: rescheduleNotes.trim() || undefined,
-      };
-    } else {
-      const breakdown = buildBreakdown(partialSplits, Number(partialAmount));
-      payload = {
-        scenario: 'partial_reschedule',
-        amountPaid: Number(partialAmount),
-        paymentMode: breakdown ? breakdown[0].mode : partialSplits[0].mode,
-        paymentBreakdown: breakdown,
-        newDate: partialDate,
-        notes: partialNotes.trim() || undefined,
-        applyInterest: interestPayload,
-      };
-    }
+    const isFull = scenario === 'full_payment';
+    const amount = isFull ? fullAmountNum : partialAmountNum;
+    const splits = isFull ? fullSplits : partialSplits;
+    const breakdown = buildBreakdown(splits, amount);
 
     mutation.mutate(
-      { installmentId, payload },
+      {
+        installmentId,
+        payload: {
+          scenario: isFull ? 'full_payment' : 'partial_reschedule',
+          amountPaid: amount,
+          paymentMode: breakdown ? breakdown[0].mode : splits[0].mode,
+          paymentBreakdown: breakdown,
+          paymentDate,
+          newDate: isFull ? undefined : partialDate,
+          notes: (isFull ? fullNotes : partialNotes).trim() || undefined,
+          applyPenalty: chargePenalty,
+          applyEarlyPaymentDeduction: isFull && giveDeduction,
+        },
+      },
       {
         onSuccess: () => {
+          const extras = [
+            penaltyCharged > 0 ? `${formatINR(penaltyCharged)} penalty charged` : null,
+            deductionTotal > 0 ? `${formatINR(deductionTotal)} deducted from the last EMI` : null,
+          ].filter(Boolean);
+          addToast({
+            type: 'success',
+            message: extras.length > 0 ? `Payment recorded · ${extras.join(' · ')}` : 'Payment recorded',
+          });
           onSuccess();
           onClose();
         },
@@ -276,661 +247,354 @@ export function RecordPaymentDialog({
       'Something went wrong. Please try again.'
     : null;
 
-  const tabs: { key: Scenario; label: string; icon: React.ReactNode }[] = [
-    {
-      key: 'full_payment',
-      label: 'Full Payment',
-      icon: <CheckCircle className="h-4 w-4" />,
-    },
-    {
-      key: 'reschedule',
-      label: 'Reschedule',
-      icon: <CalendarClock className="h-4 w-4" />,
-    },
-    {
-      key: 'partial_reschedule',
-      label: 'Partial + Reschedule',
-      icon: <ArrowRightLeft className="h-4 w-4" />,
-    },
-  ];
+  const targets = preview?.earlyPayment.targetInstallmentNumbers ?? [];
+  const targetLabel =
+    targets.length === 0
+      ? 'the last installment'
+      : targets.length === 1
+        ? `EMI #${targets[0]}`
+        : `EMIs ${targets.map((t) => `#${t}`).join(', ')}`;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-foreground/40 backdrop-blur-sm" onClick={onClose} />
 
-      {/* Dialog */}
-      <div className="relative z-10 w-full max-w-4xl rounded-lg border bg-card p-6 shadow-xl mx-4 max-h-[90vh] overflow-y-auto overflow-x-hidden scrollbar-auto">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="record-payment-title"
+        className="animate-scale-in relative z-10 flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-border bg-popover shadow-lg"
+      >
         {/* Header */}
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-start justify-between gap-3 border-b border-border px-5 py-4">
           <div>
-            <h3 className="text-lg font-medium">Record Payment</h3>
-            {installmentNumber && (
-              <p className="text-sm text-muted-foreground">
-                EMI #{installmentNumber}
-              </p>
-            )}
+            <h3 id="record-payment-title" className="text-title">Record payment</h3>
+            <p className="text-caption">
+              {installmentNumber || preview?.installmentNumber
+                ? `EMI #${installmentNumber ?? preview?.installmentNumber}`
+                : 'Installment'}
+              {preview && <> · due {preview.dueDate}</>}
+            </p>
           </div>
-          <button
-            onClick={onClose}
-            className="rounded-md p-1 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-          >
-            <X className="h-5 w-5" />
-          </button>
+          <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close">
+            <X className="h-4 w-4" />
+          </Button>
         </div>
 
-        {/* Tabs */}
-        <div className="flex gap-1 rounded-lg bg-muted p-1 mb-6">
-          {tabs.map((tab) => (
-            <button
-              key={tab.key}
-              type="button"
-              onClick={() => setScenario(tab.key)}
-              className={cn(
-                'flex-1 flex items-center justify-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium transition-colors',
-                scenario === tab.key
-                  ? 'bg-background text-foreground shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              {tab.icon}
-              <span className="hidden sm:inline">{tab.label}</span>
-            </button>
-          ))}
-        </div>
-
-        {/* Two-column layout: form on the left, contextual summary on the right */}
-        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_18rem] gap-6">
-          <div className="space-y-4 min-w-0">
-
-        {/* Full Payment Tab */}
-        {scenario === 'full_payment' && (
-          <div className="space-y-4">
-            {/* Amount */}
-            <div>
-              <label className="block text-sm font-medium mb-1.5">
-                Amount <span className="text-destructive">*</span>
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                value={fullAmount}
-                onChange={(e) => {
-                  setFullAmountTouched(true);
-                  setFullAmount(e.target.value);
-                }}
-                placeholder="0.00"
-                className={cn(
-                  'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
-                  'placeholder:text-muted-foreground',
-                  'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                )}
-              />
-              {Number(fullAmount) > effectiveAmountDue && (
-                <PrepaymentPreview
-                  excess={Number(fullAmount) - effectiveAmountDue}
-                  quote={settlementQuote ?? null}
-                  waiveInterest={waiveExcessInterest}
-                  onWaiveChange={setWaiveExcessInterest}
-                />
-              )}
-              {fullAmountTouched && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setFullAmountTouched(false);
-                    setFullAmount(String(effectiveAmountDue));
-                  }}
-                  className="mt-1.5 text-xs text-primary hover:underline"
-                >
-                  Reset to amount due ({formatINR(effectiveAmountDue)})
-                </button>
-              )}
+        <div className="scrollbar-auto overflow-y-auto px-5 py-4">
+          <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+            <Tabs
+              aria-label="Payment type"
+              value={scenario}
+              onChange={(v) => setScenario(v as Scenario)}
+              items={[
+                { value: 'full_payment', label: 'Full payment' },
+                { value: 'partial_reschedule', label: 'Part payment' },
+              ]}
+            />
+            <div className="w-44">
+              <Label htmlFor="payment-date" required>Payment date</Label>
+              <DateInput value={paymentDate} onChange={(v) => setPaymentDate(v)} />
             </div>
-
-            {/* Payment Date */}
-            <div className="max-w-xs">
-              <label className="block text-sm font-medium mb-1.5">
-                Payment Date <span className="text-destructive">*</span>
-              </label>
-              <DateInput
-                value={fullDate}
-                onChange={(v) => setFullDate(v)}
-              />
-            </div>
-
-            {/* Payment Mode (multi-split) — full width so the editor doesn't overflow */}
-            <div>
-              <label className="block text-sm font-medium mb-1.5">
-                Payment Mode <span className="text-destructive">*</span>
-              </label>
-              <PaymentSplitsEditor
-                splits={fullSplits}
-                onChange={setFullSplits}
-                total={Number(fullAmount) || 0}
-              />
-            </div>
-
-            {/* Notes */}
-            <div>
-              <label className="block text-sm font-medium mb-1.5">
-                Notes
-              </label>
-              <textarea
-                rows={2}
-                value={fullNotes}
-                onChange={(e) => setFullNotes(e.target.value)}
-                placeholder="Optional payment notes..."
-                className={cn(
-                  'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
-                  'placeholder:text-muted-foreground',
-                  'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                )}
-              />
-            </div>
-
-            {/* Early Collection Date for Next Installment */}
-            <div className="rounded-md border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/30 p-3">
-              <label className="block text-sm font-medium mb-1.5 text-blue-800 dark:text-blue-200">
-                Early Collection Date (Next Installment)
-              </label>
-              <p className="text-xs text-blue-600 dark:text-blue-400 mb-2">
-                If the customer wants to pay the next installment before its due date, set the preferred date here.
-              </p>
-              <DateInput
-                value={earlyCollectionDate}
-                onChange={(v) => setEarlyCollectionDate(v)}
-              />
-            </div>
-
-            {/* Submit */}
-            <button
-              type="button"
-              onClick={handleSubmit}
-              disabled={!isFullValid || mutation.isPending}
-              className={cn(
-                'w-full flex items-center justify-center gap-2 rounded-md bg-green-600 px-5 py-2.5 text-sm font-medium text-white',
-                'hover:bg-green-700 transition-colors',
-                'disabled:opacity-50 disabled:cursor-not-allowed',
-              )}
-            >
-              {mutation.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <CheckCircle className="h-4 w-4" />
-              )}
-              Confirm Payment
-            </button>
-          </div>
-        )}
-
-        {/* Reschedule Tab */}
-        {scenario === 'reschedule' && (
-          <div className="space-y-4">
-            {/* New Date */}
-            <div>
-              <label className="block text-sm font-medium mb-1.5">
-                New Date <span className="text-destructive">*</span>
-              </label>
-              <DateInput
-                value={rescheduleDate}
-                onChange={(v) => setRescheduleDate(v)}
-              />
-              {rescheduleDate && (
-                <p className="mt-1.5 text-xs text-muted-foreground">
-                  Installment will be moved to{' '}
-                  {new Date(rescheduleDate).toLocaleDateString('en-IN', {
-                    weekday: 'long',
-                    day: 'numeric',
-                    month: 'long',
-                    year: 'numeric',
-                  })}
-                </p>
-              )}
-            </div>
-
-            {/* Notes */}
-            <div>
-              <label className="block text-sm font-medium mb-1.5">
-                Reason / Notes
-              </label>
-              <textarea
-                rows={2}
-                value={rescheduleNotes}
-                onChange={(e) => setRescheduleNotes(e.target.value)}
-                placeholder="Reason for rescheduling..."
-                className={cn(
-                  'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
-                  'placeholder:text-muted-foreground',
-                  'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                )}
-              />
-            </div>
-
-            {/* Submit */}
-            <button
-              type="button"
-              onClick={handleSubmit}
-              disabled={!isRescheduleValid || mutation.isPending}
-              className={cn(
-                'w-full flex items-center justify-center gap-2 rounded-md bg-amber-600 px-5 py-2.5 text-sm font-medium text-white',
-                'hover:bg-amber-700 transition-colors',
-                'disabled:opacity-50 disabled:cursor-not-allowed',
-              )}
-            >
-              {mutation.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <CalendarClock className="h-4 w-4" />
-              )}
-              Confirm Reschedule
-            </button>
-          </div>
-        )}
-
-        {/* Partial + Reschedule Tab */}
-        {scenario === 'partial_reschedule' && (
-          <div className="space-y-4">
-            {/* Amount Paid */}
-            <div>
-              <label className="block text-sm font-medium mb-1.5">
-                Amount Paid <span className="text-destructive">*</span>
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                value={partialAmount}
-                onChange={(e) => setPartialAmount(e.target.value)}
-                placeholder="0.00"
-                className={cn(
-                  'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
-                  'placeholder:text-muted-foreground',
-                  'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                )}
-              />
-              {Number(partialAmount) >= effectiveAmountDue && (
-                <p className="mt-1 text-xs text-destructive">
-                  Amount must be less than {formatINR(effectiveAmountDue)}
-                </p>
-              )}
-            </div>
-
-            {/* Payment Mode (multi-split) */}
-            <div>
-              <label className="block text-sm font-medium mb-1.5">
-                Payment Mode <span className="text-destructive">*</span>
-              </label>
-              <PaymentSplitsEditor
-                splits={partialSplits}
-                onChange={setPartialSplits}
-                total={Number(partialAmount) || 0}
-              />
-            </div>
-
-            {/* Remaining Amount */}
-            <div>
-              <label className="block text-sm font-medium mb-1.5">
-                Remaining Amount
-              </label>
-              <div className="w-full rounded-md border bg-muted/50 px-3 py-2.5 text-sm font-medium">
-                {formatINR(partialRemaining > 0 ? partialRemaining : 0)}
-              </div>
-              <p className="mt-1 text-xs text-muted-foreground">
-                This amount will be rescheduled to the new date
-              </p>
-            </div>
-
-            {/* New Date for remaining */}
-            <div>
-              <label className="block text-sm font-medium mb-1.5">
-                New Date for Remaining <span className="text-destructive">*</span>
-              </label>
-              <DateInput
-                value={partialDate}
-                onChange={(v) => setPartialDate(v)}
-              />
-            </div>
-
-            {/* Notes */}
-            <div>
-              <label className="block text-sm font-medium mb-1.5">
-                Notes
-              </label>
-              <textarea
-                rows={2}
-                value={partialNotes}
-                onChange={(e) => setPartialNotes(e.target.value)}
-                placeholder="Optional notes..."
-                className={cn(
-                  'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
-                  'placeholder:text-muted-foreground',
-                  'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                )}
-              />
-            </div>
-
-            {/* Submit */}
-            <button
-              type="button"
-              onClick={handleSubmit}
-              disabled={!isPartialValid || mutation.isPending}
-              className={cn(
-                'w-full flex items-center justify-center gap-2 rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground',
-                'hover:bg-primary/90 transition-colors',
-                'disabled:opacity-50 disabled:cursor-not-allowed',
-              )}
-            >
-              {mutation.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <ArrowRightLeft className="h-4 w-4" />
-              )}
-              Confirm Partial Payment
-            </button>
-          </div>
-        )}
-
-        {/* Error display */}
-        {mutationError && (
-          <div className="mt-4 flex items-center gap-2 rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
-            <AlertCircle className="h-4 w-4 shrink-0" />
-            {mutationError}
-          </div>
-        )}
           </div>
 
-          {/* Right column — contextual summary + overdue interest */}
-          <aside className="space-y-3 min-w-0">
-            <div className="rounded-lg border bg-muted/30 p-4">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground mb-2">
-                Summary
-              </p>
-              <dl className="space-y-1.5 text-sm">
-                <div className="flex justify-between">
-                  <dt className="text-muted-foreground">Amount due</dt>
-                  <dd className="font-medium">{formatINR(amountDueNum)}</dd>
-                </div>
-                {includeInterest && interestNum > 0 && (
-                  <div className="flex justify-between text-amber-700 dark:text-amber-400">
-                    <dt>+ Overdue interest</dt>
-                    <dd className="font-medium">{formatINR(interestNum)}</dd>
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_17rem]">
+            {/* ---------------- Form ---------------- */}
+            <div className="min-w-0 space-y-4">
+              {scenario === 'full_payment' ? (
+                <>
+                  <div>
+                    <Label htmlFor="full-amount" required>Amount received</Label>
+                    <Input
+                      id="full-amount"
+                      type="number"
+                      step="0.01"
+                      value={fullAmount}
+                      onChange={(e) => {
+                        setFullAmountTouched(true);
+                        setFullAmount(e.target.value);
+                      }}
+                    />
+                    {fullAmountNum > 0 && fullAmountNum < toCollect && (
+                      <p className="mt-1 text-xs text-destructive">
+                        Full payment needs at least {formatINR(toCollect)}. Use “Part payment” for less.
+                      </p>
+                    )}
+                    {overBy > 0.5 && (
+                      <p className="mt-1 text-xs text-warning">
+                        {formatINR(overBy)} more than this EMI. Extra money isn't applied to other EMIs yet —
+                        record it against the next EMI as a separate payment.
+                      </p>
+                    )}
+                    {fullAmountTouched && Math.abs(overBy) > 0.004 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFullAmountTouched(false);
+                          setFullAmount(String(toCollect));
+                        }}
+                        className="mt-1 text-xs text-primary hover:underline"
+                      >
+                        Reset to {formatINR(toCollect)}
+                      </button>
+                    )}
                   </div>
-                )}
-                {(includeInterest && interestNum > 0) && (
-                  <div className="flex justify-between border-t pt-1.5 mt-1.5">
-                    <dt className="text-muted-foreground">Total payable</dt>
-                    <dd className="font-semibold">{formatINR(effectiveAmountDue)}</dd>
+
+                  <div>
+                    <Label required>Payment mode</Label>
+                    <PaymentSplitsEditor splits={fullSplits} onChange={setFullSplits} total={fullAmountNum} />
                   </div>
-                )}
-              </dl>
-            </div>
 
-            {/* Overdue interest accrual banner — moved into the sidebar */}
-            {accrualForRow && accrualForRow.daysOverdue > 0 && (
-              <div className="rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-900/40 p-3 space-y-2">
-                <div>
-                  <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">
-                    Overdue interest accrued
-                  </p>
-                  <p className="text-xs text-amber-800 dark:text-amber-300">
-                    {accrualForRow.daysOverdue} days overdue · suggested{' '}
-                    {formatINR(accrualForRow.suggestedInterest)}
-                  </p>
-                </div>
+                  <div>
+                    <Label htmlFor="full-notes">Notes</Label>
+                    <Textarea
+                      id="full-notes"
+                      rows={2}
+                      value={fullNotes}
+                      onChange={(e) => setFullNotes(e.target.value)}
+                      placeholder="Optional"
+                    />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <Label htmlFor="partial-amount" required>Amount received</Label>
+                    <Input
+                      id="partial-amount"
+                      type="number"
+                      step="0.01"
+                      value={partialAmount}
+                      onChange={(e) => setPartialAmount(e.target.value)}
+                      placeholder="0.00"
+                    />
+                    {partialAmountNum >= toCollect && toCollect > 0 && (
+                      <p className="mt-1 text-xs text-destructive">
+                        That covers the whole EMI — use “Full payment”.
+                      </p>
+                    )}
+                  </div>
 
-                {activeApp && (
-                  <div className="rounded-md bg-amber-100 dark:bg-amber-900/40 px-3 py-2">
-                    <p className="text-xs text-amber-900 dark:text-amber-200 mb-2">
-                      Already applied earlier:{' '}
-                      <span className="font-semibold">
-                        {formatINR(Number(activeApp.appliedAmount))}
-                      </span>
+                  <div>
+                    <Label required>Payment mode</Label>
+                    <PaymentSplitsEditor splits={partialSplits} onChange={setPartialSplits} total={partialAmountNum} />
+                  </div>
+
+                  <div>
+                    <Label required>Customer will pay the rest on</Label>
+                    <DateInput value={partialDate} onChange={(v) => setPartialDate(v)} />
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {partialLeft > 0 ? `${formatINR(partialLeft)} left on this EMI. ` : ''}
+                      The EMI keeps its own due date; this is recorded as the customer's promise.
                     </p>
-                    {canRollbackInterest && (
-                      <div className="space-y-1.5">
+                  </div>
+
+                  <div>
+                    <Label htmlFor="partial-notes">Notes</Label>
+                    <Textarea
+                      id="partial-notes"
+                      rows={2}
+                      value={partialNotes}
+                      onChange={(e) => setPartialNotes(e.target.value)}
+                      placeholder="Optional"
+                    />
+                  </div>
+                </>
+              )}
+
+              {mutationError && (
+                <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive-muted px-3 py-2 text-sm text-destructive">
+                  <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                  {mutationError}
+                </div>
+              )}
+            </div>
+
+            {/* ---------------- Adjustments + summary ---------------- */}
+            <aside className="min-w-0 space-y-3">
+              {/* Late penalty */}
+              {preview && (preview.penalty.applicable || preview.penalty.alreadyCharged > 0) && (
+                <div className="rounded-lg border border-warning/30 bg-warning-muted p-3">
+                  <p className="flex items-center gap-1.5 text-sm font-semibold text-warning">
+                    <Clock className="h-3.5 w-3.5" />
+                    {daysLate > 0 ? `Late by ${daysLate} day${daysLate === 1 ? '' : 's'}` : 'Late penalty'}
+                  </p>
+
+                  {preview.penalty.applicable ? (
+                    <p className="mt-1 text-xs text-foreground/80">
+                      {formatINR(preview.penalty.perDay)}/day × {preview.penalty.days}
+                      {/* When earlier charges covered part of the lateness, say so —
+                          otherwise "late by 25 days … × 2 days" reads as a mistake. */}
+                      {preview.penalty.days < daysLate ? ' uncharged' : ''} day
+                      {preview.penalty.days === 1 ? '' : 's'} ={' '}
+                      <span className="tabular font-semibold">{formatINR(preview.penalty.amount)}</span>
+                    </p>
+                  ) : (
+                    <p className="mt-1 text-xs text-foreground/80">Nothing new to charge for this date.</p>
+                  )}
+                  {preview.penalty.alreadyCharged > 0 && (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {formatINR(preview.penalty.alreadyCharged)} already charged earlier.
+                    </p>
+                  )}
+
+                  {preview.penalty.applicable && (
+                    canChargePenalty ? (
+                      <label className="mt-2 flex cursor-pointer items-start gap-2 text-sm">
                         <input
-                          type="text"
-                          value={rollbackReason}
-                          onChange={(e) => setRollbackReason(e.target.value)}
-                          placeholder="Reason to roll back…"
-                          className="w-full rounded-md border bg-field px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+                          id="charge-penalty"
+                          type="checkbox"
+                          checked={chargePenalty}
+                          onChange={(e) => setChargePenalty(e.target.checked)}
+                          className="mt-0.5 h-4 w-4 rounded border-border-strong accent-[hsl(var(--warning))]"
                         />
-                        <button
-                          type="button"
-                          disabled={!rollbackReason.trim() || rollbackInterestMutation.isPending}
-                          onClick={() => {
-                            rollbackInterestMutation.mutate(
-                              { applicationId: activeApp.id, reason: rollbackReason.trim() },
+                        <span>Charge {formatINR(preview.penalty.amount)} penalty</span>
+                      </label>
+                    ) : (
+                      <p className="mt-2 text-xs text-muted-foreground">You don't have permission to charge penalty.</p>
+                    )
+                  )}
+
+                  {lastCharge && canUndoPenalty && (
+                    <div className="mt-3 space-y-1.5 border-t border-warning/20 pt-2">
+                      <p className="text-xs text-muted-foreground">
+                        Last charge: {formatINR(Number(lastCharge.appliedAmount))}
+                      </p>
+                      <div className="flex gap-1.5">
+                        <Input
+                          id="undo-penalty-reason"
+                          value={undoReason}
+                          onChange={(e) => setUndoReason(e.target.value)}
+                          placeholder="Reason to undo"
+                          className="h-8 text-xs"
+                        />
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={!undoReason.trim()}
+                          loading={rollbackMutation.isPending}
+                          icon={<Undo2 className="h-3 w-3" />}
+                          onClick={() =>
+                            rollbackMutation.mutate(
+                              { applicationId: lastCharge.id, reason: undoReason.trim() },
                               {
                                 onSuccess: () => {
-                                  addToast({ type: 'success', message: 'Interest rolled back' });
-                                  setRollbackReason('');
+                                  addToast({ type: 'success', message: 'Penalty charge undone' });
+                                  setUndoReason('');
+                                  void previewQuery.refetch();
                                 },
-                                onError: (err: unknown) => {
-                                  const msg =
-                                    (err as { response?: { data?: { error?: string } } })?.response?.data?.error ??
-                                    'Failed to roll back';
-                                  addToast({ type: 'error', message: msg });
-                                },
+                                onError: (err: unknown) =>
+                                  addToast({
+                                    type: 'error',
+                                    message:
+                                      (err as { response?: { data?: { error?: string } } })?.response?.data?.error ??
+                                      'Could not undo the charge',
+                                  }),
                               },
-                            );
-                          }}
-                          className={cn(
-                            'inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium',
-                            'border-amber-300 bg-background hover:bg-amber-50 dark:hover:bg-amber-900/40 transition-colors',
-                            'disabled:opacity-60',
-                          )}
+                            )
+                          }
                         >
-                          {rollbackInterestMutation.isPending ? (
-                            <Loader2 className="h-3 w-3 animate-spin" />
-                          ) : (
-                            <Undo2 className="h-3 w-3" />
-                          )}
-                          Roll back
-                        </button>
+                          Undo
+                        </Button>
                       </div>
-                    )}
-                  </div>
-                )}
+                    </div>
+                  )}
+                </div>
+              )}
 
-                {canApplyInterest && (
-                  <div className="space-y-2">
-                    <label className="flex items-start gap-2 text-xs text-amber-900 dark:text-amber-200 cursor-pointer">
+              {/* Early-payment deduction */}
+              {preview && scenario === 'full_payment' && preview.earlyPayment.daysEarly > 0 && (
+                deductionAvailable ? (
+                  <div className="rounded-lg border border-primary/25 bg-primary-muted p-3">
+                    <p className="flex items-center gap-1.5 text-sm font-semibold text-primary">
+                      <BadgePercent className="h-3.5 w-3.5" />
+                      Paid {preview.earlyPayment.daysEarly} days early
+                    </p>
+                    <p className="mt-1 text-xs text-foreground/80">
+                      This EMI includes {formatINR(preview.earlyPayment.amount)} of the interest charged at sale.
+                    </p>
+                    <label className="mt-2 flex cursor-pointer items-start gap-2 text-sm">
                       <input
+                        id="give-deduction"
                         type="checkbox"
-                        checked={includeInterest}
-                        onChange={(e) => setIncludeInterest(e.target.checked)}
-                        className="mt-0.5 rounded border-amber-300"
+                        checked={giveDeduction}
+                        onChange={(e) => setGiveDeduction(e.target.checked)}
+                        className="mt-0.5 h-4 w-4 rounded border-border-strong accent-[hsl(var(--primary))]"
                       />
                       <span>
-                        Add interest to this payment. Interest will only be charged
-                        when you record the payment — closing the dialog discards the
-                        selection.
+                        Deduct {formatINR(preview.earlyPayment.amount)} from {targetLabel}
+                        {targets.length === 1 ? ' (last installment)' : ''}
                       </span>
                     </label>
-                    {includeInterest && (
-                      <div className="space-y-1.5 pl-6">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <input
-                            type="number"
-                            step="0.01"
-                            value={interestAmount}
-                            onChange={(e) => setInterestAmount(e.target.value)}
-                            placeholder={String(accrualForRow.suggestedInterest)}
-                            className="flex-1 min-w-0 rounded-md border bg-field px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setInterestAmount(String(accrualForRow.suggestedInterest))}
-                            className="shrink-0 text-xs text-primary hover:underline"
-                          >
-                            use
-                          </button>
-                        </div>
-                        <input
-                          type="text"
-                          value={interestNotes}
-                          onChange={(e) => setInterestNotes(e.target.value)}
-                          placeholder="Note (optional)"
-                          className="w-full rounded-md border bg-field px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
-                        />
-                      </div>
-                    )}
                   </div>
-                )}
+                ) : (
+                  preview.earlyPayment.reason && (
+                    <p className="rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground">
+                      Paid {preview.earlyPayment.daysEarly} days early. No deduction offered:{' '}
+                      {preview.earlyPayment.reason.charAt(0).toLowerCase() + preview.earlyPayment.reason.slice(1)}
+                    </p>
+                  )
+                )
+              )}
+
+              {/* Summary */}
+              <div className="rounded-lg border border-border bg-subtle p-3">
+                <p className="text-overline mb-2">Summary</p>
+                <dl className="space-y-1.5 text-sm">
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-muted-foreground">Due on this EMI</dt>
+                    <dd className="tabular font-medium">{formatINR(baseDue)}</dd>
+                  </div>
+                  {penaltyCharged > 0 && (
+                    <div className="flex justify-between gap-3 text-warning">
+                      <dt>+ Late penalty</dt>
+                      <dd className="tabular font-medium">{formatINR(penaltyCharged)}</dd>
+                    </div>
+                  )}
+                  {deductionOnThisEmi > 0 && (
+                    <div className="flex justify-between gap-3 text-primary">
+                      <dt>− Early-payment deduction</dt>
+                      <dd className="tabular font-medium">{formatINR(deductionOnThisEmi)}</dd>
+                    </div>
+                  )}
+                  <div className="mt-1.5 flex justify-between gap-3 border-t border-border pt-1.5">
+                    <dt className="font-medium">To collect</dt>
+                    <dd className="tabular text-base font-semibold">{formatINR(toCollect)}</dd>
+                  </div>
+                  {deductionTotal - deductionOnThisEmi > 0.004 && (
+                    <p className="pt-1 text-xs text-primary">
+                      {formatINR(round2(deductionTotal - deductionOnThisEmi))} comes off {targetLabel}.
+                    </p>
+                  )}
+                </dl>
               </div>
-            )}
-          </aside>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/**
- * Live preview of how an excess payment (above the current installment dues)
- * will be applied to future installments.
- *
- * Two modes (controlled by `waiveInterest`):
- *  - OFF (default): the excess is just decremented from upcoming
- *    installments. Customer still owes baked-in interest on each.
- *  - ON: every future installment fully cleared by the excess waives its
- *    baked-in interest share — same logic as the final-settlement quote.
- */
-function PrepaymentPreview({
-  excess,
-  quote,
-  waiveInterest,
-  onWaiveChange,
-}: {
-  excess: number;
-  quote: {
-    perInstallment: { principalShare: number; interestShare: number; fileChargeShare: number };
-    unpaidCount: number;
-  } | null;
-  waiveInterest: boolean;
-  onWaiveChange: (next: boolean) => void;
-}) {
-  if (excess <= 0) return null;
-
-  const futureUnpaid = quote ? Math.max(0, quote.unpaidCount - 1) : 0;
-  const principalShare = quote?.perInstallment.principalShare ?? 0;
-  const interestShare = quote?.perInstallment.interestShare ?? 0;
-  const fileChargeShare = quote?.perInstallment.fileChargeShare ?? 0;
-  const noInterestEmi = principalShare + fileChargeShare;
-  const flatEmi = noInterestEmi + interestShare;
-
-  // Simulation A — without waiver (legacy): excess straight-decrement.
-  let remA = excess;
-  let clearedA = 0;
-  let principalReducedA = 0;
-  if (quote && futureUnpaid > 0 && flatEmi > 0) {
-    while (clearedA < futureUnpaid && remA >= flatEmi - 0.005) {
-      remA = Math.round((remA - flatEmi) * 100) / 100;
-      clearedA += 1;
-    }
-    principalReducedA = Math.round(remA * 100) / 100;
-  }
-
-  // Simulation B — with waiver: principal+file only per cleared row.
-  let remB = excess;
-  let clearedB = 0;
-  let waivedInterestB = 0;
-  if (quote && futureUnpaid > 0 && noInterestEmi > 0) {
-    while (clearedB < futureUnpaid && remB >= noInterestEmi - 0.005) {
-      remB = Math.round((remB - noInterestEmi) * 100) / 100;
-      clearedB += 1;
-      waivedInterestB = Math.round((waivedInterestB + interestShare) * 100) / 100;
-    }
-  }
-
-  return (
-    <div className="mt-1.5 space-y-2">
-      <div className="rounded-md border border-blue-200 dark:border-blue-900/40 bg-blue-50 dark:bg-blue-900/20 px-3 py-2">
-        <div className="flex items-start gap-2">
-          <Info className="h-4 w-4 text-blue-700 dark:text-blue-400 shrink-0 mt-0.5" />
-          <div className="text-xs text-blue-900 dark:text-blue-200 space-y-0.5">
-            <p>
-              Excess of{' '}
-              <span className="font-semibold">{formatINR(excess)}</span> applied as
-              prepayment.
-            </p>
-            {!quote || futureUnpaid === 0 ? (
-              <p>No upcoming installments to absorb the excess.</p>
-            ) : !waiveInterest ? (
-              <>
-                {clearedA > 0 && (
-                  <p>
-                    Closes next {clearedA} installment{clearedA > 1 ? 's' : ''} (interest
-                    NOT waived — customer still pays the original interest).
-                  </p>
-                )}
-                {principalReducedA > 0.005 && (
-                  <p>
-                    Remaining{' '}
-                    <span className="font-semibold">{formatINR(principalReducedA)}</span>{' '}
-                    reduces the next unpaid installment.
-                  </p>
-                )}
-                {clearedA === 0 && principalReducedA === 0 && (
-                  <p>Excess will be split across upcoming installments.</p>
-                )}
-              </>
-            ) : (
-              <>
-                {clearedB > 0 && (
-                  <p>
-                    Closes next {clearedB} installment{clearedB > 1 ? 's' : ''} early ·
-                    <span className="font-semibold">
-                      {' '}
-                      {formatINR(waivedInterestB)} interest waived
-                    </span>
-                    .
-                  </p>
-                )}
-                {remB > 0.005 && (
-                  <p>
-                    Remaining{' '}
-                    <span className="font-semibold">{formatINR(remB)}</span> reduces
-                    the principal of the next unpaid installment.
-                  </p>
-                )}
-                {clearedB === 0 && remB === 0 && (
-                  <p>Excess will be split across upcoming installments.</p>
-                )}
-              </>
-            )}
+            </aside>
           </div>
         </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-end gap-2 border-t border-border bg-subtle px-5 py-3">
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button
+            onClick={handleSubmit}
+            loading={mutation.isPending}
+            disabled={(scenario === 'full_payment' ? !isFullValid : !isPartialValid) || previewQuery.isLoading}
+            icon={
+              scenario === 'full_payment'
+                ? <CheckCircle className="h-4 w-4" />
+                : <ArrowRightLeft className="h-4 w-4" />
+            }
+          >
+            {scenario === 'full_payment'
+              ? `Record ${formatINR(fullAmountNum)}`
+              : `Record ${formatINR(partialAmountNum)}`}
+          </Button>
+        </div>
       </div>
-      {quote && futureUnpaid > 0 && interestShare > 0.005 && (
-        <label className="flex items-start gap-2 text-xs text-emerald-900 dark:text-emerald-200 cursor-pointer rounded-md border border-emerald-200 dark:border-emerald-900/40 bg-emerald-50 dark:bg-emerald-900/20 px-3 py-2">
-          <input
-            type="checkbox"
-            checked={waiveInterest}
-            onChange={(e) => onWaiveChange(e.target.checked)}
-            className="mt-0.5 rounded border-emerald-300"
-          />
-          <span>
-            <span className="font-semibold">Waive interest on prepayment.</span> When
-            checked, future installments fully cleared by this excess will only
-            charge principal + file charge — saves the customer{' '}
-            <span className="font-semibold">{formatINR(waivedInterestB)}</span>.
-          </span>
-        </label>
-      )}
     </div>
   );
 }
 
-/**
- * Editor for splitting one payment across up to 3 modes (cash + UPI etc.).
- * - 1 split: shows mode pills only (legacy single-mode UX, no amount input).
- * - 2-3 splits: shows mode dropdown + amount input per row, plus a live
- *   "remaining to allocate" badge so the collector sees if amounts add up.
- * Default state: a single CASH split with empty amount (treated as the full
- * total at submit time).
- */
 function PaymentSplitsEditor({
   splits,
   onChange,

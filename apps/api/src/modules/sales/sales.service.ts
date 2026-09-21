@@ -22,6 +22,8 @@ export const salesService = {
     paymentBreakdown?: Array<{mode: string; amount: number}> | null;
     promiseDate?: string | null;
     interestRate?: number | null;
+    /** Late penalty in ₹ per day per late EMI. Null/omitted = shop default. */
+    penaltyPerDay?: number | null;
     fileCharge?: number | null;
     numInstallments?: number | null;
     guarantorId?: string | null;
@@ -200,8 +202,13 @@ export const salesService = {
       saleNumber = generateSaleNumber(shopCode, saleDate, txLastSale?.saleNumber ?? undefined);
 
       // 5. Create SaleRecord
+      // Tenant is taken from the product being sold — the one row here that is
+      // guaranteed to belong to the right tenant. Every write below uses it.
+      const tenantId = product.tenantId;
+
       const saleRecord = await tx.saleRecord.create({
         data: {
+          tenantId,
           saleNumber,
           ledgerNumber: data.ledgerNumber,
           shopId,
@@ -220,7 +227,9 @@ export const salesService = {
           totalAmount,
           downPayment,
           paymentMode: data.paymentMode as any,
-          paymentBreakdown: data.paymentBreakdown ?? null,
+          // Prisma rejects a bare `null` for a JSON column at runtime, so a
+          // sale without a split payment omits the field instead.
+          paymentBreakdown: data.paymentBreakdown ?? undefined,
           // Partial with promise
           promiseDate: data.saleType === 'partial_with_promise' && data.promiseDate
             ? new Date(data.promiseDate)
@@ -228,6 +237,7 @@ export const salesService = {
           pendingAmount,
           // Self finance
           interestRate: data.saleType === 'self_finance' ? interestRate : null,
+          penaltyPerDay: data.saleType === 'self_finance' ? (data.penaltyPerDay ?? null) : null,
           fileCharge: data.saleType === 'self_finance' ? fileCharge : 0,
           effectiveMonthlyRate,
           totalFinancedAmount,
@@ -259,6 +269,7 @@ export const salesService = {
       // Same id as SaleRecord. saleType is ALWAYS 'full_payment', paymentMode is ALWAYS 'cash'
       await tx.saleRecordSanitized.create({
         data: {
+          tenantId,
           id: saleRecord.id,
           saleNumber,
           ledgerNumber: data.ledgerNumber,
@@ -283,6 +294,7 @@ export const salesService = {
       // 8. Create ProductAuditTrail entry
       await tx.productAuditTrail.create({
         data: {
+          tenantId,
           productId: data.productId,
           eventType: 'sold',
           toShopId: shopId,
@@ -297,6 +309,7 @@ export const salesService = {
       if (data.saleType === 'self_finance' && emiResult) {
         const schedule = await tx.installmentSchedule.create({
           data: {
+            tenantId,
             saleId: saleRecord.id,
             totalPrincipal: emiResult.principal,
             totalInterest: emiResult.totalInterest,
@@ -313,6 +326,7 @@ export const salesService = {
         for (const inst of emiResult.schedule) {
           await tx.installment.create({
             data: {
+              tenantId,
               scheduleId: schedule.id,
               installmentNumber: inst.installmentNumber,
               dueDate: new Date(inst.dueDate),
@@ -405,6 +419,8 @@ export const salesService = {
     paymentBreakdown?: Array<{mode: string; amount: number}> | null;
     promiseDate?: string | null;
     interestRate?: number | null;
+    /** Late penalty in ₹ per day per late EMI. Null/omitted = shop default. */
+    penaltyPerDay?: number | null;
     fileCharge?: number | null;
     numInstallments?: number | null;
     guarantorId?: string | null;
@@ -529,6 +545,49 @@ export const salesService = {
       ? (data.expectedPaymentDate ? new Date(data.expectedPaymentDate) : (() => { const d = new Date(); d.setDate(d.getDate() + 1); return d; })())
       : null;
 
+    /*
+     * Rebuild the EMI schedule ONLY when the terms that produce it change.
+     *
+     * The old code tore down and rebuilt the schedule on every edit — which
+     * deleted every payment already collected. Fixing a ledger number, or
+     * changing the late-penalty rate, silently wiped the customer's history.
+     */
+    const sameMoney = (a: unknown, b: unknown) =>
+      Math.round(Number(a ?? 0) * 100) === Math.round(Number(b ?? 0) * 100);
+    const existingDay = existing.saleDate.toISOString().slice(0, 10);
+    const scheduleTermsChanged =
+      existing.saleType !== data.saleType ||
+      (data.saleType === 'self_finance' &&
+        (!sameMoney(existing.sellingPrice, sellingPrice) ||
+          !sameMoney(existing.downPayment, downPayment) ||
+          !sameMoney(existing.interestRate, interestRate) ||
+          !sameMoney(existing.fileCharge, fileCharge) ||
+          existing.numInstallments !== numInstallments ||
+          (data.saleDate !== undefined && data.saleDate.slice(0, 10) !== existingDay)));
+
+    const rebuildSchedule = !existing.installmentSchedule || scheduleTermsChanged;
+
+    // Once money has moved on the account, its terms are fixed. The edit may
+    // still change details (ledger number, notes, penalty rate…) — just not
+    // anything that would regenerate the EMIs.
+    if (existing.installmentSchedule && scheduleTermsChanged) {
+      const scheduleId = existing.installmentSchedule.id;
+      const installmentIds = existing.installmentSchedule.installments.map((i) => i.id);
+      const [payments, penalties, deductions, promises] = await Promise.all([
+        prisma.installmentPayment.count({ where: { installmentId: { in: installmentIds } } }),
+        prisma.installmentInterestApplication.count({ where: { scheduleId } }),
+        prisma.installmentRebate.count({ where: { scheduleId } }),
+        prisma.installmentPromise.count({ where: { scheduleId } }),
+      ]);
+      if (payments + penalties + deductions + promises > 0) {
+        throw new Error(
+          'This sale already has installment activity (payments, penalties or promises). ' +
+            'Its price, down payment, date and EMI terms can no longer be changed. ' +
+            'Ledger number, notes, guarantor and the late-penalty rate can still be edited.',
+        );
+      }
+    }
+
     await prisma.$transaction(async (tx) => {
       // Snapshot of pre-edit values for audit log
       const beforeValues = {
@@ -552,8 +611,9 @@ export const salesService = {
         notes: existing.notes,
       };
 
-      // 1. Tear down existing installment schedule (if any)
-      if (existing.installmentSchedule) {
+      // 1. Tear down the existing schedule — only when it is being rebuilt, and
+      //    (per the guard above) only when nothing has been collected on it.
+      if (existing.installmentSchedule && rebuildSchedule) {
         const scheduleId = existing.installmentSchedule.id;
         const installmentIds = existing.installmentSchedule.installments.map((i) => i.id);
         if (installmentIds.length > 0) {
@@ -585,12 +645,19 @@ export const salesService = {
           totalAmount,
           downPayment,
           paymentMode: data.paymentMode as any,
-          paymentBreakdown: data.paymentBreakdown ?? null,
+          paymentBreakdown: data.paymentBreakdown ?? undefined,
           promiseDate: data.saleType === 'partial_with_promise' && data.promiseDate
             ? new Date(data.promiseDate)
             : null,
-          pendingAmount,
+          // A kept schedule keeps its live balance; don't overwrite it with 0.
+          ...(rebuildSchedule ? { pendingAmount } : {}),
           interestRate: data.saleType === 'self_finance' ? interestRate : null,
+          penaltyPerDay:
+            data.saleType === 'self_finance'
+              ? data.penaltyPerDay !== undefined
+                ? data.penaltyPerDay
+                : existing.penaltyPerDay
+              : null,
           fileCharge: data.saleType === 'self_finance' ? fileCharge : 0,
           effectiveMonthlyRate,
           totalFinancedAmount,
@@ -604,8 +671,14 @@ export const salesService = {
           financePaymentStatus: data.saleType === 'company_finance' ? 'pending' as any : null,
           financePaymentReceivedDate: null,
           financeReferenceNumber: null,
-          // Completion is reset; only full_payment is "complete" at edit save
-          completedAt: data.saleType === 'full_payment' ? new Date() : null,
+          // Completion: full_payment is complete at save. A kept installment
+          // schedule keeps its own completion state; a rebuilt one starts open.
+          completedAt:
+            data.saleType === 'full_payment'
+              ? new Date()
+              : rebuildSchedule
+                ? null
+                : existing.completedAt,
           notes: data.notes ?? null,
         },
       });
@@ -626,20 +699,24 @@ export const salesService = {
       // 4. Recreate ProductAuditTrail entry for the edit
       await tx.productAuditTrail.create({
         data: {
+          tenantId: existing.tenantId,
           productId: existing.productId,
           eventType: 'sold',
           toShopId: shopId,
           referenceId: saleId,
           referenceType: 'sale',
           performedBy: userId,
-          notes: `Sale ${existing.saleNumber} edited; installment schedule rebuilt`,
+          notes: rebuildSchedule
+            ? `Sale ${existing.saleNumber} edited; installment schedule rebuilt`
+            : `Sale ${existing.saleNumber} edited; installment schedule unchanged`,
         },
       });
 
-      // 5. If self_finance, recreate schedule + installments
-      if (data.saleType === 'self_finance' && emiResult) {
+      // 5. If self_finance and the terms changed, recreate schedule + installments
+      if (data.saleType === 'self_finance' && emiResult && rebuildSchedule) {
         const schedule = await tx.installmentSchedule.create({
           data: {
+            tenantId: existing.tenantId,
             saleId,
             totalPrincipal: emiResult.principal,
             totalInterest: emiResult.totalInterest,
@@ -654,6 +731,7 @@ export const salesService = {
         for (const inst of emiResult.schedule) {
           await tx.installment.create({
             data: {
+              tenantId: existing.tenantId,
               scheduleId: schedule.id,
               installmentNumber: inst.installmentNumber,
               dueDate: new Date(inst.dueDate),

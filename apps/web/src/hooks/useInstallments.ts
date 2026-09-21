@@ -8,6 +8,7 @@ import type {
   InstallmentPayment,
   InstallmentPromiseRecord,
   CreateInstallmentPromiseInput,
+  PaymentPreview,
 } from '@retailerp/shared-types';
 
 // ---------------------------------------------------------------------------
@@ -113,6 +114,10 @@ export interface ScheduleDetailResponse {
     fileCharge: number;
     emiAmount: number;
     numInstallments: number;
+    /** ₹/day late penalty in force — the sale's own rate or the shop default. */
+    effectivePenaltyPerDay: number;
+    /** True when the sale has no rate of its own and uses the shop default. */
+    penaltyPerDayIsDefault: boolean;
   };
   customer: {
     id: string;
@@ -378,15 +383,55 @@ export function useRecordInstallmentPaymentMutation() {
         paymentDate?: string;
         explicitInstallmentId?: string;
         newDate?: string;
-        waiveExcessInterest?: boolean;
-        earlyCollectionDate?: string;
         notes?: string;
+        /** Legacy caller-supplied penalty amount. Prefer `applyPenalty`. */
         applyInterest?: { installmentId?: string; amount?: number; appliedAmount?: number; daysOverdue?: number; notes?: string };
+        /** Charge the late penalty; the server computes it from the sale's ₹/day rate. */
+        applyPenalty?: boolean;
+        /** Give the early-payment deduction off the last installment. */
+        applyEarlyPaymentDeduction?: boolean;
       };
     }) => {
       const { data } = await apiClient.post<ApiResponse<Installment>>(
         `/installments/${installmentId}/pay`,
         payload,
+      );
+      return data.data!;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['installments'] });
+      queryClient.invalidateQueries({ queryKey: ['sales'] });
+    },
+  });
+}
+
+/**
+ * Late penalty the collector may charge and early-payment deduction they may
+ * give, for one EMI on a given payment date. Nothing is applied by reading it.
+ */
+export function usePaymentPreviewQuery(installmentId: string | undefined, paymentDate: string | undefined) {
+  return useQuery({
+    queryKey: ['installments', 'payment-preview', installmentId, paymentDate],
+    queryFn: async () => {
+      const { data } = await apiClient.get<ApiResponse<PaymentPreview>>(
+        `/installments/${installmentId}/payment-preview`,
+        { params: paymentDate ? { paymentDate } : undefined },
+      );
+      return data.data!;
+    },
+    enabled: !!installmentId,
+    staleTime: 15_000,
+  });
+}
+
+/** Change the ₹/day late-penalty rate on an existing sale. */
+export function useUpdatePenaltyPerDayMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ scheduleId, penaltyPerDay }: { scheduleId: string; penaltyPerDay: number }) => {
+      const { data } = await apiClient.patch<ApiResponse<{ saleId: string; penaltyPerDay: number }>>(
+        `/installments/schedules/${scheduleId}/penalty-per-day`,
+        { penaltyPerDay },
       );
       return data.data!;
     },

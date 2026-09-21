@@ -74,7 +74,19 @@ export interface RecordPaymentRequest {
 }
 
 export interface TenantInstallmentSettings {
+  /** @deprecated Percentage-based penalty; superseded by `defaultPenaltyPerDay`. */
   defaultPenalRateMonthly: number;
+  /**
+   * Flat late penalty in rupees per day, per late EMI. Used when a sale has no
+   * `penaltyPerDay` of its own. Charged from the day after the due date — no
+   * grace period — and only when the collector ticks "apply penalty".
+   */
+  defaultPenaltyPerDay: number;
+  /**
+   * An EMI counts as "paid early" when it is fully paid at least this many days
+   * before its due date. Only then is the early-payment deduction offered.
+   */
+  earlyPaymentMinDays: number;
   defaultPaymentAllocation: 'oldest_first' | 'manual';
   defaultThresholdDays: number;
   reliabilityWindowDays: number;
@@ -82,10 +94,47 @@ export interface TenantInstallmentSettings {
 
 export const DEFAULT_TENANT_INSTALLMENT_SETTINGS: TenantInstallmentSettings = {
   defaultPenalRateMonthly: 1.0,
+  defaultPenaltyPerDay: 2,
+  earlyPaymentMinDays: 30,
   defaultPaymentAllocation: 'oldest_first',
   defaultThresholdDays: 60,
   reliabilityWindowDays: 365,
 };
+
+/**
+ * What the collector sees before recording a payment against one EMI.
+ * Both adjustments are suggestions — nothing is charged or deducted unless
+ * the collector ticks the matching box.
+ */
+export interface PaymentPreview {
+  installmentId: string;
+  installmentNumber: number;
+  dueDate: string;
+  asOf: string;
+  remainingAmount: number;
+  penalty: {
+    /** Rupees per day in force for this sale. */
+    perDay: number;
+    /** Days not yet charged (from the later of the due date or the last charge). */
+    days: number;
+    amount: number;
+    /** False when the EMI isn't overdue or has nothing left to pay. */
+    applicable: boolean;
+    /** Penalty already charged on this EMI and still active. */
+    alreadyCharged: number;
+  };
+  earlyPayment: {
+    applicable: boolean;
+    daysEarly: number;
+    minDaysEarly: number;
+    /** This EMI's share of the interest taken at sale time. */
+    amount: number;
+    /** Installment number(s) the deduction would reduce, last first. */
+    targetInstallmentNumbers: number[];
+    /** Set when the deduction isn't offered, so the UI can say why. */
+    reason?: string;
+  };
+}
 
 export interface ReliabilityMetrics {
   customerId: string;

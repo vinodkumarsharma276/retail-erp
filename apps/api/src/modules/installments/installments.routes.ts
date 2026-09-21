@@ -12,6 +12,7 @@ import {
   rollbackInterestSchema,
   movePaymentSchema,
   correctPaymentSchema,
+  penaltyPerDaySchema,
 } from './installments.validation.js';
 import { UserRole } from '@retailerp/shared-types';
 
@@ -68,6 +69,21 @@ export async function installmentRoutes(app: FastifyInstance) {
 
   // Get timeline (admin, accountant)
   app.get('/:scheduleId/timeline', { preHandler: adminAccountant }, installmentsController.getTimeline as any);
+
+  // What the collector may charge (late penalty) or give (early-payment
+  // deduction) before recording a payment. Read-only.
+  app.get(
+    '/:installmentId/payment-preview',
+    { preHandler: collectionRoles },
+    installmentsController.getPaymentPreview as any,
+  );
+
+  // Change the ₹/day late-penalty rate on an existing sale.
+  app.patch(
+    '/schedules/:scheduleId/penalty-per-day',
+    { preHandler: [...adminAccountantShopScoped, validate(penaltyPerDaySchema)] },
+    installmentsController.updatePenaltyPerDay as any,
+  );
 
   // Record payment (admin, accountant, employee — the main action)
   app.post('/:installmentId/pay', {

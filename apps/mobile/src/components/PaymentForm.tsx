@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
@@ -10,8 +10,19 @@ import {
   Alert,
   ActivityIndicator,
 } from 'react-native';
-import { PaymentMode } from '@retailerp/shared-types';
+import { useQuery } from '@tanstack/react-query';
+import { PaymentMode, type PaymentPreview } from '@retailerp/shared-types';
 import { formatINR } from '@retailerp/shared-utils';
+import apiClient from '../lib/api-client';
+
+/** Today in the device's timezone (toISOString would give the UTC date). */
+function localTodayIso(): string {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
 
 type Scenario = 'full_payment' | 'reschedule' | 'partial_reschedule';
 
@@ -29,9 +40,11 @@ interface PaymentFormProps {
     amount?: number;
     amountPaid?: number;
     paymentMode?: PaymentMode;
+    paymentDate?: string;
     newDate?: string;
     notes?: string;
-    applyInterest?: { amount: number; notes?: string };
+    applyPenalty?: boolean;
+    applyEarlyPaymentDeduction?: boolean;
   }) => void;
 }
 
@@ -63,20 +76,59 @@ export default function PaymentForm({
   const [partialAmount, setPartialAmount] = useState('');
   const [newDate, setNewDate] = useState('');
   const [notes, setNotes] = useState('');
-  const [applyInterest, setApplyInterest] = useState(false);
-  const [interestAmount, setInterestAmount] = useState('');
-  const [interestNotes, setInterestNotes] = useState('');
+
+  // Penalty and early-payment deduction come from the server for today's
+  // date, so the collector sees exactly what will be saved. Both start OFF —
+  // the collector decides.
+  const today = localTodayIso();
+  const previewQuery = useQuery({
+    queryKey: ['payment-preview', installmentId, today],
+    queryFn: async () => {
+      const response = await apiClient.get(`/installments/${installmentId}/payment-preview`, {
+        params: { paymentDate: today },
+      });
+      return response.data.data as PaymentPreview;
+    },
+  });
+  const preview = previewQuery.data;
+  const [chargePenalty, setChargePenalty] = useState(false);
+  const [giveDeduction, setGiveDeduction] = useState(false);
+
+  const penaltyAvailable = !!preview?.penalty.applicable;
+  const deductionAvailable = !!preview?.earlyPayment.applicable && scenario === 'full_payment';
+  useEffect(() => {
+    if (!penaltyAvailable) setChargePenalty(false);
+  }, [penaltyAvailable]);
+  useEffect(() => {
+    if (!deductionAvailable) setGiveDeduction(false);
+  }, [deductionAvailable]);
+
+  const baseDue = preview?.remainingAmount ?? remainingAmount;
+  const penaltyCharged = chargePenalty && preview ? preview.penalty.amount : 0;
+  // The deduction comes off the LAST installment; it only changes today's
+  // amount when this EMI is that last one.
+  const deductionOnThisEmi =
+    giveDeduction && preview && preview.earlyPayment.targetInstallmentNumbers.includes(preview.installmentNumber)
+      ? Math.min(preview.earlyPayment.amount, baseDue + penaltyCharged)
+      : 0;
+  const toCollect = round2(baseDue + penaltyCharged - deductionOnThisEmi);
+
+  // Keep the full-payment amount in step with the ticks until the collector types.
+  const [amountTouched, setAmountTouched] = useState(false);
+  useEffect(() => {
+    if (!amountTouched) setAmount(String(toCollect));
+  }, [toCollect, amountTouched]);
 
   const partialRemaining = useMemo(() => {
     const paid = parseFloat(partialAmount) || 0;
-    return Math.max(0, remainingAmount - paid);
-  }, [partialAmount, remainingAmount]);
+    return Math.max(0, toCollect - paid);
+  }, [partialAmount, toCollect]);
 
   function validateAndSubmit() {
     if (scenario === 'full_payment') {
       const amt = parseFloat(amount);
-      if (!amt || amt < remainingAmount) {
-        Alert.alert('Invalid Amount', `Amount must be at least ${formatINR(remainingAmount)}`);
+      if (!amt || amt < toCollect) {
+        Alert.alert('Invalid Amount', `Amount must be at least ${formatINR(toCollect)}`);
         return;
       }
       onSubmit({
@@ -85,30 +137,31 @@ export default function PaymentForm({
         amount: amt,
         amountPaid: amt,
         paymentMode,
+        paymentDate: today,
         notes: notes.trim() || undefined,
-        applyInterest: applyInterest && Number(interestAmount) > 0
-          ? { amount: Number(interestAmount), notes: interestNotes.trim() || undefined }
-          : undefined,
+        applyPenalty: chargePenalty,
+        applyEarlyPaymentDeduction: giveDeduction,
       });
     } else if (scenario === 'partial_reschedule') {
       const amt = parseFloat(partialAmount);
-      if (!amt || amt <= 0 || amt >= remainingAmount) {
+      if (!amt || amt <= 0 || amt >= toCollect) {
         Alert.alert(
           'Invalid Amount',
-          `Partial amount must be between ${formatINR(1)} and less than ${formatINR(remainingAmount)}.`,
+          `Partial amount must be between ${formatINR(1)} and less than ${formatINR(toCollect)}.`,
         );
         return;
       }
+      // Still recorded as a plain payment — the promise date on this tab is
+      // not sent yet (a separate, known gap: case D3 in the audit).
       onSubmit({
         installmentId,
         scenario: 'full_payment',
         amount: amt,
         amountPaid: amt,
         paymentMode,
+        paymentDate: today,
         notes: notes.trim() || undefined,
-        applyInterest: applyInterest && Number(interestAmount) > 0
-          ? { amount: Number(interestAmount), notes: interestNotes.trim() || undefined }
-          : undefined,
+        applyPenalty: chargePenalty,
       });
     }
   }
@@ -153,7 +206,10 @@ export default function PaymentForm({
           <TextInput
             style={styles.input}
             value={amount}
-            onChangeText={setAmount}
+            onChangeText={(value) => {
+              setAmountTouched(true);
+              setAmount(value);
+            }}
             keyboardType="numeric"
             placeholder={String(remainingAmount)}
             placeholderTextColor="#94A3B8"
@@ -195,35 +251,56 @@ export default function PaymentForm({
         </View>
       )}
 
-      <TouchableOpacity
-        style={styles.checkboxRow}
-        onPress={() => setApplyInterest((value) => !value)}
-      >
-        <View style={[styles.checkbox, applyInterest && styles.checkboxActive]} />
-        <Text style={styles.checkboxText}>Apply 1% overdue interest at discretion</Text>
-      </TouchableOpacity>
-
-      {applyInterest && (
-        <View style={styles.formSection}>
-          <Text style={styles.label}>Interest amount</Text>
-          <TextInput
-            style={styles.input}
-            value={interestAmount}
-            onChangeText={setInterestAmount}
-            keyboardType="numeric"
-            placeholder="Enter penalty amount"
-            placeholderTextColor="#94A3B8"
-          />
-          <Text style={styles.label}>Interest notes (optional)</Text>
-          <TextInput
-            style={[styles.input, styles.inputMultiline]}
-            value={interestNotes}
-            onChangeText={setInterestNotes}
-            placeholder="Why penalty was applied"
-            placeholderTextColor="#94A3B8"
-            multiline
-          />
+      {/* Late penalty — computed by the server; the collector only decides */}
+      {preview?.penalty.applicable && (
+        <View style={styles.noticeWarn}>
+          <Text style={styles.noticeTitleWarn}>
+            Late penalty: {formatINR(preview.penalty.perDay)}/day × {preview.penalty.days} day
+            {preview.penalty.days === 1 ? '' : 's'} = {formatINR(preview.penalty.amount)}
+          </Text>
+          {preview.penalty.alreadyCharged > 0 && (
+            <Text style={styles.noticeText}>
+              {formatINR(preview.penalty.alreadyCharged)} already charged earlier.
+            </Text>
+          )}
+          <TouchableOpacity
+            style={styles.checkboxRow}
+            onPress={() => setChargePenalty((value) => !value)}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: chargePenalty }}
+          >
+            <View style={[styles.checkbox, chargePenalty && styles.checkboxActive]} />
+            <Text style={styles.checkboxText}>Charge {formatINR(preview.penalty.amount)} penalty</Text>
+          </TouchableOpacity>
         </View>
+      )}
+
+      {/* Early-payment deduction — full payment only, off the last installment */}
+      {deductionAvailable && preview && (
+        <View style={styles.noticeInfo}>
+          <Text style={styles.noticeTitleInfo}>Paid {preview.earlyPayment.daysEarly} days early</Text>
+          <Text style={styles.noticeText}>
+            This EMI includes {formatINR(preview.earlyPayment.amount)} of the interest charged at sale.
+          </Text>
+          <TouchableOpacity
+            style={styles.checkboxRow}
+            onPress={() => setGiveDeduction((value) => !value)}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: giveDeduction }}
+          >
+            <View style={[styles.checkbox, giveDeduction && styles.checkboxActive]} />
+            <Text style={styles.checkboxText}>
+              Deduct {formatINR(preview.earlyPayment.amount)} from the last installment
+              {preview.earlyPayment.targetInstallmentNumbers.length === 1
+                ? ` (EMI #${preview.earlyPayment.targetInstallmentNumbers[0]})`
+                : ''}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {(penaltyCharged > 0 || deductionOnThisEmi > 0) && (
+        <Text style={styles.toCollect}>To collect: {formatINR(toCollect)}</Text>
       )}
 
       {/* Reschedule Form */}
@@ -444,6 +521,45 @@ const styles = StyleSheet.create({
     color: '#334155',
     fontSize: 13,
     fontWeight: '600',
+  },
+  noticeWarn: {
+    backgroundColor: '#FEF6E7',
+    borderColor: '#F3D9A4',
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 12,
+  },
+  noticeInfo: {
+    backgroundColor: '#EEEDFD',
+    borderColor: '#CBC8F7',
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 12,
+  },
+  noticeTitleWarn: {
+    color: '#92560A',
+    fontSize: 14,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  noticeTitleInfo: {
+    color: '#3F37C9',
+    fontSize: 14,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  noticeText: {
+    color: '#475569',
+    fontSize: 13,
+    marginBottom: 4,
+  },
+  toCollect: {
+    color: '#0F172A',
+    fontSize: 15,
+    fontWeight: '700',
+    marginBottom: 12,
   },
   label: {
     fontSize: 13,
