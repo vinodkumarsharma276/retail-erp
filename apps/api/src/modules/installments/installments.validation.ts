@@ -25,6 +25,14 @@ export const recordPaymentSchema = z.object({
   // silently disappear before reaching the controller.
   applyPenalty: z.boolean().optional(),
   applyEarlyPaymentDeduction: z.boolean().optional(),
+  promise: z
+    .object({
+      promisedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be in YYYY-MM-DD format'),
+      promisedAmount: z.number().positive('Promised amount must be positive').optional(),
+      coveredInstallmentIds: z.array(z.string().uuid()).optional(),
+      notes: z.string().max(500).optional(),
+    })
+    .optional(),
   applyInterest: z
     .object({
       installmentId: z.string().uuid().optional(),

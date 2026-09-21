@@ -405,19 +405,19 @@
 
 @layer utilities {
   .animate-fade-in {
-    animation: fade-in var(--dur-base) var(--ease-out) both;
+    animation: fade-in var(--dur-base) var(--ease-out) backwards;
   }
   .animate-fade-in-up {
-    animation: fade-in-up var(--dur-slow) var(--ease-out) both;
+    animation: fade-in-up var(--dur-slow) var(--ease-out) backwards;
   }
   .animate-fade-in-down {
-    animation: fade-in-down var(--dur-fast) var(--ease-out) both;
+    animation: fade-in-down var(--dur-fast) var(--ease-out) backwards;
   }
   .animate-scale-in {
-    animation: scale-in var(--dur-fast) var(--ease-out) both;
+    animation: scale-in var(--dur-fast) var(--ease-out) backwards;
   }
   .animate-slide-in-right {
-    animation: slide-in-right var(--dur-base) var(--ease-out) both;
+    animation: slide-in-right var(--dur-base) var(--ease-out) backwards;
   }
 
   /*
@@ -427,7 +427,7 @@
    * fold doesn't need the cue anyway.
    */
   .stagger > * {
-    animation: fade-in-up var(--dur-base) var(--ease-out) both;
+    animation: fade-in-up var(--dur-base) var(--ease-out) backwards;
   }
   .stagger > *:nth-child(1) { animation-delay: 0ms; }
   .stagger > *:nth-child(2) { animation-delay: 15ms; }

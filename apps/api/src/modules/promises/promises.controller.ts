@@ -31,7 +31,7 @@ export const promisesController = {
 
   async list(
     request: FastifyRequest<{
-      Querystring: { scheduleId?: string; customerId?: string; status?: 'pending' | 'kept' | 'partially_kept' | 'broken' };
+      Querystring: { scheduleId?: string; customerId?: string; status?: 'pending' | 'kept' | 'partially_kept' | 'broken' | 'replaced' | 'cancelled' };
     }>,
     reply: FastifyReply,
   ) {

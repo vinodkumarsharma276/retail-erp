@@ -113,6 +113,16 @@ export interface PaymentPreview {
   dueDate: string;
   asOf: string;
   remainingAmount: number;
+  /**
+   * Every EMI on the sale that still has money owing, oldest first. Payments
+   * are applied in this order unless the collector picks a specific EMI.
+   */
+  outstanding: Array<{
+    installmentId: string;
+    installmentNumber: number;
+    dueDate: string;
+    remainingAmount: number;
+  }>;
   penalty: {
     /** Rupees per day in force for this sale (per sale, not per EMI). */
     perDay: number;

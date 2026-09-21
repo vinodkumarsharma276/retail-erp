@@ -1,6 +1,7 @@
 import { InstallmentStatus, type PaymentMode, Prisma, type PrismaClient } from '@prisma/client';
 import { computeEarlyPaymentDeduction, computeLatePenalty } from '@retailerp/shared-utils';
 import type { PaymentPreview } from '@retailerp/shared-types';
+import { promisesService } from '../promises/promises.service.js';
 import { allocatePayment } from './installments.allocator.js';
 import {
   computeDaysOverdue,
@@ -44,6 +45,17 @@ export interface EngineRecordPaymentInput {
   applyPenalty?: boolean;
   /** Collector ticked "deduct early-payment interest from the last installment". */
   applyEarlyPaymentDeduction?: boolean;
+  /**
+   * "Will pay the rest on <date>". Covers the listed EMIs, or by default every
+   * EMI still owing that was due by the payment date. Amount defaults to what
+   * is left on them after this payment.
+   */
+  promise?: {
+    promisedDate: string;
+    promisedAmount?: number;
+    coveredInstallmentIds?: string[];
+    notes?: string | null;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -161,6 +173,9 @@ async function earlyDeductionBlocker(
   if (result.amount <= 0) {
     return { reason: 'This sale has no interest to deduct.', daysEarly: result.daysEarly, amount };
   }
+  if (ctx.oldestUnpaidDueDate && ctx.oldestUnpaidDueDate < installment.dueDate) {
+    return { reason: 'Older EMIs are still unpaid.', daysEarly: result.daysEarly, amount };
+  }
   if (!result.eligible) {
     return {
       reason: `Offered only when paid at least ${settings.earlyPaymentMinDays} days before the due date.`,
@@ -186,11 +201,35 @@ async function earlyDeductionBlocker(
 export async function buildPaymentPreview(
   prisma: PrismaClient,
   installmentId: string,
-  input: { paymentDate?: Date },
+  input: { paymentDate?: Date; targetInstallmentId?: string },
   ctx: { tenantId: string },
 ): Promise<PaymentPreview> {
   const asOf = toDateOnly(input.paymentDate ?? new Date());
-  const adj = await loadAdjustmentContext(prisma, installmentId, ctx.tenantId);
+  const opened = await prisma.installment.findFirst({
+    where: { id: installmentId, tenantId: ctx.tenantId },
+    select: { scheduleId: true },
+  });
+  if (!opened) throw new Error('Installment not found');
+
+  // Every EMI still owing, oldest first — the order money is applied in.
+  const owing = await prisma.installment.findMany({
+    where: {
+      tenantId: ctx.tenantId,
+      scheduleId: opened.scheduleId,
+      parentInstallmentNumber: null,
+      isClosed: false,
+      remainingAmount: { gt: 0 },
+    },
+    orderBy: [{ dueDate: 'asc' }, { installmentNumber: 'asc' }],
+    select: { id: true, installmentNumber: true, dueDate: true, remainingAmount: true },
+  });
+  if (input.targetInstallmentId && !owing.some((row) => row.id === input.targetInstallmentId)) {
+    throw new Error('That EMI has nothing left to pay');
+  }
+
+  // The preview is about the EMI that receives money first.
+  const firstTargetId = input.targetInstallmentId ?? owing[0]?.id ?? installmentId;
+  const adj = await loadAdjustmentContext(prisma, firstTargetId, ctx.tenantId);
   const { installment } = adj;
   const remaining = Number(installment.remainingAmount);
 
@@ -216,6 +255,12 @@ export async function buildPaymentPreview(
     dueDate: installment.dueDate.toISOString().slice(0, 10),
     asOf: asOf.toISOString().slice(0, 10),
     remainingAmount: remaining,
+    outstanding: owing.map((row) => ({
+      installmentId: row.id,
+      installmentNumber: row.installmentNumber,
+      dueDate: row.dueDate.toISOString().slice(0, 10),
+      remainingAmount: Number(row.remainingAmount),
+    })),
     penalty: {
       perDay: penalty.perDay,
       overdueSince,
@@ -248,7 +293,7 @@ export async function recordPayment(
     const schedule = await tx.installmentSchedule.findFirst({
       where: { id: targetScheduleId, tenantId: ctx.tenantId },
       include: {
-        sale: { select: { id: true, tenantId: true, shopId: true, saleNumber: true } },
+        sale: { select: { id: true, tenantId: true, shopId: true, saleNumber: true, customerId: true } },
         installments: {
           where: { parentInstallmentNumber: null, isClosed: false },
           orderBy: [{ dueDate: 'asc' }, { installmentNumber: 'asc' }],
@@ -256,6 +301,15 @@ export async function recordPayment(
       },
     });
     if (!schedule) throw new Error('Installment schedule not found');
+
+    // A specific EMI is used only when the collector deliberately chooses one.
+    // The route's `:installmentId` just says which account was opened.
+    if (
+      input.explicitInstallmentId &&
+      !schedule.installments.some((installment) => installment.id === input.explicitInstallmentId)
+    ) {
+      throw new Error('Installment does not belong to this schedule');
+    }
 
     if (input.applyInterest) {
       await applyInterestInTx(tx, input.applyInterest.installmentId, {
@@ -272,16 +326,22 @@ export async function recordPayment(
       }
     }
 
-    // The EMI the collector is paying. Both adjustments below are about it.
-    const sourceInstallmentId = input.explicitInstallmentId ?? input.installmentId;
     const paymentDay = toDateOnly(paymentDate);
+
+    // Where the money goes first: the chosen EMI, else the oldest one owing.
+    // Penalty is added to it and an early-payment deduction is judged on it.
+    const firstTargetId =
+      input.explicitInstallmentId ??
+      schedule.installments.find((installment) => D(installment.remainingAmount).gt(0))?.id;
+    const sourceInstallmentId = firstTargetId;
 
     // --- Late penalty (opt-in) ---------------------------------------------
     // Per SALE: the sale's ₹/day for each day it has had an overdue EMI and
     // not yet been charged — never per late EMI, never taken from the client.
-    // It is added to the EMI being paid so it is collected in this entry.
-    if (input.applyPenalty && sourceInstallmentId) {
-      const adj = await loadAdjustmentContext(tx, sourceInstallmentId, ctx.tenantId);
+    // It is added to the EMI that receives money first, so it is collected in
+    // this same entry.
+    if (input.applyPenalty && firstTargetId) {
+      const adj = await loadAdjustmentContext(tx, firstTargetId, ctx.tenantId);
       if (adj.installment.scheduleId !== schedule.id) {
         throw new Error('Installment does not belong to this schedule');
       }
@@ -292,14 +352,14 @@ export async function recordPayment(
         chargedThrough: adj.chargedThrough,
       });
       if (penalty.amount > 0) {
-        await applyInterestInTx(tx, sourceInstallmentId, {
+        await applyInterestInTx(tx, firstTargetId, {
           amount: penalty.amount,
           daysOverdue: penalty.days,
           chargedThrough: paymentDay,
           perDay: penalty.perDay,
           notes: `Late penalty ₹${penalty.perDay}/day × ${penalty.days} day${penalty.days === 1 ? '' : 's'}`,
         }, ctx);
-        const target = schedule.installments.find((installment) => installment.id === sourceInstallmentId);
+        const target = schedule.installments.find((installment) => installment.id === firstTargetId);
         if (target) {
           target.amountDue = D(target.amountDue).plus(penalty.amount);
           target.remainingAmount = D(target.remainingAmount).plus(penalty.amount);
@@ -343,7 +403,7 @@ export async function recordPayment(
     const activeInstallments = schedule.installments.filter((installment) => D(installment.remainingAmount).gt(0));
     if (activeInstallments.length === 0) throw new Error('Schedule is already fully paid');
 
-    const allocation = allocatePayment(input.amount, activeInstallments, input.explicitInstallmentId ?? input.installmentId);
+    const allocation = allocatePayment(input.amount, activeInstallments, input.explicitInstallmentId);
     const paymentIds: string[] = [];
 
     for (const line of allocation.lines) {
@@ -460,7 +520,31 @@ export async function recordPayment(
       await tx.installmentSchedule.update({ where: { id: schedule.id }, data: { status: 'completed' } });
     }
 
-    return { paymentIds, creditAdded: allocation.unallocated.toNumber() };
+    // A part payment with "the rest on <date>": the promise is saved in the
+    // same transaction, so either both are recorded or neither is.
+    let promise = null;
+    if (input.promise) {
+      const coveredIds = input.promise.coveredInstallmentIds?.length
+        ? input.promise.coveredInstallmentIds
+        : schedule.installments
+          .filter((installment) => D(installment.remainingAmount).gt(0) && installment.dueDate <= paymentDay)
+          .map((installment) => installment.id);
+      const covered = schedule.installments.filter(
+        (installment) => coveredIds.includes(installment.id) && D(installment.remainingAmount).gt(0),
+      );
+      if (covered.length === 0) throw new Error('Nothing left owing for the promise to cover');
+      const owed = covered.reduce((sum, installment) => sum.plus(installment.remainingAmount), D(0));
+      promise = await promisesService.createInTx(tx, {
+        scheduleId: schedule.id,
+        customerId: schedule.sale.customerId,
+        coveredInstallmentIds: covered.map((installment) => installment.id),
+        promisedDate: input.promise.promisedDate,
+        promisedAmount: input.promise.promisedAmount ?? owed.toNumber(),
+        notes: input.promise.notes ?? undefined,
+      }, ctx);
+    }
+
+    return { paymentIds, creditAdded: allocation.unallocated.toNumber(), promise };
   });
 }
 

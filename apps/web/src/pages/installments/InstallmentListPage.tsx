@@ -19,6 +19,7 @@ import { DataTable, type Column } from '../../components/DataTable';
 import { DateInput } from '../../components/DateInput';
 import { StatusBadge } from '../../components/StatusBadge';
 import { RecordPaymentDialog } from '../../components/RecordPaymentDialog';
+import { CallListTab } from './CallListTab';
 import {
   useOverdueInstallmentsQuery,
   useCollectionsRangeQuery,
@@ -122,10 +123,11 @@ const SEARCH_FILTERS = [
 // ---------------------------------------------------------------------------
 // Tabs
 // ---------------------------------------------------------------------------
-type TabKey = 'collections' | 'overdue' | 'paid' | 'search';
+type TabKey = 'calls' | 'collections' | 'overdue' | 'paid' | 'search';
 
 const tabs: { key: TabKey; label: string }[] = [
-  { key: 'collections', label: "Today's Scheduled" },
+  { key: 'calls', label: "Today's Calls" },
+  { key: 'collections', label: 'Scheduled' },
   { key: 'overdue', label: 'All Overdue' },
   { key: 'paid', label: 'Paid' },
   { key: 'search', label: 'Search Installment' },
@@ -138,7 +140,7 @@ export function InstallmentListPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
 
-  const activeTab = (searchParams.get('tab') as TabKey) || 'collections';
+  const activeTab = (searchParams.get('tab') as TabKey) || 'calls';
 
   // Search state
   const [searchQuery, setSearchQuery] = useState('');
@@ -184,7 +186,7 @@ export function InstallmentListPage() {
 
   const setActiveTab = (tab: TabKey) => {
     // Reset page when switching tabs
-    updateFilters({ tab: tab === 'collections' ? '' : tab, page: '' });
+    updateFilters({ tab: tab === 'calls' ? '' : tab, page: '' });
   };
 
   return (
@@ -454,6 +456,7 @@ export function InstallmentListPage() {
       )}
 
       {/* Tab content */}
+      {activeTab === 'calls' && <CallListTab />}
       {activeTab === 'collections' && <CollectionsTab />}
       {activeTab === 'overdue' && <OverdueTab />}
       {activeTab === 'paid' && <PaidTab />}

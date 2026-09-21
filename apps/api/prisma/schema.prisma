@@ -1303,6 +1303,12 @@ enum InstallmentPromiseStatus {
   kept
   partially_kept
   broken
+  /// Customer gave a new date before this one arrived (1.1 → 1.2). Not held
+  /// against them the way a missed date is.
+  replaced
+  /// Withdrawn by the shop — typically a wrong date typed in. Ignored by
+  /// reliability scoring and by N.k numbering.
+  cancelled
 }
 
 model InstallmentPromise {

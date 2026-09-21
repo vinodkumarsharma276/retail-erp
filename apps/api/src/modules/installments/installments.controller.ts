@@ -9,7 +9,6 @@ import {
   rollbackInterest,
 } from './installments.engine.js';
 import { installmentsService } from './installments.service.js';
-import { promisesService } from '../promises/promises.service.js';
 import { sendSuccess, sendError, sendPaginated } from '../../utils/response.js';
 import { parsePagination } from '../../utils/pagination.js';
 
@@ -43,6 +42,28 @@ export const installmentsController = {
       return sendPaginated(reply, schedules, { page, pageSize, totalItems });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to fetch installment schedules';
+      return sendError(reply, message, 500);
+    }
+  },
+
+  /** GET /installments/call-list?date=YYYY-MM-DD — who to call that day, one row per sale. */
+  async getCallList(
+    request: FastifyRequest<{ Querystring: { date?: string; zone?: string } }>,
+    reply: FastifyReply,
+  ) {
+    try {
+      const date = request.query.date ?? new Date().toLocaleDateString('en-CA');
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return sendError(reply, 'date must be YYYY-MM-DD', 400);
+      const { shopId, shopIds, allShops } = request.shopFilter!;
+      const result = await installmentsService.getCallList(
+        { shopId, shopIds: allShops ? shopIds : undefined },
+        request.tenant!.id,
+        date,
+        { zone: request.query.zone || undefined },
+      );
+      return sendSuccess(reply, result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to build call list';
       return sendError(reply, message, 500);
     }
   },
@@ -270,6 +291,8 @@ export const installmentsController = {
         applyPenalty?: boolean;
         /** Collector ticked "deduct early-payment interest from last installment". */
         applyEarlyPaymentDeduction?: boolean;
+        /** Balance promised for a later date, saved with the payment. */
+        promise?: { promisedDate: string; promisedAmount?: number; coveredInstallmentIds?: string[]; notes?: string };
       };
     }>,
     reply: FastifyReply,
@@ -279,6 +302,12 @@ export const installmentsController = {
       const amount = request.body.amount ?? request.body.amountPaid;
       if (!amount) return sendError(reply, 'amount is required', 400);
       if (!request.body.paymentMode) return sendError(reply, 'paymentMode is required', 400);
+
+      // Older clients send scenario=partial_reschedule + newDate for "the rest later".
+      const promiseInput = request.body.promise
+        ?? (request.body.scenario === 'partial_reschedule' && request.body.newDate
+          ? { promisedDate: request.body.newDate, notes: request.body.notes }
+          : undefined);
 
       const interestAmount = request.body.applyInterest?.appliedAmount ?? request.body.applyInterest?.amount;
       const result = await recordPatternBPayment(prisma, {
@@ -299,31 +328,10 @@ export const installmentsController = {
           : undefined,
         applyPenalty: request.body.applyPenalty === true,
         applyEarlyPaymentDeduction: request.body.applyEarlyPaymentDeduction === true,
+        promise: promiseInput,
       }, { tenantId: request.tenant!.id, actorUserId: userId });
 
-      let promise = null;
-      if (request.body.scenario === 'partial_reschedule' && request.body.newDate) {
-        const target = await prisma.installment.findFirst({
-          where: { id: request.body.explicitInstallmentId ?? request.params.installmentId, tenantId: request.tenant!.id },
-          select: {
-            id: true,
-            scheduleId: true,
-            remainingAmount: true,
-            schedule: { select: { sale: { select: { customerId: true } } } },
-          },
-        });
-        if (target && Number(target.remainingAmount) > 0) {
-          promise = await promisesService.create({
-            scheduleId: target.scheduleId,
-            customerId: target.schedule.sale.customerId,
-            coveredInstallmentIds: [target.id],
-            promisedDate: request.body.newDate,
-            promisedAmount: Number(target.remainingAmount),
-            notes: request.body.notes,
-          }, { tenantId: request.tenant!.id, actorUserId: userId });
-        }
-      }
-      return sendSuccess(reply, { ...result, promise }, 201);
+      return sendSuccess(reply, result, 201);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to record payment';
       if (
@@ -339,7 +347,12 @@ export const installmentsController = {
         message.startsWith('Early-payment deduction') ||
         message.startsWith('The early-payment deduction') ||
         message === 'Schedule is already fully paid' ||
-        message === 'Installment does not belong to this schedule'
+        message === 'Installment does not belong to this schedule' ||
+        message.startsWith('Promise') ||
+        message.startsWith('Promised') ||
+        message.startsWith('Pick at least') ||
+        message.startsWith('Nothing left owing') ||
+        message === 'Target installment not found in this schedule'
       ) {
         return sendError(reply, message, 400);
       }
@@ -355,7 +368,7 @@ export const installmentsController = {
   async getPaymentPreview(
     request: FastifyRequest<{
       Params: { installmentId: string };
-      Querystring: { paymentDate?: string };
+      Querystring: { paymentDate?: string; targetInstallmentId?: string };
     }>,
     reply: FastifyReply,
   ) {
@@ -367,12 +380,13 @@ export const installmentsController = {
       const preview = await buildPaymentPreview(
         prisma,
         request.params.installmentId,
-        { paymentDate: raw ? new Date(raw) : undefined },
+        { paymentDate: raw ? new Date(raw) : undefined, targetInstallmentId: request.query.targetInstallmentId },
         { tenantId: request.tenant!.id },
       );
       return sendSuccess(reply, preview);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to build payment preview';
+      if (message === 'That EMI has nothing left to pay') return sendError(reply, message, 400);
       return sendError(reply, message, message === 'Installment not found' ? 404 : 500);
     }
   },

@@ -38,7 +38,8 @@ export async function computeCustomerReliability(
     }),
   ]);
 
-  const promisesMade = promises.length;
+  // Cancelled promises were shop mistakes, not the customer's word.
+  const promisesMade = promises.filter((promise) => promise.status !== InstallmentPromiseStatus.cancelled).length;
   const promisesKept = promises.filter((promise) => promise.status === InstallmentPromiseStatus.kept).length;
   const promisesPartiallyKept = promises.filter((promise) => promise.status === InstallmentPromiseStatus.partially_kept).length;
   const brokenPromises = promises.filter((promise) => promise.status === InstallmentPromiseStatus.broken);

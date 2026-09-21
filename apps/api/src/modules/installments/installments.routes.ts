@@ -46,6 +46,10 @@ export async function installmentRoutes(app: FastifyInstance) {
   // List schedules (admin, accountant — shop-scoped)
   app.get('/', { preHandler: adminAccountantShopScoped }, installmentsController.listSchedules as any);
 
+  // Who to call on a given day — due today, promises due, broken promises,
+  // overdue not covered by a later promise (admin, accountant, employee).
+  app.get('/call-list', { preHandler: collectionRoles }, installmentsController.getCallList as any);
+
   // Get overdue installments (admin, accountant — shop-scoped)
   app.get('/overdue', { preHandler: adminAccountantShopScoped }, installmentsController.getOverdue as any);
 

@@ -9,6 +9,7 @@ import type {
   InstallmentPromiseRecord,
   CreateInstallmentPromiseInput,
   PaymentPreview,
+  CallListResponse,
 } from '@retailerp/shared-types';
 
 // ---------------------------------------------------------------------------
@@ -390,6 +391,8 @@ export function useRecordInstallmentPaymentMutation() {
         applyPenalty?: boolean;
         /** Give the early-payment deduction off the last installment. */
         applyEarlyPaymentDeduction?: boolean;
+        /** "Rest on <date>" — saved in the same transaction as the payment. */
+        promise?: { promisedDate: string; promisedAmount?: number; coveredInstallmentIds?: string[]; notes?: string };
       };
     }) => {
       const { data } = await apiClient.post<ApiResponse<Installment>>(
@@ -400,6 +403,7 @@ export function useRecordInstallmentPaymentMutation() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['installments'] });
+      queryClient.invalidateQueries({ queryKey: ['installment-promises'] });
       queryClient.invalidateQueries({ queryKey: ['sales'] });
     },
   });
@@ -409,13 +413,17 @@ export function useRecordInstallmentPaymentMutation() {
  * Late penalty the collector may charge and early-payment deduction they may
  * give, for one EMI on a given payment date. Nothing is applied by reading it.
  */
-export function usePaymentPreviewQuery(installmentId: string | undefined, paymentDate: string | undefined) {
+export function usePaymentPreviewQuery(
+  installmentId: string | undefined,
+  paymentDate: string | undefined,
+  targetInstallmentId?: string,
+) {
   return useQuery({
-    queryKey: ['installments', 'payment-preview', installmentId, paymentDate],
+    queryKey: ['installments', 'payment-preview', installmentId, paymentDate, targetInstallmentId ?? null],
     queryFn: async () => {
       const { data } = await apiClient.get<ApiResponse<PaymentPreview>>(
         `/installments/${installmentId}/payment-preview`,
-        { params: paymentDate ? { paymentDate } : undefined },
+        { params: { ...(paymentDate ? { paymentDate } : {}), ...(targetInstallmentId ? { targetInstallmentId } : {}) } },
       );
       return data.data!;
     },
@@ -471,6 +479,37 @@ export function useCreateInstallmentPromiseMutation() {
       queryClient.invalidateQueries({ queryKey: ['installments'] });
       queryClient.invalidateQueries({ queryKey: ['customers'] });
     },
+  });
+}
+
+/** Withdraw a promise typed in by mistake. It becomes `cancelled`, never `broken`. */
+export function useCancelInstallmentPromiseMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ promiseId, reason }: { promiseId: string; reason?: string }) => {
+      const { data } = await apiClient.delete<ApiResponse<InstallmentPromiseRecord>>(`/promises/${promiseId}`, {
+        data: reason ? { reason } : undefined,
+      });
+      return data.data!;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['installment-promises'] });
+      queryClient.invalidateQueries({ queryKey: ['installments'] });
+    },
+  });
+}
+
+/** Who to call on a day: EMIs due, promises due, broken promises, overdue. */
+export function useCallListQuery(date: string, zone?: string) {
+  return useQuery({
+    queryKey: ['installments', 'call-list', date, zone ?? null],
+    queryFn: async () => {
+      const { data } = await apiClient.get<ApiResponse<CallListResponse>>('/installments/call-list', {
+        params: { date, ...(zone ? { zone } : {}) },
+      });
+      return data.data!;
+    },
+    placeholderData: keepPreviousData,
   });
 }
 

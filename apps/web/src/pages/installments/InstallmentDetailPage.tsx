@@ -16,6 +16,7 @@ import {
   ChevronRight,
   Pencil,
   Info,
+  CalendarClock,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useScheduleDetailQuery, useRevertPaymentMutation, useMovePaymentMutation, useCorrectPaymentMutation, useUndoReschedulePreviewQuery, useUndoRescheduleMutation, useInstallmentPromisesQuery, useUpdatePenaltyPerDayMutation } from '../../hooks/useInstallments';
@@ -23,6 +24,9 @@ import { useToastStore } from '../../stores/toast-store';
 import { StatusBadge } from '../../components/StatusBadge';
 import { PaymentTimeline } from '../../components/PaymentTimeline';
 import { RecordPaymentDialog } from '../../components/RecordPaymentDialog';
+import { PromiseDialog } from '../../components/PromiseDialog';
+import { PromiseChip, PromiseHistory } from '../../components/PromiseHistory';
+import { useAuthStore } from '../../stores/auth-store';
 import { formatINR, formatDateIN } from '@retailerp/shared-utils';
 import { InstallmentStatus } from '@retailerp/shared-types';
 import { formatInstallmentLabel } from '../../lib/installment-label';
@@ -35,7 +39,12 @@ export function InstallmentDetailPage() {
   const navigate = useNavigate();
 
   const { data, isLoading, isError } = useScheduleDetailQuery(scheduleId);
-  const { data: promises = [] } = useInstallmentPromisesQuery({ scheduleId, status: 'pending' });
+  // Every promise, so labels (1.1, 1.2 …) and outcomes show in history.
+  const { data: promises = [] } = useInstallmentPromisesQuery({ scheduleId });
+  const role = useAuthStore((s) => s.user?.role);
+  const canCancelPromise = role === 'owner' || role === 'admin' || role === 'accountant';
+  // EMIs to pre-tick in the promise dialog; null = closed.
+  const [promiseFor, setPromiseFor] = useState<string[] | null>(null);
 
   // Payment dialog state
   const [paymentTarget, setPaymentTarget] = useState<{
@@ -188,6 +197,7 @@ export function InstallmentDetailPage() {
       );
   const promisesByInstallmentId = new Map<string, typeof promises>();
   for (const promise of promises) {
+    if (promise.status === 'cancelled') continue;
     for (const installmentId of promise.coveredInstallmentIds) {
       const list = promisesByInstallmentId.get(installmentId) ?? [];
       list.push(promise);
@@ -343,6 +353,12 @@ export function InstallmentDetailPage() {
         )}
       </div>
 
+      <PromiseHistory
+        promises={promises}
+        canCancel={canCancelPromise}
+        onAdd={installments.some((i: any) => Number(i.remainingAmount) > 0) ? () => setPromiseFor([]) : undefined}
+      />
+
       {/* Bottom section: Installment table */}
       <div className="rounded-lg border bg-card p-6">
         <div className="flex items-center justify-between mb-4">
@@ -436,12 +452,8 @@ export function InstallmentDetailPage() {
                       {activePromises.length > 0 && (
                         <div className="mt-1 space-y-1">
                           {activePromises.map((promise) => (
-                            <div
-                              key={promise.id}
-                              className="inline-flex rounded-md border border-blue-200 bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700 dark:border-blue-800 dark:bg-blue-950/30 dark:text-blue-300"
-                              title={promise.notes ?? undefined}
-                            >
-                              Promise {formatINR(Number(promise.promisedAmount))} on {formatDateIN(promise.promisedDate)}
+                            <div key={promise.id}>
+                              <PromiseChip promise={promise} />
                             </div>
                           ))}
                         </div>
@@ -494,6 +506,19 @@ export function InstallmentDetailPage() {
                           >
                             <Banknote className="h-3 w-3" />
                             Pay
+                          </button>
+                        )}
+                        {remNum > 0 && statusActionable && (
+                          <button
+                            onClick={() => setPromiseFor([inst.id])}
+                            title="Customer gave a date to pay — no money today"
+                            className={cn(
+                              'flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs font-medium text-foreground',
+                              'hover:bg-muted transition-colors',
+                            )}
+                          >
+                            <CalendarClock className="h-3 w-3" />
+                            Promise
                           </button>
                         )}
                         {/*
@@ -672,6 +697,24 @@ export function InstallmentDetailPage() {
           scheduleId={scheduleId}
           onSuccess={() => setPaymentTarget(null)}
           onClose={() => setPaymentTarget(null)}
+        />
+      )}
+
+      {promiseFor && scheduleId && (
+        <PromiseDialog
+          scheduleId={scheduleId}
+          customerId={customer.id}
+          customerName={customer.name}
+          installments={installments
+            .filter((i: any) => i.parentInstallmentNumber == null && i.status !== InstallmentStatus.RESCHEDULED)
+            .map((i: any) => ({
+              id: i.id,
+              installmentNumber: i.installmentNumber,
+              dueDate: String(i.dueDate).slice(0, 10),
+              remainingAmount: Number(i.remainingAmount),
+            }))}
+          defaultCoveredIds={promiseFor.length > 0 ? promiseFor : undefined}
+          onClose={() => setPromiseFor(null)}
         />
       )}
 

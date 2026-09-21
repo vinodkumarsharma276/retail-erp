@@ -3,12 +3,12 @@ import {
   X,
   AlertCircle,
   CheckCircle,
-  ArrowRightLeft,
   Undo2,
   Plus,
   Trash2,
   Clock,
   BadgePercent,
+  CalendarClock,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import {
@@ -16,35 +16,33 @@ import {
   useInterestAccrualQuery,
   useRollbackInterestApplicationMutation,
   usePaymentPreviewQuery,
+  useInstallmentPromisesQuery,
 } from '../hooks/useInstallments';
-import { formatINR } from '@retailerp/shared-utils';
+import { formatINR, formatDateIN } from '@retailerp/shared-utils';
 import { PaymentMode } from '@retailerp/shared-types';
 import { useCanCheck } from '../hooks/usePermission';
 import { useToastStore } from '../stores/toast-store';
+import { nextPromiseLabels } from '../lib/promise-labels';
 import { DateInput } from './DateInput';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Textarea } from './ui/textarea';
-import { Tabs } from './ui/tabs';
 
 // ---------------------------------------------------------------------------
 // Props
 // ---------------------------------------------------------------------------
 interface RecordPaymentDialogProps {
+  /** Any EMI on the sale — it identifies the account being paid. */
   installmentId: string;
   /** Unpaid balance on the EMI, used until the live preview loads. */
   amountDue: number;
   installmentNumber?: number;
-  /**
-   * @deprecated Ignored. The payment date always starts at today — defaulting
-   * it to the EMI's due date silently backdated late payments, which hid the
-   * lateness and zeroed the penalty.
-   */
+  /** @deprecated Ignored. The payment date always starts at today. */
   defaultDate?: string;
-  /** `'reschedule'` is accepted for old callers and opens the part-payment tab. */
+  /** @deprecated Ignored. One form handles full and part payments. */
   initialScenario?: 'full_payment' | 'reschedule' | 'partial_reschedule';
-  /** Enables "undo last penalty" for this EMI. */
+  /** Enables promise labels and "undo last penalty". */
   scheduleId?: string;
   onSuccess: () => void;
   onClose: () => void;
@@ -59,8 +57,6 @@ const paymentModes = [
   { value: PaymentMode.DEBIT_CARD, label: 'Debit Card' },
   { value: PaymentMode.UPI, label: 'UPI' },
 ] as const;
-
-type Scenario = 'full_payment' | 'partial_reschedule';
 
 interface Split {
   mode: PaymentMode;
@@ -103,14 +99,31 @@ function buildBreakdown(
   }));
 }
 
+interface Row {
+  installmentId: string;
+  installmentNumber: number;
+  dueDate: string;
+  /** Owing on this EMI after the ticked penalty/deduction. */
+  owing: number;
+  /** What this payment puts on it. */
+  paid: number;
+  /** Due on or before the payment date (or the EMI picked to pay). */
+  dueNow: boolean;
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
+/**
+ * One payment against a sale. Money goes to the oldest EMI still owing,
+ * then the next — unless the collector picks an EMI to pay first. Every EMI
+ * keeps its own due date. If the customer pays less than is due, the
+ * collector may note when the rest will come; that promise is saved with the
+ * payment and labelled the register way ("1.1" = first promise on EMI 1).
+ */
 export function RecordPaymentDialog({
   installmentId,
   amountDue,
-  installmentNumber,
-  initialScenario = 'full_payment',
   scheduleId,
   onSuccess,
   onClose,
@@ -120,25 +133,22 @@ export function RecordPaymentDialog({
   const canChargePenalty = can('installments.interest.apply');
   const canUndoPenalty = can('installments.interest.rollback');
 
-  const [scenario, setScenario] = useState<Scenario>(
-    initialScenario === 'full_payment' ? 'full_payment' : 'partial_reschedule',
-  );
-  const [paymentDate, setPaymentDate] = useState<string>(localTodayIso());
+  const today = localTodayIso();
+  const [paymentDate, setPaymentDate] = useState<string>(today);
+  /** '' = oldest first (the default). Otherwise the EMI to pay first. */
+  const [firstEmi, setFirstEmi] = useState<string>('');
 
   // Everything money-related comes from the server for the chosen date, so
   // what the collector sees is exactly what will be saved.
-  const previewQuery = usePaymentPreviewQuery(installmentId, paymentDate || undefined);
+  const previewQuery = usePaymentPreviewQuery(installmentId, paymentDate || undefined, firstEmi || undefined);
   const preview = previewQuery.data;
+  const { data: promises } = useInstallmentPromisesQuery({ scheduleId });
 
-  // Both adjustments start OFF. The collector decides; the system never
-  // charges or gives anything on its own.
+  // Both adjustments start OFF. The collector decides.
   const [chargePenalty, setChargePenalty] = useState(false);
   const [giveDeduction, setGiveDeduction] = useState(false);
-
   const penaltyAvailable = !!preview?.penalty.applicable && canChargePenalty;
-  const deductionAvailable = !!preview?.earlyPayment.applicable && scenario === 'full_payment';
-
-  // If a date change makes an adjustment unavailable, drop the tick with it.
+  const deductionAvailable = !!preview?.earlyPayment.applicable;
   useEffect(() => {
     if (!penaltyAvailable) setChargePenalty(false);
   }, [penaltyAvailable]);
@@ -146,26 +156,80 @@ export function RecordPaymentDialog({
     if (!deductionAvailable) setGiveDeduction(false);
   }, [deductionAvailable]);
 
-  // --- The arithmetic the collector sees -----------------------------------
-  const baseDue = preview?.remainingAmount ?? (Number(amountDue) || 0);
   const penaltyCharged = chargePenalty && preview ? preview.penalty.amount : 0;
   const deductionTotal = giveDeduction && preview ? preview.earlyPayment.amount : 0;
-  // The deduction comes off the LAST installment. Only when that is this very
-  // EMI does it change what's collected today.
-  const deductionOnThisEmi =
-    giveDeduction && preview && preview.earlyPayment.targetInstallmentNumbers.includes(preview.installmentNumber)
-      ? Math.min(deductionTotal, baseDue + penaltyCharged)
-      : 0;
-  const toCollect = round2(baseDue + penaltyCharged - deductionOnThisEmi);
-  // How long this SALE has been behind — from its oldest unpaid EMI, which may
-  // not be the one being paid.
-  const daysLate =
-    preview?.penalty.overdueSince
-      ? Math.max(0, daysBetweenIso(preview.penalty.overdueSince, preview.asOf))
-      : 0;
+
+  // --- Amount + promise state ----------------------------------------------
+  const [amount, setAmount] = useState<string>('');
+  const [amountTouched, setAmountTouched] = useState(false);
+  const [splits, setSplits] = useState<Split[]>([{ mode: PaymentMode.CASH, amount: '' }]);
+  const [notes, setNotes] = useState('');
+  const [promiseDate, setPromiseDate] = useState('');
+  const [includeNextEmi, setIncludeNextEmi] = useState(false);
+  const amountNum = Number(amount) || 0;
+
+  // --- Order the EMIs and simulate where the money goes ---------------------
+  const { rows, dueNowTotal, extra } = useMemo(() => {
+    const outstanding = preview?.outstanding ?? [];
+    const firstId = preview?.installmentId;
+    const ordered = [
+      ...outstanding.filter((o) => o.installmentId === firstId),
+      ...outstanding.filter((o) => o.installmentId !== firstId),
+    ];
+
+    // Early deduction comes off the LAST installment(s), last first.
+    const deductionOn = new Map<string, number>();
+    let deductionLeft = deductionTotal;
+    for (const n of preview?.earlyPayment.targetInstallmentNumbers ?? []) {
+      const row = outstanding.find((o) => o.installmentNumber === n);
+      if (!row || deductionLeft <= 0) continue;
+      const take = Math.min(deductionLeft, row.remainingAmount);
+      deductionOn.set(row.installmentId, take);
+      deductionLeft = round2(deductionLeft - take);
+    }
+
+    let left = amountNum;
+    const built: Row[] = ordered.map((o, index) => {
+      const owing = round2(
+        o.remainingAmount + (index === 0 ? penaltyCharged : 0) - (deductionOn.get(o.installmentId) ?? 0),
+      );
+      const paid = round2(Math.min(Math.max(left, 0), owing));
+      left = round2(left - paid);
+      return {
+        installmentId: o.installmentId,
+        installmentNumber: o.installmentNumber,
+        dueDate: o.dueDate,
+        owing,
+        paid,
+        dueNow: index === 0 || o.dueDate <= paymentDate,
+      };
+    });
+    const due = round2(built.filter((r) => r.dueNow).reduce((s, r) => s + r.owing, 0));
+    return { rows: built, dueNowTotal: due, extra: Math.max(0, left) };
+  }, [preview, amountNum, penaltyCharged, deductionTotal, paymentDate]);
+
+  // Default the amount to what is due now, until the collector types.
+  useEffect(() => {
+    if (!amountTouched && preview) setAmount(String(dueNowTotal));
+  }, [dueNowTotal, amountTouched, preview]);
+
+  const shortBy = round2(dueNowTotal - amountNum);
+  const leftOwing = rows.filter((r) => r.dueNow && r.owing - r.paid > 0.004);
+  const nextEmi = rows.find((r) => !r.dueNow);
+  const promiseReachesNextEmi = !!promiseDate && !!nextEmi && promiseDate >= nextEmi.dueDate;
+  useEffect(() => {
+    if (!promiseReachesNextEmi) setIncludeNextEmi(false);
+  }, [promiseReachesNextEmi]);
+
+  const covered = [...leftOwing, ...(includeNextEmi && nextEmi ? [nextEmi] : [])];
+  const promiseAmount = round2(covered.reduce((s, r) => s + (r.owing - r.paid), 0));
+  const promiseLabel = covered.length > 0 ? nextPromiseLabels(promises, covered) : '';
+
+  // A deduction is earned by clearing the EMI in full.
+  const firstRow = rows[0];
+  const deductionNeedsFull = giveDeduction && !!firstRow && firstRow.paid < firstRow.owing - 0.004;
 
   // --- Undo the most recent penalty charge on this sale --------------------
-  // Penalty is per sale, so the latest charge may sit on a different EMI.
   const { data: accrualList } = useInterestAccrualQuery(scheduleId, !!scheduleId);
   const lastCharge =
     accrualList
@@ -174,62 +238,37 @@ export function RecordPaymentDialog({
   const [undoReason, setUndoReason] = useState('');
   const rollbackMutation = useRollbackInterestApplicationMutation();
 
-  // --- Full payment ---------------------------------------------------------
-  const [fullAmount, setFullAmount] = useState<string>(String(baseDue));
-  const [fullAmountTouched, setFullAmountTouched] = useState(false);
-  const [fullSplits, setFullSplits] = useState<Split[]>([{ mode: PaymentMode.CASH, amount: '' }]);
-  const [fullNotes, setFullNotes] = useState('');
-
-  // Keep the amount in step with the ticks until the collector types their own.
-  useEffect(() => {
-    if (!fullAmountTouched) setFullAmount(String(toCollect));
-  }, [toCollect, fullAmountTouched]);
-
-  // --- Part payment ---------------------------------------------------------
-  const [partialAmount, setPartialAmount] = useState<string>('');
-  const [partialSplits, setPartialSplits] = useState<Split[]>([{ mode: PaymentMode.CASH, amount: '' }]);
-  const [partialDate, setPartialDate] = useState('');
-  const [partialNotes, setPartialNotes] = useState('');
-
   const mutation = useRecordInstallmentPaymentMutation();
 
-  const splitsValid = (splits: Split[], total: number) =>
+  const splitsValid =
     splits.length === 1 ||
-    (splits.every((s) => Number(s.amount) > 0) && Math.abs(sumSplits(splits) - total) <= 0.5);
-
-  const fullAmountNum = Number(fullAmount) || 0;
-  const overBy = round2(fullAmountNum - toCollect);
-  const isFullValid =
-    !!paymentDate && fullAmountNum > 0 && fullAmountNum >= toCollect && splitsValid(fullSplits, fullAmountNum);
-
-  const partialAmountNum = Number(partialAmount) || 0;
-  const partialLeft = round2(toCollect - partialAmountNum);
-  const isPartialValid =
-    !!paymentDate &&
-    partialAmountNum > 0 &&
-    partialAmountNum < toCollect &&
-    !!partialDate &&
-    splitsValid(partialSplits, partialAmountNum);
+    (splits.every((s) => Number(s.amount) > 0) && Math.abs(sumSplits(splits) - amountNum) <= 0.5);
+  const promiseValid = !promiseDate || (promiseDate >= today && covered.length > 0);
+  const isValid =
+    !!preview && !!paymentDate && amountNum > 0 && splitsValid && promiseValid && !deductionNeedsFull;
 
   const handleSubmit = () => {
-    const isFull = scenario === 'full_payment';
-    const amount = isFull ? fullAmountNum : partialAmountNum;
-    const splits = isFull ? fullSplits : partialSplits;
-    const breakdown = buildBreakdown(splits, amount);
-
+    const breakdown = buildBreakdown(splits, amountNum);
     mutation.mutate(
       {
         installmentId,
         payload: {
-          scenario: isFull ? 'full_payment' : 'partial_reschedule',
-          amountPaid: amount,
+          amountPaid: amountNum,
           paymentMode: breakdown ? breakdown[0].mode : splits[0].mode,
           paymentBreakdown: breakdown,
           paymentDate,
-          newDate: isFull ? undefined : partialDate,
-          notes: (isFull ? fullNotes : partialNotes).trim() || undefined,
+          explicitInstallmentId: firstEmi || undefined,
+          notes: notes.trim() || undefined,
           applyPenalty: chargePenalty,
-          applyEarlyPaymentDeduction: isFull && giveDeduction,
+          applyEarlyPaymentDeduction: giveDeduction,
+          promise:
+            promiseDate && covered.length > 0
+              ? {
+                  promisedDate: promiseDate,
+                  coveredInstallmentIds: covered.map((r) => r.installmentId),
+                  notes: notes.trim() || undefined,
+                }
+              : undefined,
         },
       },
       {
@@ -237,6 +276,7 @@ export function RecordPaymentDialog({
           const extras = [
             penaltyCharged > 0 ? `${formatINR(penaltyCharged)} penalty charged` : null,
             deductionTotal > 0 ? `${formatINR(deductionTotal)} deducted from the last EMI` : null,
+            promiseDate && covered.length > 0 ? `promise ${promiseLabel} for ${formatDateIN(promiseDate)}` : null,
           ].filter(Boolean);
           addToast({
             type: 'success',
@@ -255,6 +295,10 @@ export function RecordPaymentDialog({
       'Something went wrong. Please try again.'
     : null;
 
+  const daysLate =
+    preview?.penalty.overdueSince
+      ? Math.max(0, daysBetweenIso(preview.penalty.overdueSince, preview.asOf))
+      : 0;
   const targets = preview?.earlyPayment.targetInstallmentNumbers ?? [];
   const targetLabel =
     targets.length === 0
@@ -262,6 +306,8 @@ export function RecordPaymentDialog({
       : targets.length === 1
         ? `EMI #${targets[0]}`
         : `EMIs ${targets.map((t) => `#${t}`).join(', ')}`;
+  const owingCount = preview?.outstanding.length ?? 0;
+  const fallbackDue = Number(amountDue) || 0;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -278,10 +324,9 @@ export function RecordPaymentDialog({
           <div>
             <h3 id="record-payment-title" className="text-title">Record payment</h3>
             <p className="text-caption">
-              {installmentNumber || preview?.installmentNumber
-                ? `EMI #${installmentNumber ?? preview?.installmentNumber}`
-                : 'Installment'}
-              {preview && <> · due {preview.dueDate}</>}
+              {preview
+                ? `${owingCount} EMI${owingCount === 1 ? '' : 's'} still owing · ${formatINR(dueNowTotal)} due by ${formatDateIN(paymentDate)}`
+                : `${formatINR(fallbackDue)} on this EMI`}
             </p>
           </div>
           <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close">
@@ -290,125 +335,134 @@ export function RecordPaymentDialog({
         </div>
 
         <div className="scrollbar-auto overflow-y-auto px-5 py-4">
-          <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
-            <Tabs
-              aria-label="Payment type"
-              value={scenario}
-              onChange={(v) => setScenario(v as Scenario)}
-              items={[
-                { value: 'full_payment', label: 'Full payment' },
-                { value: 'partial_reschedule', label: 'Part payment' },
-              ]}
-            />
-            <div className="w-44">
-              <Label htmlFor="payment-date" required>Payment date</Label>
-              <DateInput value={paymentDate} onChange={(v) => setPaymentDate(v)} />
-            </div>
-          </div>
-
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_17rem]">
             {/* ---------------- Form ---------------- */}
             <div className="min-w-0 space-y-4">
-              {scenario === 'full_payment' ? (
-                <>
-                  <div>
-                    <Label htmlFor="full-amount" required>Amount received</Label>
-                    <Input
-                      id="full-amount"
-                      type="number"
-                      step="0.01"
-                      value={fullAmount}
-                      onChange={(e) => {
-                        setFullAmountTouched(true);
-                        setFullAmount(e.target.value);
-                      }}
-                    />
-                    {fullAmountNum > 0 && fullAmountNum < toCollect && (
-                      <p className="mt-1 text-xs text-destructive">
-                        Full payment needs at least {formatINR(toCollect)}. Use “Part payment” for less.
-                      </p>
-                    )}
-                    {overBy > 0.5 && (
-                      <p className="mt-1 text-xs text-warning">
-                        {formatINR(overBy)} more than this EMI. Extra money isn't applied to other EMIs yet —
-                        record it against the next EMI as a separate payment.
-                      </p>
-                    )}
-                    {fullAmountTouched && Math.abs(overBy) > 0.004 && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setFullAmountTouched(false);
-                          setFullAmount(String(toCollect));
-                        }}
-                        className="mt-1 text-xs text-primary hover:underline"
-                      >
-                        Reset to {formatINR(toCollect)}
-                      </button>
-                    )}
-                  </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <Label htmlFor="payment-date" required>Payment date</Label>
+                  <DateInput value={paymentDate} onChange={(v) => setPaymentDate(v)} max={today} />
+                </div>
+                <div>
+                  <Label htmlFor="first-emi">Pay first</Label>
+                  <select
+                    id="first-emi"
+                    value={firstEmi}
+                    onChange={(e) => setFirstEmi(e.target.value)}
+                    className="h-9 w-full rounded-md border border-input bg-field px-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  >
+                    <option value="">Oldest unpaid EMI</option>
+                    {(preview?.outstanding ?? []).map((o) => (
+                      <option key={o.installmentId} value={o.installmentId}>
+                        EMI #{o.installmentNumber} · due {formatDateIN(o.dueDate)} · {formatINR(o.remainingAmount)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
 
-                  <div>
-                    <Label required>Payment mode</Label>
-                    <PaymentSplitsEditor splits={fullSplits} onChange={setFullSplits} total={fullAmountNum} />
-                  </div>
+              <div>
+                <Label htmlFor="amount" required>Amount received</Label>
+                <Input
+                  id="amount"
+                  type="number"
+                  step="0.01"
+                  value={amount}
+                  onChange={(e) => {
+                    setAmountTouched(true);
+                    setAmount(e.target.value);
+                  }}
+                />
+                {amountTouched && Math.abs(shortBy) > 0.004 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAmountTouched(false);
+                      setAmount(String(dueNowTotal));
+                    }}
+                    className="mt-1 text-xs text-primary hover:underline"
+                  >
+                    Reset to {formatINR(dueNowTotal)} (due now)
+                  </button>
+                )}
+                {extra > 0.004 && (
+                  <p className="mt-1 text-xs text-warning">
+                    {formatINR(extra)} more than everything owing — it will be kept as credit on this sale.
+                  </p>
+                )}
+                {deductionNeedsFull && firstRow && (
+                  <p className="mt-1 text-xs text-destructive">
+                    The early-payment deduction needs EMI #{firstRow.installmentNumber} paid in full
+                    ({formatINR(firstRow.owing)}).
+                  </p>
+                )}
+              </div>
 
-                  <div>
-                    <Label htmlFor="full-notes">Notes</Label>
-                    <Textarea
-                      id="full-notes"
-                      rows={2}
-                      value={fullNotes}
-                      onChange={(e) => setFullNotes(e.target.value)}
-                      placeholder="Optional"
-                    />
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div>
-                    <Label htmlFor="partial-amount" required>Amount received</Label>
-                    <Input
-                      id="partial-amount"
-                      type="number"
-                      step="0.01"
-                      value={partialAmount}
-                      onChange={(e) => setPartialAmount(e.target.value)}
-                      placeholder="0.00"
-                    />
-                    {partialAmountNum >= toCollect && toCollect > 0 && (
-                      <p className="mt-1 text-xs text-destructive">
-                        That covers the whole EMI — use “Full payment”.
-                      </p>
+              <div>
+                <Label required>Payment mode</Label>
+                <PaymentSplitsEditor splits={splits} onChange={setSplits} total={amountNum} />
+              </div>
+
+              {/* Balance promise — only when less than is due was paid */}
+              {preview && shortBy > 0.004 && (
+                <div className="rounded-lg border border-border p-3">
+                  <p className="flex items-center gap-1.5 text-sm font-semibold">
+                    <CalendarClock className="h-3.5 w-3.5 text-muted-foreground" />
+                    {formatINR(shortBy)} still due
+                  </p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    It stays on the EMI{leftOwing.length === 1 ? '' : 's'} it belongs to
+                    {leftOwing.length > 0 && <> ({leftOwing.map((r) => `#${r.installmentNumber}`).join(', ')})</>}.
+                    If the customer said when they'll pay it, note the date — optional.
+                  </p>
+                  <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div>
+                      <Label htmlFor="promise-date">Will pay the rest on</Label>
+                      <DateInput value={promiseDate} onChange={(v) => setPromiseDate(v)} min={today} />
+                    </div>
+                    {promiseDate && covered.length > 0 && (
+                      <div className="self-end pb-1 text-sm">
+                        Promise <span className="font-semibold tabular">{promiseLabel}</span> ·{' '}
+                        <span className="tabular">{formatINR(promiseAmount)}</span>
+                      </div>
                     )}
                   </div>
-
-                  <div>
-                    <Label required>Payment mode</Label>
-                    <PaymentSplitsEditor splits={partialSplits} onChange={setPartialSplits} total={partialAmountNum} />
-                  </div>
-
-                  <div>
-                    <Label required>Customer will pay the rest on</Label>
-                    <DateInput value={partialDate} onChange={(v) => setPartialDate(v)} />
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {partialLeft > 0 ? `${formatINR(partialLeft)} left on this EMI. ` : ''}
-                      The EMI keeps its own due date; this is recorded as the customer's promise.
+                  {promiseDate && promiseDate < today && (
+                    <p className="mt-1 text-xs text-destructive">A promise date can't be in the past.</p>
+                  )}
+                  {promiseReachesNextEmi && nextEmi && (
+                    <label className="mt-2 flex cursor-pointer items-start gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={includeNextEmi}
+                        onChange={(e) => setIncludeNextEmi(e.target.checked)}
+                        className="mt-0.5 h-4 w-4 rounded border-border-strong accent-[hsl(var(--primary))]"
+                      />
+                      <span>
+                        Also collect EMI #{nextEmi.installmentNumber} (due {formatDateIN(nextEmi.dueDate)},{' '}
+                        {formatINR(nextEmi.owing)}) on that date
+                      </span>
+                    </label>
+                  )}
+                  {promiseDate && (
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Due dates don't move. The customer is left off the daily list until this date,
+                      except on the day another EMI falls due.
                     </p>
-                  </div>
-
-                  <div>
-                    <Label htmlFor="partial-notes">Notes</Label>
-                    <Textarea
-                      id="partial-notes"
-                      rows={2}
-                      value={partialNotes}
-                      onChange={(e) => setPartialNotes(e.target.value)}
-                      placeholder="Optional"
-                    />
-                  </div>
-                </>
+                  )}
+                </div>
               )}
+
+              <div>
+                <Label htmlFor="notes">Notes</Label>
+                <Textarea
+                  id="notes"
+                  rows={2}
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="Optional"
+                />
+              </div>
 
               {mutationError && (
                 <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive-muted px-3 py-2 text-sm text-destructive">
@@ -429,16 +483,14 @@ export function RecordPaymentDialog({
                   </p>
                   {preview.penalty.overdueSince && (
                     <p className="text-xs text-muted-foreground">
-                      Oldest unpaid EMI was due {preview.penalty.overdueSince}. Penalty is per sale,
-                      however many EMIs are late.
+                      Oldest unpaid EMI was due {formatDateIN(preview.penalty.overdueSince)}. Penalty is per
+                      sale, however many EMIs are late.
                     </p>
                   )}
 
                   {preview.penalty.applicable ? (
                     <p className="mt-1 text-xs text-foreground/80">
                       {formatINR(preview.penalty.perDay)}/day × {preview.penalty.days}
-                      {/* When earlier charges covered part of the lateness, say so —
-                          otherwise "late by 25 days … × 2 days" reads as a mistake. */}
                       {preview.penalty.days < daysLate ? ' uncharged' : ''} day
                       {preview.penalty.days === 1 ? '' : 's'} ={' '}
                       <span className="tabular font-semibold">{formatINR(preview.penalty.amount)}</span>
@@ -517,15 +569,15 @@ export function RecordPaymentDialog({
               )}
 
               {/* Early-payment deduction */}
-              {preview && scenario === 'full_payment' && preview.earlyPayment.daysEarly > 0 && (
+              {preview && preview.earlyPayment.daysEarly > 0 && (
                 deductionAvailable ? (
                   <div className="rounded-lg border border-primary/25 bg-primary-muted p-3">
                     <p className="flex items-center gap-1.5 text-sm font-semibold text-primary">
                       <BadgePercent className="h-3.5 w-3.5" />
-                      Paid {preview.earlyPayment.daysEarly} days early
+                      EMI #{preview.installmentNumber} paid {preview.earlyPayment.daysEarly} days early
                     </p>
                     <p className="mt-1 text-xs text-foreground/80">
-                      This EMI includes {formatINR(preview.earlyPayment.amount)} of the interest charged at sale.
+                      It includes {formatINR(preview.earlyPayment.amount)} of the interest charged at sale.
                     </p>
                     <label className="mt-2 flex cursor-pointer items-start gap-2 text-sm">
                       <input
@@ -551,36 +603,51 @@ export function RecordPaymentDialog({
                 )
               )}
 
-              {/* Summary */}
+              {/* Where the money goes */}
               <div className="rounded-lg border border-border bg-subtle p-3">
-                <p className="text-overline mb-2">Summary</p>
-                <dl className="space-y-1.5 text-sm">
-                  <div className="flex justify-between gap-3">
-                    <dt className="text-muted-foreground">Due on this EMI</dt>
-                    <dd className="tabular font-medium">{formatINR(baseDue)}</dd>
-                  </div>
-                  {penaltyCharged > 0 && (
-                    <div className="flex justify-between gap-3 text-warning">
-                      <dt>+ Late penalty</dt>
-                      <dd className="tabular font-medium">{formatINR(penaltyCharged)}</dd>
+                <p className="text-overline mb-2">Where it goes</p>
+                {rows.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">{previewQuery.isLoading ? 'Loading…' : 'Nothing owing.'}</p>
+                ) : (
+                  <dl className="space-y-1.5 text-sm">
+                    {rows
+                      .filter((r) => r.dueNow || r.paid > 0)
+                      .map((r, index) => (
+                        <div key={r.installmentId} className="flex justify-between gap-3">
+                          <dt className="text-muted-foreground">
+                            EMI #{r.installmentNumber}
+                            {index === 0 && penaltyCharged > 0 ? ' + penalty' : ''}
+                            <span className="block text-[11px]">
+                              {r.paid >= r.owing - 0.004
+                                ? 'cleared'
+                                : r.paid > 0
+                                  ? `${formatINR(round2(r.owing - r.paid))} left`
+                                  : `due ${formatDateIN(r.dueDate)}`}
+                            </span>
+                          </dt>
+                          <dd className="tabular font-medium">
+                            {formatINR(r.paid)}
+                            <span className="text-muted-foreground"> / {formatINR(r.owing)}</span>
+                          </dd>
+                        </div>
+                      ))}
+                    {extra > 0.004 && (
+                      <div className="flex justify-between gap-3 text-warning">
+                        <dt>Credit</dt>
+                        <dd className="tabular font-medium">{formatINR(extra)}</dd>
+                      </div>
+                    )}
+                    <div className="mt-1.5 flex justify-between gap-3 border-t border-border pt-1.5">
+                      <dt className="font-medium">Received</dt>
+                      <dd className="tabular text-base font-semibold">{formatINR(amountNum)}</dd>
                     </div>
-                  )}
-                  {deductionOnThisEmi > 0 && (
-                    <div className="flex justify-between gap-3 text-primary">
-                      <dt>− Early-payment deduction</dt>
-                      <dd className="tabular font-medium">{formatINR(deductionOnThisEmi)}</dd>
-                    </div>
-                  )}
-                  <div className="mt-1.5 flex justify-between gap-3 border-t border-border pt-1.5">
-                    <dt className="font-medium">To collect</dt>
-                    <dd className="tabular text-base font-semibold">{formatINR(toCollect)}</dd>
-                  </div>
-                  {deductionTotal - deductionOnThisEmi > 0.004 && (
-                    <p className="pt-1 text-xs text-primary">
-                      {formatINR(round2(deductionTotal - deductionOnThisEmi))} comes off {targetLabel}.
-                    </p>
-                  )}
-                </dl>
+                    {deductionTotal > 0 && (
+                      <p className="pt-1 text-xs text-primary">
+                        {formatINR(deductionTotal)} comes off {targetLabel}.
+                      </p>
+                    )}
+                  </dl>
+                )}
               </div>
             </aside>
           </div>
@@ -592,16 +659,10 @@ export function RecordPaymentDialog({
           <Button
             onClick={handleSubmit}
             loading={mutation.isPending}
-            disabled={(scenario === 'full_payment' ? !isFullValid : !isPartialValid) || previewQuery.isLoading}
-            icon={
-              scenario === 'full_payment'
-                ? <CheckCircle className="h-4 w-4" />
-                : <ArrowRightLeft className="h-4 w-4" />
-            }
+            disabled={!isValid || previewQuery.isLoading}
+            icon={<CheckCircle className="h-4 w-4" />}
           >
-            {scenario === 'full_payment'
-              ? `Record ${formatINR(fullAmountNum)}`
-              : `Record ${formatINR(partialAmountNum)}`}
+            Record {formatINR(amountNum)}
           </Button>
         </div>
       </div>

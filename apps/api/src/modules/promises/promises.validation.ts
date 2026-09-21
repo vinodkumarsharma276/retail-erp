@@ -12,5 +12,5 @@ export const createPromiseSchema = z.object({
 export const listPromisesQuerySchema = z.object({
   scheduleId: z.string().uuid().optional(),
   customerId: z.string().uuid().optional(),
-  status: z.enum(['pending', 'kept', 'partially_kept', 'broken']).optional(),
+  status: z.enum(['pending', 'kept', 'partially_kept', 'broken', 'replaced', 'cancelled']).optional(),
 });

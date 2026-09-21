@@ -24,18 +24,17 @@ export function allocatePayment(
     return { lines, unallocated: D(0) };
   }
 
-  if (explicitInstallmentId) {
-    const target = installments.find((installment) => installment.id === explicitInstallmentId);
-    if (!target) throw new Error('Target installment not found in this schedule');
-
-    const amount = Prisma.Decimal.min(remaining, D(target.remainingAmount));
-    if (amount.gt(0)) lines.push({ installmentId: target.id, amount });
-    return { lines, unallocated: remaining.minus(amount) };
-  }
-
+  // Oldest first. A chosen EMI is simply moved to the front; anything left
+  // over after clearing it still goes to the rest, oldest first.
   const ordered = installments
     .filter((installment) => D(installment.remainingAmount).gt(0))
     .sort((a, b) => a.dueDate.getTime() - b.dueDate.getTime());
+
+  if (explicitInstallmentId) {
+    const index = ordered.findIndex((installment) => installment.id === explicitInstallmentId);
+    if (index === -1) throw new Error('Target installment not found in this schedule');
+    ordered.unshift(...ordered.splice(index, 1));
+  }
 
   for (const installment of ordered) {
     if (remaining.lte(0)) break;

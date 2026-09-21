@@ -3,6 +3,8 @@ import type { Prisma } from '@prisma/client';
 import { ensureRolledForToday, applyPartialWithPromise, syncScheduleAndSale, distributeOverpayment, resolveScheduleTenantId } from './installments.rules.js';
 import { computeSettlementQuote, computeAccruedInterest, computeLatePenalty } from '@retailerp/shared-utils';
 import { computeDaysOverdue, mergeInstallmentSettings } from './installments.derivations.js';
+import type { CallListResponse, CallListRow } from '@retailerp/shared-types';
+import { promisesService } from '../promises/promises.service.js';
 
 /**
  * Scope object passed to read endpoints. `shopId` is always set (the user's
@@ -142,6 +144,194 @@ export const installmentsService = {
    * Get all overdue installments for a shop (or all shops in All-Shops mode).
    * Overdue = dueDate < today AND status NOT in [paid, rescheduled].
    */
+  /**
+   * The collector's list for one day, one row per sale.
+   *
+   * - An EMI due that day is always listed, even if an earlier EMI has a
+   *   promise running — the collector decides whether to call.
+   * - A promise dated that day brings the customer back.
+   * - Overdue EMIs covered by a promise dated LATER are snoozed until then.
+   * - Once a promise date passes unpaid, its EMIs are overdue again and the
+   *   row says the promise was broken.
+   *
+   * EMI due dates never move; promises only decide when to call.
+   */
+  async getCallList(
+    scope: ReadScope,
+    tenantId: string,
+    date: string,
+    opts?: { zone?: string },
+  ): Promise<CallListResponse> {
+    const day = new Date(`${date}T00:00:00.000Z`);
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    const iso = (d: Date) => d.toISOString().slice(0, 10);
+
+    const saleWhere: Prisma.SaleRecordWhereInput = saleScopeFilter(scope);
+    if (opts?.zone) saleWhere.customer = { zone: opts.zone };
+
+    const owingWhere: Prisma.InstallmentWhereInput = {
+      parentInstallmentNumber: null,
+      isClosed: false,
+      remainingAmount: { gt: 0 },
+    };
+
+    const schedules = await prisma.installmentSchedule.findMany({
+      where: {
+        tenantId,
+        status: 'active',
+        sale: saleWhere,
+        OR: [
+          { installments: { some: { ...owingWhere, dueDate: { lte: day } } } },
+          { promises: { some: { status: 'pending', promisedDate: { lte: day } } } },
+        ],
+      },
+      select: {
+        id: true,
+        installments: {
+          where: owingWhere,
+          orderBy: [{ dueDate: 'asc' }, { installmentNumber: 'asc' }],
+          select: { id: true, installmentNumber: true, dueDate: true, remainingAmount: true },
+        },
+        promises: {
+          orderBy: { createdAt: 'asc' },
+          select: {
+            id: true,
+            status: true,
+            createdAt: true,
+            promisedDate: true,
+            promisedAmount: true,
+            coveredInstallmentIds: true,
+          },
+        },
+        sale: {
+          select: {
+            id: true,
+            saleNumber: true,
+            ledgerNumber: true,
+            customer: { select: { id: true, name: true, phone: true, zone: true, city: true } },
+            product: { select: { brand: true, modelNumber: true } },
+          },
+        },
+      },
+    });
+
+    const labels = await promisesService.labelPromises(
+      schedules.flatMap((s) => s.promises),
+      tenantId,
+    );
+    const labelOf = (promiseId: string) => Object.values(labels.get(promiseId) ?? {}).join(', ');
+
+    type Reason = CallListRow['reasons'][number];
+    const rank: Record<Reason['kind'], number> = { promise_due: 0, due_today: 1, promise_broken: 2, overdue: 3 };
+    const rows: CallListRow[] = [];
+    const snoozed: CallListResponse['snoozed'] = [];
+
+    for (const schedule of schedules) {
+      const dueNow = schedule.installments.filter((i) => i.dueDate <= day);
+      const pending = schedule.promises.filter((p) => p.status === 'pending');
+      const future = pending.filter((p) => p.promisedDate > day);
+      const coveredLater = new Set(future.flatMap((p) => p.coveredInstallmentIds));
+      const reasons: Reason[] = [];
+
+      for (const p of pending.filter((p) => p.promisedDate.getTime() === day.getTime())) {
+        reasons.push({ kind: 'promise_due', label: labelOf(p.id), amount: Number(p.promisedAmount) });
+      }
+      for (const i of dueNow.filter((i) => i.dueDate.getTime() === day.getTime())) {
+        reasons.push({ kind: 'due_today', installmentNumber: i.installmentNumber, amount: Number(i.remainingAmount) });
+      }
+
+      const lateUncovered = dueNow.filter((i) => i.dueDate < day && !coveredLater.has(i.id));
+      if (lateUncovered.length > 0) {
+        // The most recent promise on these EMIs, if its date has passed and
+        // it wasn't kept, is a broken promise worth mentioning.
+        const lateIds = new Set(lateUncovered.map((i) => i.id));
+        const lastPromise = [...schedule.promises]
+          .reverse()
+          .find(
+            (p) =>
+              p.status !== 'cancelled' &&
+              p.status !== 'replaced' &&
+              p.coveredInstallmentIds.some((id) => lateIds.has(id)),
+          );
+        if (
+          lastPromise &&
+          lastPromise.promisedDate < day &&
+          (lastPromise.status === 'pending' || lastPromise.status === 'broken' || lastPromise.status === 'partially_kept')
+        ) {
+          reasons.push({
+            kind: 'promise_broken',
+            label: labelOf(lastPromise.id),
+            promisedDate: iso(lastPromise.promisedDate),
+            daysSince: Math.round((day.getTime() - lastPromise.promisedDate.getTime()) / DAY_MS),
+          });
+        }
+        const oldest = lateUncovered[0];
+        reasons.push({
+          kind: 'overdue',
+          oldestInstallmentNumber: oldest.installmentNumber,
+          daysLate: Math.round((day.getTime() - oldest.dueDate.getTime()) / DAY_MS),
+        });
+      }
+
+      const nextPromise = [...future].sort((a, b) => a.promisedDate.getTime() - b.promisedDate.getTime())[0];
+      const openPromise = nextPromise
+        ? { label: labelOf(nextPromise.id), promisedDate: iso(nextPromise.promisedDate), amount: Number(nextPromise.promisedAmount) }
+        : null;
+
+      if (reasons.length === 0) {
+        if (nextPromise && dueNow.length > 0) {
+          snoozed.push({
+            scheduleId: schedule.id,
+            customerName: schedule.sale.customer.name,
+            label: openPromise!.label,
+            promisedDate: openPromise!.promisedDate,
+            amount: openPromise!.amount,
+          });
+        }
+        continue;
+      }
+
+      reasons.sort((a, b) => rank[a.kind] - rank[b.kind]);
+      rows.push({
+        scheduleId: schedule.id,
+        saleId: schedule.sale.id,
+        saleNumber: schedule.sale.saleNumber,
+        ledgerNumber: schedule.sale.ledgerNumber ?? '',
+        customer: schedule.sale.customer,
+        product: { brand: schedule.sale.product.brand, modelNumber: schedule.sale.product.modelNumber },
+        reasons,
+        dueNow: dueNow.map((i) => ({
+          installmentId: i.id,
+          installmentNumber: i.installmentNumber,
+          dueDate: iso(i.dueDate),
+          remainingAmount: Number(i.remainingAmount),
+        })),
+        totalDueNow: dueNow.reduce((sum, i) => sum + Number(i.remainingAmount), 0),
+        nextEmi: (() => {
+          const next = schedule.installments.find((i) => i.dueDate > day);
+          return next
+            ? {
+                installmentId: next.id,
+                installmentNumber: next.installmentNumber,
+                dueDate: iso(next.dueDate),
+                remainingAmount: Number(next.remainingAmount),
+              }
+            : null;
+        })(),
+        openPromise,
+      });
+    }
+
+    const daysLate = (row: CallListRow) => {
+      const overdue = row.reasons.find((r) => r.kind === 'overdue');
+      return overdue && overdue.kind === 'overdue' ? overdue.daysLate : 0;
+    };
+    rows.sort((a, b) => rank[a.reasons[0].kind] - rank[b.reasons[0].kind] || daysLate(b) - daysLate(a));
+    snoozed.sort((a, b) => a.promisedDate.localeCompare(b.promisedDate));
+
+    return { date, rows, snoozed };
+  },
+
   async getOverdue(scope: ReadScope, opts?: { zone?: string }) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);

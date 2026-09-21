@@ -28,6 +28,7 @@ async function resolvePromisesForTenant(prisma: PrismaClient, tenantId: string):
       id: true,
       scheduleId: true,
       promisedAmount: true,
+      promisedDate: true,
       coveredInstallmentIds: true,
       createdAt: true,
     },
@@ -35,12 +36,15 @@ async function resolvePromisesForTenant(prisma: PrismaClient, tenantId: string):
 
   for (const promise of promises) {
     await prisma.$transaction(async (tx) => {
+      // Only money paid ON OR BEFORE the promised date keeps a promise. The
+      // old `paymentDate < today` also counted late payments whenever this
+      // job ran a day or two behind.
       const payments = await tx.installmentPayment.aggregate({
         where: {
           tenantId,
           installmentId: { in: promise.coveredInstallmentIds },
           createdAt: { gte: promise.createdAt },
-          paymentDate: { lt: today },
+          paymentDate: { lte: promise.promisedDate },
         },
         _sum: { amount: true },
       });
