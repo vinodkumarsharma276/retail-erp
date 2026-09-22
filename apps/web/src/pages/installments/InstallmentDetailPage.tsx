@@ -25,6 +25,7 @@ import { StatusBadge } from '../../components/StatusBadge';
 import { PaymentTimeline } from '../../components/PaymentTimeline';
 import { RecordPaymentDialog } from '../../components/RecordPaymentDialog';
 import { PromiseDialog } from '../../components/PromiseDialog';
+import { ViewSaleButton } from '../../components/ViewSaleButton';
 import { PromiseChip, PromiseHistory } from '../../components/PromiseHistory';
 import { useAuthStore } from '../../stores/auth-store';
 import { formatINR, formatDateIN } from '@retailerp/shared-utils';
@@ -239,13 +240,7 @@ export function InstallmentDetailPage() {
         <div className="lg:col-span-3 rounded-lg border bg-card p-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-medium">Sale Summary</h2>
-            <Link
-              to={`/sales/${sale.id}`}
-              className="flex items-center gap-1 text-sm text-primary hover:underline"
-            >
-              View Sale
-              <ExternalLink className="h-3.5 w-3.5" />
-            </Link>
+            <ViewSaleButton saleId={sale.id} />
           </div>
           <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <InfoRow label="Sale Number" value={sale.saleNumber} />

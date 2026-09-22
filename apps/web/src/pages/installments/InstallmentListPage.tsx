@@ -11,7 +11,6 @@ import {
   X,
   ChevronDown,
   ChevronRight,
-  Receipt,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { PageHeader } from '../../components/PageHeader';
@@ -20,6 +19,7 @@ import { DataTable, type Column } from '../../components/DataTable';
 import { DateInput } from '../../components/DateInput';
 import { StatusBadge } from '../../components/StatusBadge';
 import { RecordPaymentDialog } from '../../components/RecordPaymentDialog';
+import { ViewSaleButton } from '../../components/ViewSaleButton';
 import { CallListTab } from './CallListTab';
 import {
   useOverdueInstallmentsQuery,
@@ -377,21 +377,7 @@ export function InstallmentListPage() {
                           <Eye className="h-3.5 w-3.5" />
                           History
                         </button>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            navigate(`/sales/${schedule.saleId ?? schedule.sale?.id}`);
-                          }}
-                          title="Open the original sale"
-                          className={cn(
-                            'flex flex-shrink-0 items-center gap-1 rounded-md border px-2.5 py-1.5 text-xs font-medium',
-                            'hover:bg-muted transition-colors',
-                          )}
-                        >
-                          <Receipt className="h-3.5 w-3.5" />
-                          Sale
-                        </button>
+                        <ViewSaleButton saleId={schedule.saleId ?? schedule.sale?.id} />
                       </div>
 
                       {/* Collapsible body */}
@@ -642,20 +628,7 @@ function OverdueTab() {
               <Banknote className="h-3.5 w-3.5" />
               Pay
             </button>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                navigate(`/sales/${row.saleId}`);
-              }}
-              title="Open the original sale"
-              className={cn(
-                'flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-xs font-medium',
-                'hover:bg-muted transition-colors',
-              )}
-            >
-              <Receipt className="h-3.5 w-3.5" />
-              Sale
-            </button>
+            <ViewSaleButton saleId={row.saleId} />
           </div>
         ),
       },
@@ -881,20 +854,7 @@ function CollectionsTab() {
               <Banknote className="h-3.5 w-3.5" />
               Pay
             </button>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                navigate(`/sales/${row.saleId}`);
-              }}
-              title="Open the original sale"
-              className={cn(
-                'flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-xs font-medium',
-                'hover:bg-muted transition-colors',
-              )}
-            >
-              <Receipt className="h-3.5 w-3.5" />
-              Sale
-            </button>
+            <ViewSaleButton saleId={row.saleId} />
           </div>
         ),
       },
@@ -1209,19 +1169,7 @@ function PaidTab() {
         key: 'actions',
         header: 'Actions',
         render: (row) => (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              navigate(`/sales/${row.saleId}`);
-            }}
-            className={cn(
-              'flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-xs font-medium',
-              'hover:bg-muted transition-colors',
-            )}
-          >
-            <Receipt className="h-3.5 w-3.5" />
-            Sale
-          </button>
+          <ViewSaleButton saleId={row.saleId} />
         ),
       },
     ],

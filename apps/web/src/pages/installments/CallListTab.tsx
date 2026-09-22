@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertCircle, Banknote, CalendarClock, ChevronDown, ChevronRight, Loader2, Phone, PhoneCall, Receipt } from 'lucide-react';
+import { AlertCircle, Banknote, CalendarClock, ChevronDown, ChevronRight, Loader2, Phone, PhoneCall } from 'lucide-react';
 import { formatINR, formatDateIN } from '@retailerp/shared-utils';
 import type { CallListRow } from '@retailerp/shared-types';
 import { cn } from '../../lib/utils';
@@ -9,6 +9,7 @@ import { usePermission } from '../../hooks/usePermission';
 import { DateInput } from '../../components/DateInput';
 import { EmptyState } from '../../components/EmptyState';
 import { RecordPaymentDialog } from '../../components/RecordPaymentDialog';
+import { ViewSaleButton } from '../../components/ViewSaleButton';
 import { PromiseDialog } from '../../components/PromiseDialog';
 import { Button } from '../../components/ui/button';
 
@@ -219,15 +220,7 @@ export function CallListTab() {
                       >
                         Promise
                       </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        icon={<Receipt className="h-3.5 w-3.5" />}
-                        onClick={() => navigate(`/sales/${row.saleId}`)}
-                        title="Open the original sale"
-                      >
-                        Sale
-                      </Button>
+                      <ViewSaleButton saleId={row.saleId} />
                     </div>
                   </td>
                 </tr>
