@@ -114,7 +114,7 @@ export function CallListTab() {
           ].map((s) => (
             <div key={s.label} className="rounded-lg border bg-card px-3 py-2">
               <p className="text-caption">{s.label}</p>
-              <p className="tabular font-display text-xl font-bold">{s.value}</p>
+              <p className="tabular font-display text-xl font-semibold">{s.value}</p>
             </div>
           ))}
         </div>

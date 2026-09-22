@@ -17,146 +17,145 @@
    =========================================================================== */
 
 @layer base {
-  /* "Electric violet": violet brand, magenta + saffron accents for
-     gradients and highlights, dark sidebar in both themes so the working
-     area stays bright and the navigation reads as its own zone. */
+  /* Warm, quiet palette in the spirit of Claude's design: ivory canvas,
+     warm neutrals, one clay accent, flat surfaces, serif headings. Colour is
+     kept for meaning (status, the primary action), not decoration. */
   :root {
-    /* --- Neutral ramp (faintly violet-tinted) ------------------------- */
-    --background: 250 38% 97%;
-    --foreground: 250 36% 12%;
+    /* --- Neutral ramp (warm) ------------------------------------------ */
+    --background: 48 33% 97%;
+    --foreground: 60 3% 15%;
     --surface: 0 0% 100%;
-    --surface-foreground: 250 36% 12%;
+    --surface-foreground: 60 3% 15%;
     --card: 0 0% 100%;
-    --card-foreground: 250 36% 12%;
+    --card-foreground: 60 3% 15%;
     --popover: 0 0% 100%;
-    --popover-foreground: 250 36% 12%;
-    --muted: 250 30% 94.5%;
-    --muted-foreground: 250 12% 42%;
+    --popover-foreground: 60 3% 15%;
+    --muted: 45 22% 93%;
+    --muted-foreground: 40 5% 40%;
     /* Faint fill for table zebra striping and row hover. */
-    --subtle: 250 40% 98.4%;
-    --border: 250 26% 90%;
-    --border-strong: 250 20% 80%;
+    --subtle: 48 30% 98%;
+    --border: 45 16% 87%;
+    --border-strong: 45 10% 76%;
     /* `--input` is the field BORDER (shadcn convention). `--field` is the
        field FILL — always the lightest surface, never the canvas colour,
        or fields look disabled inside white cards. */
-    --input: 250 24% 86%;
+    --input: 45 12% 82%;
     --field: 0 0% 100%;
 
-    /* --- Brand -------------------------------------------------------- */
-    --primary: 258 84% 58%;
+    /* --- Brand: clay ---------------------------------------------------- */
+    --primary: 15 56% 52%;
     --primary-foreground: 0 0% 100%;
-    --primary-hover: 258 78% 51%;
-    --primary-muted: 258 100% 96.5%;
-    --ring: 258 84% 58%;
-    --brand-2: 316 82% 57%;
-    --brand-3: 38 96% 54%;
+    --primary-hover: 15 56% 46%;
+    --primary-muted: 18 60% 95%;
+    --ring: 15 56% 52%;
+    --brand-2: 15 56% 46%;
+    --brand-3: 15 56% 52%;
 
-    --secondary: 250 30% 94.5%;
-    --secondary-foreground: 250 30% 20%;
-    --accent: 250 30% 94.5%;
-    --accent-foreground: 250 30% 20%;
+    --secondary: 45 22% 93%;
+    --secondary-foreground: 60 3% 20%;
+    --accent: 45 22% 93%;
+    --accent-foreground: 60 3% 20%;
 
-    /* --- Semantic ----------------------------------------------------- */
-    --success: 160 72% 33%;
+    /* --- Semantic (muted, earthy) ------------------------------------- */
+    --success: 150 45% 32%;
     --success-foreground: 0 0% 100%;
-    --success-muted: 156 64% 94.5%;
+    --success-muted: 120 25% 94%;
 
-    --warning: 30 92% 44%;
+    --warning: 35 80% 40%;
     --warning-foreground: 0 0% 100%;
-    --warning-muted: 40 96% 93.5%;
+    --warning-muted: 42 70% 93%;
 
-    --destructive: 350 74% 52%;
+    --destructive: 0 60% 48%;
     --destructive-foreground: 0 0% 100%;
-    --destructive-muted: 350 90% 96%;
+    --destructive-muted: 5 70% 96%;
 
-    --info: 200 88% 42%;
+    --info: 210 50% 42%;
     --info-foreground: 0 0% 100%;
-    --info-muted: 200 92% 95%;
+    --info-muted: 210 45% 95%;
 
-    /* --- Shape & elevation -------------------------------------------- */
-    --radius: 0.75rem;
-    --shadow-xs: 0 1px 2px 0 hsl(250 40% 20% / 0.05);
-    --shadow-sm: 0 1px 3px 0 hsl(250 40% 20% / 0.08), 0 1px 2px -1px hsl(250 40% 20% / 0.06);
-    --shadow-md: 0 6px 16px -4px hsl(250 40% 20% / 0.12), 0 2px 4px -2px hsl(250 40% 20% / 0.06);
-    --shadow-lg: 0 16px 36px -8px hsl(250 40% 20% / 0.18), 0 4px 10px -4px hsl(250 40% 20% / 0.08);
-    --shadow-glow: 0 6px 18px -6px hsl(258 84% 58% / 0.6);
+    /* --- Shape & elevation (barely there) ----------------------------- */
+    --radius: 0.625rem;
+    --shadow-xs: 0 1px 2px 0 hsl(40 10% 20% / 0.04);
+    --shadow-sm: 0 1px 2px 0 hsl(40 10% 20% / 0.06);
+    --shadow-md: 0 4px 12px -4px hsl(40 10% 20% / 0.10);
+    --shadow-lg: 0 12px 32px -8px hsl(40 10% 20% / 0.16);
+    --shadow-glow: 0 1px 2px 0 hsl(40 10% 20% / 0.08);
 
-    /* --- Sidebar (dark in both themes) -------------------------------- */
-    --sidebar: 252 46% 11%;
-    --sidebar-foreground: 250 40% 97%;
-    --sidebar-muted: 250 22% 72%;
-    --sidebar-border: 252 34% 19%;
-    --sidebar-active: 258 84% 62%;
-    --sidebar-active-foreground: 0 0% 100%;
-    --sidebar-hover: 252 38% 17%;
+    /* --- Sidebar (light, a shade darker than the canvas) --------------- */
+    --sidebar: 45 25% 94.5%;
+    --sidebar-foreground: 60 3% 15%;
+    --sidebar-muted: 40 5% 38%;
+    --sidebar-border: 45 16% 86%;
+    --sidebar-active: 45 16% 87%;
+    --sidebar-active-foreground: 60 3% 12%;
+    --sidebar-hover: 45 18% 90%;
   }
 
   .dark {
-    /* --- Neutral ramp ------------------------------------------------- */
-    --background: 252 36% 6%;
-    --foreground: 250 30% 93%;
-    --surface: 252 30% 9.5%;
-    --surface-foreground: 250 30% 93%;
-    --card: 252 30% 9.5%;
-    --card-foreground: 250 30% 93%;
-    --popover: 252 30% 11.5%;
-    --popover-foreground: 250 30% 93%;
-    --muted: 252 26% 15%;
-    --muted-foreground: 250 16% 65%;
-    --subtle: 252 30% 11%;
-    --border: 252 24% 18%;
-    --border-strong: 252 20% 28%;
-    --input: 252 24% 22%;
-    /* Slightly lighter than --card so fields read as insets on dark panels. */
-    --field: 252 30% 12.5%;
+    /* --- Neutral ramp (warm charcoal) --------------------------------- */
+    --background: 60 3% 15%;
+    --foreground: 45 20% 91%;
+    --surface: 60 3% 18%;
+    --surface-foreground: 45 20% 91%;
+    --card: 60 3% 18%;
+    --card-foreground: 45 20% 91%;
+    --popover: 60 3% 19%;
+    --popover-foreground: 45 20% 91%;
+    --muted: 60 3% 22%;
+    --muted-foreground: 45 6% 64%;
+    --subtle: 60 3% 17%;
+    --border: 60 3% 25%;
+    --border-strong: 60 3% 33%;
+    --input: 60 3% 30%;
+    /* Slightly darker than --card so fields read as insets. */
+    --field: 60 3% 14%;
 
     /* --- Brand -------------------------------------------------------- */
-    --primary: 258 92% 70%;
-    --primary-foreground: 252 60% 8%;
-    --primary-hover: 258 95% 76%;
-    --primary-muted: 258 48% 19%;
-    --ring: 258 92% 70%;
-    --brand-2: 316 88% 66%;
-    --brand-3: 40 96% 60%;
+    --primary: 15 60% 60%;
+    --primary-foreground: 0 0% 100%;
+    --primary-hover: 15 62% 66%;
+    --primary-muted: 15 30% 22%;
+    --ring: 15 60% 60%;
+    --brand-2: 15 62% 66%;
+    --brand-3: 15 60% 60%;
 
-    --secondary: 252 26% 15%;
-    --secondary-foreground: 250 30% 93%;
-    --accent: 252 26% 15%;
-    --accent-foreground: 250 30% 93%;
+    --secondary: 60 3% 22%;
+    --secondary-foreground: 45 20% 91%;
+    --accent: 60 3% 22%;
+    --accent-foreground: 45 20% 91%;
 
     /* --- Semantic ----------------------------------------------------- */
-    --success: 157 62% 48%;
-    --success-foreground: 158 80% 7%;
-    --success-muted: 158 44% 14%;
+    --success: 145 40% 52%;
+    --success-foreground: 150 60% 8%;
+    --success-muted: 145 20% 19%;
 
-    --warning: 36 92% 58%;
-    --warning-foreground: 32 90% 9%;
-    --warning-muted: 34 50% 15%;
+    --warning: 38 75% 58%;
+    --warning-foreground: 35 80% 9%;
+    --warning-muted: 38 30% 19%;
 
-    --destructive: 350 82% 64%;
+    --destructive: 0 65% 62%;
     --destructive-foreground: 0 0% 100%;
-    --destructive-muted: 350 45% 17%;
+    --destructive-muted: 0 30% 20%;
 
-    --info: 200 88% 62%;
-    --info-foreground: 205 90% 9%;
-    --info-muted: 204 50% 16%;
+    --info: 210 55% 64%;
+    --info-foreground: 210 60% 9%;
+    --info-muted: 210 25% 20%;
 
     /* --- Elevation ----------------------------------------------------- */
-    /* Dark surfaces read depth from lightness, not shadow. */
-    --shadow-xs: 0 1px 2px 0 hsl(0 0% 0% / 0.3);
-    --shadow-sm: 0 1px 3px 0 hsl(0 0% 0% / 0.4);
-    --shadow-md: 0 4px 12px -2px hsl(0 0% 0% / 0.5);
-    --shadow-lg: 0 12px 28px -6px hsl(0 0% 0% / 0.6);
-    --shadow-glow: 0 6px 20px -6px hsl(258 92% 70% / 0.55);
+    --shadow-xs: 0 1px 2px 0 hsl(0 0% 0% / 0.25);
+    --shadow-sm: 0 1px 3px 0 hsl(0 0% 0% / 0.3);
+    --shadow-md: 0 4px 12px -2px hsl(0 0% 0% / 0.4);
+    --shadow-lg: 0 12px 28px -6px hsl(0 0% 0% / 0.5);
+    --shadow-glow: 0 1px 2px 0 hsl(0 0% 0% / 0.3);
 
     /* --- Sidebar ------------------------------------------------------ */
-    --sidebar: 252 40% 7.5%;
-    --sidebar-foreground: 250 30% 93%;
-    --sidebar-muted: 250 16% 64%;
-    --sidebar-border: 252 28% 14%;
-    --sidebar-active: 258 92% 70%;
-    --sidebar-active-foreground: 0 0% 100%;
-    --sidebar-hover: 252 30% 13%;
+    --sidebar: 30 3% 12%;
+    --sidebar-foreground: 45 20% 91%;
+    --sidebar-muted: 45 6% 62%;
+    --sidebar-border: 60 3% 20%;
+    --sidebar-active: 60 3% 22%;
+    --sidebar-active-foreground: 45 25% 96%;
+    --sidebar-hover: 60 3% 18%;
   }
 }
 
@@ -170,12 +169,6 @@
   body {
     @apply bg-background text-foreground antialiased;
     font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    /* Soft colour wash behind the working area — gives the canvas depth
-       without competing with content. */
-    background-image:
-      radial-gradient(60rem 30rem at 100% -10%, hsl(var(--primary) / 0.07), transparent 70%),
-      radial-gradient(40rem 24rem at 0% 110%, hsl(var(--brand-2) / 0.05), transparent 70%);
-    background-attachment: fixed;
     margin: 0;
   }
 
@@ -210,20 +203,10 @@
    =========================================================================== */
 @layer components {
   .text-display {
-    @apply font-display text-[1.75rem] font-bold leading-tight tracking-tight text-foreground;
+    @apply font-display text-[1.75rem] font-medium leading-tight tracking-tight text-foreground;
   }
   .text-title {
-    @apply font-display text-lg font-bold tracking-tight text-foreground;
-  }
-  /* Brand gradient fill for logos, active nav and primary actions. */
-  .bg-brand-gradient {
-    background-image: linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(var(--brand-2)) 100%);
-  }
-  .text-brand-gradient {
-    background-image: linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(var(--brand-2)) 100%);
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
+    @apply font-display text-lg font-medium tracking-tight text-foreground;
   }
   .text-subtitle {
     @apply text-sm font-medium text-foreground;

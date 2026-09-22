@@ -167,12 +167,12 @@ export function Sidebar() {
           )}
         >
           <div className="flex min-w-0 items-center gap-2.5">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-gradient text-white shadow-glow">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
               <Store className="h-4 w-4" />
             </div>
             {!railMode && (
               <div className="min-w-0">
-                <p className="truncate font-display text-base font-bold tracking-tight text-sidebar-foreground">
+                <p className="truncate font-display text-lg font-medium tracking-tight text-sidebar-foreground">
                   RetailERP
                 </p>
                 {tenantName && (
@@ -239,7 +239,7 @@ export function Sidebar() {
                                 ? 'h-9 w-full justify-center'
                                 : 'gap-3 px-2 py-1.5',
                               isActive
-                                ? 'bg-brand-gradient text-white shadow-glow'
+                                ? 'bg-sidebar-active text-sidebar-active-foreground'
                                 : 'text-sidebar-muted hover:bg-sidebar-hover hover:text-sidebar-foreground',
                             )
                           }
@@ -253,7 +253,7 @@ export function Sidebar() {
                                 <span
                                   aria-hidden
                                   className={cn(
-                                    'animate-fade-in absolute -left-3 h-5 w-1 rounded-r bg-brand-3',
+                                    'animate-fade-in absolute -left-3 h-5 w-1 rounded-r bg-primary',
                                     railMode && '-left-2',
                                   )}
                                 />

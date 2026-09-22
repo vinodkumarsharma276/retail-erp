@@ -144,7 +144,7 @@ export function LowMarginSalesCard() {
           <p className="text-sm text-destructive">Failed to load.</p>
         ) : (
           <>
-            <p className="font-display text-2xl font-bold tabular">{data?.count ?? 0}</p>
+            <p className="font-display text-2xl font-semibold tabular">{data?.count ?? 0}</p>
             <p className="text-xs text-muted-foreground">
               Total profit:{' '}
               <span

@@ -111,7 +111,7 @@ export function FinalSettlementCard({ scheduleId, canSettle }: Props) {
 
       <div className="rounded-md bg-emerald-50 dark:bg-emerald-900/20 p-3 mb-4">
         <p className="text-xs text-muted-foreground mb-1">Customer pays today</p>
-        <p className="font-display text-2xl font-bold tabular text-emerald-700 dark:text-emerald-400">
+        <p className="font-display text-2xl font-semibold tabular text-emerald-700 dark:text-emerald-400">
           {formatINR(quote.finalSettlement)}
         </p>
       </div>

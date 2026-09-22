@@ -36,7 +36,7 @@ export function AccessDenied() {
   return (
     <div className="flex flex-col items-center justify-center py-20 text-center">
       <ShieldX className="h-16 w-16 text-destructive mb-4" />
-      <h1 className="font-display text-2xl font-bold tabular mb-2">Access Denied</h1>
+      <h1 className="font-display text-2xl font-semibold tabular mb-2">Access Denied</h1>
       <p className="text-muted-foreground max-w-md">
         You do not have permission to access this page. Contact your
         administrator if you believe this is an error.

@@ -21,8 +21,7 @@ export type ButtonVariant =
 export type ButtonSize = 'xs' | 'sm' | 'md' | 'lg' | 'icon' | 'icon-sm';
 
 const variantClasses: Record<ButtonVariant, string> = {
-  default:
-    'bg-brand-gradient text-white shadow-glow hover:brightness-110 hover:-translate-y-px active:translate-y-0 active:brightness-95 transition-[filter,transform,box-shadow]',
+  default: 'bg-primary text-primary-foreground shadow-xs hover:bg-primary-hover active:bg-primary-hover',
   secondary: 'bg-secondary text-secondary-foreground hover:bg-muted',
   outline:
     'border border-border-strong/70 bg-card text-foreground shadow-xs hover:bg-muted hover:border-border-strong',

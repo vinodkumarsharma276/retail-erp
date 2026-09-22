@@ -113,7 +113,7 @@ export default {
           'sans-serif',
         ],
         // Headings and hero numbers.
-        display: ['Bricolage Grotesque', 'Plus Jakarta Sans', 'system-ui', 'sans-serif'],
+        display: ['"Source Serif 4"', 'Georgia', 'serif'],
       },
       fontSize: {
         // Slightly tighter tracking on large text; ERP headings read better dense.

@@ -92,7 +92,7 @@ export function TenantDetailPage() {
         ].map((c) => (
           <div key={c.label} className="rounded-md border bg-card px-4 py-3">
             <p className="text-xs text-muted-foreground">{c.label}</p>
-            <p className="font-display text-2xl font-bold tabular mt-1">{c.value.toLocaleString()}</p>
+            <p className="font-display text-2xl font-semibold tabular mt-1">{c.value.toLocaleString()}</p>
           </div>
         ))}
       </div>
