@@ -28,6 +28,11 @@ export default {
           DEFAULT: withAlpha('--surface'),
           foreground: withAlpha('--surface-foreground'),
         },
+        // Second brand hue — only for gradients and highlights, never text.
+        brand: {
+          2: withAlpha('--brand-2'),
+          3: withAlpha('--brand-3'),
+        },
         primary: {
           DEFAULT: withAlpha('--primary'),
           foreground: withAlpha('--primary-foreground'),
@@ -92,13 +97,14 @@ export default {
       },
       boxShadow: {
         xs: 'var(--shadow-xs)',
+        glow: 'var(--shadow-glow)',
         sm: 'var(--shadow-sm)',
         md: 'var(--shadow-md)',
         lg: 'var(--shadow-lg)',
       },
       fontFamily: {
         sans: [
-          'Inter',
+          'Plus Jakarta Sans',
           'system-ui',
           '-apple-system',
           'BlinkMacSystemFont',
@@ -106,6 +112,8 @@ export default {
           'Roboto',
           'sans-serif',
         ],
+        // Headings and hero numbers.
+        display: ['Bricolage Grotesque', 'Plus Jakarta Sans', 'system-ui', 'sans-serif'],
       },
       fontSize: {
         // Slightly tighter tracking on large text; ERP headings read better dense.

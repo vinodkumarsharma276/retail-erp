@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertCircle, Banknote, CalendarClock, ChevronDown, ChevronRight, Loader2, Phone, PhoneCall } from 'lucide-react';
+import { AlertCircle, Banknote, CalendarClock, ChevronDown, ChevronRight, Loader2, Phone, PhoneCall, Receipt } from 'lucide-react';
 import { formatINR, formatDateIN } from '@retailerp/shared-utils';
 import type { CallListRow } from '@retailerp/shared-types';
 import { cn } from '../../lib/utils';
@@ -114,7 +114,7 @@ export function CallListTab() {
           ].map((s) => (
             <div key={s.label} className="rounded-lg border bg-card px-3 py-2">
               <p className="text-caption">{s.label}</p>
-              <p className="tabular text-lg font-semibold">{s.value}</p>
+              <p className="tabular font-display text-xl font-bold">{s.value}</p>
             </div>
           ))}
         </div>
@@ -152,17 +152,17 @@ export function CallListTab() {
             </thead>
             <tbody>
               {rows.map((row) => (
-                <tr key={row.scheduleId} className="border-b align-top last:border-0 hover:bg-muted/30">
+                <tr
+                  key={row.scheduleId}
+                  onClick={() => navigate(`/installments/${row.scheduleId}`)}
+                  title="Open installment history"
+                  className="cursor-pointer border-b align-top last:border-0 hover:bg-muted/30"
+                >
                   <td className="px-3 py-2.5">
-                    <button
-                      type="button"
-                      onClick={() => navigate(`/installments/${row.scheduleId}`)}
-                      className="font-medium hover:underline"
-                    >
-                      {row.customer.name}
-                    </button>
+                    <p className="font-medium">{row.customer.name}</p>
                     <a
                       href={`tel:${row.customer.phone}`}
+                      onClick={(e) => e.stopPropagation()}
                       className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground hover:text-primary"
                     >
                       <Phone className="h-3 w-3" /> {row.customer.phone}
@@ -207,7 +207,7 @@ export function CallListTab() {
                     )}
                   </td>
                   <td className="px-3 py-2.5">
-                    <div className="flex justify-end gap-1.5">
+                    <div className="flex justify-end gap-1.5" onClick={(e) => e.stopPropagation()}>
                       <Button size="sm" icon={<Banknote className="h-3.5 w-3.5" />} onClick={() => setPayFor(row)}>
                         Pay
                       </Button>
@@ -218,6 +218,15 @@ export function CallListTab() {
                         onClick={() => setPromiseFor(row)}
                       >
                         Promise
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        icon={<Receipt className="h-3.5 w-3.5" />}
+                        onClick={() => navigate(`/sales/${row.saleId}`)}
+                        title="Open the original sale"
+                      >
+                        Sale
                       </Button>
                     </div>
                   </td>

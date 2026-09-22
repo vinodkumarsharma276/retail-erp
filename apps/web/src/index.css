@@ -17,140 +17,146 @@
    =========================================================================== */
 
 @layer base {
+  /* "Electric violet": violet brand, magenta + saffron accents for
+     gradients and highlights, dark sidebar in both themes so the working
+     area stays bright and the navigation reads as its own zone. */
   :root {
-    /* --- Neutral ramp ------------------------------------------------- */
-    --background: 220 24% 97%;
-    --foreground: 224 32% 11%;
+    /* --- Neutral ramp (faintly violet-tinted) ------------------------- */
+    --background: 250 38% 97%;
+    --foreground: 250 36% 12%;
     --surface: 0 0% 100%;
-    --surface-foreground: 224 32% 11%;
+    --surface-foreground: 250 36% 12%;
     --card: 0 0% 100%;
-    --card-foreground: 224 32% 11%;
+    --card-foreground: 250 36% 12%;
     --popover: 0 0% 100%;
-    --popover-foreground: 224 32% 11%;
-    --muted: 220 18% 94%;
-    --muted-foreground: 220 11% 43%;
+    --popover-foreground: 250 36% 12%;
+    --muted: 250 30% 94.5%;
+    --muted-foreground: 250 12% 42%;
     /* Faint fill for table zebra striping and row hover. */
-    --subtle: 220 24% 98%;
-    --border: 220 17% 89%;
-    --border-strong: 220 15% 80%;
+    --subtle: 250 40% 98.4%;
+    --border: 250 26% 90%;
+    --border-strong: 250 20% 80%;
     /* `--input` is the field BORDER (shadcn convention). `--field` is the
-       field FILL. They are separate because a field must never inherit the
-       canvas colour: `--background` is the grey the app sits on, so a field
-       painted with it looks filled-in and disabled once it's inside a white
-       card. Fields are always the lightest surface in the stack. */
-    --input: 220 17% 89%;
+       field FILL — always the lightest surface, never the canvas colour,
+       or fields look disabled inside white cards. */
+    --input: 250 24% 86%;
     --field: 0 0% 100%;
 
     /* --- Brand -------------------------------------------------------- */
-    --primary: 239 66% 56%;
+    --primary: 258 84% 58%;
     --primary-foreground: 0 0% 100%;
-    --primary-hover: 239 62% 49%;
-    --primary-muted: 239 72% 96%;
-    --ring: 239 66% 56%;
+    --primary-hover: 258 78% 51%;
+    --primary-muted: 258 100% 96.5%;
+    --ring: 258 84% 58%;
+    --brand-2: 316 82% 57%;
+    --brand-3: 38 96% 54%;
 
-    --secondary: 220 18% 94%;
-    --secondary-foreground: 224 26% 20%;
-    --accent: 220 18% 94%;
-    --accent-foreground: 224 26% 20%;
+    --secondary: 250 30% 94.5%;
+    --secondary-foreground: 250 30% 20%;
+    --accent: 250 30% 94.5%;
+    --accent-foreground: 250 30% 20%;
 
     /* --- Semantic ----------------------------------------------------- */
-    --success: 158 68% 34%;
+    --success: 160 72% 33%;
     --success-foreground: 0 0% 100%;
-    --success-muted: 156 60% 95%;
+    --success-muted: 156 64% 94.5%;
 
-    --warning: 32 90% 44%;
+    --warning: 30 92% 44%;
     --warning-foreground: 0 0% 100%;
-    --warning-muted: 40 90% 94%;
+    --warning-muted: 40 96% 93.5%;
 
-    --destructive: 0 68% 50%;
+    --destructive: 350 74% 52%;
     --destructive-foreground: 0 0% 100%;
-    --destructive-muted: 0 80% 96%;
+    --destructive-muted: 350 90% 96%;
 
-    --info: 205 85% 43%;
+    --info: 200 88% 42%;
     --info-foreground: 0 0% 100%;
-    --info-muted: 204 90% 95%;
+    --info-muted: 200 92% 95%;
 
     /* --- Shape & elevation -------------------------------------------- */
-    --radius: 0.625rem;
-    --shadow-xs: 0 1px 2px 0 hsl(224 32% 11% / 0.04);
-    --shadow-sm: 0 1px 3px 0 hsl(224 32% 11% / 0.07), 0 1px 2px -1px hsl(224 32% 11% / 0.05);
-    --shadow-md: 0 4px 12px -2px hsl(224 32% 11% / 0.09), 0 2px 4px -2px hsl(224 32% 11% / 0.05);
-    --shadow-lg: 0 12px 28px -6px hsl(224 32% 11% / 0.14), 0 4px 10px -4px hsl(224 32% 11% / 0.07);
+    --radius: 0.75rem;
+    --shadow-xs: 0 1px 2px 0 hsl(250 40% 20% / 0.05);
+    --shadow-sm: 0 1px 3px 0 hsl(250 40% 20% / 0.08), 0 1px 2px -1px hsl(250 40% 20% / 0.06);
+    --shadow-md: 0 6px 16px -4px hsl(250 40% 20% / 0.12), 0 2px 4px -2px hsl(250 40% 20% / 0.06);
+    --shadow-lg: 0 16px 36px -8px hsl(250 40% 20% / 0.18), 0 4px 10px -4px hsl(250 40% 20% / 0.08);
+    --shadow-glow: 0 6px 18px -6px hsl(258 84% 58% / 0.6);
 
-    /* --- Sidebar ------------------------------------------------------ */
-    --sidebar: 0 0% 100%;
-    --sidebar-foreground: 224 32% 11%;
-    --sidebar-muted: 220 11% 48%;
-    --sidebar-border: 220 17% 90%;
-    --sidebar-active: 239 66% 56%;
+    /* --- Sidebar (dark in both themes) -------------------------------- */
+    --sidebar: 252 46% 11%;
+    --sidebar-foreground: 250 40% 97%;
+    --sidebar-muted: 250 22% 72%;
+    --sidebar-border: 252 34% 19%;
+    --sidebar-active: 258 84% 62%;
     --sidebar-active-foreground: 0 0% 100%;
-    --sidebar-hover: 220 18% 95%;
+    --sidebar-hover: 252 38% 17%;
   }
 
   .dark {
     /* --- Neutral ramp ------------------------------------------------- */
-    --background: 226 28% 7%;
-    --foreground: 214 28% 91%;
-    --surface: 225 24% 10%;
-    --surface-foreground: 214 28% 91%;
-    --card: 225 24% 10%;
-    --card-foreground: 214 28% 91%;
-    --popover: 225 24% 12%;
-    --popover-foreground: 214 28% 91%;
-    --muted: 224 20% 16%;
-    --muted-foreground: 218 14% 62%;
-    --subtle: 225 22% 12%;
-    --border: 224 18% 19%;
-    --border-strong: 223 15% 28%;
-    --input: 224 18% 19%;
+    --background: 252 36% 6%;
+    --foreground: 250 30% 93%;
+    --surface: 252 30% 9.5%;
+    --surface-foreground: 250 30% 93%;
+    --card: 252 30% 9.5%;
+    --card-foreground: 250 30% 93%;
+    --popover: 252 30% 11.5%;
+    --popover-foreground: 250 30% 93%;
+    --muted: 252 26% 15%;
+    --muted-foreground: 250 16% 65%;
+    --subtle: 252 30% 11%;
+    --border: 252 24% 18%;
+    --border-strong: 252 20% 28%;
+    --input: 252 24% 22%;
     /* Slightly lighter than --card so fields read as insets on dark panels. */
-    --field: 224 22% 14%;
+    --field: 252 30% 12.5%;
 
     /* --- Brand -------------------------------------------------------- */
-    --primary: 239 82% 67%;
-    --primary-foreground: 0 0% 100%;
-    --primary-hover: 239 84% 72%;
-    --primary-muted: 239 50% 18%;
-    --ring: 239 82% 67%;
+    --primary: 258 92% 70%;
+    --primary-foreground: 252 60% 8%;
+    --primary-hover: 258 95% 76%;
+    --primary-muted: 258 48% 19%;
+    --ring: 258 92% 70%;
+    --brand-2: 316 88% 66%;
+    --brand-3: 40 96% 60%;
 
-    --secondary: 224 20% 16%;
-    --secondary-foreground: 214 28% 91%;
-    --accent: 224 20% 16%;
-    --accent-foreground: 214 28% 91%;
+    --secondary: 252 26% 15%;
+    --secondary-foreground: 250 30% 93%;
+    --accent: 252 26% 15%;
+    --accent-foreground: 250 30% 93%;
 
     /* --- Semantic ----------------------------------------------------- */
-    --success: 157 58% 46%;
+    --success: 157 62% 48%;
     --success-foreground: 158 80% 7%;
-    --success-muted: 158 44% 15%;
+    --success-muted: 158 44% 14%;
 
-    --warning: 36 88% 57%;
+    --warning: 36 92% 58%;
     --warning-foreground: 32 90% 9%;
-    --warning-muted: 34 50% 16%;
+    --warning-muted: 34 50% 15%;
 
-    --destructive: 0 72% 61%;
+    --destructive: 350 82% 64%;
     --destructive-foreground: 0 0% 100%;
-    --destructive-muted: 0 45% 18%;
+    --destructive-muted: 350 45% 17%;
 
-    --info: 203 85% 60%;
+    --info: 200 88% 62%;
     --info-foreground: 205 90% 9%;
-    --info-muted: 204 50% 17%;
+    --info-muted: 204 50% 16%;
 
     /* --- Elevation ----------------------------------------------------- */
-    /* Dark surfaces read depth from lightness, not shadow — keep these soft
-       so cards don't get a muddy halo against the near-black canvas. */
+    /* Dark surfaces read depth from lightness, not shadow. */
     --shadow-xs: 0 1px 2px 0 hsl(0 0% 0% / 0.3);
     --shadow-sm: 0 1px 3px 0 hsl(0 0% 0% / 0.4);
     --shadow-md: 0 4px 12px -2px hsl(0 0% 0% / 0.5);
     --shadow-lg: 0 12px 28px -6px hsl(0 0% 0% / 0.6);
+    --shadow-glow: 0 6px 20px -6px hsl(258 92% 70% / 0.55);
 
     /* --- Sidebar ------------------------------------------------------ */
-    --sidebar: 226 26% 9%;
-    --sidebar-foreground: 214 28% 91%;
-    --sidebar-muted: 218 13% 58%;
-    --sidebar-border: 224 18% 17%;
-    --sidebar-active: 239 82% 67%;
+    --sidebar: 252 40% 7.5%;
+    --sidebar-foreground: 250 30% 93%;
+    --sidebar-muted: 250 16% 64%;
+    --sidebar-border: 252 28% 14%;
+    --sidebar-active: 258 92% 70%;
     --sidebar-active-foreground: 0 0% 100%;
-    --sidebar-hover: 224 20% 15%;
+    --sidebar-hover: 252 30% 13%;
   }
 }
 
@@ -163,8 +169,13 @@
      width/transform jank on the sidebar and dropdown menus. */
   body {
     @apply bg-background text-foreground antialiased;
-    font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    font-feature-settings: 'cv11', 'ss01';
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    /* Soft colour wash behind the working area — gives the canvas depth
+       without competing with content. */
+    background-image:
+      radial-gradient(60rem 30rem at 100% -10%, hsl(var(--primary) / 0.07), transparent 70%),
+      radial-gradient(40rem 24rem at 0% 110%, hsl(var(--brand-2) / 0.05), transparent 70%);
+    background-attachment: fixed;
     margin: 0;
   }
 
@@ -199,10 +210,20 @@
    =========================================================================== */
 @layer components {
   .text-display {
-    @apply text-2xl font-semibold tracking-tight text-foreground;
+    @apply font-display text-[1.75rem] font-bold leading-tight tracking-tight text-foreground;
   }
   .text-title {
-    @apply text-lg font-semibold tracking-tight text-foreground;
+    @apply font-display text-lg font-bold tracking-tight text-foreground;
+  }
+  /* Brand gradient fill for logos, active nav and primary actions. */
+  .bg-brand-gradient {
+    background-image: linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(var(--brand-2)) 100%);
+  }
+  .text-brand-gradient {
+    background-image: linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(var(--brand-2)) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
   }
   .text-subtitle {
     @apply text-sm font-medium text-foreground;

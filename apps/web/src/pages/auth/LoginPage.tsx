@@ -111,10 +111,10 @@ export function LoginPage() {
       {/* Logo / Title */}
       <div className="flex flex-col items-center mb-12">
         <div className="flex items-center gap-4 mb-5">
-          <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary shadow-sm">
-            <ShoppingCart className="h-8 w-8 text-primary-foreground" />
+          <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-brand-gradient shadow-glow">
+            <ShoppingCart className="h-8 w-8 text-white" />
           </div>
-          <h1 className="text-4xl font-bold tracking-tight">RetailERP</h1>
+          <h1 className="font-display text-4xl font-extrabold tracking-tight">Retail<span className="text-brand-gradient">ERP</span></h1>
         </div>
         {/* Show the cached tenant name if we've logged in before on this
             subdomain — gives the user immediate "this is my org" feedback. */}

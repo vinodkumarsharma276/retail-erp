@@ -167,12 +167,12 @@ export function Sidebar() {
           )}
         >
           <div className="flex min-w-0 items-center gap-2.5">
-            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-brand-gradient text-white shadow-glow">
               <Store className="h-4 w-4" />
             </div>
             {!railMode && (
               <div className="min-w-0">
-                <p className="truncate text-sm font-semibold tracking-tight text-sidebar-foreground">
+                <p className="truncate font-display text-base font-bold tracking-tight text-sidebar-foreground">
                   RetailERP
                 </p>
                 {tenantName && (
@@ -213,7 +213,7 @@ export function Sidebar() {
                     type="button"
                     onClick={() => toggleSection(section.id)}
                     aria-expanded={!sectionCollapsed}
-                    className="group mb-1 flex w-full items-center justify-between rounded px-2 py-1 text-overline transition-colors hover:text-foreground"
+                    className="group mb-1 flex w-full items-center justify-between rounded px-2 py-1 text-overline text-sidebar-muted/70 transition-colors hover:text-sidebar-foreground"
                   >
                     <span>{section.label}</span>
                     <ChevronDown
@@ -239,7 +239,7 @@ export function Sidebar() {
                                 ? 'h-9 w-full justify-center'
                                 : 'gap-3 px-2 py-1.5',
                               isActive
-                                ? 'bg-primary-muted text-primary'
+                                ? 'bg-brand-gradient text-white shadow-glow'
                                 : 'text-sidebar-muted hover:bg-sidebar-hover hover:text-sidebar-foreground',
                             )
                           }
@@ -253,7 +253,7 @@ export function Sidebar() {
                                 <span
                                   aria-hidden
                                   className={cn(
-                                    'animate-fade-in absolute left-0 h-4 w-0.5 rounded-r bg-primary',
+                                    'animate-fade-in absolute -left-3 h-5 w-1 rounded-r bg-brand-3',
                                     railMode && '-left-2',
                                   )}
                                 />

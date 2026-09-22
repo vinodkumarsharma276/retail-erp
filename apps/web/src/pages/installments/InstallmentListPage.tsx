@@ -11,6 +11,7 @@ import {
   X,
   ChevronDown,
   ChevronRight,
+  Receipt,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { PageHeader } from '../../components/PageHeader';
@@ -374,7 +375,22 @@ export function InstallmentListPage() {
                           )}
                         >
                           <Eye className="h-3.5 w-3.5" />
-                          View
+                          History
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigate(`/sales/${schedule.saleId ?? schedule.sale?.id}`);
+                          }}
+                          title="Open the original sale"
+                          className={cn(
+                            'flex flex-shrink-0 items-center gap-1 rounded-md border px-2.5 py-1.5 text-xs font-medium',
+                            'hover:bg-muted transition-colors',
+                          )}
+                        >
+                          <Receipt className="h-3.5 w-3.5" />
+                          Sale
                         </button>
                       </div>
 
@@ -629,15 +645,16 @@ function OverdueTab() {
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                navigate(`/installments/${row.scheduleId}`);
+                navigate(`/sales/${row.saleId}`);
               }}
+              title="Open the original sale"
               className={cn(
                 'flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-xs font-medium',
                 'hover:bg-muted transition-colors',
               )}
             >
-              <Eye className="h-3.5 w-3.5" />
-              View
+              <Receipt className="h-3.5 w-3.5" />
+              Sale
             </button>
           </div>
         ),
@@ -682,6 +699,7 @@ function OverdueTab() {
         data={overdueItems ?? []}
         isLoading={isLoading}
         emptyMessage="No overdue installments. Great job!"
+        onRowClick={(row) => navigate(`/installments/${row.scheduleId}`)}
         rowKey={(row) => row.id}
         defaultSort={{ key: 'dueDate', dir: 'desc' }}
       />
@@ -866,15 +884,16 @@ function CollectionsTab() {
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                navigate(`/installments/${row.scheduleId}`);
+                navigate(`/sales/${row.saleId}`);
               }}
+              title="Open the original sale"
               className={cn(
                 'flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-xs font-medium',
                 'hover:bg-muted transition-colors',
               )}
             >
-              <Eye className="h-3.5 w-3.5" />
-              View
+              <Receipt className="h-3.5 w-3.5" />
+              Sale
             </button>
           </div>
         ),
@@ -1007,6 +1026,7 @@ function CollectionsTab() {
             data={collections}
             isLoading={false}
             emptyMessage=""
+            onRowClick={(row) => navigate(`/installments/${row.scheduleId}`)}
             rowKey={(row) => row.id}
           />
         </div>
@@ -1192,15 +1212,15 @@ function PaidTab() {
           <button
             onClick={(e) => {
               e.stopPropagation();
-              navigate(`/installments/${row.scheduleId}`);
+              navigate(`/sales/${row.saleId}`);
             }}
             className={cn(
               'flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-xs font-medium',
               'hover:bg-muted transition-colors',
             )}
           >
-            <Eye className="h-3.5 w-3.5" />
-            View
+            <Receipt className="h-3.5 w-3.5" />
+            Sale
           </button>
         ),
       },
@@ -1341,6 +1361,7 @@ function PaidTab() {
             data={rows}
             isLoading={false}
             emptyMessage=""
+            onRowClick={(row) => navigate(`/installments/${row.scheduleId}`)}
             rowKey={(row) => row.id}
           />
         </div>
