@@ -56,6 +56,93 @@ export interface EngineRecordPaymentInput {
     coveredInstallmentIds?: string[];
     notes?: string | null;
   };
+  /**
+   * What to do when a due EMI is left short. `spread` (default without a
+   * promise): the EMI counts as paid and the shortfall is shared equally by
+   * the EMIs after it. `keep` (default with a promise): it stays owed on the EMI.
+   */
+  shortfall?: 'spread' | 'keep';
+}
+
+type OpenInstallment = {
+  id: string;
+  installmentNumber: number;
+  dueDate: Date;
+  amountDue: Prisma.Decimal;
+  amountPaid: Prisma.Decimal;
+  remainingAmount: Prisma.Decimal;
+  status: InstallmentStatus;
+};
+
+/**
+ * Move what is left on `short` onto the EMIs in `later`, in equal whole-rupee
+ * shares; the odd rupees and paise go on the first of them. The short EMI is
+ * then paid. Each move is recorded, so the reason for every increase can be
+ * shown and a payment revert can undo it. Mutates the passed rows.
+ */
+async function spreadShortfall(
+  tx: Tx,
+  scheduleId: string,
+  short: OpenInstallment,
+  later: OpenInstallment[],
+  paymentIds: string[],
+  paymentDate: Date,
+  ctx: InstallmentEngineContext,
+) {
+  const total = D(short.remainingAmount);
+  const each = total.dividedBy(later.length).floor();
+  const shares = later.map((_, index) => (index === 0 ? total.minus(each.times(later.length - 1)) : each));
+
+  const amountDue = D(short.amountDue).minus(total);
+  await tx.installment.update({
+    where: { id: short.id },
+    data: { amountDue, remainingAmount: 0, status: InstallmentStatus.paid },
+  });
+  short.amountDue = amountDue;
+  short.remainingAmount = D(0);
+  short.status = InstallmentStatus.paid;
+
+  for (const [index, target] of later.entries()) {
+    const share = shares[index];
+    if (share.lte(0)) continue;
+    const targetDue = D(target.amountDue).plus(share);
+    const targetRemaining = D(target.remainingAmount).plus(share);
+    const status = computeInstallmentStatus({ ...target, remainingAmount: targetRemaining }, paymentDate);
+    await tx.installment.update({
+      where: { id: target.id },
+      data: { amountDue: targetDue, remainingAmount: targetRemaining, status },
+    });
+    target.amountDue = targetDue;
+    target.remainingAmount = targetRemaining;
+    target.status = status;
+    await tx.installmentCarryForward.create({
+      data: {
+        tenantId: ctx.tenantId,
+        scheduleId,
+        fromInstallmentId: short.id,
+        toInstallmentId: target.id,
+        amount: share,
+        paymentIds,
+        createdBy: ctx.actorUserId,
+      },
+    });
+  }
+
+  await tx.installmentRollLog.create({
+    data: {
+      tenantId: ctx.tenantId,
+      scheduleId,
+      installmentId: short.id,
+      eventType: 'shortfall_spread',
+      eventDate: paymentDate,
+      displayMessage:
+        `EMI #${short.installmentNumber} paid short by ₹${total.toFixed(2)}; ` +
+        `spread over EMI ${later.map((t) => `#${t.installmentNumber}`).join(', ')}` +
+        (later.length > 1 ? ` (₹${each.toFixed(0)} each).` : '.'),
+      metadata: { amount: total.toString(), paymentIds, targets: later.map((t) => t.id) },
+      actorUserId: ctx.actorUserId,
+    },
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -221,7 +308,18 @@ export async function buildPaymentPreview(
       remainingAmount: { gt: 0 },
     },
     orderBy: [{ dueDate: 'asc' }, { installmentNumber: 'asc' }],
-    select: { id: true, installmentNumber: true, dueDate: true, remainingAmount: true },
+    select: {
+      id: true,
+      installmentNumber: true,
+      dueDate: true,
+      remainingAmount: true,
+      amountDue: true,
+      plannedAmount: true,
+      carriedIn: {
+        where: { rolledBackAt: null },
+        select: { amount: true, fromInstallment: { select: { installmentNumber: true } } },
+      },
+    },
   });
   if (input.targetInstallmentId && !owing.some((row) => row.id === input.targetInstallmentId)) {
     throw new Error('That EMI has nothing left to pay');
@@ -260,6 +358,11 @@ export async function buildPaymentPreview(
       installmentNumber: row.installmentNumber,
       dueDate: row.dueDate.toISOString().slice(0, 10),
       remainingAmount: Number(row.remainingAmount),
+      plannedAmount: Number(row.plannedAmount ?? row.amountDue),
+      carriedIn: row.carriedIn.map((c) => ({
+        fromInstallmentNumber: c.fromInstallment.installmentNumber,
+        amount: Number(c.amount),
+      })),
     })),
     penalty: {
       perDay: penalty.perDay,
@@ -494,6 +597,28 @@ export async function recordPayment(
       }
     }
 
+    // --- Short payment on a due EMI ------------------------------------------
+    // Default (shop practice): the EMI counts as paid with what was given and
+    // the shortfall is spread equally over the EMIs after it. With a promise
+    // date the shortfall stays on the EMI instead, to be collected that day.
+    const shortfallMode = input.shortfall ?? (input.promise ? 'keep' : 'spread');
+    if (shortfallMode === 'spread') {
+      const paidNow = new Set(allocation.lines.map((line) => line.installmentId));
+      const shortEmis = schedule.installments.filter(
+        (installment) =>
+          paidNow.has(installment.id) &&
+          D(installment.remainingAmount).gt(0) &&
+          toDateOnly(installment.dueDate) <= paymentDay,
+      );
+      for (const short of shortEmis) {
+        const later = schedule.installments
+          .filter((installment) => installment.installmentNumber > short.installmentNumber && D(installment.remainingAmount).gt(0))
+          .sort((a, b) => a.installmentNumber - b.installmentNumber);
+        if (later.length === 0) continue; // last EMI: nothing to spread onto; it stays owed.
+        await spreadShortfall(tx, schedule.id, short, later, paymentIds, paymentDate, ctx);
+      }
+    }
+
     if (allocation.unallocated.gt(0)) {
       await tx.installmentSchedule.update({
         where: { id: schedule.id },
@@ -608,6 +733,59 @@ export async function revertPayment(
         },
       });
     }
+    // If this payment left its EMI short and the shortfall was spread over
+    // later EMIs, take the shares back and put them on the EMI again.
+    const carries = await tx.installmentCarryForward.findMany({
+      where: { tenantId: ctx.tenantId, rolledBackAt: null, paymentIds: { has: payment.id } },
+      include: { toInstallment: true },
+    });
+    for (const carry of carries) {
+      const target = carry.toInstallment;
+      const targetDue = D(target.amountDue).minus(carry.amount);
+      if (D(target.amountPaid).gt(targetDue.plus(0.001))) {
+        throw new Error(
+          `EMI #${target.installmentNumber} has already been paid including ₹${D(carry.amount).toFixed(2)} carried to it. Revert that payment first.`,
+        );
+      }
+      const targetRemaining = targetDue.minus(target.amountPaid);
+      await tx.installment.update({
+        where: { id: target.id },
+        data: {
+          amountDue: targetDue,
+          remainingAmount: targetRemaining,
+          status: computeInstallmentStatus({ ...target, remainingAmount: targetRemaining }, new Date()),
+        },
+      });
+      const source = await tx.installment.findUniqueOrThrow({ where: { id: carry.fromInstallmentId } });
+      const sourceRemaining = D(source.remainingAmount).plus(carry.amount);
+      await tx.installment.update({
+        where: { id: source.id },
+        data: {
+          amountDue: D(source.amountDue).plus(carry.amount),
+          remainingAmount: sourceRemaining,
+          status: computeInstallmentStatus({ ...source, remainingAmount: sourceRemaining }, new Date()),
+        },
+      });
+      await tx.installmentCarryForward.update({
+        where: { id: carry.id },
+        data: { rolledBackAt: new Date(), rolledBackBy: ctx.actorUserId, rollbackReason: `Payment reverted: ${reason}` },
+      });
+    }
+    if (carries.length > 0) {
+      await tx.installmentRollLog.create({
+        data: {
+          tenantId: ctx.tenantId,
+          scheduleId: installment.scheduleId,
+          installmentId: installment.id,
+          eventType: 'shortfall_spread_reversed',
+          eventDate: new Date(),
+          displayMessage: `Spread shortfall of ₹${carries.reduce((s, c) => s.plus(c.amount), D(0)).toFixed(2)} moved back to EMI #${installment.installmentNumber}.`,
+          metadata: { paymentId: payment.id, carryIds: carries.map((c) => c.id) },
+          actorUserId: ctx.actorUserId,
+        },
+      });
+    }
+
     await tx.installmentSchedule.update({
       where: { id: installment.scheduleId },
       data: { status: 'active' },

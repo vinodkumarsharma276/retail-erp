@@ -193,6 +193,7 @@ model Tenant {
   installmentRollLogs             InstallmentRollLog[]
   installmentPromises             InstallmentPromise[]
   installmentRebates              InstallmentRebate[]
+  installmentCarryForwards        InstallmentCarryForward[]
   collectionAssignments           EmployeeCollectionAssignment[]
   interShopTransfers              InterShopTransfer[]
   expenses                        Expense[]
@@ -1108,6 +1109,7 @@ model InstallmentSchedule {
   rollLogEvents        InstallmentRollLog[]             @relation("RollLogSchedule")
   interestApplications InstallmentInterestApplication[] @relation("ScheduleInterestApps")
   promises             InstallmentPromise[]
+  carryForwards        InstallmentCarryForward[]
   rebates              InstallmentRebate[]
 
   @@index([tenantId])
@@ -1128,6 +1130,9 @@ model Installment {
   subSequence             Int?              @map("sub_sequence")
   dueDate                 DateTime          @map("due_date") @db.Date
   amountDue               Decimal           @map("amount_due") @db.Decimal(12, 2)
+  /// The EMI amount as planned at sale time. Never changes. `amountDue` is
+  /// this plus carried-forward shortfalls and penalty, minus deductions.
+  plannedAmount           Decimal?          @map("planned_amount") @db.Decimal(12, 2)
   amountPaid              Decimal           @default(0) @map("amount_paid") @db.Decimal(12, 2)
   remainingAmount         Decimal           @map("remaining_amount") @db.Decimal(12, 2)
   status                  InstallmentStatus @default(upcoming)
@@ -1148,6 +1153,8 @@ model Installment {
   rollLogEvents        InstallmentRollLog[]             @relation("RollLogInstallment")
   interestApplications InstallmentInterestApplication[] @relation("InstallmentInterestApps")
   rebatesReceived      InstallmentRebate[]
+  carriedOut           InstallmentCarryForward[]        @relation("CarryFrom")
+  carriedIn            InstallmentCarryForward[]        @relation("CarryTo")
 
   @@index([tenantId])
   @@index([scheduleId])
@@ -1267,6 +1274,37 @@ model InstallmentRollLog {
 /// interest off the customer's LAST installment. One row per installment
 /// reduced (a large deduction can spill from the last EMI to the one before).
 /// Rolled back automatically if the payment that earned it is reverted.
+/// A short payment on one EMI, spread over the EMIs after it. The short EMI
+/// counts as paid; each later EMI's amount goes up by its share. One row per
+/// receiving EMI, so the reason ("₹58 from EMI #1") is always on record.
+model InstallmentCarryForward {
+  id       String @id @default(uuid())
+  tenantId String @map("tenant_id")
+
+  scheduleId        String    @map("schedule_id")
+  fromInstallmentId String    @map("from_installment_id")
+  toInstallmentId   String    @map("to_installment_id")
+  amount            Decimal   @db.Decimal(12, 2)
+  /// Payment rows recorded in the same entry — reverting any of them undoes this.
+  paymentIds        String[]  @map("payment_ids")
+  createdBy         String    @map("created_by")
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  rolledBackAt      DateTime? @map("rolled_back_at") @db.Timestamptz()
+  rolledBackBy      String?   @map("rolled_back_by")
+  rollbackReason    String?   @map("rollback_reason") @db.Text
+
+  tenant          Tenant              @relation(fields: [tenantId], references: [id])
+  schedule        InstallmentSchedule @relation(fields: [scheduleId], references: [id])
+  fromInstallment Installment         @relation("CarryFrom", fields: [fromInstallmentId], references: [id])
+  toInstallment   Installment         @relation("CarryTo", fields: [toInstallmentId], references: [id])
+
+  @@index([tenantId])
+  @@index([scheduleId])
+  @@index([fromInstallmentId])
+  @@index([toInstallmentId])
+  @@map("installment_carry_forwards")
+}
+
 model InstallmentRebate {
   id       String @id @default(uuid())
   tenantId String @map("tenant_id")

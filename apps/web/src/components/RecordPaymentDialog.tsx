@@ -109,6 +109,9 @@ interface Row {
   paid: number;
   /** Due on or before the payment date (or the EMI picked to pay). */
   dueNow: boolean;
+  plannedAmount: number;
+  /** Earlier shortfalls spread onto this EMI. */
+  carriedIn: Array<{ fromInstallmentNumber: number; amount: number }>;
 }
 
 // ---------------------------------------------------------------------------
@@ -166,6 +169,8 @@ export function RecordPaymentDialog({
   const [notes, setNotes] = useState('');
   const [promiseDate, setPromiseDate] = useState('');
   const [includeNextEmi, setIncludeNextEmi] = useState(false);
+  /** A due EMI left short: spread the rest over later EMIs (shop default) or keep it owed. */
+  const [shortfallMode, setShortfallMode] = useState<'spread' | 'keep'>('spread');
   const amountNum = Number(amount) || 0;
 
   // --- Order the EMIs and simulate where the money goes ---------------------
@@ -202,6 +207,8 @@ export function RecordPaymentDialog({
         owing,
         paid,
         dueNow: index === 0 || o.dueDate <= paymentDate,
+        plannedAmount: o.plannedAmount,
+        carriedIn: o.carriedIn,
       };
     });
     const due = round2(built.filter((r) => r.dueNow).reduce((s, r) => s + r.owing, 0));
@@ -214,7 +221,24 @@ export function RecordPaymentDialog({
   }, [dueNowTotal, amountTouched, preview]);
 
   const shortBy = round2(dueNowTotal - amountNum);
-  const leftOwing = rows.filter((r) => r.dueNow && r.owing - r.paid > 0.004);
+  // The due EMI this payment leaves part-paid (at most one), and the EMIs after
+  // it that would share its shortfall if spread.
+  const shortRow = rows.find((r) => r.dueNow && r.paid > 0 && r.owing - r.paid > 0.004);
+  const shortfall = shortRow ? round2(shortRow.owing - shortRow.paid) : 0;
+  const spreadTargets = shortRow
+    ? rows
+        .filter((r) => r.installmentNumber > shortRow.installmentNumber && r.owing > 0)
+        .sort((a, b) => a.installmentNumber - b.installmentNumber)
+    : [];
+  const canSpread = spreadTargets.length > 0;
+  const spreading = !!shortRow && canSpread && shortfallMode === 'spread';
+  const spreadEach = spreading ? Math.floor(shortfall / spreadTargets.length) : 0;
+  const spreadFirst = spreading ? round2(shortfall - spreadEach * (spreadTargets.length - 1)) : 0;
+  // Still owed after this entry on EMIs already due. When spreading, the
+  // short EMI counts as paid, so only EMIs that got nothing remain.
+  const leftOwing = rows.filter(
+    (r) => r.dueNow && r.owing - r.paid > 0.004 && !(spreading && r.installmentId === shortRow?.installmentId),
+  );
   const nextEmi = rows.find((r) => !r.dueNow);
   const promiseReachesNextEmi = !!promiseDate && !!nextEmi && promiseDate >= nextEmi.dueDate;
   useEffect(() => {
@@ -261,6 +285,7 @@ export function RecordPaymentDialog({
           notes: notes.trim() || undefined,
           applyPenalty: chargePenalty,
           applyEarlyPaymentDeduction: giveDeduction,
+          shortfall: shortRow ? (spreading ? 'spread' : 'keep') : undefined,
           promise:
             promiseDate && covered.length > 0
               ? {
@@ -403,52 +428,97 @@ export function RecordPaymentDialog({
                 <PaymentSplitsEditor splits={splits} onChange={setSplits} total={amountNum} />
               </div>
 
-              {/* Balance promise — only when less than is due was paid */}
+              {/* Short payment — spread it (shop default) or keep it on the EMI */}
               {preview && shortBy > 0.004 && (
                 <div className="rounded-lg border border-border p-3">
                   <p className="flex items-center gap-1.5 text-sm font-semibold">
                     <CalendarClock className="h-3.5 w-3.5 text-muted-foreground" />
-                    {formatINR(shortBy)} still due
+                    {formatINR(shortBy)} less than is due
                   </p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    It stays on the EMI{leftOwing.length === 1 ? '' : 's'} it belongs to
-                    {leftOwing.length > 0 && <> ({leftOwing.map((r) => `#${r.installmentNumber}`).join(', ')})</>}.
-                    If the customer said when they'll pay it, note the date — optional.
-                  </p>
-                  <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <div>
-                      <Label htmlFor="promise-date">Will pay the rest on</Label>
-                      <DateInput value={promiseDate} onChange={(v) => setPromiseDate(v)} min={today} />
-                    </div>
-                    {promiseDate && covered.length > 0 && (
-                      <div className="self-end pb-1 text-sm">
-                        Promise <span className="font-semibold tabular">{promiseLabel}</span> ·{' '}
-                        <span className="tabular">{formatINR(promiseAmount)}</span>
+
+                  {shortRow && (
+                    canSpread ? (
+                      <div className="mt-2 space-y-2 text-sm">
+                        <label className="flex cursor-pointer items-start gap-2">
+                          <input
+                            type="radio"
+                            name="shortfall"
+                            checked={shortfallMode === 'spread'}
+                            onChange={() => setShortfallMode('spread')}
+                            className="mt-0.5 h-4 w-4 accent-[hsl(var(--primary))]"
+                          />
+                          <span>
+                            Spread {formatINR(shortfall)} over the remaining {spreadTargets.length} EMI
+                            {spreadTargets.length === 1 ? '' : 's'}
+                            <span className="block text-xs text-muted-foreground">
+                              EMI #{shortRow.installmentNumber} counts as paid.{' '}
+                              {spreadTargets.length === 1
+                                ? `EMI #${spreadTargets[0].installmentNumber} goes up by ${formatINR(shortfall)}.`
+                                : spreadFirst === spreadEach
+                                  ? `Each goes up by ${formatINR(spreadEach)}.`
+                                  : `EMI #${spreadTargets[0].installmentNumber} goes up by ${formatINR(spreadFirst)}, the rest by ${formatINR(spreadEach)}.`}
+                            </span>
+                          </span>
+                        </label>
+                        <label className="flex cursor-pointer items-start gap-2">
+                          <input
+                            type="radio"
+                            name="shortfall"
+                            checked={shortfallMode === 'keep'}
+                            onChange={() => setShortfallMode('keep')}
+                            className="mt-0.5 h-4 w-4 accent-[hsl(var(--primary))]"
+                          />
+                          <span>
+                            Keep it on EMI #{shortRow.installmentNumber}
+                            <span className="block text-xs text-muted-foreground">
+                              The customer will bring {formatINR(shortfall)} separately — note the date below.
+                            </span>
+                          </span>
+                        </label>
                       </div>
-                    )}
-                  </div>
-                  {promiseDate && promiseDate < today && (
-                    <p className="mt-1 text-xs text-destructive">A promise date can't be in the past.</p>
+                    ) : (
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        EMI #{shortRow.installmentNumber} is the last one, so {formatINR(shortfall)} stays on it.
+                      </p>
+                    )
                   )}
-                  {promiseReachesNextEmi && nextEmi && (
-                    <label className="mt-2 flex cursor-pointer items-start gap-2 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={includeNextEmi}
-                        onChange={(e) => setIncludeNextEmi(e.target.checked)}
-                        className="mt-0.5 h-4 w-4 rounded border-border-strong accent-[hsl(var(--primary))]"
-                      />
-                      <span>
-                        Also collect EMI #{nextEmi.installmentNumber} (due {formatDateIN(nextEmi.dueDate)},{' '}
-                        {formatINR(nextEmi.owing)}) on that date
-                      </span>
-                    </label>
-                  )}
-                  {promiseDate && (
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      Due dates don't move. The customer is left off the daily list until this date,
-                      except on the day another EMI falls due.
-                    </p>
+
+                  {leftOwing.length > 0 && (
+                    <>
+                      <p className="mt-3 text-xs text-muted-foreground">
+                        Still owed on EMI {leftOwing.map((r) => `#${r.installmentNumber}`).join(', ')}. If the customer
+                        said when they'll pay, note the date — optional.
+                      </p>
+                      <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <div>
+                          <Label htmlFor="promise-date">Will pay on</Label>
+                          <DateInput value={promiseDate} onChange={(v) => setPromiseDate(v)} min={today} />
+                        </div>
+                        {promiseDate && covered.length > 0 && (
+                          <div className="self-end pb-1 text-sm">
+                            Promise <span className="font-semibold tabular">{promiseLabel}</span> ·{' '}
+                            <span className="tabular">{formatINR(promiseAmount)}</span>
+                          </div>
+                        )}
+                      </div>
+                      {promiseDate && promiseDate < today && (
+                        <p className="mt-1 text-xs text-destructive">A promise date can't be in the past.</p>
+                      )}
+                      {promiseReachesNextEmi && nextEmi && (
+                        <label className="mt-2 flex cursor-pointer items-start gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={includeNextEmi}
+                            onChange={(e) => setIncludeNextEmi(e.target.checked)}
+                            className="mt-0.5 h-4 w-4 rounded border-border-strong accent-[hsl(var(--primary))]"
+                          />
+                          <span>
+                            Also collect EMI #{nextEmi.installmentNumber} (due {formatDateIN(nextEmi.dueDate)},{' '}
+                            {formatINR(nextEmi.owing)}) on that date
+                          </span>
+                        </label>
+                      )}
+                    </>
                   )}
                 </div>
               )}
@@ -620,10 +690,18 @@ export function RecordPaymentDialog({
                             <span className="block text-[11px]">
                               {r.paid >= r.owing - 0.004
                                 ? 'cleared'
-                                : r.paid > 0
-                                  ? `${formatINR(round2(r.owing - r.paid))} left`
-                                  : `due ${formatDateIN(r.dueDate)}`}
+                                : spreading && r.installmentId === shortRow?.installmentId
+                                  ? `paid · ${formatINR(shortfall)} spread`
+                                  : r.paid > 0
+                                    ? `${formatINR(round2(r.owing - r.paid))} left`
+                                    : `due ${formatDateIN(r.dueDate)}`}
                             </span>
+                            {r.carriedIn.length > 0 && (
+                              <span className="block text-[11px] text-warning">
+                                {formatINR(r.plannedAmount)} planned +{' '}
+                                {r.carriedIn.map((c) => `${formatINR(c.amount)} from #${c.fromInstallmentNumber}`).join(' + ')}
+                              </span>
+                            )}
                           </dt>
                           <dd className="tabular font-medium">
                             {formatINR(r.paid)}
@@ -641,6 +719,15 @@ export function RecordPaymentDialog({
                       <dt className="font-medium">Received</dt>
                       <dd className="tabular text-base font-semibold">{formatINR(amountNum)}</dd>
                     </div>
+                    {spreading && (
+                      <p className="pt-1 text-xs text-warning">
+                        {formatINR(shortfall)} from EMI #{shortRow!.installmentNumber} is added to EMI{' '}
+                        {spreadTargets.length === 1
+                          ? `#${spreadTargets[0].installmentNumber}`
+                          : `#${spreadTargets[0].installmentNumber}–#${spreadTargets[spreadTargets.length - 1].installmentNumber}`}
+                        .
+                      </p>
+                    )}
                     {deductionTotal > 0 && (
                       <p className="pt-1 text-xs text-primary">
                         {formatINR(deductionTotal)} comes off {targetLabel}.

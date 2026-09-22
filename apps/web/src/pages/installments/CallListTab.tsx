@@ -196,6 +196,15 @@ export function CallListTab() {
                     {row.dueNow.length > 1 && (
                       <p className="text-xs text-muted-foreground">{row.dueNow.length} EMIs</p>
                     )}
+                    {row.dueNow.flatMap((d) => d.carriedIn).length > 0 && (
+                      <p className="text-xs text-warning">
+                        incl.{' '}
+                        {row.dueNow
+                          .flatMap((d) => d.carriedIn)
+                          .map((c) => `${formatINR(c.amount)} short from #${c.fromInstallmentNumber}`)
+                          .join(', ')}
+                      </p>
+                    )}
                   </td>
                   <td className="px-3 py-2.5">
                     <div className="flex justify-end gap-1.5">

@@ -461,6 +461,7 @@ export function InstallmentDetailPage() {
                     </td>
                     <td className="px-3 py-2.5 text-right font-medium">
                       {formatINR(inst.amountDue)}
+                      <AmountDueReasons inst={inst} />
                     </td>
                     <td className="px-3 py-2.5 text-right text-green-600">
                       {formatINR(inst.amountPaid)}
@@ -1794,6 +1795,40 @@ function InfoRow({ label, value }: { label: string; value: string }) {
     <div>
       <dt className="text-sm font-medium text-muted-foreground">{label}</dt>
       <dd className="mt-0.5 text-sm">{value}</dd>
+    </div>
+  );
+}
+
+/**
+ * Why an EMI's amount differs from what was planned at sale time: a short
+ * payment spread onto it (or off it), penalty charged, early deduction given.
+ */
+function AmountDueReasons({ inst }: { inst: any }) {
+  const planned = inst.plannedAmount != null ? Number(inst.plannedAmount) : null;
+  const lines: Array<{ text: string; tone: 'up' | 'down' }> = [];
+  const carriedOutTotal = (inst.carriedOut ?? []).reduce((s: number, c: any) => s + Number(c.amount), 0);
+  if (carriedOutTotal > 0) {
+    const targets = (inst.carriedOut ?? []).map((c: any) => c.toInstallment.installmentNumber as number);
+    const range = targets.length === 1 ? `#${targets[0]}` : `#${Math.min(...targets)}–#${Math.max(...targets)}`;
+    lines.push({ text: `−${formatINR(carriedOutTotal)} short, spread to ${range}`, tone: 'down' });
+  }
+  for (const c of inst.carriedIn ?? []) {
+    lines.push({ text: `+${formatINR(Number(c.amount))} short from #${c.fromInstallment.installmentNumber}`, tone: 'up' });
+  }
+  const penalty = (inst.interestApplications ?? []).reduce((s: number, a: any) => s + Number(a.appliedAmount), 0);
+  if (penalty > 0) lines.push({ text: `+${formatINR(penalty)} late penalty`, tone: 'up' });
+  const rebate = (inst.rebatesReceived ?? []).reduce((s: number, r: any) => s + Number(r.amount), 0);
+  if (rebate > 0) lines.push({ text: `−${formatINR(rebate)} early-payment deduction`, tone: 'down' });
+
+  if (planned === null || (lines.length === 0 && Math.abs(planned - Number(inst.amountDue)) < 0.005)) return null;
+  return (
+    <div className="mt-0.5 space-y-0.5 text-[11px] font-normal leading-tight">
+      <p className="text-muted-foreground">planned {formatINR(planned)}</p>
+      {lines.map((l) => (
+        <p key={l.text} className={l.tone === 'up' ? 'text-warning' : 'text-primary'}>
+          {l.text}
+        </p>
+      ))}
     </div>
   );
 }

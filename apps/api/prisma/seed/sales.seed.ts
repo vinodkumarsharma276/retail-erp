@@ -332,6 +332,7 @@ export async function seedSales(
                 installmentNumber: n,
                 dueDate,
                 amountDue: installmentSchedule.emiAmount,
+                plannedAmount: installmentSchedule.emiAmount,
                 remainingAmount: installmentSchedule.emiAmount,
                 status,
               },

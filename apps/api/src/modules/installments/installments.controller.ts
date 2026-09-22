@@ -293,6 +293,8 @@ export const installmentsController = {
         applyEarlyPaymentDeduction?: boolean;
         /** Balance promised for a later date, saved with the payment. */
         promise?: { promisedDate: string; promisedAmount?: number; coveredInstallmentIds?: string[]; notes?: string };
+        /** Short on a due EMI: spread over later EMIs (default) or keep it owed. */
+        shortfall?: 'spread' | 'keep';
       };
     }>,
     reply: FastifyReply,
@@ -329,6 +331,7 @@ export const installmentsController = {
         applyPenalty: request.body.applyPenalty === true,
         applyEarlyPaymentDeduction: request.body.applyEarlyPaymentDeduction === true,
         promise: promiseInput,
+        shortfall: request.body.shortfall,
       }, { tenantId: request.tenant!.id, actorUserId: userId });
 
       return sendSuccess(reply, result, 201);

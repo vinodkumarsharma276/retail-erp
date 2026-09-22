@@ -122,6 +122,10 @@ export interface PaymentPreview {
     installmentNumber: number;
     dueDate: string;
     remainingAmount: number;
+    /** The amount planned at sale time. */
+    plannedAmount: number;
+    /** Shortfalls from earlier EMIs spread onto this one — why it's more than planned. */
+    carriedIn: Array<{ fromInstallmentNumber: number; amount: number }>;
   }>;
   penalty: {
     /** Rupees per day in force for this sale (per sale, not per EMI). */

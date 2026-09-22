@@ -8,7 +8,7 @@ const openAiApiKey = rawOpenAiApiKey.startsWith('sk-') && rawOpenAiApiKey !== 's
 export const config = {
   port: parseInt(process.env.API_PORT || '3001', 10),
   host: process.env.API_HOST || '0.0.0.0',
-  corsOrigin: process.env.CORS_ORIGIN || 'http://localhost:5173',
+  corsOrigin: process.env.CORS_ORIGIN || 'http://localhost:5174',
   nodeEnv: process.env.NODE_ENV || 'development',
   jwt: {
     secret: process.env.JWT_SECRET || 'dev-secret',

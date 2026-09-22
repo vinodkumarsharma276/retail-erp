@@ -104,6 +104,12 @@ export interface ScheduleDetailResponse {
   installments: (Installment & {
     payments: InstallmentPayment[];
     rescheduledTo?: { id: string; installmentNumber: number; dueDate: string };
+    /** Amount planned at sale time; amountDue differs only for the reasons below. */
+    plannedAmount?: number | string | null;
+    carriedIn?: Array<{ amount: number | string; fromInstallment: { installmentNumber: number } }>;
+    carriedOut?: Array<{ amount: number | string; toInstallment: { installmentNumber: number } }>;
+    interestApplications?: Array<{ appliedAmount: number | string }>;
+    rebatesReceived?: Array<{ amount: number | string }>;
   })[];
   sale: {
     id: string;
@@ -393,6 +399,7 @@ export function useRecordInstallmentPaymentMutation() {
         applyEarlyPaymentDeduction?: boolean;
         /** "Rest on <date>" — saved in the same transaction as the payment. */
         promise?: { promisedDate: string; promisedAmount?: number; coveredInstallmentIds?: string[]; notes?: string };
+        shortfall?: 'spread' | 'keep';
       };
     }) => {
       const { data } = await apiClient.post<ApiResponse<Installment>>(

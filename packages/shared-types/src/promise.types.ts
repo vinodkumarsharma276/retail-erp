@@ -49,7 +49,14 @@ export interface CallListRow {
     | { kind: 'overdue'; oldestInstallmentNumber: number; daysLate: number }
   >;
   /** Unpaid EMIs on or before the date, oldest first. */
-  dueNow: Array<{ installmentId: string; installmentNumber: number; dueDate: string; remainingAmount: number }>;
+  dueNow: Array<{
+    installmentId: string;
+    installmentNumber: number;
+    dueDate: string;
+    remainingAmount: number;
+    /** Shortfalls from earlier EMIs spread onto this one. */
+    carriedIn: Array<{ fromInstallmentNumber: number; amount: number }>;
+  }>;
   totalDueNow: number;
   /** The first unpaid EMI falling due after the date, if any. */
   nextEmi: { installmentId: string; installmentNumber: number; dueDate: string; remainingAmount: number } | null;

@@ -190,7 +190,16 @@ export const installmentsService = {
         installments: {
           where: owingWhere,
           orderBy: [{ dueDate: 'asc' }, { installmentNumber: 'asc' }],
-          select: { id: true, installmentNumber: true, dueDate: true, remainingAmount: true },
+          select: {
+            id: true,
+            installmentNumber: true,
+            dueDate: true,
+            remainingAmount: true,
+            carriedIn: {
+              where: { rolledBackAt: null },
+              select: { amount: true, fromInstallment: { select: { installmentNumber: true } } },
+            },
+          },
         },
         promises: {
           orderBy: { createdAt: 'asc' },
@@ -305,6 +314,10 @@ export const installmentsService = {
           installmentNumber: i.installmentNumber,
           dueDate: iso(i.dueDate),
           remainingAmount: Number(i.remainingAmount),
+          carriedIn: i.carriedIn.map((c) => ({
+            fromInstallmentNumber: c.fromInstallment.installmentNumber,
+            amount: Number(c.amount),
+          })),
         })),
         totalDueNow: dueNow.reduce((sum, i) => sum + Number(i.remainingAmount), 0),
         nextEmi: (() => {
@@ -959,6 +972,23 @@ export const installmentsService = {
                 },
               },
               orderBy: { paymentDate: 'desc' },
+            },
+            // Why an EMI differs from plan: shortfalls spread onto it / off it.
+            carriedIn: {
+              where: { rolledBackAt: null },
+              select: { amount: true, fromInstallment: { select: { installmentNumber: true } } },
+            },
+            carriedOut: {
+              where: { rolledBackAt: null },
+              select: { amount: true, toInstallment: { select: { installmentNumber: true } } },
+            },
+            interestApplications: {
+              where: { rolledBackAt: null },
+              select: { appliedAmount: true },
+            },
+            rebatesReceived: {
+              where: { rolledBackAt: null },
+              select: { amount: true },
             },
             rescheduledFrom: {
               select: {
