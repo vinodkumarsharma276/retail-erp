@@ -199,6 +199,10 @@ model Tenant {
   expenses                        Expense[]
   bankAccounts                    BankAccount[]
   bankTransactions                BankTransaction[]
+  bankStatements                  BankStatement[]
+  statementTxns                   StatementTransaction[]
+  statementRules                  StatementRule[]
+  statementSettings               StatementSettings?
   formDefinitions                 FormDefinition[]
   formFields                      FormField[]
   notificationTokens              NotificationToken[]
@@ -382,6 +386,9 @@ model Shop {
   purchases         Purchase[]
   expenses          Expense[]
   bankAccounts      BankAccount[]
+  bankStatements    BankStatement[]
+  statementTxns     StatementTransaction[]
+  statementRules    StatementRule[]
   employees         Employee[]
   transfersFrom     InterShopTransfer[]            @relation("TransferFrom")
   transfersTo       InterShopTransfer[]            @relation("TransferTo")
@@ -1527,6 +1534,118 @@ model BankTransaction {
   @@index([transactionDate])
   @@index([reconciliationStatus])
   @@map("bank_transactions")
+}
+
+// ============================================================================
+// BANK STATEMENT ANALYSIS (ported from LedgerLens)
+// Uploaded statements (PDF / Excel / CSV / image) are parsed into
+// transactions, auto-categorised, flagged for review, and charted.
+// ============================================================================
+
+model BankStatement {
+  id             String    @id @default(uuid())
+  tenantId       String    @map("tenant_id")
+  shopId         String    @map("shop_id")
+  fileName       String    @map("file_name") @db.VarChar(300)
+  /// sha256 of the file — the same file can't be uploaded twice to a shop.
+  fileHash       String    @map("file_hash") @db.VarChar(64)
+  fileType       String    @map("file_type") @db.VarChar(10)
+  fileSize       Int       @map("file_size")
+  bank           String    @db.VarChar(80)
+  accountHint    String?   @map("account_hint") @db.VarChar(20)
+  currency       String    @default("INR") @db.VarChar(3)
+  /// spreadsheet | pdf-text | ai-text | ai-vision
+  parseMethod    String    @map("parse_method") @db.VarChar(20)
+  /// Share of rows whose running balance reconciles (0..1); null if not checkable.
+  reconciliation Float?    @db.Real
+  warnings       Json      @default("[]")
+  periodStart    DateTime? @map("period_start") @db.Date
+  periodEnd      DateTime? @map("period_end") @db.Date
+  txCount        Int       @default(0) @map("tx_count")
+  uploadedById   String?   @map("uploaded_by_id")
+  uploadedAt     DateTime  @default(now()) @map("uploaded_at") @db.Timestamptz()
+
+  tenant       Tenant                 @relation(fields: [tenantId], references: [id])
+  shop         Shop                   @relation(fields: [shopId], references: [id])
+  transactions StatementTransaction[]
+
+  @@unique([shopId, fileHash])
+  @@index([tenantId, shopId])
+  @@map("bank_statements")
+}
+
+model StatementTransaction {
+  id             String    @id @default(uuid())
+  tenantId       String    @map("tenant_id")
+  statementId    String    @map("statement_id")
+  shopId         String    @map("shop_id")
+  bank           String    @db.VarChar(80)
+  date           DateTime  @db.Date
+  description    String
+  /// Signed: negative = money out.
+  amount         Decimal   @db.Decimal(16, 2)
+  /// debit | credit
+  direction      String    @db.VarChar(6)
+  balance        Decimal?  @db.Decimal(16, 2)
+  reference      String?   @db.VarChar(100)
+  counterparty   String?   @db.VarChar(120)
+  channel        String    @default("Other") @db.VarChar(20)
+  category       String    @default("Uncategorized") @db.VarChar(60)
+  /// rule | user-rule | ai | user | none
+  categorySource String    @default("none") @map("category_source") @db.VarChar(10)
+  confidence     Float?    @db.Real
+  aiNote         String?   @map("ai_note")
+  flagged        Boolean   @default(false)
+  flagReasons    Json      @default("[]") @map("flag_reasons")
+  /// pending | verified | suspicious (null = never needed review)
+  reviewStatus   String?   @map("review_status") @db.VarChar(12)
+  reviewerNote   String?   @map("reviewer_note")
+  reviewedAt     DateTime? @map("reviewed_at") @db.Timestamptz()
+  reviewedBy     String?   @map("reviewed_by") @db.VarChar(120)
+  /// date|amount|normalised narration — used for duplicate detection.
+  fingerprint    String
+  rowIndex       Int       @default(0) @map("row_index")
+
+  tenant    Tenant        @relation(fields: [tenantId], references: [id])
+  shop      Shop          @relation(fields: [shopId], references: [id])
+  statement BankStatement @relation(fields: [statementId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, shopId, date])
+  @@index([statementId])
+  @@index([flagged, reviewStatus])
+  @@index([category])
+  @@index([fingerprint])
+  @@map("statement_transactions")
+}
+
+/// User-defined categorisation rule; runs before the built-in rules.
+model StatementRule {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  /// null = applies to every shop
+  shopId    String?  @map("shop_id")
+  pattern   String   @db.VarChar(200)
+  /// contains | regex
+  matchType String   @default("contains") @map("match_type") @db.VarChar(10)
+  category  String   @db.VarChar(60)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  shop   Shop?  @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("statement_rules")
+}
+
+/// Per-tenant flagging thresholds (merged over built-in defaults).
+model StatementSettings {
+  tenantId  String   @id @map("tenant_id")
+  values    Json     @default("{}")
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz()
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@map("statement_settings")
 }
 
 // ============================================================================

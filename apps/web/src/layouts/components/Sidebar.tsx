@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, type ComponentType } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard,
@@ -10,7 +10,6 @@ import {
   CalendarClock,
   ArrowRightLeft,
   Wallet,
-  Building2,
   UserCheck,
   Settings,
   X,
@@ -18,7 +17,14 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Store,
+  BarChart3,
+  UploadCloud,
+  ListChecks,
+  ListOrdered,
+  FileStack,
+  Wand2,
 } from 'lucide-react';
+import { BankReviewCount } from '../../pages/bank/components/BankReviewCount';
 import { useSidebarStore } from '../../stores/sidebar-store';
 import { useAuthStore } from '../../stores/auth-store';
 import { cn } from '../../lib/utils';
@@ -47,6 +53,10 @@ interface NavItem {
   icon: typeof LayoutDashboard;
   perm: string;
   feature?: string;
+  /** Match only the exact path (for section index pages like /bank). */
+  end?: boolean;
+  /** Small count shown after the label (e.g. items waiting for review). */
+  badge?: ComponentType<{ compact: boolean }>;
 }
 
 interface NavSection {
@@ -87,7 +97,20 @@ const navSections: NavSection[] = [
     label: 'Finance',
     items: [
       { to: '/expenses', label: 'Expenses', icon: Wallet, perm: 'nav.expenses', feature: FeatureKey.EXPENSES },
-      { to: '/bank', label: 'Bank Statements', icon: Building2, perm: 'nav.bank', feature: FeatureKey.BANK_RECONCILIATION },
+    ],
+  },
+  {
+    // Statement analysis (ported from LedgerLens): upload bank statements,
+    // auto-categorise, review flagged items, chart by shop / party / category.
+    id: 'bank',
+    label: 'Bank Statements',
+    items: [
+      { to: '/bank', end: true, label: 'Overview', icon: BarChart3, perm: 'nav.bank', feature: FeatureKey.BANK_RECONCILIATION },
+      { to: '/bank/upload', label: 'Upload', icon: UploadCloud, perm: 'bank.upload_statement', feature: FeatureKey.BANK_RECONCILIATION },
+      { to: '/bank/review', label: 'Review queue', icon: ListChecks, perm: 'nav.bank', feature: FeatureKey.BANK_RECONCILIATION, badge: BankReviewCount },
+      { to: '/bank/transactions', label: 'Transactions', icon: ListOrdered, perm: 'nav.bank', feature: FeatureKey.BANK_RECONCILIATION },
+      { to: '/bank/statements', label: 'Statements', icon: FileStack, perm: 'nav.bank', feature: FeatureKey.BANK_RECONCILIATION },
+      { to: '/bank/rules', label: 'Rules & settings', icon: Wand2, perm: 'nav.bank', feature: FeatureKey.BANK_RECONCILIATION },
     ],
   },
   {
@@ -231,6 +254,7 @@ export function Sidebar() {
                       <li key={item.to}>
                         <NavLink
                           to={item.to}
+                          end={item.end}
                           title={railMode ? item.label : undefined}
                           className={({ isActive }) =>
                             cn(
@@ -265,6 +289,7 @@ export function Sidebar() {
                                 )}
                               />
                               {!railMode && <span className="truncate">{item.label}</span>}
+                              {item.badge && <item.badge compact={railMode} />}
                             </>
                           )}
                         </NavLink>

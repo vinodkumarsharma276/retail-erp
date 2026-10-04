@@ -79,7 +79,8 @@ Each API module in `apps/api/src/modules/<name>/` follows this pattern:
 | installments | `/api/v1/installments` | Installment schedules, payments, rescheduling |
 | transfers | `/api/v1/transfers` | Inter-shop product transfers |
 | expenses | `/api/v1/expenses` | Expense recording and tracking |
-| bank | `/api/v1/bank` | Bank statement upload, parsing, reconciliation |
+| bank | `/api/v1/bank` | Legacy bank accounts + manual reconciliation (no longer in the UI) |
+| bank-statements | `/api/v1/bank-statements` | Statement analysis ported from LedgerLens (`../statement-translater`): parse PDF/Excel/CSV/image statements, auto-categorise (user rules → built-in rules → AI), flag for review, analytics, Excel/CSV export. Engine in `engine/` (raw SQL via Prisma); tables `bank_statements`, `statement_transactions`, `statement_rules`, `statement_settings` |
 | dashboard | `/api/v1/dashboard` | Admin dashboard stats, charts, overdue items |
 | forms | `/api/v1/forms` | Dynamic form builder (form definitions + fields) |
 | employees | `/api/v1/employees` | Employee user management (admin-only) |
@@ -135,7 +136,7 @@ Each API module in `apps/api/src/modules/<name>/` follows this pattern:
 - **installments**: InstallmentListPage, InstallmentDetailPage
 - **transfers**: TransferListPage, TransferCreatePage, TransferDetailPage
 - **expenses**: ExpenseListPage, ExpenseFormPage
-- **bank**: BankPage
+- **bank**: "Bank Statements" sidebar section — BankDashboardPage (`/bank`), BankUploadPage, BankReviewPage, BankTransactionsPage, BankStatementsPage, BankRulesPage; shared `components/BankLayout` (date + shop filters) and `lib/` (api, queries, store)
 - **employees**: EmployeeListPage, EmployeeFormPage
 - **settings**: SettingsPage, FormBuilderPage, CategoryManagerPage
 

@@ -34,6 +34,9 @@
     "dotenv": "^17.4.2",
     "fastify": "^5.3.0",
     "node-cron": "^4.2.1",
+    "openai": "^7.27.0",
+    "pdfjs-dist": "^6.4.299",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "zod": "^3.24.0"
   },
   "devDependencies": {

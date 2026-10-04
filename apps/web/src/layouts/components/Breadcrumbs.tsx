@@ -16,6 +16,11 @@ const labelMap: Record<string, string> = {
   transfers: 'Transfers',
   expenses: 'Expenses',
   bank: 'Bank Statements',
+  upload: 'Upload',
+  review: 'Review queue',
+  transactions: 'Transactions',
+  statements: 'Statements',
+  rules: 'Rules & settings',
   employees: 'Employees',
   settings: 'Settings',
 };

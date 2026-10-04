@@ -1,3 +1,4 @@
+import { lazy } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { AuthLayout } from './layouts/AuthLayout';
 import { DashboardLayout } from './layouts/DashboardLayout';
@@ -27,7 +28,7 @@ import { TransferCreatePage } from './pages/transfers/TransferCreatePage';
 import { TransferDetailPage } from './pages/transfers/TransferDetailPage';
 import { ExpenseListPage } from './pages/expenses/ExpenseListPage';
 import { ExpenseFormPage } from './pages/expenses/ExpenseFormPage';
-import { BankPage } from './pages/bank/BankPage';
+import { BankLayout } from './pages/bank/components/BankLayout';
 import { EmployeeListPage } from './pages/employees/EmployeeListPage';
 import { EmployeeFormPage } from './pages/employees/EmployeeFormPage';
 import { SettingsPage } from './pages/settings/SettingsPage';
@@ -45,6 +46,13 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { ToastContainer } from './components/Toast';
 import { isPlatformAdminHost } from './lib/host';
 import { PlatformApp } from './PlatformApp';
+
+const BankDashboardPage = lazy(() => import('./pages/bank/BankDashboardPage'));
+const BankUploadPage = lazy(() => import('./pages/bank/BankUploadPage'));
+const BankReviewPage = lazy(() => import('./pages/bank/BankReviewPage'));
+const BankTransactionsPage = lazy(() => import('./pages/bank/BankTransactionsPage'));
+const BankStatementsPage = lazy(() => import('./pages/bank/BankStatementsPage'));
+const BankRulesPage = lazy(() => import('./pages/bank/BankRulesPage'));
 
 function App() {
   // Hostname-based router branch: `admin.*` renders the platform-admin
@@ -113,7 +121,19 @@ function App() {
             <Route path="/expenses" element={<ExpenseListPage />} />
             <Route path="/expenses/new" element={<ExpenseFormPage />} />
             <Route path="/expenses/:id/edit" element={<ExpenseFormPage />} />
-            <Route path="/bank" element={<BankPage />} />
+            {/* Bank statement analysis (ported from LedgerLens) */}
+            <Route element={<PermissionGuard anyOf={['bank.view']} />}>
+              <Route path="/bank" element={<BankLayout />}>
+                <Route index element={<BankDashboardPage />} />
+                <Route path="review" element={<BankReviewPage />} />
+                <Route path="transactions" element={<BankTransactionsPage />} />
+                <Route path="statements" element={<BankStatementsPage />} />
+                <Route path="rules" element={<BankRulesPage />} />
+                <Route element={<PermissionGuard anyOf={['bank.upload_statement']} />}>
+                  <Route path="upload" element={<BankUploadPage />} />
+                </Route>
+              </Route>
+            </Route>
           </Route>
 
           {/* Admin-only transfer creation */}

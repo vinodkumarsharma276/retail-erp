@@ -27,4 +27,10 @@ export const config = {
     maxFileMb: parseInt(process.env.OCR_MAX_FILE_MB || '15', 10),
     maxPdfPages: parseInt(process.env.OCR_MAX_PDF_PAGES || '8', 10),
   },
+  // Bank statement analysis (parsing fallback + categorisation). Shares the OCR key.
+  statements: {
+    openAiApiKey,
+    model: process.env.STATEMENTS_AI_MODEL || 'gpt-4.1-mini',
+    maxFileMb: parseInt(process.env.STATEMENTS_MAX_FILE_MB || '30', 10),
+  },
 };

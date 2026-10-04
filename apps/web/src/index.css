@@ -520,3 +520,71 @@
     transition-duration: 0.001ms !important;
   }
 }
+
+/* ===========================================================================
+   BANK STATEMENT ANALYSIS (ported from LedgerLens)
+   Categorical chart slots — colour follows the entity (category group,
+   channel, shop), never its rank. Full colours, not HSL channels, because
+   they are used directly as SVG fills. Validated for contrast on both
+   themes.
+   =========================================================================== */
+:root {
+  --chart-1: #2a78d6;
+  --chart-2: #eb6834;
+  --chart-3: #1baf7a;
+  --chart-4: #eda100;
+  --chart-5: #e87ba4;
+  --chart-6: #008300;
+  --chart-7: #4a3aa7;
+  --chart-other: #b5b3ab;
+}
+.dark {
+  --chart-1: #3987e5;
+  --chart-2: #d95926;
+  --chart-3: #199e70;
+  --chart-4: #c98500;
+  --chart-5: #d55181;
+  --chart-6: #008300;
+  --chart-7: #9085e9;
+  --chart-other: #5c5b56;
+}
+
+.bank-analytics .num {
+  font-variant-numeric: tabular-nums;
+}
+.bank-analytics .scroll-thin {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--border-strong)) transparent;
+}
+/* Keep axes and grid recessive. */
+.bank-analytics .recharts-cartesian-axis-tick-value {
+  fill: hsl(var(--muted-foreground));
+  font-size: 11px;
+}
+.bank-analytics .recharts-cartesian-grid line {
+  stroke: hsl(var(--border));
+}
+.bank-analytics .recharts-surface:focus,
+.bank-analytics .recharts-wrapper:focus,
+.bank-analytics .recharts-sector:focus {
+  outline: none;
+}
+
+@keyframes bank-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+.bank-analytics .skeleton {
+  position: relative;
+  overflow: hidden;
+  background: hsl(var(--muted));
+}
+.bank-analytics .skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, hsl(0 0% 100% / 0.25), transparent);
+  animation: bank-shimmer 1.4s infinite;
+}
