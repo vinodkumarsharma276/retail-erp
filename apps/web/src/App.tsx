@@ -12,6 +12,7 @@ import { DistributorDetailPage } from './pages/distributors/DistributorDetailPag
 import { PurchaseListPage } from './pages/purchases/PurchaseListPage';
 import { PurchaseCreatePage } from './pages/purchases/PurchaseCreatePage';
 import { PurchaseDetailPage } from './pages/purchases/PurchaseDetailPage';
+import { PurchaseImportPage } from './pages/purchases/PurchaseImportPage';
 import { CustomerListPage } from './pages/customers/CustomerListPage';
 import { CustomerFormPage } from './pages/customers/CustomerFormPage';
 import { CustomerDetailPage } from './pages/customers/CustomerDetailPage';
@@ -99,6 +100,7 @@ function App() {
             </Route>
             <Route element={<PermissionGuard anyOf={['purchases.create']} />}>
               <Route path="/purchases/new" element={<PurchaseCreatePage />} />
+              <Route path="/purchases/import" element={<PurchaseImportPage />} />
             </Route>
             <Route element={<PermissionGuard anyOf={['purchases.detail']} />}>
               <Route path="/purchases/:id" element={<PurchaseDetailPage />} />

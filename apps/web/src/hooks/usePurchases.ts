@@ -6,6 +6,9 @@ import type {
   Purchase,
   RecordPurchasePaymentRequest,
   PurchasePayment,
+  PurchaseImportRequest,
+  PurchaseImportPreview,
+  PurchaseImportResult,
 } from '@retailerp/shared-types';
 
 // ---------------------------------------------------------------------------
@@ -148,6 +151,39 @@ export function useRecordPurchasePaymentMutation() {
         queryKey: keys.purchaseDetail(variables.purchaseId),
       });
       queryClient.invalidateQueries({ queryKey: ['distributors'] });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Bulk import from a spreadsheet
+// ---------------------------------------------------------------------------
+/** Check mapped sheet rows on the server. Nothing is saved. */
+export function usePurchaseImportPreviewMutation() {
+  return useMutation({
+    mutationFn: async (payload: PurchaseImportRequest) => {
+      const { data } = await apiClient.post<ApiResponse<PurchaseImportPreview>>('/purchases/import/preview', payload, {
+        timeout: 120_000,
+      });
+      return data.data!;
+    },
+  });
+}
+
+/** Save every invoice that passed the check. */
+export function usePurchaseImportCommitMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: PurchaseImportRequest) => {
+      const { data } = await apiClient.post<ApiResponse<PurchaseImportResult>>('/purchases/import', payload, {
+        timeout: 600_000,
+      });
+      return data.data!;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['purchases'] });
+      queryClient.invalidateQueries({ queryKey: ['distributors'] });
+      queryClient.invalidateQueries({ queryKey: ['products'] });
     },
   });
 }

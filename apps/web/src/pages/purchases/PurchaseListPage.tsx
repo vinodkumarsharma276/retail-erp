@@ -5,6 +5,7 @@ import {
   Calendar,
   X,
   Search,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { PageHeader } from '../../components/PageHeader';
 import { Button } from '../../components/ui/button';
@@ -226,9 +227,14 @@ export function PurchaseListPage() {
               New purchase
             </Button>
           ) : (
-            <Link to="/purchases/new">
-              <Button icon={<Plus className="h-3.5 w-3.5" />}>New purchase</Button>
-            </Link>
+            <div className="flex flex-wrap gap-2">
+              <Link to="/purchases/import">
+                <Button variant="outline" icon={<FileSpreadsheet className="h-3.5 w-3.5" />}>Import from Excel</Button>
+              </Link>
+              <Link to="/purchases/new">
+                <Button icon={<Plus className="h-3.5 w-3.5" />}>New purchase</Button>
+              </Link>
+            </div>
           ))
         }
       />

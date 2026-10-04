@@ -4,7 +4,7 @@ import { authenticate } from '../../middleware/auth.js';
 import { authorize } from '../../middleware/rbac.js';
 import { shopScope } from '../../middleware/shop-scope.js';
 import { validate } from '../../middleware/validate.js';
-import { createPurchaseSchema, updatePurchaseSchema, recordPaymentSchema } from './purchases.validation.js';
+import { createPurchaseSchema, updatePurchaseSchema, recordPaymentSchema, purchaseImportSchema } from './purchases.validation.js';
 import { UserRole } from '@retailerp/shared-types';
 
 export async function purchaseRoutes(app: FastifyInstance) {
@@ -29,6 +29,18 @@ export async function purchaseRoutes(app: FastifyInstance) {
   app.post('/', {
     preHandler: [...adminAccountantShopScoped, validate(createPurchaseSchema)],
   }, purchasesController.create as any);
+
+  // Bulk import from a spreadsheet: preview (nothing saved), then commit.
+  // A year of Tally lines can run to several MB of JSON.
+  app.post('/import/preview', {
+    bodyLimit: 25 * 1024 * 1024,
+    preHandler: [...adminAccountantShopScoped, validate(purchaseImportSchema)],
+  }, purchasesController.importPreview as any);
+
+  app.post('/import', {
+    bodyLimit: 25 * 1024 * 1024,
+    preHandler: [...adminAccountantShopScoped, validate(purchaseImportSchema)],
+  }, purchasesController.importCommit as any);
 
   // Get single purchase detail
   app.get('/:id', { preHandler: adminAccountant }, purchasesController.getById as any);

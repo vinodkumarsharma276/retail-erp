@@ -1,5 +1,7 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { purchasesService } from './purchases.service.js';
+import { purchaseImportService } from './purchases.import.js';
+import type { PurchaseImportRequest } from '@retailerp/shared-types';
 import { sendSuccess, sendError, sendPaginated } from '../../utils/response.js';
 import { parsePagination } from '../../utils/pagination.js';
 
@@ -93,6 +95,37 @@ export const purchasesController = {
       return sendSuccess(reply, result);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to check invoice';
+      return sendError(reply, message, 500);
+    }
+  },
+
+  /** POST /purchases/import/preview — check a mapped sheet; nothing is saved. */
+  async importPreview(request: FastifyRequest<{ Body: PurchaseImportRequest }>, reply: FastifyReply) {
+    try {
+      if (request.shopFilter!.allShops) return sendError(reply, 'Switch to a single shop to import purchases', 400);
+      const preview = await purchaseImportService.preview(request.body, {
+        tenantId: request.currentUser!.tenantId,
+        shopId: request.shopFilter!.shopId,
+      });
+      return sendSuccess(reply, preview);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to check the import';
+      return sendError(reply, message, 500);
+    }
+  },
+
+  /** POST /purchases/import — save every invoice that passed the check. */
+  async importCommit(request: FastifyRequest<{ Body: PurchaseImportRequest }>, reply: FastifyReply) {
+    try {
+      if (request.shopFilter!.allShops) return sendError(reply, 'Switch to a single shop to import purchases', 400);
+      const result = await purchaseImportService.commit(request.body, {
+        tenantId: request.currentUser!.tenantId,
+        shopId: request.shopFilter!.shopId,
+        userId: request.currentUser!.userId,
+      });
+      return sendSuccess(reply, result, 201);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to import purchases';
       return sendError(reply, message, 500);
     }
   },

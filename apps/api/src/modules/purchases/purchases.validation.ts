@@ -54,3 +54,45 @@ export const purchaseListQuerySchema = z.object({
   paymentStatus: z.enum(['pending', 'partial', 'paid']).optional(),
   search: z.string().optional(),
 });
+
+// --- Bulk import (spreadsheet) ----------------------------------------------
+const optText = z.string().max(500).optional();
+const optNum = z.number().finite().optional();
+
+const importRowSchema = z.object({
+  rowNumber: z.number().int().min(1),
+  invoiceNumber: z.string().max(100),
+  invoiceDate: z.string().max(20),
+  distributorName: z.string().max(300),
+  distributorGst: optText,
+  distributorPhone: optText,
+  distributorAddress: optText,
+  distributorCity: optText,
+  distributorState: optText,
+  distributorPincode: optText,
+  categoryName: optText,
+  brand: optText,
+  modelNumber: z.string().max(300),
+  serialNumber: optText,
+  quantity: z.number().finite(),
+  rate: optNum,
+  amount: optNum,
+  mrp: optNum,
+  sellingPrice: optNum,
+  discount: optNum,
+  gstAmount: optNum,
+  gstRate: optNum,
+  invoiceTotal: optNum,
+  hsnCode: optText,
+  color: optText,
+  warrantyMonths: optNum,
+});
+
+export const purchaseImportSchema = z.object({
+  rows: z.array(importRowSchema).min(1, 'The sheet has no rows to import').max(20000, 'At most 20,000 rows per import'),
+  categoryMap: z.record(z.string().uuid()).optional(),
+  markPaid: z
+    .object({ paymentMode: z.enum(['cash', 'upi', 'bank_transfer', 'cheque']) })
+    .nullable()
+    .optional(),
+});
