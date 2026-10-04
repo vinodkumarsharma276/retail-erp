@@ -68,7 +68,7 @@ export function OverdueTable() {
               <AlertTriangle className="h-5 w-5 text-red-600 dark:text-red-400" />
             </div>
             <div>
-              <p className="font-display text-2xl font-semibold tabular text-red-700 dark:text-red-400 leading-tight">
+              <p className="font-mono text-2xl font-semibold text-red-700 dark:text-red-400 leading-tight">
                 {count}
               </p>
               <p className="text-xs text-muted-foreground mt-0.5">

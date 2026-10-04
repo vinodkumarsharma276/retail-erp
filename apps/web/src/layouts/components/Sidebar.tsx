@@ -172,7 +172,7 @@ export function Sidebar() {
             </div>
             {!railMode && (
               <div className="min-w-0">
-                <p className="truncate font-display text-lg font-medium tracking-tight text-sidebar-foreground">
+                <p className="truncate text-base font-bold tracking-tight text-sidebar-foreground">
                   RetailERP
                 </p>
                 {tenantName && (
@@ -239,7 +239,7 @@ export function Sidebar() {
                                 ? 'h-9 w-full justify-center'
                                 : 'gap-3 px-2 py-1.5',
                               isActive
-                                ? 'bg-sidebar-active text-sidebar-active-foreground'
+                                ? 'bg-sidebar-active font-semibold text-sidebar-active-foreground'
                                 : 'text-sidebar-muted hover:bg-sidebar-hover hover:text-sidebar-foreground',
                             )
                           }
@@ -253,7 +253,7 @@ export function Sidebar() {
                                 <span
                                   aria-hidden
                                   className={cn(
-                                    'animate-fade-in absolute -left-3 h-5 w-1 rounded-r bg-primary',
+                                    'animate-fade-in absolute left-0 inset-y-1 w-[3px] rounded-r bg-primary',
                                     railMode && '-left-2',
                                   )}
                                 />

@@ -104,7 +104,7 @@ export default {
       },
       fontFamily: {
         sans: [
-          'Plus Jakarta Sans',
+          'IBM Plex Sans',
           'system-ui',
           '-apple-system',
           'BlinkMacSystemFont',
@@ -113,7 +113,9 @@ export default {
           'sans-serif',
         ],
         // Headings and hero numbers.
-        display: ['"Source Serif 4"', 'Georgia', 'serif'],
+        display: ['"IBM Plex Sans"', 'system-ui', 'sans-serif'],
+        // Amounts, ledger numbers, stat figures.
+        mono: ['"IBM Plex Mono"', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
       },
       fontSize: {
         // Slightly tighter tracking on large text; ERP headings read better dense.

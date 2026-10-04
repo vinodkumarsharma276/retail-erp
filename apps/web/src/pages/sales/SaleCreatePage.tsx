@@ -2541,8 +2541,8 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
             disabled={!canSubmit || activeMutation.isPending}
             title="Save (Ctrl+S)"
             className={cn(
-              'flex w-full items-center justify-center gap-2 rounded-md bg-green-600 px-4 py-2.5 text-sm font-semibold text-white',
-              'hover:bg-green-700 transition-colors',
+              'flex w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground',
+              'hover:bg-primary-hover transition-colors',
               'disabled:opacity-50 disabled:cursor-not-allowed',
             )}
           >
@@ -2594,8 +2594,8 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
               type="submit"
               disabled={!canSubmit || activeMutation.isPending}
               className={cn(
-                'flex items-center justify-center gap-2 rounded-md bg-green-600 px-4 py-2.5 text-sm font-semibold text-white',
-                'hover:bg-green-700 transition-colors',
+                'flex items-center justify-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground',
+                'hover:bg-primary-hover transition-colors',
                 'disabled:opacity-50 disabled:cursor-not-allowed',
               )}
             >

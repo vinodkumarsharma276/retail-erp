@@ -20,8 +20,8 @@ export function ViewSaleButton({ saleId, className }: { saleId: string | undefin
       }}
       title="Open the original sale"
       className={cn(
-        'group/sale inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-primary/25 bg-primary-muted pl-2.5 pr-2 text-xs font-semibold text-primary',
-        'transition-colors hover:border-primary hover:bg-primary hover:text-primary-foreground',
+        'group/sale inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md bg-primary-muted px-2.5 text-xs font-semibold text-primary',
+        'transition-colors hover:bg-primary hover:text-primary-foreground',
         'focus-visible:ring-2 focus-visible:ring-ring',
         className,
       )}

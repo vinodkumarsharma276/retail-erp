@@ -49,7 +49,7 @@ export function SummaryCards({ data, isLoading }: SummaryCardsProps) {
             <TrendingUp className="h-4 w-4 text-info" />
           </div>
         </div>
-        <p className="font-display text-2xl font-semibold tabular tracking-tight">
+        <p className="font-mono text-2xl font-semibold tracking-tight">
           {formatINR(data.totalSalesThisMonth)}
         </p>
         <div className="mt-2 flex items-center gap-1 text-sm">
@@ -81,7 +81,7 @@ export function SummaryCards({ data, isLoading }: SummaryCardsProps) {
             <AlertTriangle className="h-4 w-4 text-warning" />
           </div>
         </div>
-        <p className="font-display text-2xl font-semibold tabular tracking-tight">
+        <p className="font-mono text-2xl font-semibold tracking-tight">
           {data.pendingInstallments.count}
         </p>
         <p className="mt-2 text-sm text-muted-foreground">
@@ -102,7 +102,7 @@ export function SummaryCards({ data, isLoading }: SummaryCardsProps) {
             <Package className="h-4 w-4 text-primary" />
           </div>
         </div>
-        <p className="font-display text-2xl font-semibold tabular tracking-tight">
+        <p className="font-mono text-2xl font-semibold tracking-tight">
           {formatINR(data.stockValue)}
         </p>
         <p className="mt-2 text-sm text-muted-foreground">Total inventory value</p>
@@ -118,7 +118,7 @@ export function SummaryCards({ data, isLoading }: SummaryCardsProps) {
             <Banknote className="h-4 w-4 text-success" />
           </div>
         </div>
-        <p className="font-display text-2xl font-semibold tabular tracking-tight">
+        <p className="font-mono text-2xl font-semibold tracking-tight">
           {formatINR(data.todaysCollections.collected)}
         </p>
         <div className="mt-2">
@@ -155,7 +155,7 @@ export function SummaryCards({ data, isLoading }: SummaryCardsProps) {
             <Receipt className="h-4 w-4 text-destructive" />
           </div>
         </div>
-        <p className="font-display text-2xl font-semibold tabular tracking-tight">
+        <p className="font-mono text-2xl font-semibold tracking-tight">
           {formatINR(data.totalExpensesCurrentFY)}
         </p>
         <p className="mt-2 text-sm text-muted-foreground">April to March</p>

@@ -126,8 +126,8 @@ export function TransferDetailPage() {
             <button
               onClick={() => setShowReceiveConfirm(true)}
               className={cn(
-                'flex items-center gap-2 rounded-md bg-green-600 px-4 py-2.5 text-sm font-medium text-white',
-                'hover:bg-green-700 transition-colors',
+                'flex items-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground',
+                'hover:bg-primary-hover transition-colors',
               )}
             >
               <CheckCircle className="h-4 w-4" />
@@ -408,7 +408,7 @@ function ConfirmDialog({
 }) {
   const btnClass =
     confirmColor === 'green'
-      ? 'bg-green-600 hover:bg-green-700'
+      ? 'bg-primary hover:bg-primary-hover'
       : 'bg-red-600 hover:bg-red-700';
 
   const errorMessage = error

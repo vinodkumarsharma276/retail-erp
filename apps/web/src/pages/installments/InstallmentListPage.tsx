@@ -418,8 +418,8 @@ export function InstallmentListPage() {
                                             })
                                           }
                                           className={cn(
-                                            'flex items-center gap-1 rounded-md bg-green-600 px-2.5 py-1.5 text-xs font-medium text-white',
-                                            'hover:bg-green-700 transition-colors',
+                                            'flex items-center gap-1 rounded-md bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-foreground',
+                                            'hover:bg-primary-hover transition-colors',
                                           )}
                                         >
                                           <Banknote className="h-3.5 w-3.5" />
@@ -621,8 +621,8 @@ function OverdueTab() {
                 });
               }}
               className={cn(
-                'flex items-center gap-1 rounded-md bg-green-600 px-2.5 py-1.5 text-xs font-medium text-white',
-                'hover:bg-green-700 transition-colors',
+                'flex items-center gap-1 rounded-md bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-foreground',
+                'hover:bg-primary-hover transition-colors',
               )}
             >
               <Banknote className="h-3.5 w-3.5" />
@@ -847,8 +847,8 @@ function CollectionsTab() {
                 });
               }}
               className={cn(
-                'flex items-center gap-1 rounded-md bg-green-600 px-2.5 py-1.5 text-xs font-medium text-white',
-                'hover:bg-green-700 transition-colors',
+                'flex items-center gap-1 rounded-md bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-foreground',
+                'hover:bg-primary-hover transition-colors',
               )}
             >
               <Banknote className="h-3.5 w-3.5" />

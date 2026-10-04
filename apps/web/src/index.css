@@ -17,129 +17,133 @@
    =========================================================================== */
 
 @layer base {
-  /* Warm, quiet palette in the spirit of Claude's design: ivory canvas,
-     warm neutrals, one clay accent, flat surfaces, serif headings. Colour is
-     kept for meaning (status, the primary action), not decoration. */
+  /* "Ledger": calm teal brand on a soft off-white ground. Built for scanning
+     money all day — IBM Plex Sans for text, IBM Plex Mono for amounts and
+     ledger numbers, and status colours that stay apart in lightness as well
+     as hue (blue = due today, orange = late, red = broken, teal = promise). */
   :root {
-    /* --- Neutral ramp (warm) ------------------------------------------ */
-    --background: 48 33% 97%;
-    --foreground: 60 3% 15%;
+    /* --- Neutral ramp (faint green-grey) ------------------------------ */
+    --background: 80 13% 95.5%;
+    --foreground: 153 16% 11%;
     --surface: 0 0% 100%;
-    --surface-foreground: 60 3% 15%;
+    --surface-foreground: 153 16% 11%;
     --card: 0 0% 100%;
-    --card-foreground: 60 3% 15%;
+    --card-foreground: 153 16% 11%;
     --popover: 0 0% 100%;
-    --popover-foreground: 60 3% 15%;
-    --muted: 45 22% 93%;
-    --muted-foreground: 40 5% 40%;
-    /* Faint fill for table zebra striping and row hover. */
-    --subtle: 48 30% 98%;
-    --border: 45 16% 87%;
-    --border-strong: 45 10% 76%;
+    --popover-foreground: 153 16% 11%;
+    --muted: 90 10% 93%;
+    --muted-foreground: 147 6% 35%;
+    /* Faint fill for table headers, zebra striping and row hover. */
+    --subtle: 90 12% 97.5%;
+    --border: 90 10% 88%;
+    --border-strong: 98 8% 81%;
     /* `--input` is the field BORDER (shadcn convention). `--field` is the
        field FILL — always the lightest surface, never the canvas colour,
        or fields look disabled inside white cards. */
-    --input: 45 12% 82%;
+    --input: 98 8% 81%;
     --field: 0 0% 100%;
 
-    /* --- Brand: clay ---------------------------------------------------- */
-    --primary: 15 56% 52%;
+    /* --- Brand: teal -------------------------------------------------- */
+    --primary: 171 80% 27%;
     --primary-foreground: 0 0% 100%;
-    --primary-hover: 15 56% 46%;
-    --primary-muted: 18 60% 95%;
-    --ring: 15 56% 52%;
-    --brand-2: 15 56% 46%;
-    --brand-3: 15 56% 52%;
+    --primary-hover: 171 80% 22%;
+    --primary-muted: 170 33% 93%;
+    --ring: 171 80% 27%;
+    --brand-2: 171 80% 22%;
+    --brand-3: 171 80% 27%;
 
-    --secondary: 45 22% 93%;
-    --secondary-foreground: 60 3% 20%;
-    --accent: 45 22% 93%;
-    --accent-foreground: 60 3% 20%;
+    --secondary: 90 10% 93%;
+    --secondary-foreground: 153 16% 16%;
+    --accent: 90 10% 93%;
+    --accent-foreground: 153 16% 16%;
 
-    /* --- Semantic (muted, earthy) ------------------------------------- */
-    --success: 150 45% 32%;
+    /* --- Semantic ----------------------------------------------------- */
+    --success: 150 60% 28%;
     --success-foreground: 0 0% 100%;
-    --success-muted: 120 25% 94%;
+    --success-muted: 145 45% 93%;
 
-    --warning: 35 80% 40%;
+    /* Late / overdue */
+    --warning: 27 92% 31%;
     --warning-foreground: 0 0% 100%;
-    --warning-muted: 42 70% 93%;
+    --warning-muted: 33 88% 94%;
 
-    --destructive: 0 60% 48%;
+    /* Broken promise, errors */
+    --destructive: 4 76% 40%;
     --destructive-foreground: 0 0% 100%;
-    --destructive-muted: 5 70% 96%;
+    --destructive-muted: 6 86% 95%;
 
-    --info: 210 50% 42%;
+    /* Due today */
+    --info: 224 76% 48%;
     --info-foreground: 0 0% 100%;
-    --info-muted: 210 45% 95%;
+    --info-muted: 220 82% 95%;
 
-    /* --- Shape & elevation (barely there) ----------------------------- */
+    /* --- Shape & elevation -------------------------------------------- */
     --radius: 0.625rem;
-    --shadow-xs: 0 1px 2px 0 hsl(40 10% 20% / 0.04);
-    --shadow-sm: 0 1px 2px 0 hsl(40 10% 20% / 0.06);
-    --shadow-md: 0 4px 12px -4px hsl(40 10% 20% / 0.10);
-    --shadow-lg: 0 12px 32px -8px hsl(40 10% 20% / 0.16);
-    --shadow-glow: 0 1px 2px 0 hsl(40 10% 20% / 0.08);
+    --shadow-xs: 0 1px 2px 0 hsl(153 16% 11% / 0.04);
+    --shadow-sm: 0 1px 2px 0 hsl(153 16% 11% / 0.06);
+    --shadow-md: 0 4px 12px -4px hsl(153 16% 11% / 0.10);
+    --shadow-lg: 0 12px 32px -8px hsl(153 16% 11% / 0.16);
+    --shadow-glow: 0 1px 2px 0 hsl(153 16% 11% / 0.08);
 
-    /* --- Sidebar (light, a shade darker than the canvas) --------------- */
-    --sidebar: 45 25% 94.5%;
-    --sidebar-foreground: 60 3% 15%;
-    --sidebar-muted: 40 5% 38%;
-    --sidebar-border: 45 16% 86%;
-    --sidebar-active: 45 16% 87%;
-    --sidebar-active-foreground: 60 3% 12%;
-    --sidebar-hover: 45 18% 90%;
+    /* --- Sidebar (white, teal active item) ---------------------------- */
+    --sidebar: 0 0% 100%;
+    --sidebar-foreground: 153 16% 11%;
+    --sidebar-muted: 147 8% 26%;
+    --sidebar-border: 90 10% 88%;
+    --sidebar-active: 170 33% 93%;
+    --sidebar-active-foreground: 171 80% 27%;
+    --sidebar-hover: 90 10% 95%;
   }
 
   .dark {
-    /* --- Neutral ramp (warm charcoal) --------------------------------- */
-    --background: 60 3% 15%;
-    --foreground: 45 20% 91%;
-    --surface: 60 3% 18%;
-    --surface-foreground: 45 20% 91%;
-    --card: 60 3% 18%;
-    --card-foreground: 45 20% 91%;
-    --popover: 60 3% 19%;
-    --popover-foreground: 45 20% 91%;
-    --muted: 60 3% 22%;
-    --muted-foreground: 45 6% 64%;
-    --subtle: 60 3% 17%;
-    --border: 60 3% 25%;
-    --border-strong: 60 3% 33%;
-    --input: 60 3% 30%;
+    /* --- Neutral ramp (green-charcoal) -------------------------------- */
+    --background: 150 8% 8%;
+    --foreground: 100 10% 92%;
+    --surface: 150 7% 11%;
+    --surface-foreground: 100 10% 92%;
+    --card: 150 7% 11%;
+    --card-foreground: 100 10% 92%;
+    --popover: 150 7% 13%;
+    --popover-foreground: 100 10% 92%;
+    --muted: 150 6% 16%;
+    --muted-foreground: 140 6% 66%;
+    --subtle: 150 7% 12.5%;
+    --border: 150 6% 20%;
+    --border-strong: 150 5% 28%;
+    --input: 150 5% 26%;
     /* Slightly darker than --card so fields read as insets. */
-    --field: 60 3% 14%;
+    --field: 150 7% 9.5%;
 
     /* --- Brand -------------------------------------------------------- */
-    --primary: 15 60% 60%;
-    --primary-foreground: 0 0% 100%;
-    --primary-hover: 15 62% 66%;
-    --primary-muted: 15 30% 22%;
-    --ring: 15 60% 60%;
-    --brand-2: 15 62% 66%;
-    --brand-3: 15 60% 60%;
+    --primary: 168 62% 46%;
+    --primary-foreground: 170 80% 7%;
+    --primary-hover: 168 62% 53%;
+    --primary-muted: 170 40% 15%;
+    --ring: 168 62% 46%;
+    --brand-2: 168 62% 53%;
+    --brand-3: 168 62% 46%;
 
-    --secondary: 60 3% 22%;
-    --secondary-foreground: 45 20% 91%;
-    --accent: 60 3% 22%;
-    --accent-foreground: 45 20% 91%;
+    --secondary: 150 6% 16%;
+    --secondary-foreground: 100 10% 92%;
+    --accent: 150 6% 16%;
+    --accent-foreground: 100 10% 92%;
 
     /* --- Semantic ----------------------------------------------------- */
-    --success: 145 40% 52%;
-    --success-foreground: 150 60% 8%;
-    --success-muted: 145 20% 19%;
+    --success: 150 50% 50%;
+    --success-foreground: 150 60% 7%;
+    --success-muted: 150 30% 15%;
 
-    --warning: 38 75% 58%;
-    --warning-foreground: 35 80% 9%;
-    --warning-muted: 38 30% 19%;
+    --warning: 32 90% 60%;
+    --warning-foreground: 30 90% 9%;
+    --warning-muted: 32 40% 16%;
 
-    --destructive: 0 65% 62%;
+    --destructive: 4 80% 66%;
     --destructive-foreground: 0 0% 100%;
-    --destructive-muted: 0 30% 20%;
+    --destructive-muted: 4 40% 18%;
 
-    --info: 210 55% 64%;
-    --info-foreground: 210 60% 9%;
-    --info-muted: 210 25% 20%;
+    --info: 220 85% 70%;
+    --info-foreground: 222 70% 10%;
+    --info-muted: 222 40% 18%;
 
     /* --- Elevation ----------------------------------------------------- */
     --shadow-xs: 0 1px 2px 0 hsl(0 0% 0% / 0.25);
@@ -149,13 +153,13 @@
     --shadow-glow: 0 1px 2px 0 hsl(0 0% 0% / 0.3);
 
     /* --- Sidebar ------------------------------------------------------ */
-    --sidebar: 30 3% 12%;
-    --sidebar-foreground: 45 20% 91%;
-    --sidebar-muted: 45 6% 62%;
-    --sidebar-border: 60 3% 20%;
-    --sidebar-active: 60 3% 22%;
-    --sidebar-active-foreground: 45 25% 96%;
-    --sidebar-hover: 60 3% 18%;
+    --sidebar: 150 8% 9.5%;
+    --sidebar-foreground: 100 10% 92%;
+    --sidebar-muted: 140 6% 68%;
+    --sidebar-border: 150 6% 16%;
+    --sidebar-active: 170 40% 15%;
+    --sidebar-active-foreground: 168 62% 60%;
+    --sidebar-hover: 150 6% 14%;
   }
 }
 
@@ -168,7 +172,7 @@
      width/transform jank on the sidebar and dropdown menus. */
   body {
     @apply bg-background text-foreground antialiased;
-    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-family: 'IBM Plex Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     margin: 0;
   }
 
@@ -203,10 +207,10 @@
    =========================================================================== */
 @layer components {
   .text-display {
-    @apply font-display text-[1.75rem] font-medium leading-tight tracking-tight text-foreground;
+    @apply font-display text-[1.625rem] font-bold leading-tight tracking-tight text-foreground;
   }
   .text-title {
-    @apply font-display text-lg font-medium tracking-tight text-foreground;
+    @apply font-display text-lg font-semibold tracking-tight text-foreground;
   }
   .text-subtitle {
     @apply text-sm font-medium text-foreground;

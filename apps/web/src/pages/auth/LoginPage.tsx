@@ -114,7 +114,7 @@ export function LoginPage() {
           <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary">
             <ShoppingCart className="h-8 w-8 text-white" />
           </div>
-          <h1 className="font-display text-4xl font-medium tracking-tight">RetailERP</h1>
+          <h1 className="text-4xl font-bold tracking-tight">RetailERP</h1>
         </div>
         {/* Show the cached tenant name if we've logged in before on this
             subdomain — gives the user immediate "this is my org" feedback. */}

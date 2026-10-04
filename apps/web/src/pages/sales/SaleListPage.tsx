@@ -367,8 +367,8 @@ function SaleListPageInner() {
                   disabled={approveMutation.isPending}
                   title="Approve this sale"
                   className={cn(
-                    'flex items-center gap-1 rounded-md bg-green-600 px-2 py-1 text-xs font-medium text-white',
-                    'hover:bg-green-700 transition-colors',
+                    'flex items-center gap-1 rounded-md bg-primary px-2 py-1 text-xs font-medium text-primary-foreground',
+                    'hover:bg-primary-hover transition-colors',
                     'disabled:opacity-50 disabled:cursor-not-allowed',
                   )}
                 >

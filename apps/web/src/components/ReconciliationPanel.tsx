@@ -273,8 +273,8 @@ export function ReconciliationPanel({
                             onClick={() => handleMatch(suggestion)}
                             disabled={isProcessing}
                             className={cn(
-                              'flex items-center gap-1.5 rounded-md bg-green-600 px-3 py-2 text-xs font-medium text-white',
-                              'hover:bg-green-700 transition-colors',
+                              'flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-xs font-medium text-primary-foreground',
+                              'hover:bg-primary-hover transition-colors',
                               'disabled:opacity-50 disabled:cursor-not-allowed',
                             )}
                           >

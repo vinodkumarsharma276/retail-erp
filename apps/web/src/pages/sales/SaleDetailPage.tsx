@@ -271,8 +271,8 @@ function SaleDetailPageInner() {
                     type="button"
                     onClick={() => setShowPaymentDialog(true)}
                     className={cn(
-                      'flex items-center gap-2 rounded-md bg-green-600 px-4 py-2 text-sm font-medium text-white',
-                      'hover:bg-green-700 transition-colors',
+                      'flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground',
+                      'hover:bg-primary-hover transition-colors',
                     )}
                   >
                     <CreditCard className="h-4 w-4" />
@@ -568,8 +568,8 @@ function SaleDetailPageInner() {
                                           })
                                         }
                                         className={cn(
-                                          'inline-flex items-center gap-1 rounded-md bg-green-600 px-2 py-1 text-xs font-medium text-white',
-                                          'hover:bg-green-700 transition-colors',
+                                          'inline-flex items-center gap-1 rounded-md bg-primary px-2 py-1 text-xs font-medium text-primary-foreground',
+                                          'hover:bg-primary-hover transition-colors',
                                         )}
                                       >
                                         <Banknote className="h-3 w-3" />
@@ -657,8 +657,8 @@ function SaleDetailPageInner() {
                             onClick={handleRecordFinancePayment}
                             disabled={financePaymentMutation.isPending}
                             className={cn(
-                              'flex items-center gap-2 rounded-md bg-green-600 px-4 py-2 text-sm font-medium text-white',
-                              'hover:bg-green-700 transition-colors',
+                              'flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground',
+                              'hover:bg-primary-hover transition-colors',
                               'disabled:opacity-50 disabled:cursor-not-allowed',
                             )}
                           >
@@ -858,7 +858,7 @@ function SaleDetailPageInner() {
                 type="button"
                 onClick={handleRecordPayment}
                 disabled={!paymentAmount || paymentAmount <= 0 || paymentAmount > Number(sale.pendingAmount) || recordPaymentMutation.isPending}
-                className="flex items-center gap-2 rounded-md bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {recordPaymentMutation.isPending ? (
                   <Loader2 className="h-4 w-4 animate-spin" />

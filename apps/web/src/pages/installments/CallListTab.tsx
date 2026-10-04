@@ -22,7 +22,7 @@ function localTodayIso(): string {
 }
 
 function ReasonBadge({ reason }: { reason: CallListRow['reasons'][number] }) {
-  const base = 'inline-flex items-center rounded-md border px-1.5 py-0.5 text-[11px] font-medium';
+  const base = 'inline-flex h-6 items-center rounded-md border px-2 text-xs font-semibold';
   switch (reason.kind) {
     case 'promise_due':
       return (
@@ -32,7 +32,7 @@ function ReasonBadge({ reason }: { reason: CallListRow['reasons'][number] }) {
       );
     case 'due_today':
       return (
-        <span className={cn(base, 'border-border bg-muted text-foreground')}>
+        <span className={cn(base, 'border-info/20 bg-info-muted text-info')}>
           EMI #{reason.installmentNumber} due · {formatINR(reason.amount)}
         </span>
       );
@@ -115,7 +115,7 @@ export function CallListTab() {
           ].map((s) => (
             <div key={s.label} className="rounded-lg border bg-card px-3 py-2">
               <p className="text-caption">{s.label}</p>
-              <p className="tabular font-display text-xl font-semibold">{s.value}</p>
+              <p className="font-mono text-xl font-semibold">{s.value}</p>
             </div>
           ))}
         </div>
