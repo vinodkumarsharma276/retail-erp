@@ -7,6 +7,7 @@ import multipart from '@fastify/multipart';
 import { config } from './config/index.js';
 import { errorHandler } from './middleware/error-handler.js';
 import { tenantResolver } from './middleware/tenant-resolver.js';
+import { tenantContext } from './config/tenant-context.js';
 import { authRoutes } from './modules/auth/auth.routes.js';
 import { shopRoutes } from './modules/shops/shops.routes.js';
 import { userRoutes } from './modules/users/users.routes.js';
@@ -74,6 +75,8 @@ export async function buildApp() {
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Shop-Id', 'X-Tenant-Slug'],
+    // Lets the web app read download file names (statement exports / originals).
+    exposedHeaders: ['Content-Disposition'],
   });
   await app.register(jwt, { secret: config.jwt.secret });
   await app.register(cookie);
@@ -87,6 +90,9 @@ export async function buildApp() {
 
   // Tenant resolver — runs on every request BEFORE auth. Bypasses
   // `/api/health`, `/api/ready`, and `/api/v1/platform/*` internally.
+  // One tenant context per request; tenantResolver fills in the tenant, and
+  // every Prisma query in the request is then scoped to it (config/database.ts).
+  app.addHook('onRequest', (_request, _reply, done) => tenantContext.run(done));
   app.addHook('onRequest', tenantResolver);
 
   // Error handler

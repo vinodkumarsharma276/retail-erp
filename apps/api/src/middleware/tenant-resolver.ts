@@ -21,6 +21,7 @@
  */
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../config/database.js';
+import { tenantContext } from '../config/tenant-context.js';
 
 const BOOTSTRAP_TENANT_SLUG = process.env.BOOTSTRAP_TENANT_SLUG ?? 'vn';
 const TENANT_CACHE_TTL_MS = 60_000;
@@ -165,6 +166,7 @@ export async function tenantResolver(request: FastifyRequest, reply: FastifyRepl
     });
   }
 
+  tenantContext.setTenant(tenant.id);
   request.tenant = {
     id: tenant.id,
     slug: tenant.slug,
