@@ -1,5 +1,20 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../config/database';
+import { effectivePermissions } from '@retailerp/shared-types';
+import { getTenantFeatureSnapshot } from './feature-gate.js';
+
+/**
+ * What a user can actually do for this tenant: granted permissions minus
+ * features the tenant has switched off and minus anything whose
+ * prerequisites are missing (packages/shared-types/src/access.ts). Used for
+ * every permission check and sent to the browser at login, so screens and
+ * API always agree.
+ */
+export async function loadUsablePermissions(userId: string, tenantId: string | undefined): Promise<Set<string>> {
+  const granted = await loadEffectivePermissionsForUser(userId);
+  const flags = tenantId ? (await getTenantFeatureSnapshot(tenantId)).flags : null;
+  return effectivePermissions(granted, flags);
+}
 
 /**
  * Two in-memory caches:
@@ -100,7 +115,7 @@ async function ensurePermissionsLoaded(request: FastifyRequest): Promise<Set<str
   if (!request.currentUser) return new Set();
   if (request.currentUser.permissions) return request.currentUser.permissions;
 
-  const perms = await loadEffectivePermissionsForUser(request.currentUser.userId);
+  const perms = await loadUsablePermissions(request.currentUser.userId, request.tenant?.id ?? request.currentUser.tenantId);
   request.currentUser.permissions = perms;
   return perms;
 }

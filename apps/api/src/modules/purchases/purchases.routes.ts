@@ -1,57 +1,46 @@
 import type { FastifyInstance } from 'fastify';
 import { purchasesController } from './purchases.controller.js';
 import { authenticate } from '../../middleware/auth.js';
-import { authorize } from '../../middleware/rbac.js';
+import { requirePermission, requireAnyPermission } from '../../middleware/permissions.js';
 import { shopScope } from '../../middleware/shop-scope.js';
 import { validate } from '../../middleware/validate.js';
 import { createPurchaseSchema, updatePurchaseSchema, recordPaymentSchema, purchaseImportSchema } from './purchases.validation.js';
-import { UserRole } from '@retailerp/shared-types';
 
 export async function purchaseRoutes(app: FastifyInstance) {
-  const adminAccountant = [
-    authenticate,
-    authorize([UserRole.ADMIN, UserRole.ACCOUNTANT]),
-  ];
-
-  const adminAccountantShopScoped = [
-    authenticate,
-    authorize([UserRole.ADMIN, UserRole.ACCOUNTANT]),
-    shopScope,
-  ];
 
   // List purchases (paginated, filtered, shop-scoped)
-  app.get('/', { preHandler: adminAccountantShopScoped }, purchasesController.list as any);
+  app.get('/', { preHandler: [authenticate, shopScope, requirePermission('purchases.list')] }, purchasesController.list as any);
 
   // Check whether an invoice number already exists for a distributor
-  app.get('/check-invoice', { preHandler: adminAccountant }, purchasesController.checkInvoice as any);
+  app.get('/check-invoice', { preHandler: [authenticate, requireAnyPermission('purchases.create', 'purchases.edit')] }, purchasesController.checkInvoice as any);
 
   // Create purchase with products (shop-scoped)
   app.post('/', {
-    preHandler: [...adminAccountantShopScoped, validate(createPurchaseSchema)],
+    preHandler: [authenticate, shopScope, requirePermission('purchases.create'), validate(createPurchaseSchema)],
   }, purchasesController.create as any);
 
   // Bulk import from a spreadsheet: preview (nothing saved), then commit.
   // A year of Tally lines can run to several MB of JSON.
   app.post('/import/preview', {
     bodyLimit: 25 * 1024 * 1024,
-    preHandler: [...adminAccountantShopScoped, validate(purchaseImportSchema)],
+    preHandler: [authenticate, shopScope, requirePermission('purchases.create'), validate(purchaseImportSchema)],
   }, purchasesController.importPreview as any);
 
   app.post('/import', {
     bodyLimit: 25 * 1024 * 1024,
-    preHandler: [...adminAccountantShopScoped, validate(purchaseImportSchema)],
+    preHandler: [authenticate, shopScope, requirePermission('purchases.create'), validate(purchaseImportSchema)],
   }, purchasesController.importCommit as any);
 
   // Get single purchase detail
-  app.get('/:id', { preHandler: adminAccountant }, purchasesController.getById as any);
+  app.get('/:id', { preHandler: [authenticate, requirePermission('purchases.detail')] }, purchasesController.getById as any);
 
   // Update purchase header
   app.put('/:id', {
-    preHandler: [...adminAccountant, validate(updatePurchaseSchema)],
+    preHandler: [authenticate, requirePermission('purchases.edit'), validate(updatePurchaseSchema)],
   }, purchasesController.update as any);
 
   // Record a payment for a purchase
   app.post('/:id/payments', {
-    preHandler: [...adminAccountant, validate(recordPaymentSchema)],
+    preHandler: [authenticate, requirePermission('purchases.record_payment'), validate(recordPaymentSchema)],
   }, purchasesController.recordPayment as any);
 }

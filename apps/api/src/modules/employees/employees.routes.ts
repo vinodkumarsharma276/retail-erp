@@ -1,32 +1,26 @@
 import type { FastifyInstance } from 'fastify';
 import { employeesController } from './employees.controller.js';
 import { authenticate } from '../../middleware/auth.js';
-import { authorize } from '../../middleware/rbac.js';
+import { requirePermission } from '../../middleware/permissions.js';
 import { shopScope } from '../../middleware/shop-scope.js';
 import { validate } from '../../middleware/validate.js';
 import { createEmployeeSchema, updateEmployeeSchema } from './employees.validation.js';
-import { UserRole } from '@retailerp/shared-types';
 
 export async function employeeRoutes(app: FastifyInstance) {
-  const adminShopScoped = [
-    authenticate,
-    authorize([UserRole.ADMIN]),
-    shopScope,
-  ];
 
   // List employees (admin, shop-scoped, paginated)
-  app.get('/', { preHandler: adminShopScoped }, employeesController.list as any);
+  app.get('/', { preHandler: [authenticate, shopScope, requirePermission('employees.list')] }, employeesController.list as any);
 
   // Create employee (admin, shop-scoped)
   app.post('/', {
-    preHandler: [...adminShopScoped, validate(createEmployeeSchema)],
+    preHandler: [authenticate, shopScope, requirePermission('employees.create'), validate(createEmployeeSchema)],
   }, employeesController.create as any);
 
   // Get employee by ID (admin)
-  app.get('/:id', { preHandler: adminShopScoped }, employeesController.getById as any);
+  app.get('/:id', { preHandler: [authenticate, shopScope, requirePermission('employees.list')] }, employeesController.getById as any);
 
   // Update employee (admin)
   app.put('/:id', {
-    preHandler: [...adminShopScoped, validate(updateEmployeeSchema)],
+    preHandler: [authenticate, shopScope, requirePermission('employees.edit'), validate(updateEmployeeSchema)],
   }, employeesController.update as any);
 }

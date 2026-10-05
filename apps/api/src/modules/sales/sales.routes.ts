@@ -11,18 +11,15 @@ import { UserRole } from '@retailerp/shared-types';
 export async function saleRoutes(app: FastifyInstance) {
   const allShopRoles = [
     authenticate,
-    authorize([UserRole.ADMIN, UserRole.ACCOUNTANT, UserRole.OTHERS]),
     shopScope,
   ];
 
   const adminAccountant = [
     authenticate,
-    authorize([UserRole.ADMIN, UserRole.ACCOUNTANT]),
   ];
 
   const adminAccountantShopScoped = [
     authenticate,
-    authorize([UserRole.ADMIN, UserRole.ACCOUNTANT]),
     shopScope,
   ];
 

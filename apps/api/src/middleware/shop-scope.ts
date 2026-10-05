@@ -1,6 +1,6 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../config/database.js';
-import { loadEffectivePermissionsForUser } from './permissions.js';
+import { loadUsablePermissions } from './permissions.js';
 
 /**
  * Sentinel value the frontend sends in the `X-Shop-Id` header when the
@@ -51,7 +51,7 @@ export async function shopScope(request: FastifyRequest, reply: FastifyReply) {
     let allowed = request.currentUser.role === 'owner';
     if (!allowed) {
       // Effective permissions also pick up any per-user grants/denies.
-      const perms = await loadEffectivePermissionsForUser(request.currentUser.userId);
+      const perms = await loadUsablePermissions(request.currentUser.userId, tenantId);
       allowed = perms.has('shops.view_all');
     }
 

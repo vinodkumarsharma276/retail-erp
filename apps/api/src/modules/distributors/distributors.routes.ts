@@ -1,41 +1,36 @@
 import type { FastifyInstance } from 'fastify';
 import { distributorsController } from './distributors.controller.js';
 import { authenticate } from '../../middleware/auth.js';
-import { authorize } from '../../middleware/rbac.js';
+import { requirePermission } from '../../middleware/permissions.js';
 import { validate } from '../../middleware/validate.js';
 import { createDistributorSchema, updateDistributorSchema, lumpsumPaymentSchema } from './distributors.validation.js';
-import { UserRole } from '@retailerp/shared-types';
 
 export async function distributorRoutes(app: FastifyInstance) {
-  const adminAccountant = [
-    authenticate,
-    authorize([UserRole.ADMIN, UserRole.ACCOUNTANT]),
-  ];
 
   // List distributors (paginated, searchable)
-  app.get('/', { preHandler: adminAccountant }, distributorsController.list as any);
+  app.get('/', { preHandler: [authenticate, requirePermission('distributors.list')] }, distributorsController.list as any);
 
   // Create distributor
   app.post('/', {
-    preHandler: [...adminAccountant, validate(createDistributorSchema)],
+    preHandler: [authenticate, requirePermission('distributors.create'), validate(createDistributorSchema)],
   }, distributorsController.create as any);
 
   // Get single distributor
-  app.get('/:id', { preHandler: adminAccountant }, distributorsController.getById as any);
+  app.get('/:id', { preHandler: [authenticate, requirePermission('distributors.detail')] }, distributorsController.getById as any);
 
   // Update distributor
   app.put('/:id', {
-    preHandler: [...adminAccountant, validate(updateDistributorSchema)],
+    preHandler: [authenticate, requirePermission('distributors.edit'), validate(updateDistributorSchema)],
   }, distributorsController.update as any);
 
   // Get products from this distributor
-  app.get('/:id/products', { preHandler: adminAccountant }, distributorsController.getProducts as any);
+  app.get('/:id/products', { preHandler: [authenticate, requirePermission('distributors.detail')] }, distributorsController.getProducts as any);
 
   // Record lumpsum payment for this distributor
   app.post('/:id/payments', {
-    preHandler: [...adminAccountant, validate(lumpsumPaymentSchema)],
+    preHandler: [authenticate, requirePermission('purchases.record_payment'), validate(lumpsumPaymentSchema)],
   }, distributorsController.recordLumpsumPayment as any);
 
   // Get payment history for this distributor
-  app.get('/:id/payments', { preHandler: adminAccountant }, distributorsController.getPayments as any);
+  app.get('/:id/payments', { preHandler: [authenticate, requirePermission('distributors.detail')] }, distributorsController.getPayments as any);
 }

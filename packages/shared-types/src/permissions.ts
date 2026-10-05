@@ -153,6 +153,7 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
     ['installments.payment_timeline', 'See payment timeline component'],
     ['installments.final_settlement', 'Close loan with final settlement quote'],
     ['installments.interest.apply', 'Apply overdue interest to installment'],
+    ['installments.revert_payment', 'Undo or correct a recorded payment, cancel a promise entered by mistake'],
     ['installments.interest.rollback', 'Roll back applied overdue interest'],
   ]),
 
@@ -282,7 +283,8 @@ export const ROLE_OWNER_PERMISSIONS = ALL_PERMISSION_KEYS;
 
 export const ROLE_ADMIN_PERMISSIONS: string[] = ALL_PERMISSION_KEYS.filter((k) => {
   // Admin gets everything except role/permission management and impersonation.
-  if (k.startsWith('roles.')) return false;
+  // They can see the roles list, so they can assign a role to a user.
+  if (k.startsWith('roles.') && k !== 'roles.list') return false;
   if (k === 'system.impersonate_user') return false;
   if (k === 'sales.view_sanitized') return false;
   // Sale modification is locked to Owner by default. Owner can grant these
@@ -303,7 +305,7 @@ export const ROLE_ACCOUNTANT_PERMISSIONS: string[] = [
   // Navigation
   'nav.products', 'nav.distributors', 'nav.purchases', 'nav.customers',
   'nav.sales', 'nav.installments', 'nav.expenses', 'nav.bank', 'nav.settings',
-  'shop.switch',
+  'shop.switch', 'settings.view',
   // Products
   'products.list', 'products.detail', 'products.audit_trail',
   'products.view_dp', 'products.view_margin', 'products.view_distributor',
@@ -331,7 +333,7 @@ export const ROLE_ACCOUNTANT_PERMISSIONS: string[] = [
   'installments.list', 'installments.tab.todays_scheduled', 'installments.tab.all_overdue',
   'installments.tab.search', 'installments.detail', 'installments.record_payment',
   'installments.view_interest_rate', 'installments.view_guarantor_contact',
-  'installments.payment_timeline', 'installments.interest.apply',
+  'installments.payment_timeline', 'installments.interest.apply', 'installments.revert_payment',
   // Expenses
   'expenses.list', 'expenses.detail', 'expenses.create', 'expenses.edit',
   'expenses.upload_invoice', 'expenses.mark_gst_claimable', 'expenses.export',

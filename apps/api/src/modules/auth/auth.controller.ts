@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import { authService } from './auth.service.js';
 import { sendSuccess, sendError } from '../../utils/response.js';
 import { config } from '../../config/index.js';
-import { loadEffectivePermissionsForUser } from '../../middleware/permissions.js';
+import { loadUsablePermissions } from '../../middleware/permissions.js';
 import { getTenantFeatureSnapshot } from '../../middleware/feature-gate.js';
 
 export const authController = {
@@ -75,7 +75,7 @@ export const authController = {
         name: request.tenant.name,
       },
       features: await getTenantFeatureSnapshot(request.tenant.id),
-      permissions: Array.from(await loadEffectivePermissionsForUser(user.id)),
+      permissions: Array.from(await loadUsablePermissions(user.id, request.tenant?.id)),
       shop: { id: selectedShop.id, name: selectedShop.name, code: selectedShop.code },
     });
   },
@@ -156,7 +156,7 @@ export const authController = {
         name: request.tenant.name,
       },
       features: await getTenantFeatureSnapshot(request.tenant.id),
-      permissions: Array.from(await loadEffectivePermissionsForUser(user.id)),
+      permissions: Array.from(await loadUsablePermissions(user.id, request.tenant?.id)),
       shops: user.userShops.map((us: any) => ({
         id: us.shop.id,
         name: us.shop.name,

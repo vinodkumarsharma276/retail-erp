@@ -32,6 +32,35 @@ import { ocrRoutes } from './modules/ocr/ocr.routes.js';
 import { lookupRoutes } from './modules/lookup/lookup.routes.js';
 import { platformRoutes } from './modules/platform/platform.routes.js';
 import { registerInstallmentScheduler } from './jobs/installments-scheduler.js';
+import { featureGate } from './middleware/feature-gate.js';
+import { FeatureKey } from '@retailerp/shared-types';
+import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
+
+/**
+ * Register a module's routes behind a tenant feature switch: when the
+ * tenant's plan (or override) has the feature off, every route in the
+ * module answers 403. With `writesOnly`, reads stay open and only changes
+ * are blocked — for modules other screens depend on (forms, roles).
+ */
+async function registerGated(
+  app: FastifyInstance,
+  routes: FastifyPluginAsync,
+  prefix: string,
+  featureKey: string,
+  options: { writesOnly?: boolean } = {},
+) {
+  await app.register(
+    async (scope) => {
+      const gate = featureGate(featureKey);
+      scope.addHook('preHandler', async (request, reply) => {
+        if (options.writesOnly && (request.method === 'GET' || request.method === 'HEAD')) return;
+        return gate.call(scope, request, reply, () => {});
+      });
+      await scope.register(routes);
+    },
+    { prefix },
+  );
+}
 
 function isAllowedDevOrigin(origin: string) {
   try {
@@ -108,23 +137,24 @@ export async function buildApp() {
   await app.register(shopRoutes, { prefix: '/api/v1/shops' });
   await app.register(userRoutes, { prefix: '/api/v1/users' });
   await app.register(categoryRoutes, { prefix: '/api/v1/categories' });
-  await app.register(productRoutes, { prefix: '/api/v1/products' });
-  await app.register(distributorRoutes, { prefix: '/api/v1/distributors' });
-  await app.register(purchaseRoutes, { prefix: '/api/v1/purchases' });
-  await app.register(customerRoutes, { prefix: '/api/v1/customers' });
-  await app.register(saleRoutes, { prefix: '/api/v1/sales' });
-  await app.register(installmentRoutes, { prefix: '/api/v1/installments' });
-  await app.register(promisesRoutes, { prefix: '/api/v1/promises' });
-  await app.register(transferRoutes, { prefix: '/api/v1/transfers' });
-  await app.register(expenseRoutes, { prefix: '/api/v1/expenses' });
-  await app.register(bankRoutes, { prefix: '/api/v1/bank' });
-  await app.register(bankStatementRoutes, { prefix: '/api/v1/bank-statements' });
-  await app.register(dashboardRoutes, { prefix: '/api/v1/dashboard' });
-  await app.register(formRoutes, { prefix: '/api/v1/forms' });
-  await app.register(employeeRoutes, { prefix: '/api/v1/employees' });
+  // Modules a tenant can have switched off (plan + per-tenant override).
+  await registerGated(app, productRoutes, '/api/v1/products', FeatureKey.PRODUCTS);
+  await registerGated(app, distributorRoutes, '/api/v1/distributors', FeatureKey.DISTRIBUTORS);
+  await registerGated(app, purchaseRoutes, '/api/v1/purchases', FeatureKey.PURCHASES);
+  await registerGated(app, customerRoutes, '/api/v1/customers', FeatureKey.CUSTOMERS);
+  await registerGated(app, saleRoutes, '/api/v1/sales', FeatureKey.SALES);
+  await registerGated(app, installmentRoutes, '/api/v1/installments', FeatureKey.INSTALLMENTS);
+  await registerGated(app, promisesRoutes, '/api/v1/promises', FeatureKey.INSTALLMENTS);
+  await registerGated(app, transferRoutes, '/api/v1/transfers', FeatureKey.TRANSFERS);
+  await registerGated(app, expenseRoutes, '/api/v1/expenses', FeatureKey.EXPENSES);
+  await registerGated(app, bankRoutes, '/api/v1/bank', FeatureKey.BANK_RECONCILIATION);
+  await registerGated(app, bankStatementRoutes, '/api/v1/bank-statements', FeatureKey.BANK_RECONCILIATION);
+  await registerGated(app, dashboardRoutes, '/api/v1/dashboard', FeatureKey.DASHBOARD_ANALYTICS);
+  await registerGated(app, formRoutes, '/api/v1/forms', FeatureKey.DYNAMIC_FORMS, { writesOnly: true });
+  await registerGated(app, employeeRoutes, '/api/v1/employees', FeatureKey.MOBILE_APP);
   await app.register(notificationRoutes, { prefix: '/api/v1/notifications' });
-  await app.register(rolesRoutes, { prefix: '/api/v1/roles' });
-  await app.register(ocrRoutes, { prefix: '/api/v1/ocr' });
+  await registerGated(app, rolesRoutes, '/api/v1/roles', FeatureKey.CUSTOM_ROLES, { writesOnly: true });
+  await registerGated(app, ocrRoutes, '/api/v1/ocr', FeatureKey.OCR_INVOICE_PARSING);
   await app.register(lookupRoutes, { prefix: '/api/v1/lookup' });
 
   // Platform admin (separate identity, no tenant context — bypassed by tenantResolver)
