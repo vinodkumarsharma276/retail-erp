@@ -1,17 +1,17 @@
 import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
+import { useCanCheck } from '../../hooks/usePermission';
 import {
   Plus,
   ChevronDown,
-  Calendar,
+  
   Search,
   X,
   Pencil,
   Trash2,
   IndianRupee,
   Receipt,
-  Check,
-} from 'lucide-react';
+  Check } from 'lucide-react';
 import { PageHeader } from '../../components/PageHeader';
 import { Button } from '../../components/ui/button';
 import { cn } from '../../lib/utils';
@@ -26,8 +26,7 @@ import { DateInput } from '../../components/DateInput';
 import type { Column, PaginationState } from '../../components/DataTable';
 import { StatusBadge } from '../../components/StatusBadge';
 import { formatINR, formatDateIN, getCurrentFinancialYearRange, getLastFinancialYearRange } from '@retailerp/shared-utils';
-import { ExpenseCategory, UserRole } from '@retailerp/shared-types';
-import { useAuthStore } from '../../stores/auth-store';
+import { ExpenseCategory } from '@retailerp/shared-types';
 import { useShopStore, isAllShops } from '../../stores/shop-store';
 
 const PAGE_SIZE = 20;
@@ -56,8 +55,7 @@ const CATEGORY_LABELS: Record<string, string> = {
 };
 
 export function ExpenseListPage() {
-  const user = useAuthStore((s) => s.user);
-  const isAdmin = user?.role === UserRole.OWNER || user?.role === UserRole.ADMIN;
+  const can = useCanCheck();
 
   // ------ Filters state (URL search params) ------
   const [searchParams, setSearchParams] = useSearchParams();
@@ -227,6 +225,7 @@ export function ExpenseListPage() {
       align: 'center',
       render: (row) => (
         <div className="flex items-center justify-center gap-2">
+          {can('expenses.edit') && (
           <Link
             to={`/expenses/${row.id}/edit`}
             className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
@@ -234,7 +233,8 @@ export function ExpenseListPage() {
           >
             <Pencil className="h-4 w-4" />
           </Link>
-          {isAdmin && (
+          )}
+          {can('expenses.delete') && (
             <button
               onClick={() => handleDelete(row.id)}
               disabled={deletingId === row.id}
@@ -268,7 +268,7 @@ export function ExpenseListPage() {
         title="Expenses"
         description="Shop running costs, with GST-claimable amounts tracked separately."
         actions={
-          allShopsMode ? (
+          !can('expenses.create') ? null : allShopsMode ? (
             <Button disabled title="Switch to a single shop to add an expense" icon={<Plus className="h-3.5 w-3.5" />}>
               Add expense
             </Button>

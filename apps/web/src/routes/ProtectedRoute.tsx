@@ -6,7 +6,6 @@ import { useMeQuery } from '../hooks/useAuth';
 import { useQueryClient } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
 import { useEffect, useRef } from 'react';
-import { UserRole } from '@retailerp/shared-types';
 import { usePreferencesStore } from '../stores/preferences-store';
 
 export function ProtectedRoute() {
@@ -133,23 +132,26 @@ export function ProtectedRoute() {
   return <Outlet />;
 }
 
+/** Pages in landing order, with the permission each needs. */
+const LANDING_PAGES: Array<[string, string]> = [
+  ['/dashboard', 'dashboard.view'],
+  ['/installments', 'installments.list'],
+  ['/sales', 'sales.list'],
+  ['/products', 'products.list'],
+  ['/customers', 'customers.list'],
+  ['/purchases', 'purchases.list'],
+  ['/expenses', 'expenses.list'],
+  ['/transfers', 'transfers.list'],
+];
+
 /**
- * Helper to determine the default landing page for a given role. If the
- * user has set a `defaultLandingPage` preference and the chosen route is
- * permitted for their role, that takes precedence over the role default.
+ * Where to land after login: the user's preferred page if they can open
+ * it, otherwise the first page in LANDING_PAGES they have access to.
  */
-export function getDefaultRoute(role: UserRole, preferred?: string | null): string {
+export function getDefaultRoute(permissions: Set<string>, preferred?: string | null): string {
   if (preferred && preferred.startsWith('/') && preferred !== '/') {
-    return preferred;
+    const rule = LANDING_PAGES.find(([path]) => preferred === path || preferred.startsWith(`${path}/`));
+    if (!rule || permissions.has(rule[1])) return preferred;
   }
-  switch (role) {
-    case UserRole.OWNER:
-    case UserRole.ADMIN:
-      return '/dashboard';
-    case UserRole.ACCOUNTANT:
-    case UserRole.OTHERS:
-      return '/products';
-    default:
-      return '/login';
-  }
+  return LANDING_PAGES.find(([, perm]) => permissions.has(perm))?.[0] ?? '/preferences';
 }

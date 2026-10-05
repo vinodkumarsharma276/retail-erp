@@ -26,7 +26,7 @@ export function LoginPage() {
   useEffect(() => {
     if (isAuthenticated && user) {
       const pref = usePreferencesStore.getState().preferences.defaultLandingPage;
-      navigate(getDefaultRoute(user.role, pref), { replace: true });
+      navigate(getDefaultRoute(useAuthStore.getState().permissions, pref), { replace: true });
     }
   }, [isAuthenticated, user, navigate]);
 
@@ -85,7 +85,7 @@ export function LoginPage() {
           // Redirect — preferred landing page wins over role default
           navigate(
             getDefaultRoute(
-              data.user.role,
+              useAuthStore.getState().permissions,
               prefsFromLogin?.defaultLandingPage ?? null,
             ),
             { replace: true },

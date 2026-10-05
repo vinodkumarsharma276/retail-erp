@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useCanCheck } from '../../hooks/usePermission';
 import {
   ArrowLeft,
   Loader2,
@@ -34,6 +35,7 @@ type TabType = 'products' | 'payments' | 'invoices';
 const PAGE_SIZE = 20;
 
 export function DistributorDetailPage() {
+  const can = useCanCheck();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
 
@@ -121,7 +123,7 @@ export function DistributorDetailPage() {
         </div>
 
         <div className="flex items-center gap-3">
-          {totalPending > 0 && (
+          {totalPending > 0 && can('purchases.record_payment') && (
             <button
               onClick={() => setShowPaymentDialog(true)}
               className={cn(
@@ -136,6 +138,7 @@ export function DistributorDetailPage() {
               </span>
             </button>
           )}
+          {can('distributors.edit') && (
           <button
             onClick={() => navigate(`/distributors/${distributor.id}/edit`)}
             className={cn(
@@ -146,6 +149,7 @@ export function DistributorDetailPage() {
             <Pencil className="h-4 w-4" />
             Edit
           </button>
+          )}
         </div>
       </div>
 

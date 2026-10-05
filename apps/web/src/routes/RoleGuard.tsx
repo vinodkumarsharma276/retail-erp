@@ -26,7 +26,7 @@ export function RoleGuard({ allowedRoles, showDenied = false }: RoleGuardProps) 
     if (showDenied) {
       return <AccessDenied />;
     }
-    return <Navigate to={getDefaultRoute(user.role)} replace />;
+    return <Navigate to={getDefaultRoute(useAuthStore.getState().permissions)} replace />;
   }
 
   return <Outlet />;

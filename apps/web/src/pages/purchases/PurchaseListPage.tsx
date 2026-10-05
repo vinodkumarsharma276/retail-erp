@@ -2,11 +2,10 @@ import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import {
   Plus,
   ChevronDown,
-  Calendar,
+  
   X,
   Search,
-  FileSpreadsheet,
-} from 'lucide-react';
+  FileSpreadsheet } from 'lucide-react';
 import { PageHeader } from '../../components/PageHeader';
 import { Button } from '../../components/ui/button';
 import { cn } from '../../lib/utils';

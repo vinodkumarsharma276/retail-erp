@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams,  useNavigate } from 'react-router-dom';
+import { useCanCheck } from '../../hooks/usePermission';
 import {
   ArrowLeft,
   Loader2,
@@ -15,16 +16,13 @@ import {
 } from '../../hooks/useTransfers';
 import { StatusBadge } from '../../components/StatusBadge';
 import { formatINR, formatDateIN } from '@retailerp/shared-utils';
-import { useAuthStore } from '../../stores/auth-store';
 import { useShopStore } from '../../stores/shop-store';
-import { UserRole } from '@retailerp/shared-types';
 
 export function TransferDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const user = useAuthStore((s) => s.user);
   const currentShopId = useShopStore((s) => s.currentShopId);
-  const isAdmin = user?.role === UserRole.OWNER || user?.role === UserRole.ADMIN;
+  const can = useCanCheck();
 
   const {
     data: transfer,
@@ -60,12 +58,12 @@ export function TransferDetailPage() {
 
   // Can this user receive? Only admin whose current shop is the destination
   const canReceive =
-    isAdmin &&
+    can('transfers.receive') &&
     transfer?.status === 'initiated' &&
     transfer?.toShopId === currentShopId;
 
   // Can this user cancel? Only admin when status is initiated
-  const canCancel = isAdmin && transfer?.status === 'initiated';
+  const canCancel = can('transfers.cancel') && transfer?.status === 'initiated';
 
   // Loading
   if (isLoading) {

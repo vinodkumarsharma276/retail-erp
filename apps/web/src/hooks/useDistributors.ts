@@ -6,9 +6,7 @@ import type {
   Distributor,
   DistributorListItem,
   DistributorProduct,
-  DistributorPayment,
-  PendingInvoice,
-} from '@retailerp/shared-types';
+  DistributorPayment } from '@retailerp/shared-types';
 
 // ---------------------------------------------------------------------------
 // Query keys

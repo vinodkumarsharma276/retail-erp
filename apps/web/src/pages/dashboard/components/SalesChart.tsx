@@ -147,7 +147,7 @@ export function SalesChart() {
 // ---------------------------------------------------------------------------
 // Custom tooltip
 // ---------------------------------------------------------------------------
-function SalesChartTooltip({ active, payload, label }: any) {
+function SalesChartTooltip({ active, payload }: any) {
   if (!active || !payload?.length) return null;
   const point = payload[0].payload as SalesGraphPoint;
 

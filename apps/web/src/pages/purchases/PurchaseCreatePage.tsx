@@ -32,12 +32,10 @@ import { formatINR } from '@retailerp/shared-utils';
 import type { Distributor, DistributorListItem } from '@retailerp/shared-types';
 import { apiClient } from '../../lib/api-client';
 import type { InvoiceParseResult } from '../../api/ocr-api';
-import { useOcrStatusQuery } from '../../hooks/useOcr';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-type GstType = 'GST' | 'CGST_SGST'; // kept for potential future use
 const GST_SLABS = [0, 5, 12, 18, 28] as const;
 
 interface ProductItem {
@@ -93,7 +91,6 @@ export function PurchaseCreatePage() {
   const navigate = useNavigate();
   const [currentStep, setCurrentStep] = useState(0);
   const [isScanOpen, setIsScanOpen] = useState(false);
-  const ocrStatus = useOcrStatusQuery();
 
   // Step 1: Distributor selection
   const [selectedDistributor, setSelectedDistributor] = useState<DistributorListItem | null>(null);
@@ -344,7 +341,6 @@ export function PurchaseCreatePage() {
     const calcGst = expandedItems.reduce((sum, item) => {
       return sum + Math.round((Number(item.purchasePrice) || 0) * ((item as any).gstPercent ?? 18) / 100 * 100) / 100;
     }, 0);
-    const calcNet = calcTotalPurchase + calcGst;
 
     const payload: Record<string, unknown> = {
       distributorId: selectedDistributor.id,

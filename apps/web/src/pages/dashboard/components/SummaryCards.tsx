@@ -4,9 +4,8 @@ import {
   AlertTriangle,
   Package,
   Banknote,
-  Loader2,
-  Receipt,
-} from 'lucide-react';
+  
+  Receipt } from 'lucide-react';
 import { cn } from '../../../lib/utils';
 import { formatINR } from '@retailerp/shared-utils';
 import type { DashboardSummary } from '../../../hooks/useDashboard';

@@ -1,4 +1,5 @@
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
+import { useCanCheck } from '../../hooks/usePermission';
 import { Plus, Search, X, Pencil } from 'lucide-react';
 import { PageHeader } from '../../components/PageHeader';
 import { Button } from '../../components/ui/button';
@@ -14,6 +15,7 @@ const PAGE_SIZE = 20;
 
 export function DistributorListPage() {
   const navigate = useNavigate();
+  const can = useCanCheck();
   const [searchParams, setSearchParams] = useSearchParams();
 
   // ------ Filters state (URL search params) ------
@@ -141,6 +143,7 @@ export function DistributorListPage() {
       header: 'Actions',
       render: (row) => (
         <div className="flex items-center gap-2">
+          {can('distributors.edit') && (
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -151,6 +154,7 @@ export function DistributorListPage() {
           >
             <Pencil className="h-4 w-4" />
           </button>
+          )}
         </div>
       ),
     },
@@ -172,9 +176,11 @@ export function DistributorListPage() {
         title="Distributors"
         description="Suppliers you buy stock from, with outstanding payables."
         actions={
-          <Link to="/distributors/new">
-            <Button icon={<Plus className="h-3.5 w-3.5" />}>Add distributor</Button>
-          </Link>
+          can('distributors.create') && (
+            <Link to="/distributors/new">
+              <Button icon={<Plus className="h-3.5 w-3.5" />}>Add distributor</Button>
+            </Link>
+          )
         }
       />
 

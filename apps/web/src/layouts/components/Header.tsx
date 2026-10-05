@@ -22,11 +22,9 @@ import { useNavigate } from 'react-router-dom';
 import { useMeQuery, useLogoutMutation, useSwitchShopMutation } from '../../hooks/useAuth';
 import { useUpdatePreferencesMutation } from '../../hooks/usePreferences';
 import { usePreferencesStore } from '../../stores/preferences-store';
-import { useCanCheck } from '../../hooks/usePermission';
+import { useCanCheck, usePermission } from '../../hooks/usePermission';
 import { queryClient } from '../../lib/query-client';
 import { cn } from '../../lib/utils';
-import { UserRole } from '@retailerp/shared-types';
-import { GlobalSearch } from './GlobalSearch';
 
 export function Header() {
   const user = useAuthStore((s) => s.user);
@@ -76,11 +74,8 @@ export function Header() {
     updatePrefs.mutate({ theme: next });
   };
 
-  // Fetch available shops for the current user (owner/admin/accountant can switch)
-  const canSwitchShop =
-    user?.role === UserRole.OWNER ||
-    user?.role === UserRole.ADMIN ||
-    user?.role === UserRole.ACCOUNTANT;
+  // Shops the user can switch between (needs the "shop switcher" permission).
+  const canSwitchShop = usePermission('shop.switch');
   const meQuery = useMeQuery(canSwitchShop);
   const availableShops = meQuery.data?.shops ?? [];
 

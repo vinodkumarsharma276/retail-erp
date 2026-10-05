@@ -118,7 +118,7 @@ export function TopProductsChart() {
 // ---------------------------------------------------------------------------
 // Custom tooltip
 // ---------------------------------------------------------------------------
-function TopProductTooltip({ active, payload, metric }: any) {
+function TopProductTooltip({ active, payload }: any) {
   if (!active || !payload?.length) return null;
   const item = payload[0].payload as TopProductItem & { fullLabel: string };
 

@@ -1,15 +1,14 @@
 import { useMemo, useState, Fragment } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useCanCheck } from '../../hooks/usePermission';
 import {
-  Search,
-  X,
+  
+  
   ShoppingCart,
   ArrowRightLeft,
   ChevronDown,
   ChevronRight,
-  Loader2,
-} from 'lucide-react';
-import { cn } from '../../lib/utils';
+  Loader2 } from 'lucide-react';
 import { useDebounce } from '../../hooks/useDebounce';
 import {
   useProductsQuery,
@@ -44,6 +43,11 @@ const PAGE_SIZE = 20;
 
 export function ProductListPage() {
   const navigate = useNavigate();
+  const can = useCanCheck();
+  const canSell = ['sales.create_full_payment', 'sales.create_partial_with_promise', 'sales.create_self_finance', 'sales.create_company_finance'].some(can);
+  const canTransfer = can('transfers.initiate');
+  const canSeeCost = can('products.view_dp');
+  const columns = (allShopsModeFlag: boolean) => (allShopsModeFlag ? 10 : 9) - (canSeeCost ? 0 : 1);
   const [searchParams, setSearchParams] = useSearchParams();
 
   // ------ Filters state (URL search params) ------
@@ -285,7 +289,7 @@ export function ProductListPage() {
                 <th className="px-3 py-3 text-left font-medium">Category</th>
                 <th className="px-3 py-3 text-right font-medium">Quantity</th>
                 <th className="px-3 py-3 text-right font-medium">MRP</th>
-                <th className="px-3 py-3 text-right font-medium">DP</th>
+                {canSeeCost && <th className="px-3 py-3 text-right font-medium">DP</th>}
                 <th className="px-3 py-3 text-left font-medium">Status</th>
                 <th className="px-3 py-3 text-right font-medium">Actions</th>
               </tr>
@@ -293,13 +297,13 @@ export function ProductListPage() {
             <tbody>
               {groupedQuery.isLoading ? (
                 <tr>
-                  <td colSpan={allShopsMode ? 10 : 9} className="px-3 py-12 text-center text-muted-foreground">
+                  <td colSpan={columns(allShopsMode)} className="px-3 py-12 text-center text-muted-foreground">
                     <Loader2 className="mx-auto h-5 w-5 animate-spin" />
                   </td>
                 </tr>
               ) : groups.length === 0 ? (
                 <tr>
-                  <td colSpan={allShopsMode ? 10 : 9} className="px-3 py-12 text-center text-muted-foreground">
+                  <td colSpan={columns(allShopsMode)} className="px-3 py-12 text-center text-muted-foreground">
                     No products found matching your filters.
                   </td>
                 </tr>
@@ -346,9 +350,11 @@ export function ProductListPage() {
                         <td className="px-3 py-3 text-right">
                           {priceRange(g.mrpMin, g.mrpMax)}
                         </td>
-                        <td className="px-3 py-3 text-right">
-                          {priceRange(g.purchasePriceMin, g.purchasePriceMax)}
-                        </td>
+                        {canSeeCost && (
+                          <td className="px-3 py-3 text-right">
+                            {priceRange(g.purchasePriceMin, g.purchasePriceMax)}
+                          </td>
+                        )}
                         <td className="px-3 py-3">
                           <StatusBadge status={g.status} />
                         </td>
@@ -360,10 +366,11 @@ export function ProductListPage() {
                          * but the data is what you see first.
                          */}
                         <td className="px-3 py-2 text-right" onClick={(e) => e.stopPropagation()}>
-                          {inStock && (
+                          {inStock && (canSell || canTransfer) && (
                             <DropdownMenu>
                               <DropdownMenuIconTrigger label="Product actions" />
                               <DropdownMenuContent>
+                                {canSell && (
                                 <DropdownMenuItem
                                   icon={<ShoppingCart className="h-3.5 w-3.5" />}
                                   disabled={allShopsMode}
@@ -384,6 +391,8 @@ export function ProductListPage() {
                                 >
                                   Sell this model
                                 </DropdownMenuItem>
+                                )}
+                                {canTransfer && (
                                 <DropdownMenuItem
                                   icon={<ArrowRightLeft className="h-3.5 w-3.5" />}
                                   disabled={allShopsMode}
@@ -404,6 +413,7 @@ export function ProductListPage() {
                                 >
                                   Transfer to shop
                                 </DropdownMenuItem>
+                                )}
                               </DropdownMenuContent>
                             </DropdownMenu>
                           )}
@@ -411,7 +421,7 @@ export function ProductListPage() {
                       </tr>
                       {expanded && (
                         <tr className="bg-muted/20">
-                          <td colSpan={allShopsMode ? 10 : 9} className="px-6 py-3">
+                          <td colSpan={columns(allShopsMode)} className="px-6 py-3">
                             <ExpandedGroupUnits
                               brand={g.brand}
                               modelNumber={g.modelNumber}
@@ -507,6 +517,11 @@ function ExpandedGroupUnits({
   shopIdFilter: string;
 }) {
   const navigate = useNavigate();
+  const can = useCanCheck();
+  const canSell = ['sales.create_full_payment', 'sales.create_partial_with_promise', 'sales.create_self_finance', 'sales.create_company_finance'].some(can);
+  const canTransfer = can('transfers.initiate');
+  const canSeeCost = can('products.view_dp');
+  const canSeeSupplier = can('products.view_distributor');
   const q = useProductsQuery({
     page: 1,
     pageSize: 200,
@@ -541,10 +556,10 @@ function ExpandedGroupUnits({
       <thead className="text-muted-foreground">
         <tr>
           <th className="px-2 py-1.5 text-left">Serial Number</th>
-          <th className="px-2 py-1.5 text-left">Distributor</th>
+          {canSeeSupplier && <th className="px-2 py-1.5 text-left">Distributor</th>}
           <th className="px-2 py-1.5 text-left">Date of Purchase</th>
           <th className="px-2 py-1.5 text-right">MRP</th>
-          <th className="px-2 py-1.5 text-right">DP</th>
+          {canSeeCost && <th className="px-2 py-1.5 text-right">DP</th>}
           <th className="px-2 py-1.5 text-right">Actions</th>
         </tr>
       </thead>
@@ -555,22 +570,25 @@ function ExpandedGroupUnits({
           return (
             <tr key={u.id} className="border-t border-border/40">
               <td className="px-2 py-1.5 font-mono">{u.serialNumber || '-'}</td>
-              <td className="px-2 py-1.5">{distributor?.companyName ?? '-'}</td>
+              {canSeeSupplier && <td className="px-2 py-1.5">{distributor?.companyName ?? '-'}</td>}
               <td className="px-2 py-1.5">
                 {purchase?.invoiceDate ? formatDateIN(purchase.invoiceDate) : '-'}
               </td>
               <td className="px-2 py-1.5 text-right">{formatINR(u.mrp)}</td>
-              <td className="px-2 py-1.5 text-right">{formatINR(u.purchasePrice)}</td>
+              {canSeeCost && <td className="px-2 py-1.5 text-right">{formatINR(u.purchasePrice)}</td>}
               <td className="px-2 py-1.5 text-right">
                 <div className="flex items-center justify-end gap-1.5">
+                  {can('products.detail') && (
                   <button
                     onClick={() => navigate(`/products/${u.id}`)}
                     className="rounded-md border px-2 py-0.5 text-xs hover:bg-accent"
                   >
                     View
                   </button>
+                  )}
                   {inStock && (
                     <>
+                      {canSell && (
                       <button
                         onClick={() => navigate(`/sales/new?productId=${u.id}`)}
                         disabled={allShopsMode}
@@ -578,6 +596,8 @@ function ExpandedGroupUnits({
                       >
                         Sell
                       </button>
+                      )}
+                      {canTransfer && (
                       <button
                         onClick={() => navigate(`/transfers/new?productId=${u.id}`)}
                         disabled={allShopsMode}
@@ -585,6 +605,7 @@ function ExpandedGroupUnits({
                       >
                         Transfer
                       </button>
+                      )}
                     </>
                   )}
                 </div>
@@ -603,9 +624,9 @@ function ExpandedGroupUnits({
 // ---------------------------------------------------------------------------
 function priceRange(min: string | null, max: string | null): string {
   if (min == null && max == null) return '-';
-  if (min == null || max == null) return formatINR(min ?? max ?? 0);
-  if (Number(min) === Number(max)) return formatINR(min);
-  return `${formatINR(min)} – ${formatINR(max)}`;
+  if (min == null || max == null) return formatINR(Number(min ?? max ?? 0));
+  if (Number(min) === Number(max)) return formatINR(Number(min));
+  return `${formatINR(Number(min))} – ${formatINR(Number(max))}`;
 }
 
 // ---------------------------------------------------------------------------

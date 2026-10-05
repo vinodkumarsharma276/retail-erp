@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { ChevronDown, Loader2 } from 'lucide-react';
-import { cn } from '../lib/utils';
+import {  Loader2 } from 'lucide-react';
 import { Label } from './ui/label';
 import { Select } from './ui/select';
 import { useCategoryTreeQuery } from '../hooks/useProducts';

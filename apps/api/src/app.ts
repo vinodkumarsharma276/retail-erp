@@ -33,6 +33,7 @@ import { lookupRoutes } from './modules/lookup/lookup.routes.js';
 import { platformRoutes } from './modules/platform/platform.routes.js';
 import { registerInstallmentScheduler } from './jobs/installments-scheduler.js';
 import { featureGate } from './middleware/feature-gate.js';
+import { registerFieldAccess } from './middleware/field-access.js';
 import { FeatureKey } from '@retailerp/shared-types';
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
 
@@ -123,6 +124,8 @@ export async function buildApp() {
   // every Prisma query in the request is then scoped to it (config/database.ts).
   app.addHook('onRequest', (_request, _reply, done) => tenantContext.run(done));
   app.addHook('onRequest', tenantResolver);
+  // Sensitive fields (cost, Aadhaar, bank details…) leave only with permission.
+  registerFieldAccess(app);
 
   // Error handler
   app.setErrorHandler(errorHandler);

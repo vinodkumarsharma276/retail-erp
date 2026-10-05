@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+import { useCanCheck } from '../../hooks/usePermission';
 import { Plus, Search, X, Pencil } from 'lucide-react';
 import { PageHeader } from '../../components/PageHeader';
 import { Button } from '../../components/ui/button';
@@ -15,6 +16,7 @@ const PAGE_SIZE = 20;
 
 export function EmployeeListPage() {
   const navigate = useNavigate();
+  const can = useCanCheck();
 
   // Filters state
   const [page, setPage] = useState(1);
@@ -104,6 +106,7 @@ export function EmployeeListPage() {
       header: 'Actions',
       render: (row) => (
         <div className="flex items-center gap-2">
+          {can('employees.edit') && (
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -114,6 +117,7 @@ export function EmployeeListPage() {
           >
             <Pencil className="h-4 w-4" />
           </button>
+          )}
         </div>
       ),
     },
@@ -135,9 +139,11 @@ export function EmployeeListPage() {
         title="Employees"
         description="Field staff who collect installments through the mobile app."
         actions={
-          <Link to="/employees/new">
-            <Button icon={<Plus className="h-3.5 w-3.5" />}>Add employee</Button>
-          </Link>
+          can('employees.create') && (
+            <Link to="/employees/new">
+              <Button icon={<Plus className="h-3.5 w-3.5" />}>Add employee</Button>
+            </Link>
+          )
         }
       />
 

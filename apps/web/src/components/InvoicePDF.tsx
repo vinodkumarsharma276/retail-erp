@@ -648,7 +648,7 @@ export function InvoicePDF({ data }: { data: InvoiceData }) {
 // Download helper
 // ---------------------------------------------------------------------------
 export async function downloadInvoicePDF(data: InvoiceData): Promise<void> {
-  const blob = await pdf(React.createElement(InvoicePDF, { data })).toBlob();
+  const blob = await pdf(React.createElement(InvoicePDF, { data }) as unknown as Parameters<typeof pdf>[0]).toBlob();
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useCanCheck } from '../../hooks/usePermission';
 import {
   ArrowLeft,
   Loader2,
@@ -27,7 +28,6 @@ import { RecordPaymentDialog } from '../../components/RecordPaymentDialog';
 import { PromiseDialog } from '../../components/PromiseDialog';
 import { ViewSaleButton } from '../../components/ViewSaleButton';
 import { PromiseChip, PromiseHistory } from '../../components/PromiseHistory';
-import { useAuthStore } from '../../stores/auth-store';
 import { formatINR, formatDateIN } from '@retailerp/shared-utils';
 import { InstallmentStatus } from '@retailerp/shared-types';
 import { formatInstallmentLabel } from '../../lib/installment-label';
@@ -42,8 +42,11 @@ export function InstallmentDetailPage() {
   const { data, isLoading, isError } = useScheduleDetailQuery(scheduleId);
   // Every promise, so labels (1.1, 1.2 …) and outcomes show in history.
   const { data: promises = [] } = useInstallmentPromisesQuery({ scheduleId });
-  const role = useAuthStore((s) => s.user?.role);
-  const canCancelPromise = role === 'owner' || role === 'admin' || role === 'accountant';
+  const can = useCanCheck();
+  const canCollect = can('installments.record_payment');
+  // Undo / move / correct payments, undo reschedules, cancel a mistaken promise.
+  const canCorrect = can('installments.revert_payment');
+  const canCancelPromise = canCorrect;
   // EMIs to pre-tick in the promise dialog; null = closed.
   const [promiseFor, setPromiseFor] = useState<string[] | null>(null);
 
@@ -247,14 +250,17 @@ export function InstallmentDetailPage() {
             <InfoRow label="Sale Date" value={formatDateIN(sale.saleDate)} />
             <InfoRow label="Total Amount" value={formatINR(sale.totalAmount)} />
             <InfoRow label="Down Payment" value={formatINR(sale.downPayment)} />
-            <InfoRow
-              label="Interest Rate"
-              value={`${sale.interestRate}% / month`}
-            />
+            {can('installments.view_interest_rate') && (
+              <InfoRow
+                label="Interest Rate"
+                value={`${sale.interestRate}% / month`}
+              />
+            )}
             <PenaltyRateRow
               scheduleId={schedule.id}
               perDay={sale.effectivePenaltyPerDay}
               isDefault={sale.penaltyPerDayIsDefault}
+              canEdit={can('installments.interest.apply')}
             />
             <InfoRow label="File Charge" value={formatINR(sale.fileCharge)} />
             <InfoRow label="EMI Amount" value={formatINR(sale.emiAmount)} />
@@ -324,6 +330,7 @@ export function InstallmentDetailPage() {
       </div>
 
       {/* Middle section: Payment Timeline (collapsed by default) */}
+      {can('installments.payment_timeline') && (
       <div className="rounded-lg border bg-card mb-6">
         <button
           type="button"
@@ -347,11 +354,12 @@ export function InstallmentDetailPage() {
           </div>
         )}
       </div>
+      )}
 
       <PromiseHistory
         promises={promises}
         canCancel={canCancelPromise}
-        onAdd={installments.some((i: any) => Number(i.remainingAmount) > 0) ? () => setPromiseFor([]) : undefined}
+        onAdd={canCollect && installments.some((i: any) => Number(i.remainingAmount) > 0) ? () => setPromiseFor([]) : undefined}
       />
 
       {/* Bottom section: Installment table */}
@@ -415,7 +423,7 @@ export function InstallmentDetailPage() {
                 const remNum = Number(inst.remainingAmount) || 0;
                 const statusActionable = actionableStatuses.includes(inst.status);
                 const isAbsorbed = statusActionable && remNum <= 0;
-                const canPay = statusActionable && (remNum > 0 || manuallyEnabled.has(inst.id));
+                const canPay = canCollect && statusActionable && (remNum > 0 || manuallyEnabled.has(inst.id));
                 const lastPayment =
                   inst.payments?.length > 0
                     ? inst.payments[inst.payments.length - 1]
@@ -504,7 +512,7 @@ export function InstallmentDetailPage() {
                             Pay
                           </button>
                         )}
-                        {remNum > 0 && statusActionable && (
+                        {canCollect && remNum > 0 && statusActionable && (
                           <button
                             onClick={() => setPromiseFor([inst.id])}
                             title="Customer gave a date to pay — no money today"
@@ -550,7 +558,7 @@ export function InstallmentDetailPage() {
                             inst.status === InstallmentStatus.OVERDUE &&
                             remNumLocal === 0 &&
                             paidNumLocal === 0;
-                          if (!isResubRow && !isAbsorbedPrimary) return null;
+                          if (!canCorrect || (!isResubRow && !isAbsorbedPrimary)) return null;
                           return (
                             <button
                               onClick={() => {
@@ -571,7 +579,7 @@ export function InstallmentDetailPage() {
                             </button>
                           );
                         })()}
-                        {lastPayment && inst.status !== 'rescheduled' && (
+                        {canCorrect && lastPayment && inst.status !== 'rescheduled' && (
                           <button
                             onClick={() =>
                               setRevertTarget({
@@ -609,7 +617,7 @@ export function InstallmentDetailPage() {
                           </button>
                         )}
                         {/* Modify — correct a payment recorded with the wrong amount */}
-                        {lastPayment && inst.status === 'paid' && (
+                        {canCorrect && lastPayment && inst.status === 'paid' && (
                           <button
                             onClick={() => {
                               setModifyTarget({
@@ -643,7 +651,7 @@ export function InstallmentDetailPage() {
                       </div>
                     </td>
                     <td className="px-3 py-2.5">
-                      {isAbsorbed ? (
+                      {isAbsorbed && canCorrect ? (
                         <button
                           type="button"
                           onClick={() => toggleManual(inst.id)}
@@ -1688,10 +1696,12 @@ function PenaltyRateRow({
   scheduleId,
   perDay,
   isDefault,
+  canEdit,
 }: {
   scheduleId: string;
   perDay: number;
   isDefault: boolean;
+  canEdit: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(String(perDay));
@@ -1769,16 +1779,18 @@ function PenaltyRateRow({
             {formatINR(perDay)} / day while any EMI is late
             {isDefault && <span className="text-muted-foreground"> (shop default)</span>}
           </span>
-          <button
-            type="button"
-            onClick={() => {
-              setValue(String(perDay));
-              setEditing(true);
-            }}
-            className="text-xs font-medium text-primary hover:underline"
-          >
-            Edit
-          </button>
+          {canEdit && (
+            <button
+              type="button"
+              onClick={() => {
+                setValue(String(perDay));
+                setEditing(true);
+              }}
+              className="text-xs font-medium text-primary hover:underline"
+            >
+              Edit
+            </button>
+          )}
         </dd>
       )}
     </div>

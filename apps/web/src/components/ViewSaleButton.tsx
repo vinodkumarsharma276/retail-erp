@@ -1,6 +1,7 @@
 import { ArrowUpRight, Receipt } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { cn } from '../lib/utils';
+import { usePermission } from '../hooks/usePermission';
 
 /**
  * Opens the original sale behind an installment. Tinted with the brand
@@ -10,7 +11,8 @@ import { cn } from '../lib/utils';
  */
 export function ViewSaleButton({ saleId, className }: { saleId: string | undefined; className?: string }) {
   const navigate = useNavigate();
-  if (!saleId) return null;
+  const canOpen = usePermission('sales.detail');
+  if (!saleId || !canOpen) return null;
   return (
     <button
       type="button"

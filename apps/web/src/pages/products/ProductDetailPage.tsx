@@ -1,4 +1,5 @@
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
+import { useCanCheck } from '../../hooks/usePermission';
 import {
   ArrowLeft,
   Loader2,
@@ -17,23 +18,23 @@ import {
   useProductHistoryQuery,
   useCategoryTreeQuery,
 } from '../../hooks/useProducts';
-import { useAuthStore } from '../../stores/auth-store';
 import { StatusBadge } from '../../components/StatusBadge';
 import { formatINR, formatDateIN } from '@retailerp/shared-utils';
-import { ProductStatus, UserRole } from '@retailerp/shared-types';
+import { ProductStatus } from '@retailerp/shared-types';
 import type { ProductCategory, ProductAuditTrailEntry } from '@retailerp/shared-types';
 
 export function ProductDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const user = useAuthStore((s) => s.user);
 
   const { data: product, isLoading, isError } = useProductDetailQuery(id);
   const { data: history, isLoading: isHistoryLoading } = useProductHistoryQuery(id);
   const { data: categoryTree } = useCategoryTreeQuery();
 
-  const canEdit =
-    user?.role === UserRole.OWNER || user?.role === UserRole.ADMIN || user?.role === UserRole.ACCOUNTANT;
+  const can = useCanCheck();
+  const canEdit = can('products.edit');
+  const canSell = ['sales.create_full_payment', 'sales.create_partial_with_promise', 'sales.create_self_finance', 'sales.create_company_finance'].some(can);
+  const canTransfer = can('transfers.initiate');
 
   // Loading
   if (isLoading) {
@@ -102,8 +103,9 @@ export function ProductDetailPage() {
           </div>
         </div>
 
-        {canEdit && (
+        {(canEdit || canSell || canTransfer) && (
           <div className="flex items-center gap-2">
+            {canEdit && (
             <button
               onClick={() => navigate(`/products/${product.id}/edit`)}
               className={cn(
@@ -114,8 +116,10 @@ export function ProductDetailPage() {
               <Pencil className="h-4 w-4" />
               Edit
             </button>
+            )}
             {product.status === ProductStatus.IN_STOCK && (
               <>
+                {canSell && (
                 <button
                   onClick={() =>
                     navigate(`/sales/new?productId=${product.id}`)
@@ -128,6 +132,8 @@ export function ProductDetailPage() {
                   <ShoppingCart className="h-4 w-4" />
                   Sell Item
                 </button>
+                )}
+                {canTransfer && (
                 <button
                   onClick={() =>
                     navigate(`/transfers/new?productId=${product.id}`)
@@ -140,6 +146,7 @@ export function ProductDetailPage() {
                   <ArrowRightLeft className="h-4 w-4" />
                   Transfer
                 </button>
+                )}
               </>
             )}
           </div>
@@ -160,10 +167,12 @@ export function ProductDetailPage() {
               <InfoRow label="Category" value={categoryName ?? '-'} />
               <InfoRow label="HSN Code" value={categoryHsnCode ?? '-'} />
               <InfoRow label="MRP" value={formatINR(product.mrp)} />
-              <InfoRow
-                label="DP (Dealer Price)"
-                value={formatINR(product.purchasePrice)}
-              />
+              {can('products.view_dp') && (
+                <InfoRow
+                  label="DP (Dealer Price)"
+                  value={formatINR(product.purchasePrice)}
+                />
+              )}
               <InfoRow label="Color" value={product.color ?? '-'} />
               <InfoRow
                 label="Weight"

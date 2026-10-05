@@ -3,9 +3,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Shield, Users, Plus, Save, Trash2, Copy, Search, X, Eye, EyeOff, RefreshCw, Check, ChevronRight, ChevronDown, ListChecks, Store, ShieldCheck, ShieldAlert, ShieldOff, KeyRound } from 'lucide-react';
 import { rolesApi, type RoleSummary, type UserSummary } from '../../api/roles-api';
 import type { PermissionGroup } from '@retailerp/shared-types';
+import { dependentsOf, prerequisitesFor } from '@retailerp/shared-types';
 import { useToastStore } from '../../stores/toast-store';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
-import { usePermission } from '../../hooks/usePermission';
+import { usePermission, useCanCheck } from '../../hooks/usePermission';
 
 type Tab = 'roles' | 'users';
 
@@ -51,6 +52,7 @@ export default function RolesUsersPage() {
 // ---------------------------------------------------------------------------
 
 function RolesPanel() {
+  const can = useCanCheck();
   const qc = useQueryClient();
   const toast = useToastStore((s) => s.addToast);
 
@@ -123,11 +125,24 @@ function RolesPanel() {
       toast({ type: 'error', message: e?.response?.data?.error ?? 'Clone failed' }),
   });
 
+  // Ticking a permission also ticks what it needs (e.g. "Record payment"
+  // needs "Installments list"); unticking one also unticks what depends on
+  // it — so a role is never saved with permissions that can't work.
+  const withPrerequisites = (set: Set<string>, key: string) => {
+    if (set.has(key)) return;
+    set.add(key);
+    for (const p of prerequisitesFor(key)) withPrerequisites(set, p);
+  };
+  const withoutDependents = (set: Set<string>, key: string) => {
+    if (!set.delete(key)) return;
+    for (const d of dependentsOf(key)) withoutDependents(set, d);
+  };
+
   const togglePerm = (key: string) => {
     setDraftPerms((prev) => {
       const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
+      if (next.has(key)) withoutDependents(next, key);
+      else withPrerequisites(next, key);
       return next;
     });
   };
@@ -136,8 +151,8 @@ function RolesPanel() {
     setDraftPerms((prev) => {
       const next = new Set(prev);
       for (const p of group.permissions) {
-        if (on) next.add(p.key);
-        else next.delete(p.key);
+        if (on) withPrerequisites(next, p.key);
+        else withoutDependents(next, p.key);
       }
       return next;
     });
@@ -155,12 +170,14 @@ function RolesPanel() {
           <h2 className="text-sm font-medium uppercase tracking-wide text-muted-foreground">
             Roles
           </h2>
+          {can('roles.create') && (
           <button
             onClick={() => setShowNewRole(true)}
             className="inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground hover:bg-primary/90"
           >
             <Plus className="h-3.5 w-3.5" /> New
           </button>
+          )}
         </div>
         <ul className="space-y-1 rounded-md border bg-card p-1">
           {rolesQ.data?.map((r) => (
@@ -186,8 +203,8 @@ function RolesPanel() {
         </ul>
       </aside>
 
-      {/* Permission editor */}
-      <section className="space-y-4">
+      {/* Permission editor — read-only without permission to change roles */}
+      <fieldset disabled={!can('roles.edit_permissions')} className="min-w-0 space-y-4">
         {selectedRole ? (
           <>
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border bg-card p-4">
@@ -380,7 +397,7 @@ function RolesPanel() {
             Select a role on the left
           </div>
         )}
-      </section>
+      </fieldset>
 
       {showNewRole && (
         <NewRoleDialog
@@ -505,6 +522,7 @@ function UsersPanel() {
   const shopsQ = useQuery({ queryKey: ['rbac', 'shops'], queryFn: rolesApi.listShops });
   const catalogQ = useQuery({ queryKey: ['rbac', 'catalog'], queryFn: rolesApi.catalog });
   const canEditUserPerms = usePermission('users.edit_permissions');
+  const can = useCanCheck();
   const [search, setSearch] = useState('');
   const [revealed, setRevealed] = useState<Set<string>>(new Set());
   const [resetTarget, setResetTarget] = useState<UserSummary | null>(null);
@@ -645,7 +663,7 @@ function UsersPanel() {
           <tbody className="divide-y">
             {filtered.map((u: UserSummary) => {
               const isRevealed = revealed.has(u.id);
-              const hasKnown = !!u.knownPassword;
+              const hasKnown = !!u.knownPassword && can('users.reset_password');
               return (
                 <tr key={u.id} className="hover:bg-accent/50">
                   <td className="px-3 py-2">
@@ -672,6 +690,7 @@ function UsersPanel() {
                     <div className="flex items-center gap-2">
                       <select
                         value={u.roleId ?? ''}
+                        disabled={!can('users.change_role')}
                         onChange={(e) =>
                           assignMut.mutate({ userId: u.id, roleId: e.target.value || null })
                         }

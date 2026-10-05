@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from 'react';
 import { useForm, FormProvider, useFormContext, Controller } from 'react-hook-form';
-import { Loader2, AlertCircle } from 'lucide-react';
+import {  AlertCircle } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useFormDefinitionByNameQuery } from '../hooks/useForms';
 import type { FormField } from '@retailerp/shared-types';
@@ -281,7 +281,7 @@ function DynamicField({ field, readOnly }: DynamicFieldProps) {
           type="email"
           {...register(field.fieldName, {
             ...validationRules,
-            pattern: validationRules.pattern ?? {
+            pattern: (validationRules.pattern as { value: RegExp; message: string } | undefined) ?? {
               value: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
               message: 'Enter a valid email address',
             },

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useCanCheck } from '../../hooks/usePermission';
 import {
   ChevronRight,
   ChevronDown,
@@ -19,11 +20,10 @@ import {
   useCategoryAttributesQuery,
   useCreateCategoryMutation,
   useUpdateCategoryMutation,
-  useDeleteCategoryMutation,
+  
   useCreateCategoryAttributeMutation,
   useUpdateCategoryAttributeMutation,
-  useDeleteCategoryAttributeMutation,
-} from '../../hooks/useProducts';
+  useDeleteCategoryAttributeMutation } from '../../hooks/useProducts';
 import type { ProductCategory, CategoryAttribute } from '@retailerp/shared-types';
 
 // ---------------------------------------------------------------------------
@@ -44,6 +44,9 @@ const ATTRIBUTE_TYPES = [
 // Main component
 // ---------------------------------------------------------------------------
 export function CategoryManagerPage() {
+  const can = useCanCheck();
+  const canCreate = can('categories.create');
+  const canChange = can('categories.edit') || can('categories.edit_attributes') || can('categories.delete');
   const { data: categories, isLoading, isError } = useCategoryTreeQuery();
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
@@ -103,6 +106,7 @@ export function CategoryManagerPage() {
           <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
             Categories
           </h2>
+          {canCreate && (
           <button
             onClick={() => {
               setAddCategoryParentId(undefined);
@@ -113,6 +117,7 @@ export function CategoryManagerPage() {
           >
             <Plus className="h-4 w-4" />
           </button>
+          )}
         </div>
 
         <div className="flex-1 overflow-y-auto p-2">
@@ -127,6 +132,7 @@ export function CategoryManagerPage() {
               selectedId={selectedCategoryId}
               onToggle={toggleExpand}
               onSelect={setSelectedCategoryId}
+              canAdd={canCreate}
               onAddSubcategory={(parentId) => {
                 setAddCategoryParentId(parentId);
                 setShowAddCategory(true);
@@ -155,7 +161,9 @@ export function CategoryManagerPage() {
             </p>
           </div>
         ) : (
-          <CategoryDetail category={selectedCategory} />
+          <fieldset disabled={!canChange} className="min-w-0">
+            <CategoryDetail category={selectedCategory} />
+          </fieldset>
         )}
       </div>
     </div>
@@ -172,6 +180,7 @@ function CategoryTree({
   onToggle,
   onSelect,
   onAddSubcategory,
+  canAdd = true,
   depth,
 }: {
   categories: ProductCategory[];
@@ -180,6 +189,7 @@ function CategoryTree({
   onToggle: (id: string) => void;
   onSelect: (id: string) => void;
   onAddSubcategory: (parentId: string) => void;
+  canAdd?: boolean;
   depth: number;
 }) {
   return (
@@ -247,7 +257,7 @@ function CategoryTree({
               </span>
 
               {/* Add subcategory */}
-              {!cat.isLeaf && (
+              {canAdd && !cat.isLeaf && (
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
@@ -275,6 +285,7 @@ function CategoryTree({
                 onToggle={onToggle}
                 onSelect={onSelect}
                 onAddSubcategory={onAddSubcategory}
+                canAdd={canAdd}
                 depth={depth + 1}
               />
             )}

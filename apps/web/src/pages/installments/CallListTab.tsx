@@ -60,6 +60,7 @@ export function CallListTab() {
   const navigate = useNavigate();
   const today = localTodayIso();
   const canSeeZone = usePermission('view.customer.address.zone');
+  const canCollect = usePermission('installments.record_payment');
   const [date, setDate] = useState(today);
   const [zone, setZone] = useState('');
   const [showSnoozed, setShowSnoozed] = useState(false);
@@ -209,9 +210,12 @@ export function CallListTab() {
                   </td>
                   <td className="px-3 py-2.5">
                     <div className="flex justify-end gap-1.5" onClick={(e) => e.stopPropagation()}>
+                      {canCollect && (
                       <Button size="sm" icon={<Banknote className="h-3.5 w-3.5" />} onClick={() => setPayFor(row)}>
                         Pay
                       </Button>
+                      )}
+                      {canCollect && (
                       <Button
                         size="sm"
                         variant="outline"
@@ -220,6 +224,7 @@ export function CallListTab() {
                       >
                         Promise
                       </Button>
+                      )}
                       <ViewSaleButton saleId={row.saleId} />
                     </div>
                   </td>

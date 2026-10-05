@@ -123,7 +123,6 @@ export function CustomerFormPage() {
     handleSubmit,
     reset,
     watch,
-    setValue,
     formState: { errors },
   } = useForm<CustomerFormValues>({ defaultValues });
 

@@ -10,7 +10,7 @@ import type { Column, PaginationState } from '../../components/DataTable';
 import { formatDateIN, formatPhone } from '@retailerp/shared-utils';
 import type { Customer } from '@retailerp/shared-types';
 import { useShopStore, isAllShops } from '../../stores/shop-store';
-import { usePermission } from '../../hooks/usePermission';
+import { usePermission, useCanCheck } from '../../hooks/usePermission';
 
 const PAGE_SIZE = 20;
 
@@ -20,6 +20,7 @@ export function CustomerListPage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const canSeeZone = usePermission('view.customer.address.zone');
+  const can = useCanCheck();
 
   // ------ Filters state (URL search params) ------
   const page = Number(searchParams.get('page')) || 1;
@@ -180,6 +181,7 @@ export function CustomerListPage() {
       header: 'Actions',
       render: (row) => (
         <div className="flex items-center gap-2">
+          {can('customers.edit') && (
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -190,6 +192,7 @@ export function CustomerListPage() {
           >
             <Pencil className="h-4 w-4" />
           </button>
+          )}
         </div>
       ),
     },
@@ -211,7 +214,7 @@ export function CustomerListPage() {
         title="Customers"
         description="Everyone you've sold to, including guarantors on installment sales."
         actions={
-          allShopsMode ? (
+          !can('customers.create') ? null : allShopsMode ? (
             <Button disabled title="Switch to a single shop to add a customer" icon={<Plus className="h-3.5 w-3.5" />}>
               Add customer
             </Button>

@@ -33,10 +33,9 @@ export async function shopScope(request: FastifyRequest, reply: FastifyReply) {
   }
 
   const headerShopId = request.headers['x-shop-id'] as string | undefined;
-  const canSwitchShops =
-    request.currentUser.role === 'owner' ||
-    request.currentUser.role === 'admin' ||
-    request.currentUser.role === 'accountant';
+  // Switching shops is a permission, not a role.
+  const usable = await loadUsablePermissions(request.currentUser.userId, tenantId);
+  const canSwitchShops = usable.has('shop.switch');
 
   // ── All-shops mode ──────────────────────────────────────────────────
   // Triggered only when the header is exactly "all", the user is allowed
@@ -47,13 +46,7 @@ export async function shopScope(request: FastifyRequest, reply: FastifyReply) {
   // UserShop lookup is constrained to the current tenant so the
   // aggregate view can never accidentally reach across tenants.
   if (headerShopId === ALL_SHOPS_SENTINEL && canSwitchShops) {
-    // Owner has every permission via the catalog; cheap fast path.
-    let allowed = request.currentUser.role === 'owner';
-    if (!allowed) {
-      // Effective permissions also pick up any per-user grants/denies.
-      const perms = await loadUsablePermissions(request.currentUser.userId, tenantId);
-      allowed = perms.has('shops.view_all');
-    }
+    const allowed = usable.has('shops.view_all') || usable.has('shop.view_all');
 
     if (allowed) {
       const userShops = await prisma.userShop.findMany({

@@ -4,13 +4,17 @@ import { cn } from '../../lib/utils';
 import { useCustomerDetailQuery, useCustomerSalesQuery } from '../../hooks/useCustomers';
 import { StatusBadge } from '../../components/StatusBadge';
 import { CustomerReliabilityCard } from '../../components/CustomerReliabilityCard';
-import { formatINR, formatDateIN, formatPhone, formatAadhaar } from '@retailerp/shared-utils';
-import { usePermission } from '../../hooks/usePermission';
+import { formatINR, formatDateIN, formatPhone } from '@retailerp/shared-utils';
+import { usePermission, useCanCheck } from '../../hooks/usePermission';
 
 export function CustomerDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const canSeeZone = usePermission('view.customer.address.zone');
+  const can = useCanCheck();
+  // A guarantor only exists on a self-finance sale, so showing one would
+  // reveal an installment sale to someone who sees only sanitized sales.
+  const canSeeGuarantors = can('customers.view_guarantor_chain');
 
   const { data: customer, isLoading, isError } = useCustomerDetailQuery(id);
   const { data: sales, isLoading: isSalesLoading } = useCustomerSalesQuery(id);
@@ -85,6 +89,7 @@ export function CustomerDetailPage() {
           </div>
         </div>
 
+        {can('customers.edit') && (
         <button
           onClick={() => navigate(`/customers/${customer.id}/edit`)}
           className={cn(
@@ -95,6 +100,7 @@ export function CustomerDetailPage() {
           <Pencil className="h-4 w-4" />
           Edit
         </button>
+        )}
       </div>
 
       {/* Main layout */}
@@ -146,7 +152,7 @@ export function CustomerDetailPage() {
           </div>
 
           {/* Guarantor Info */}
-          {customer.guarantor && (
+          {canSeeGuarantors && customer.guarantor && (
             <div className="rounded-lg border bg-card p-6">
               <h2 className="text-lg font-medium mb-4 flex items-center gap-2">
                 <Shield className="h-5 w-5 text-purple-600" />
@@ -167,7 +173,7 @@ export function CustomerDetailPage() {
           )}
 
           {/* Guaranteed Customers (if this is a guarantor) */}
-          {customer.guaranteedCustomers && customer.guaranteedCustomers.length > 0 && (
+          {canSeeGuarantors && customer.guaranteedCustomers && customer.guaranteedCustomers.length > 0 && (
             <div className="rounded-lg border bg-card p-6">
               <h2 className="text-lg font-medium mb-4 flex items-center gap-2">
                 <User className="h-5 w-5 text-blue-600" />

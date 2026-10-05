@@ -247,7 +247,7 @@ export function useRecordPendingPaymentMutation() {
       const res = await apiClient.put(`/sales/${saleId}/record-payment`, data);
       return res.data.data;
     },
-    onSuccess: (_data: unknown, variables: { saleId: string }) => {
+    onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['sales'] });
       queryClient.invalidateQueries({
         queryKey: keys.saleDetail(variables.saleId),

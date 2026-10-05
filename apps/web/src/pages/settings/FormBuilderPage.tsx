@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import { useCanCheck } from '../../hooks/usePermission';
 import {
   Plus,
   Pencil,
@@ -18,12 +19,11 @@ import {
   useFormDefinitionsQuery,
   useFormDefinitionByIdQuery,
   useCreateFormDefinitionMutation,
-  useUpdateFormDefinitionMutation,
+  
   useAddFormFieldMutation,
   useUpdateFormFieldMutation,
   useDeleteFormFieldMutation,
-  useReorderFormFieldsMutation,
-} from '../../hooks/useForms';
+  useReorderFormFieldsMutation } from '../../hooks/useForms';
 import { FormFieldType } from '@retailerp/shared-types';
 import type { FormField, FormDefinition } from '@retailerp/shared-types';
 
@@ -99,6 +99,8 @@ interface FieldFormData {
 // Main component
 // ---------------------------------------------------------------------------
 export function FormBuilderPage() {
+  const can = useCanCheck();
+  const canChange = can('forms.edit_definitions') || can('forms.add_field') || can('forms.delete_field');
   const [selectedDefId, setSelectedDefId] = useState<string | null>(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newFormName, setNewFormName] = useState('');
@@ -242,7 +244,7 @@ export function FormBuilderPage() {
       </div>
 
       {/* Right panel: Field editor */}
-      <div className="flex-1 min-w-0">
+      <fieldset disabled={!canChange} className="flex-1 min-w-0">
         {!selectedDefId ? (
           <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
             <FileText className="h-12 w-12 mb-4 opacity-30" />
@@ -260,7 +262,7 @@ export function FormBuilderPage() {
             Failed to load form definition.
           </div>
         )}
-      </div>
+      </fieldset>
     </div>
   );
 }
@@ -276,7 +278,6 @@ function FieldEditor({ definition }: { definition: FormDefinition }) {
 
   // Mutations
   const addFieldMutation = useAddFormFieldMutation();
-  const updateFieldMutation = useUpdateFormFieldMutation();
   const deleteFieldMutation = useDeleteFormFieldMutation();
   const reorderMutation = useReorderFormFieldsMutation();
 

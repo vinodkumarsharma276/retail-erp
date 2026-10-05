@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Search, X, ChevronDown, Download, Loader2, ScanLine, ShieldCheck, CheckCircle2 } from 'lucide-react';
+import {    Download, Loader2, ScanLine, ShieldCheck, CheckCircle2 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useDebounce } from '../../hooks/useDebounce';
 import { useSalesQuery, usePendingApprovalCountQuery, useApproveSaleMutation } from '../../hooks/useSales';
@@ -61,7 +61,7 @@ export function SaleListPage() {
 function SaleListPageInner() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [downloadingId] = useState<string | null>(null);
   const can = useCanCheck();
   const canApprove = can('sales.approve');
 

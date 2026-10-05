@@ -34,7 +34,7 @@ import { useDebounce } from '../../hooks/useDebounce';
 import { formatINR, formatDateIN, getCurrentFinancialYearRange, getLastFinancialYearRange } from '@retailerp/shared-utils';
 import { formatInstallmentLabel } from '../../lib/installment-label';
 import { useShopStore, isAllShops } from '../../stores/shop-store';
-import { usePermission } from '../../hooks/usePermission';
+import { usePermission, useCanCheck } from '../../hooks/usePermission';
 
 const ZONE_OPTIONS = ['East', 'West', 'North', 'South', 'Delhi', 'Ghaziabad', 'Noida'] as const;
 
@@ -126,6 +126,15 @@ const SEARCH_FILTERS = [
 // ---------------------------------------------------------------------------
 type TabKey = 'calls' | 'collections' | 'overdue' | 'paid' | 'search';
 
+/** Permission each tab needs. */
+const TAB_PERMISSION: Record<TabKey, string> = {
+  calls: 'installments.list',
+  collections: 'installments.tab.todays_scheduled',
+  overdue: 'installments.tab.all_overdue',
+  paid: 'installments.list',
+  search: 'installments.tab.search',
+};
+
 const tabs: { key: TabKey; label: string }[] = [
   { key: 'calls', label: "Today's Calls" },
   { key: 'collections', label: 'Scheduled' },
@@ -140,8 +149,12 @@ const tabs: { key: TabKey; label: string }[] = [
 export function InstallmentListPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
+  const can = useCanCheck();
+  const canCollect = can('installments.record_payment');
+  const allowedTabs = tabs.filter((t) => can(TAB_PERMISSION[t.key]));
 
-  const activeTab = (searchParams.get('tab') as TabKey) || 'calls';
+  const requestedTab = (searchParams.get('tab') as TabKey) || 'calls';
+  const activeTab: TabKey = allowedTabs.some((t) => t.key === requestedTab) ? requestedTab : (allowedTabs[0]?.key ?? 'calls');
 
   // Search state
   const [searchQuery, setSearchQuery] = useState('');
@@ -200,7 +213,7 @@ export function InstallmentListPage() {
             aria-label="Installment view"
             value={activeTab}
             onChange={(key) => setActiveTab(key as TabKey)}
-            items={tabs.map((tab) => ({ value: tab.key, label: tab.label }))}
+            items={allowedTabs.map((tab) => ({ value: tab.key, label: tab.label }))}
             className="max-w-full overflow-x-auto"
           />
         }
@@ -406,7 +419,7 @@ export function InstallmentListPage() {
                                     <td className="py-2 text-right text-red-600">{formatINR(inst.remainingAmount)}</td>
                                     <td className="py-2"><StatusBadge status={inst.status} /></td>
                                     <td className="py-2">
-                                      {Number(inst.remainingAmount) > 0 && inst.status !== 'rescheduled' && inst.status !== 'partially_paid' && (
+                                      {canCollect && Number(inst.remainingAmount) > 0 && inst.status !== 'rescheduled' && inst.status !== 'partially_paid' && (
                                         <button
                                           onClick={() =>
                                             setSearchPaymentTarget({
@@ -486,6 +499,7 @@ function OverdueTab() {
   const navigate = useNavigate();
   const allShopsMode = isAllShops(useShopStore((s) => s.currentShopId));
   const canSeeZone = usePermission('view.customer.address.zone');
+  const canCollect = usePermission('installments.record_payment');
   const [zoneFilter, setZoneFilter] = useState('');
   const { data: overdueItems, isLoading, isError } = useOverdueInstallmentsQuery(zoneFilter || undefined);
 
@@ -610,6 +624,7 @@ function OverdueTab() {
         header: 'Actions',
         render: (row) => (
           <div className="flex items-center gap-2">
+            {canCollect && (
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -628,6 +643,7 @@ function OverdueTab() {
               <Banknote className="h-3.5 w-3.5" />
               Pay
             </button>
+            )}
             <ViewSaleButton saleId={row.saleId} />
           </div>
         ),
@@ -711,6 +727,7 @@ function CollectionsTab() {
   const today = toLocalDateStr(new Date());
   const allShopsMode = isAllShops(useShopStore((s) => s.currentShopId));
   const canSeeZone = usePermission('view.customer.address.zone');
+  const canCollect = usePermission('installments.record_payment');
 
   const [dateFrom, setDateFrom] = useState(today);
   const [dateTo, setDateTo] = useState(today);
@@ -836,6 +853,7 @@ function CollectionsTab() {
         header: 'Actions',
         render: (row) => (
           <div className="flex items-center gap-2">
+            {canCollect && (
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -854,6 +872,7 @@ function CollectionsTab() {
               <Banknote className="h-3.5 w-3.5" />
               Pay
             </button>
+            )}
             <ViewSaleButton saleId={row.saleId} />
           </div>
         ),

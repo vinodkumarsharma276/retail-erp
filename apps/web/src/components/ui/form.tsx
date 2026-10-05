@@ -18,7 +18,7 @@ import { Label } from './label';
 // Section
 // ---------------------------------------------------------------------------
 
-export interface FormSectionProps extends React.HTMLAttributes<HTMLElement> {
+export interface FormSectionProps extends Omit<React.HTMLAttributes<HTMLElement>, 'title'> {
   title?: React.ReactNode;
   description?: React.ReactNode;
   /** Right-aligned controls in the section header (e.g. a Remove button). */

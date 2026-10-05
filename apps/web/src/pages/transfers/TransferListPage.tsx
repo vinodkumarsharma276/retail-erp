@@ -1,15 +1,15 @@
 import { useState } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
+import { useCanCheck } from '../../hooks/usePermission';
 import {
   Plus,
   ChevronDown,
-  Calendar,
+  
   X,
   ArrowRightLeft,
   Inbox,
   Loader2,
-  CheckCircle,
-} from 'lucide-react';
+  CheckCircle } from 'lucide-react';
 import { PageHeader } from '../../components/PageHeader';
 import { Button } from '../../components/ui/button';
 import { cn } from '../../lib/utils';
@@ -24,9 +24,6 @@ import type { Column, PaginationState } from '../../components/DataTable';
 import { DateInput } from '../../components/DateInput';
 import { StatusBadge } from '../../components/StatusBadge';
 import { formatINR, formatDateIN, getCurrentFinancialYearRange, getLastFinancialYearRange } from '@retailerp/shared-utils';
-import { useAuthStore } from '../../stores/auth-store';
-import { useShopStore } from '../../stores/shop-store';
-import { UserRole } from '@retailerp/shared-types';
 
 const PAGE_SIZE = 20;
 
@@ -44,9 +41,7 @@ type Tab = 'all' | 'incoming';
 
 export function TransferListPage() {
   const navigate = useNavigate();
-  const user = useAuthStore((s) => s.user);
-  const currentShopId = useShopStore((s) => s.currentShopId);
-  const isAdmin = user?.role === UserRole.OWNER || user?.role === UserRole.ADMIN;
+  const can = useCanCheck();
 
   // ------ Filters state (URL search params) ------
   const [searchParams, setSearchParams] = useSearchParams();
@@ -203,7 +198,7 @@ export function TransferListPage() {
         title="Transfers"
         description="Stock moving between shops — each transfer is a sale from one GST entity to another."
         actions={
-          isAdmin && (
+          can('transfers.initiate') && (
             <Link to="/transfers/new">
               <Button icon={<Plus className="h-3.5 w-3.5" />}>New transfer</Button>
             </Link>
@@ -432,7 +427,7 @@ export function TransferListPage() {
 
                     {/* Actions */}
                     <div className="flex items-center gap-2 shrink-0">
-                      {isAdmin && (
+                      {can('transfers.receive') && (
                         <button
                           onClick={() => setConfirmReceiveId(transfer.id)}
                           disabled={receiveMutation.isPending}
