@@ -577,23 +577,7 @@ export const transfersService = {
         },
       });
 
-      // 7b. Mirror into SaleRecordSanitized for the "Others" role view.
-      await tx.saleRecordSanitized.create({
-        data: {
-          id: saleRecord.id,
-          saleNumber,
-          ledgerNumber,
-          shopId: transfer.fromShopId,
-          productId: sourceProduct.id,
-          customerId: shopCustomer.id,
-          saleDate,
-          saleType: 'full_payment',
-          sellingPrice: transferPrice,
-          totalAmount: transferPrice,
-          paymentMode: 'cash',
-          createdBy: userId,
-        },
-      });
+      // A transfer is a plain sale between shops: one record, no sanitized copy.
     });
 
     // Return updated transfer with full relations

@@ -1,4 +1,5 @@
 import { prisma } from '../../config/database.js';
+import { getSaleForRestrictedViewer, listSalesForRestrictedViewer } from './sales.public-view.js';
 import type { Prisma } from '@prisma/client';
 import { generateSaleNumber } from '../../utils/id-generator.js';
 import { calculateEMI } from '@retailerp/shared-utils';
@@ -265,9 +266,11 @@ export const salesService = {
         },
       });
 
-      // 6. Create SaleRecordSanitized — ALWAYS, regardless of sale type
-      // Same id as SaleRecord. saleType is ALWAYS 'full_payment', paymentMode is ALWAYS 'cash'
-      await tx.saleRecordSanitized.create({
+      // 6. Self-finance only: a sanitized copy recorded as a cash sale, for
+      // users who must not see the shop's own EMI sales (no sales.view_real).
+      // Cash, part-payment and NBFC sales are legitimate as they are and have
+      // a single record. Same id as SaleRecord.
+      if (data.saleType === 'self_finance') await tx.saleRecordSanitized.create({
         data: {
           tenantId,
           id: saleRecord.id,
@@ -684,18 +687,21 @@ export const salesService = {
         },
       });
 
-      // 3. Update SaleRecordSanitized (mirror)
-      await tx.saleRecordSanitized.update({
-        where: { id: saleId },
-        data: {
-          ledgerNumber: data.ledgerNumber,
-          customerId: data.customerId,
-          saleDate,
-          sellingPrice,
-          totalAmount,
-          // saleType + paymentMode stay 'full_payment'/'cash' by sanitization rule
-        },
-      });
+      // 3. Keep the sanitized copy in step: it exists only while the sale is
+      // self-finance (the type can change on edit).
+      if (data.saleType === 'self_finance') {
+        await tx.saleRecordSanitized.upsert({
+          where: { id: saleId },
+          update: { ledgerNumber: data.ledgerNumber, customerId: data.customerId, saleDate, sellingPrice, totalAmount },
+          create: {
+            tenantId: existing.tenantId, id: saleId, saleNumber: existing.saleNumber, ledgerNumber: data.ledgerNumber,
+            shopId: existing.shopId, productId: existing.productId, customerId: data.customerId, saleDate,
+            saleType: 'full_payment', sellingPrice, totalAmount, paymentMode: 'cash', createdBy: existing.createdBy,
+          },
+        });
+      } else {
+        await tx.saleRecordSanitized.deleteMany({ where: { id: saleId } });
+      }
 
       // 4. Recreate ProductAuditTrail entry for the edit
       await tx.productAuditTrail.create({
@@ -824,7 +830,7 @@ export const salesService = {
    */
   async list(
     scope: { shopId: string; shopIds?: string[] },
-    userRole: string,
+    restrictedViewer: boolean,
     filters: {
       skip: number;
       take: number;
@@ -839,9 +845,10 @@ export const salesService = {
       approvalStatus?: 'pending' | 'approved';
     },
   ) {
-    // Role-based data isolation: "others" see sanitized data ONLY
-    if (userRole === 'others') {
-      return salesService.listSanitized(scope, filters);
+    // Without sales.view_real: real records, except self-finance sales which
+    // are replaced by their sanitized copy (see sales.public-view.ts).
+    if (restrictedViewer) {
+      return listSalesForRestrictedViewer(scope, filters);
     }
 
     return salesService.listReal(scope, filters);
@@ -1076,32 +1083,9 @@ export const salesService = {
    * - 'others' -> sanitized record
    * - 'admin'/'accountant' -> real record with installment schedule, guarantor, finance company
    */
-  async getById(id: string, userRole: string) {
-    if (userRole === 'others') {
-      const sale = await prisma.saleRecordSanitized.findUnique({
-        where: { id },
-        include: {
-          product: {
-            select: {
-              id: true,
-              brand: true,
-              modelNumber: true,
-              serialNumber: true,
-            },
-          },
-          customer: {
-            select: { id: true, name: true, phone: true, customerCode: true },
-          },
-          shop: {
-            select: { id: true, name: true, code: true },
-          },
-          creator: {
-            select: { id: true, username: true, fullName: true },
-          },
-        },
-      });
-      return sale;
-    }
+  async getById(id: string, restrictedViewer: boolean) {
+    // Without sales.view_real: the sanitized view (self-finance shown as cash).
+    if (restrictedViewer) return getSaleForRestrictedViewer(id);
 
     const sale = await prisma.saleRecord.findUnique({
       where: { id },

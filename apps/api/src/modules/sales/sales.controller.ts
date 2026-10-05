@@ -3,6 +3,15 @@ import { salesService } from './sales.service.js';
 import { sendSuccess, sendError, sendPaginated } from '../../utils/response.js';
 import { parsePagination } from '../../utils/pagination.js';
 import { getCurrentUserPermissions } from '../../middleware/permissions.js';
+import { getTenantFeatureSnapshot } from '../../middleware/feature-gate.js';
+import { FeatureKey } from '@retailerp/shared-types';
+
+const SALE_TYPE_PERMISSION: Record<string, string> = {
+  full_payment: 'sales.create_full_payment',
+  partial_with_promise: 'sales.create_partial_with_promise',
+  self_finance: 'sales.create_self_finance',
+  company_finance: 'sales.create_company_finance',
+};
 
 export const salesController = {
   async list(
@@ -29,7 +38,9 @@ export const salesController = {
       // `shops.view_all` permission) we forward `shopIds` so the service
       // queries across every accessible shop.
       const { shopId, shopIds, allShops } = request.shopFilter!;
-      const userRole = request.currentUser!.role;
+      // Without "see real sales" a user gets the restricted view: real records,
+      // except self-finance sales, which show as their cash-sale copy.
+      const restrictedViewer = !(await getCurrentUserPermissions(request)).includes('sales.view_real');
 
       const parsePct = (v?: string) => {
         if (v === undefined || v === '') return undefined;
@@ -39,7 +50,7 @@ export const salesController = {
 
       const { sales, totalItems } = await salesService.list(
         { shopId, shopIds: allShops ? shopIds : undefined },
-        userRole,
+        restrictedViewer,
         {
           page,
           pageSize,
@@ -93,11 +104,17 @@ export const salesController = {
       const shopId = request.shopFilter!.shopId;
       const userId = request.currentUser!.userId;
 
-      // Sales created by users with `sales.approve` are auto-approved;
-      // others land in 'pending' awaiting review.
       const perms = await getCurrentUserPermissions(request);
-      const autoApprove =
-        request.currentUser?.role === 'owner' || perms.includes('sales.approve');
+      // The route accepts anyone who can create SOME sale; this sale type
+      // needs its own permission (e.g. self-finance).
+      const needed = SALE_TYPE_PERMISSION[request.body.saleType];
+      if (!needed || !perms.includes(needed)) {
+        return sendError(reply, `You can't record a ${request.body.saleType.replace(/_/g, ' ')} sale.`, 403);
+      }
+      // With the approval workflow on, sales by users without `sales.approve`
+      // wait for review; with it off there is nothing to approve.
+      const workflowOn = (await getTenantFeatureSnapshot(request.tenant!.id)).flags[FeatureKey.SALE_APPROVAL_WORKFLOW] === true;
+      const autoApprove = !workflowOn || perms.includes('sales.approve');
 
       const sale = await salesService.create(shopId, request.body, userId, { autoApprove });
       return sendSuccess(reply, sale, 201);
@@ -130,8 +147,8 @@ export const salesController = {
     reply: FastifyReply,
   ) {
     try {
-      const userRole = request.currentUser!.role;
-      const sale = await salesService.getById(request.params.id, userRole);
+      const restrictedViewer = !(await getCurrentUserPermissions(request)).includes('sales.view_real');
+      const sale = await salesService.getById(request.params.id, restrictedViewer);
       if (!sale) {
         return sendError(reply, 'Sale not found', 404);
       }
