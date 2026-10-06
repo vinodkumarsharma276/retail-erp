@@ -161,6 +161,77 @@
     --sidebar-active-foreground: 168 62% 60%;
     --sidebar-hover: 150 6% 14%;
   }
+
+  /* "Dim": between light and dark — soft graphite instead of near-black,
+     lower contrast, same teal accent. Applied together with `.dark`
+     (<html class="dark dim">) so every `dark:` variant still applies; these
+     tokens override the dark ones. */
+  .dark.dim {
+    /* --- Neutral ramp (graphite) -------------------------------------- */
+    --background: 160 6% 19%;
+    --foreground: 100 12% 93%;
+    --surface: 160 6% 23%;
+    --surface-foreground: 100 12% 93%;
+    --card: 160 6% 23%;
+    --card-foreground: 100 12% 93%;
+    --popover: 160 6% 25%;
+    --popover-foreground: 100 12% 93%;
+    --muted: 160 5% 28%;
+    --muted-foreground: 140 6% 74%;
+    --subtle: 160 6% 21%;
+    --border: 160 5% 31%;
+    --border-strong: 160 5% 39%;
+    --input: 160 5% 36%;
+    /* A touch darker than cards so fields read as insets. */
+    --field: 160 6% 18%;
+
+    /* --- Brand -------------------------------------------------------- */
+    --primary: 168 55% 52%;
+    --primary-foreground: 170 80% 7%;
+    --primary-hover: 168 55% 58%;
+    --primary-muted: 170 30% 26%;
+    --ring: 168 55% 52%;
+    --brand-2: 168 55% 58%;
+    --brand-3: 168 55% 52%;
+
+    --secondary: 160 5% 28%;
+    --secondary-foreground: 100 12% 93%;
+    --accent: 160 5% 28%;
+    --accent-foreground: 100 12% 93%;
+
+    /* --- Semantic ----------------------------------------------------- */
+    --success: 150 45% 58%;
+    --success-foreground: 150 60% 8%;
+    --success-muted: 150 22% 26%;
+
+    --warning: 35 85% 64%;
+    --warning-foreground: 30 90% 9%;
+    --warning-muted: 34 30% 26%;
+
+    --destructive: 4 72% 64%;
+    --destructive-foreground: 0 0% 100%;
+    --destructive-muted: 4 30% 28%;
+
+    --info: 220 80% 74%;
+    --info-foreground: 222 70% 10%;
+    --info-muted: 222 30% 27%;
+
+    /* --- Elevation ----------------------------------------------------- */
+    --shadow-xs: 0 1px 2px 0 hsl(0 0% 0% / 0.18);
+    --shadow-sm: 0 1px 3px 0 hsl(0 0% 0% / 0.22);
+    --shadow-md: 0 4px 12px -2px hsl(0 0% 0% / 0.28);
+    --shadow-lg: 0 12px 28px -6px hsl(0 0% 0% / 0.36);
+    --shadow-glow: 0 1px 2px 0 hsl(0 0% 0% / 0.22);
+
+    /* --- Sidebar (a shade deeper than the page) ------------------------ */
+    --sidebar: 160 7% 15.5%;
+    --sidebar-foreground: 100 12% 93%;
+    --sidebar-muted: 140 6% 70%;
+    --sidebar-border: 160 6% 22%;
+    --sidebar-active: 170 30% 26%;
+    --sidebar-active-foreground: 168 55% 66%;
+    --sidebar-hover: 160 6% 20%;
+  }
 }
 
 @layer base {

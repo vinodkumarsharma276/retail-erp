@@ -10,6 +10,7 @@ import {
   Check,
   Menu,
   Sun,
+  SunMoon,
   Moon,
   Settings,
   Sliders,
@@ -23,6 +24,7 @@ import { useMeQuery, useLogoutMutation, useSwitchShopMutation } from '../../hook
 import { useUpdatePreferencesMutation } from '../../hooks/usePreferences';
 import { usePreferencesStore } from '../../stores/preferences-store';
 import { useCanCheck, usePermission } from '../../hooks/usePermission';
+import { THEME_LABEL, applyResolvedTheme, currentTheme, nextTheme, resolveTheme, type ResolvedTheme } from '../../lib/theme';
 import { queryClient } from '../../lib/query-client';
 import { cn } from '../../lib/utils';
 
@@ -46,33 +48,25 @@ export function Header() {
   const showSettingsLink =
     can('roles.list') || can('forms.view') || can('categories.list');
 
-  // --- Dark mode toggle ---
-  // The actual `dark` class is applied by the preferences store (via
-  // ProtectedRoute hydration) and the standalone toggle below; this local
-  // boolean is just used to pick which icon to render.
-  const isDark =
-    themePref === 'dark' ||
-    (themePref === 'system' &&
-      typeof window !== 'undefined' &&
-      window.matchMedia('(prefers-color-scheme: dark)').matches) ||
-    (themePref === undefined &&
-      typeof document !== 'undefined' &&
-      document.documentElement.classList.contains('dark'));
+  // --- Theme: Light → Dim → Dark ---
+  // The classes are applied by the preferences store; this only works out
+  // which theme is showing, to pick the icon and the next one.
+  const theme: ResolvedTheme =
+    themePref === undefined && typeof document !== 'undefined' ? currentTheme() : resolveTheme(themePref);
 
-  // Fallback (pre-prefs hydration) — make sure the documentElement reflects
-  // the value stored in localStorage so first paint isn't a flash.
+  // Fallback (pre-prefs hydration) — make sure the page reflects the theme
+  // stored in localStorage so first paint isn't a flash.
   useEffect(() => {
     if (themePref) return;
-    const stored = localStorage.getItem('theme');
-    if (stored === 'dark') document.documentElement.classList.add('dark');
-    else document.documentElement.classList.remove('dark');
+    applyResolvedTheme(resolveTheme(localStorage.getItem('theme')));
   }, [themePref]);
 
   const toggleTheme = () => {
-    const next = isDark ? 'light' : 'dark';
     // Persist to user preferences (also updates store + DOM optimistically).
-    updatePrefs.mutate({ theme: next });
+    updatePrefs.mutate({ theme: nextTheme(theme) });
   };
+  const ThemeIcon = theme === 'light' ? Sun : theme === 'dim' ? SunMoon : Moon;
+  const themeTitle = `Theme: ${THEME_LABEL[theme]} — switch to ${THEME_LABEL[nextTheme(theme)]}`;
 
   // Shops the user can switch between (needs the "shop switcher" permission).
   const canSwitchShop = usePermission('shop.switch');
@@ -349,10 +343,10 @@ export function Header() {
           <button
             onClick={toggleTheme}
             className="relative rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-            title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-            aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+            title={themeTitle}
+            aria-label={themeTitle}
           >
-            {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            <ThemeIcon className="h-4 w-4" />
           </button>
 
           {/* Separator */}

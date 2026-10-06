@@ -19,9 +19,10 @@
   <script>
     (function () {
       var theme = localStorage.getItem('theme');
-      if (theme === 'dark' || (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-        document.documentElement.classList.add('dark');
-      }
+      if (!theme) theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      // "dim" (between light and dark) is applied as "dark dim".
+      if (theme === 'dark' || theme === 'dim') document.documentElement.classList.add('dark');
+      if (theme === 'dim') document.documentElement.classList.add('dim');
     })();
   </script>
 </head>

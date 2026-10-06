@@ -1,23 +1,17 @@
 import { useState, useEffect } from 'react';
 import { Outlet } from 'react-router-dom';
-import { Sun, Moon } from 'lucide-react';
+import { Sun, SunMoon, Moon } from 'lucide-react';
+import { THEME_LABEL, applyResolvedTheme, nextTheme, resolveTheme, type ResolvedTheme } from '../lib/theme';
 
 export function AuthLayout() {
-  const [isDark, setIsDark] = useState(() => {
-    const stored = localStorage.getItem('theme');
-    if (stored) return stored === 'dark';
-    return window.matchMedia('(prefers-color-scheme: dark)').matches;
-  });
+  const [theme, setTheme] = useState<ResolvedTheme>(() => resolveTheme(localStorage.getItem('theme')));
 
   useEffect(() => {
-    if (isDark) {
-      document.documentElement.classList.add('dark');
-      localStorage.setItem('theme', 'dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-      localStorage.setItem('theme', 'light');
-    }
-  }, [isDark]);
+    applyResolvedTheme(theme);
+  }, [theme]);
+
+  const ThemeIcon = theme === 'light' ? Sun : theme === 'dim' ? SunMoon : Moon;
+  const themeTitle = `Theme: ${THEME_LABEL[theme]} — switch to ${THEME_LABEL[nextTheme(theme)]}`;
 
   return (
     <div className="relative flex min-h-screen items-center justify-center bg-background">
@@ -36,11 +30,12 @@ export function AuthLayout() {
 
       {/* Theme toggle in top-right corner */}
       <button
-        onClick={() => setIsDark(!isDark)}
+        onClick={() => setTheme(nextTheme(theme))}
         className="absolute top-4 right-4 z-10 rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-        title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+        title={themeTitle}
+        aria-label={themeTitle}
       >
-        {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+        <ThemeIcon className="h-4 w-4" />
       </button>
 
       {/* Content */}

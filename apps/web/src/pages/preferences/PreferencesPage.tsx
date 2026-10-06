@@ -64,13 +64,14 @@ export default function PreferencesPage() {
 
       {/* Appearance */}
       <Section title="Appearance">
-        <Field label="Theme" help="Light, dark, or follow your operating system.">
+        <Field label="Theme" help="Light, Dim (in between), Dark, or follow your operating system.">
           <select
             className={FIELD_CLS}
             value={form.theme ?? 'system'}
             onChange={(e) => update('theme', e.target.value as ThemePreference)}
           >
             <option value="light">Light</option>
+            <option value="dim">Dim — between light and dark</option>
             <option value="dark">Dark</option>
             <option value="system">System default</option>
           </select>

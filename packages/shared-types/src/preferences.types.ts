@@ -2,7 +2,8 @@
  * Per-user preferences. Stored as JSONB on the `users` table. Fully optional
  * — when unset the app falls back to Indian-locale defaults.
  */
-export type ThemePreference = 'light' | 'dark' | 'system';
+/** `dim` sits between light and dark: soft graphite, lower contrast. */
+export type ThemePreference = 'light' | 'dim' | 'dark' | 'system';
 
 export type DateFormatPreference =
   | 'DD/MM/YYYY'

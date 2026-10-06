@@ -4,6 +4,7 @@ import {
   DEFAULT_USER_PREFERENCES,
   type UserPreferences,
 } from '@retailerp/shared-types';
+import { applyResolvedTheme, resolveTheme } from '../lib/theme';
 
 interface PreferencesState {
   preferences: UserPreferences;
@@ -39,19 +40,7 @@ function applyDocumentLang(dateFormat: UserPreferences['dateFormat']): void {
 }
 
 function applyTheme(theme: UserPreferences['theme']): void {
-  const resolved =
-    theme === 'system' || !theme
-      ? window.matchMedia('(prefers-color-scheme: dark)').matches
-        ? 'dark'
-        : 'light'
-      : theme;
-  if (resolved === 'dark') {
-    document.documentElement.classList.add('dark');
-    localStorage.setItem('theme', 'dark');
-  } else {
-    document.documentElement.classList.remove('dark');
-    localStorage.setItem('theme', 'light');
-  }
+  applyResolvedTheme(resolveTheme(theme));
 }
 
 function withDefaults(prefs: UserPreferences | null | undefined): UserPreferences {
