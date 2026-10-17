@@ -213,6 +213,8 @@ model Tenant {
   auditLogs                       AuditLog[]
   employees                       Employee[]
   appSettings                     AppSetting[]
+  purchaseImportBatches           PurchaseImportBatch[]
+  importItemClassifications       ImportItemClassification[]
 
   platformAuditLogs PlatformAuditLog[]
 
@@ -381,25 +383,26 @@ model Shop {
   updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  tenant            Tenant                         @relation(fields: [tenantId], references: [id])
-  userShops         UserShop[]
-  products          Product[]
-  saleRecords       SaleRecord[]
-  salesSanitized    SaleRecordSanitized[]
-  purchases         Purchase[]
-  expenses          Expense[]
-  bankAccounts      BankAccount[]
-  bankStatements    BankStatement[]
-  statementTxns     StatementTransaction[]
-  statementRules    StatementRule[]
-  employees         Employee[]
-  transfersFrom     InterShopTransfer[]            @relation("TransferFrom")
-  transfersTo       InterShopTransfer[]            @relation("TransferTo")
-  customers         Customer[]
-  formDefinitions   FormDefinition[]
-  appSettings       AppSetting[]
-  auditLogs         AuditLog[]
-  collectionAssigns EmployeeCollectionAssignment[]
+  tenant                Tenant                         @relation(fields: [tenantId], references: [id])
+  userShops             UserShop[]
+  products              Product[]
+  saleRecords           SaleRecord[]
+  salesSanitized        SaleRecordSanitized[]
+  purchases             Purchase[]
+  expenses              Expense[]
+  bankAccounts          BankAccount[]
+  bankStatements        BankStatement[]
+  statementTxns         StatementTransaction[]
+  statementRules        StatementRule[]
+  employees             Employee[]
+  transfersFrom         InterShopTransfer[]            @relation("TransferFrom")
+  transfersTo           InterShopTransfer[]            @relation("TransferTo")
+  customers             Customer[]
+  formDefinitions       FormDefinition[]
+  appSettings           AppSetting[]
+  auditLogs             AuditLog[]
+  collectionAssigns     EmployeeCollectionAssignment[]
+  purchaseImportBatches PurchaseImportBatch[]
 
   @@unique([tenantId, code])
   @@unique([tenantId, gstNumber])
@@ -462,6 +465,7 @@ model User {
   notifications         Notification[]
   notificationTokens    NotificationToken[]
   bankReconciled        BankTransaction[]                @relation("Reconciler")
+  purchaseImportBatches PurchaseImportBatch[]            @relation("PurchaseImportBatchCreator")
 
   @@unique([tenantId, username])
   @@index([tenantId])
@@ -628,9 +632,10 @@ model ProductCategory {
   parent   ProductCategory?  @relation("CategoryHierarchy", fields: [parentId], references: [id])
   children ProductCategory[] @relation("CategoryHierarchy")
 
-  attributes            CategoryAttribute[]
-  products              Product[]
-  distributorCategories DistributorCategory[]
+  attributes                CategoryAttribute[]
+  products                  Product[]
+  distributorCategories     DistributorCategory[]
+  importItemClassifications ImportItemClassification[]
 
   @@unique([slug, parentId])
   @@index([tenantId])
@@ -827,14 +832,19 @@ model Purchase {
   amountPaid     Decimal  @default(0) @map("amount_paid") @db.Decimal(12, 2)
   paymentStatus  String   @default("pending") @map("payment_status") @db.VarChar(20)
   notes          String?  @db.Text
+  /// How the purchase was recorded: "manual" when typed in, "excel_import"
+  /// when it came from an uploaded sheet. Shown as a column on the list.
+  source         String   @default("manual") @db.VarChar(20)
+  importBatchId  String?  @map("import_batch_id")
   createdBy      String?  @map("created_by")
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz()
   updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
-  shop        Shop        @relation(fields: [shopId], references: [id])
-  tenant      Tenant      @relation(fields: [tenantId], references: [id])
-  distributor Distributor @relation(fields: [distributorId], references: [id])
-  creator     User?       @relation("PurchaseCreator", fields: [createdBy], references: [id])
+  shop        Shop                 @relation(fields: [shopId], references: [id])
+  tenant      Tenant               @relation(fields: [tenantId], references: [id])
+  distributor Distributor          @relation(fields: [distributorId], references: [id])
+  creator     User?                @relation("PurchaseCreator", fields: [createdBy], references: [id])
+  importBatch PurchaseImportBatch? @relation(fields: [importBatchId], references: [id])
 
   products Product[]
   payments PurchasePayment[]
@@ -844,6 +854,7 @@ model Purchase {
   @@index([distributorId])
   @@index([invoiceNumber])
   @@index([invoiceDate])
+  @@index([importBatchId])
   @@map("purchases")
 }
 
@@ -1499,8 +1510,8 @@ model BankAccount {
   isActive       Boolean  @default(true) @map("is_active")
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz()
 
-  shop         Shop              @relation(fields: [shopId], references: [id])
-  tenant       Tenant            @relation(fields: [tenantId], references: [id])
+  shop         Shop                @relation(fields: [shopId], references: [id])
+  tenant       Tenant              @relation(fields: [tenantId], references: [id])
   transactions BankTransaction[]
   statements   BankStatement[]
   feed         BankFeedConnection?
@@ -1651,21 +1662,21 @@ model StatementFile {
 /// "bank.api_feeds"). Credentials are AES-256-GCM encrypted with
 /// BANK_FEED_SECRET_KEY and never sent back to the browser.
 model BankFeedConnection {
-  id                 String    @id @default(uuid())
-  tenantId           String    @map("tenant_id")
-  bankAccountId      String    @unique @map("bank_account_id")
+  id            String    @id @default(uuid())
+  tenantId      String    @map("tenant_id")
+  bankAccountId String    @unique @map("bank_account_id")
   /// Provider id, e.g. "federal" (live API) or "demo" (generated test data).
-  provider           String    @db.VarChar(20)
+  provider      String    @db.VarChar(20)
   /// active | paused | error
-  status             String    @default("active") @db.VarChar(10)
-  credentials        String?
-  autoSync           Boolean   @default(true) @map("auto_sync")
+  status        String    @default("active") @db.VarChar(10)
+  credentials   String?
+  autoSync      Boolean   @default(true) @map("auto_sync")
   /// Transactions are complete up to and including this date.
-  syncedThrough      DateTime? @map("synced_through") @db.Date
-  lastSyncAt         DateTime? @map("last_sync_at") @db.Timestamptz()
-  lastError          String?   @map("last_error")
-  createdById        String?   @map("created_by_id")
-  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+  syncedThrough DateTime? @map("synced_through") @db.Date
+  lastSyncAt    DateTime? @map("last_sync_at") @db.Timestamptz()
+  lastError     String?   @map("last_error")
+  createdById   String?   @map("created_by_id")
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz()
 
   tenant      Tenant        @relation(fields: [tenantId], references: [id])
   bankAccount BankAccount   @relation(fields: [bankAccountId], references: [id], onDelete: Cascade)
@@ -1917,4 +1928,87 @@ model AppSetting {
   @@unique([tenantId, shopId, key])
   @@index([tenantId])
   @@map("app_settings")
+}
+
+model PurchaseImportBatch {
+  id       String @id @default(uuid())
+  tenantId String @map("tenant_id")
+  /// Owning tenant (matches shopId's tenantId).
+
+  shopId String @map("shop_id")
+
+  /// The file the invoices were read from, as uploaded.
+  fileName       String  @map("file_name") @db.VarChar(255)
+  /// How the sheet was read: "tally_purchase_register" or "mapped_columns".
+  sourceFormat   String  @map("source_format") @db.VarChar(40)
+  /// Period the register covered, as printed on it ("1-Sep-26 to 30-Sep-26").
+  period         String? @db.VarChar(100)
+  /// The entity named in the sheet header, kept so a file imported into the
+  /// wrong shop can be traced afterwards.
+  sheetOwnerName String? @map("sheet_owner_name") @db.VarChar(300)
+
+  invoiceCount        Int     @default(0) @map("invoice_count")
+  unitCount           Int     @default(0) @map("unit_count")
+  netAmount           Decimal @default(0) @map("net_amount") @db.Decimal(14, 2)
+  skippedCount        Int     @default(0) @map("skipped_count")
+  failedCount         Int     @default(0) @map("failed_count")
+  distributorsCreated Int     @default(0) @map("distributors_created")
+  distributorsUpdated Int     @default(0) @map("distributors_updated")
+
+  createdBy String?  @map("created_by")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  tenant  Tenant @relation(fields: [tenantId], references: [id])
+  shop    Shop   @relation(fields: [shopId], references: [id])
+  creator User?  @relation("PurchaseImportBatchCreator", fields: [createdBy], references: [id])
+
+  purchases Purchase[]
+
+  @@index([tenantId])
+  @@index([shopId])
+  @@index([createdAt])
+  @@map("purchase_import_batches")
+}
+
+/// What an item name on a purchase sheet means.
+///
+/// A Tally register names a product once, in the shop's own shorthand
+/// ("SAM LED-UA 32H4680FUXXL", "LG W/M- T80KMMB3Z"), with no category, brand
+/// or colour column anywhere. Working that out is the one part of the import
+/// that needs a language model, so each answer is kept: next month's register
+/// repeats the same names, and a name corrected by hand here stays corrected.
+model ImportItemClassification {
+  id       String @id @default(uuid())
+  tenantId String @map("tenant_id")
+  /// Owning tenant. Item shorthand is a tenant's own vocabulary.
+
+  /// The item name reduced for lookup (lower case, single spaces).
+  nameKey String @map("name_key") @db.VarChar(300)
+  /// The name as the sheet spelled it, for display.
+  rawName String @map("raw_name") @db.VarChar(300)
+
+  categoryId  String? @map("category_id")
+  brand       String? @db.VarChar(200)
+  modelNumber String? @map("model_number") @db.VarChar(200)
+  color       String? @db.VarChar(50)
+  /// Category attributes the classifier could fill (RAM, storage, size).
+  attributes  Json    @default("{}")
+  /// A display or demo piece, bought but not sellable as new.
+  isDemoUnit  Boolean @default(false) @map("is_demo_unit")
+
+  /// How sure the classifier was, 0 to 1.
+  confidence Decimal @default(0) @db.Decimal(3, 2)
+  /// "ai" when the model decided, "user" once someone corrected it. A user
+  /// decision is never overwritten by a later run.
+  decidedBy  String  @default("ai") @map("decided_by") @db.VarChar(10)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  tenant   Tenant           @relation(fields: [tenantId], references: [id])
+  category ProductCategory? @relation(fields: [categoryId], references: [id])
+
+  @@unique([tenantId, nameKey])
+  @@index([tenantId])
+  @@map("import_item_classifications")
 }

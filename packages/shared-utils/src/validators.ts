@@ -1,11 +1,12 @@
+import { isValidGstin } from './gstin';
 /** Validates Indian phone number (10 digits, starts with 6-9) */
 export function isValidPhone(phone: string): boolean {
   return /^[6-9]\d{9}$/.test(phone.replace(/\s|-/g, ''));
 }
 
-/** Validates GSTIN format (15 chars) */
+/** Validates GSTIN format (15 chars). See ./gstin for the full breakdown. */
 export function isValidGST(gst: string): boolean {
-  return /^\d{2}[A-Z]{5}\d{4}[A-Z]{1}\d{1}[A-Z]{1}\d{1}$/.test(gst.toUpperCase());
+  return isValidGstin(gst);
 }
 
 /** Validates PAN number format (10 chars) */

@@ -61,3 +61,13 @@ export const productListQuerySchema = z.object({
 export const globalSearchSchema = z.object({
   query: z.string().min(3, 'Search query must be at least 3 characters'),
 });
+
+/** One pass of the web lookup over an import run. */
+export const enrichBatchSchema = z
+  .object({
+    limit: z.number().int().min(1).max(50).optional(),
+    refresh: z.boolean().optional(),
+  })
+  // No body at all means 'use the defaults'.
+  .nullish()
+  .transform((value) => value ?? {});

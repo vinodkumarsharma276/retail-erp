@@ -22,15 +22,21 @@ import { usePurchasesQuery } from '../../hooks/usePurchases';
 import { DataTable } from '../../components/DataTable';
 import type { Column, PaginationState } from '../../components/DataTable';
 import { StatusBadge } from '../../components/StatusBadge';
+import { Button } from '../../components/ui/button';
 import { useToast } from '../../stores/toast-store';
+import {
+  distributorCompleteness,
+  type Completeness,
+} from '../../lib/distributor-completeness';
 import { formatINR, formatDateIN } from '@retailerp/shared-utils';
 import type {
   DistributorProduct,
   DistributorPayment,
   Purchase,
+  Distributor,
 } from '@retailerp/shared-types';
 
-type TabType = 'products' | 'payments' | 'invoices';
+type TabType = 'products' | 'payments' | 'invoices' | 'missing';
 
 const PAGE_SIZE = 20;
 
@@ -61,6 +67,12 @@ export function DistributorDetailPage() {
   const totalPending = pendingPurchases.reduce(
     (sum, p) => sum + (Number(p.netAmount) - Number(p.amountPaid)),
     0,
+  );
+
+  // What the supplier record is still missing. A supplier created by the
+  // sheet importer has no bank details, because a register never has them.
+  const completeness = distributorCompleteness(
+    (distributor ?? ({} as Distributor)) as Distributor,
   );
 
   // Loading
@@ -209,6 +221,12 @@ export function DistributorDetailPage() {
             { key: 'products', label: 'Products Purchased' },
             { key: 'payments', label: 'Payment History' },
             { key: 'invoices', label: 'Pending Invoices' },
+            {
+              key: 'missing',
+              label: completeness.isComplete
+                ? 'Missing details'
+                : `Missing details (${completeness.missing.length})`,
+            },
           ] as const).map((tab) => (
             <button
               key={tab.key}
@@ -220,7 +238,12 @@ export function DistributorDetailPage() {
                   : 'border-transparent text-muted-foreground hover:text-foreground',
               )}
             >
-              {tab.label}
+              <span className={cn('inline-flex items-center gap-1.5')}>
+                {tab.label}
+                {tab.key === 'missing' && completeness.importantMissing.length > 0 && (
+                  <AlertCircle className="h-3.5 w-3.5 text-destructive" />
+                )}
+              </span>
             </button>
           ))}
         </nav>
@@ -230,6 +253,14 @@ export function DistributorDetailPage() {
       {activeTab === 'products' && <ProductsTab distributorId={id!} />}
       {activeTab === 'payments' && <PaymentsTab distributorId={id!} />}
       {activeTab === 'invoices' && <PendingInvoicesTab distributorId={id!} />}
+      {activeTab === 'missing' && (
+        <MissingDetailsTab
+          distributor={distributor}
+          completeness={completeness}
+          canEdit={can('distributors.edit')}
+          onEdit={() => navigate(`/distributors/${id}/edit`)}
+        />
+      )}
 
       {/* Lumpsum Payment Dialog */}
       {showPaymentDialog && (
@@ -858,6 +889,100 @@ function InfoRow({ label, value }: { label: string; value: string }) {
     <div>
       <dt className="text-sm font-medium text-muted-foreground">{label}</dt>
       <dd className="mt-0.5 text-sm">{value}</dd>
+    </div>
+  );
+}
+
+/**
+ * What is still missing on a supplier, and a way in to fill it.
+ *
+ * The gaps are grouped the way the supplier form is, so the list reads as
+ * instructions for the edit screen rather than as a bare list of columns.
+ */
+function MissingDetailsTab({
+  distributor,
+  completeness,
+  canEdit,
+  onEdit,
+}: {
+  distributor: Distributor | undefined;
+  completeness: Completeness;
+  canEdit: boolean;
+  onEdit: () => void;
+}) {
+  if (!distributor) return null;
+
+  if (completeness.isComplete) {
+    return (
+      <div className="flex flex-col items-center gap-2 rounded-lg border border-border bg-card py-16 text-center">
+        <CheckCircle className="h-6 w-6 text-success" />
+        <p className="font-medium">Nothing is missing</p>
+        <p className="max-w-sm text-sm text-muted-foreground">
+          Contact, address, tax and bank details are all on file for this supplier.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-lg border border-border bg-card p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-title flex items-center gap-2">
+              <AlertCircle
+                className={cn('h-4 w-4', completeness.importantMissing.length > 0 ? 'text-destructive' : 'text-warning')}
+              />
+              {completeness.missing.length} detail{completeness.missing.length === 1 ? "" : "s"} missing
+            </h2>
+            <p className="text-caption">
+              {completeness.fromImport
+                ? "This supplier was created from an imported sheet, which does not carry bank details."
+                : "Fill these in so payments and GST claims against this supplier are complete."}
+            </p>
+          </div>
+          {canEdit && (
+            <Button onClick={onEdit}>
+              <Pencil className="mr-2 h-4 w-4" />
+              Fill in the details
+            </Button>
+          )}
+        </div>
+
+        <div className="mt-4">
+          <div className="flex items-center justify-between text-xs text-muted-foreground">
+            <span>Record complete</span>
+            <span className="font-medium text-foreground">{completeness.percent}%</span>
+          </div>
+          <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+            <div
+              className={cn('h-full rounded-full', completeness.percent >= 75 ? 'bg-success' : completeness.percent >= 40 ? 'bg-warning' : 'bg-destructive')}
+              style={{ width: `${completeness.percent}%` }}
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        {completeness.byGroup.map((entry) => (
+          <div key={entry.group} className="rounded-lg border border-border bg-card p-5">
+            <h3 className="text-sm font-semibold">{entry.group}</h3>
+            <ul className="mt-2 space-y-1.5">
+              {entry.fields.map((field) => (
+                <li key={String(field.field)} className="flex items-center gap-2 text-sm">
+                  <span
+                    className={cn('h-1.5 w-1.5 shrink-0 rounded-full', field.important ? 'bg-destructive' : 'bg-muted-foreground/50')}
+                  />
+                  {field.label}
+                  {field.important && (
+                    <span className="text-xs text-muted-foreground">needed to pay this supplier</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

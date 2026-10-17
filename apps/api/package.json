@@ -19,7 +19,8 @@
     "db:repair:transfers": "tsx prisma/seed/repair-transfers.ts",
     "db:studio": "prisma studio",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "db:seed:demo-unit": "tsx prisma/seed/mobile-demo-unit-attribute.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.0",

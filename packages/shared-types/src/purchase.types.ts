@@ -20,6 +20,13 @@ export interface Purchase {
   pendingAmount: number;
   paymentStatus: PurchasePaymentStatus;
   notes?: string;
+  /**
+   * How the purchase was recorded: "manual" when typed in, "excel_import"
+   * when it came from an uploaded sheet.
+   */
+  source?: 'manual' | 'excel_import';
+  /** The import run it came from, when it was imported. */
+  importBatchId?: string | null;
   createdBy?: string;
   createdAt: string;
   updatedAt: string;

@@ -81,6 +81,12 @@ export interface ParsedSheet {
   name: string;
   /** Raw cell values, row by row (blank rows kept). Dates stay Excel serial numbers. */
   rows: unknown[][];
+  /**
+   * The same cells as Excel displays them. A Tally register has to be read
+   * this way: raw values drop the "Dr"/"Cr" markers that give an amount its
+   * sign, and turn "4.00 Pcs." into a bare 4.
+   */
+  formatted: unknown[][];
   /** Excel row index (0-based) of rows[0] — sheets don't always start at A1. */
   rowOffset: number;
   /** Excel column index (0-based) of each row's first cell. */
@@ -104,6 +110,7 @@ export async function readWorkbook(file: File): Promise<ParsedWorkbook> {
         name,
         // Keep blank rows so row numbers match what Excel shows.
         rows: XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, raw: true, defval: '', blankrows: true }),
+        formatted: XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, raw: false, defval: '', blankrows: true }),
         rowOffset: range.s.r,
         colOffset: range.s.c,
       };

@@ -9,6 +9,10 @@ import type {
   PurchaseImportRequest,
   PurchaseImportPreview,
   PurchaseImportResult,
+  PurchaseImportBatchSummary,
+  ClassifyItemsRequest,
+  ClassifyItemsResponse,
+  SaveClassificationsRequest,
 } from '@retailerp/shared-types';
 
 // ---------------------------------------------------------------------------
@@ -185,5 +189,45 @@ export function usePurchaseImportCommitMutation() {
       queryClient.invalidateQueries({ queryKey: ['distributors'] });
       queryClient.invalidateQueries({ queryKey: ['products'] });
     },
+  });
+}
+
+/**
+ * Work out what each item name on the sheet is.
+ *
+ * A Tally register gives no category, brand or colour — only the shop's own
+ * shorthand in one cell — so this runs before the preview. Names already
+ * identified on an earlier import are answered from the server store.
+ */
+export function useClassifyItemsMutation() {
+  return useMutation({
+    mutationFn: async (payload: ClassifyItemsRequest) => {
+      const { data } = await apiClient.post<ApiResponse<ClassifyItemsResponse>>('/purchases/import/classify', payload, {
+        timeout: 300_000,
+      });
+      return data.data!;
+    },
+  });
+}
+
+/** Keep a correction made in the preview, so it holds for later imports. */
+export function useSaveClassificationsMutation() {
+  return useMutation({
+    mutationFn: async (payload: SaveClassificationsRequest) => {
+      const { data } = await apiClient.put<ApiResponse<{ saved: number }>>('/purchases/import/classifications', payload);
+      return data.data!;
+    },
+  });
+}
+
+/** Past import runs. */
+export function usePurchaseImportBatchesQuery(enabled = true) {
+  return useQuery({
+    queryKey: ['purchases', 'import-batches'],
+    queryFn: async () => {
+      const { data } = await apiClient.get<ApiResponse<PurchaseImportBatchSummary[]>>('/purchases/import/batches');
+      return data.data ?? [];
+    },
+    enabled,
   });
 }

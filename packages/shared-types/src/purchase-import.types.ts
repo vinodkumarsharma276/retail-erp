@@ -20,8 +20,14 @@ export interface PurchaseImportRow {
   distributorCity?: string;
   distributorState?: string;
   distributorPincode?: string;
+  distributorPan?: string;
   /** Product type, matched to a category by name. */
   categoryName?: string;
+  /**
+   * A category settled outright — by the item classifier, or by hand in the
+   * preview. Takes precedence over matching `categoryName`.
+   */
+  categoryId?: string | null;
   brand?: string;
   /** Item / model name. */
   modelNumber: string;
@@ -37,11 +43,25 @@ export interface PurchaseImportRow {
   /** Line GST in rupees — CGST + SGST + IGST if the sheet splits them. */
   gstAmount?: number;
   gstRate?: number;
+  /**
+   * Rounding the supplier applied to the invoice total, debit positive.
+   * Indian invoices are rounded to the rupee, so without this the stored
+   * total differs from the printed one by a few paise per invoice.
+   */
+  roundOff?: number;
   /** Invoice total as printed, used only to cross-check. */
   invoiceTotal?: number;
   hsnCode?: string;
   color?: string;
   warrantyMonths?: number;
+  /** Category attributes to store on each unit (RAM, storage, size). */
+  attributes?: Record<string, string>;
+  /** A display or demo piece: bought, but not sellable as new. */
+  isDemoUnit?: boolean;
+  /** The buyer named on the voucher, used to check the sheet matches the shop. */
+  consigneeName?: string;
+  /** Tally's own voucher number, kept alongside the supplier invoice number. */
+  voucherNumber?: string;
 }
 
 export interface PurchaseImportRequest {
@@ -50,6 +70,20 @@ export interface PurchaseImportRequest {
   categoryMap?: Record<string, string>;
   /** Record the imported invoices as already paid, with this payment mode. */
   markPaid?: { paymentMode: 'cash' | 'upi' | 'bank_transfer' | 'cheque' } | null;
+  /** The file these rows came from, recorded against the import. */
+  fileName?: string;
+  /** How the sheet was read. */
+  sourceFormat?: 'tally_purchase_register' | 'mapped_columns';
+  /** Period the register covered, as printed on it ("1-Sep-26 to 30-Sep-26"). */
+  period?: string;
+  /** The entity named in the sheet header, kept so a mis-filed import can be traced. */
+  sheetOwnerName?: string;
+  /**
+   * Fill blank details (address, state, PIN code, PAN, phone) on suppliers
+   * already on file from what the sheet says. Existing values are never
+   * overwritten.
+   */
+  updateDistributors?: boolean;
 }
 
 export interface PurchaseImportPreviewItem {
@@ -65,6 +99,10 @@ export interface PurchaseImportPreviewItem {
   discount: number;
   gstAmount: number;
   mrp: number;
+  /** Category attributes that will be stored on each unit. */
+  attributes: Record<string, string>;
+  /** A display or demo piece, flagged so it is not sold as new. */
+  isDemoUnit: boolean;
 }
 
 export interface PurchaseImportPreviewInvoice {
@@ -79,6 +117,8 @@ export interface PurchaseImportPreviewInvoice {
     matchedId: string | null;
     matchedName: string | null;
     matchedBy: 'gst' | 'name' | null;
+    /** Blank fields on the matched supplier that the sheet can fill in. */
+    fieldsToFill: Array<{ field: string; label: string; value: string }>;
   };
   items: PurchaseImportPreviewItem[];
   unitCount: number;
@@ -96,16 +136,34 @@ export interface PurchaseImportPreviewInvoice {
 
 export interface PurchaseImportPreview {
   shop: { id: string; name: string; code: string };
+  /**
+   * Whether the sheet's consignee looks like the shop being imported into.
+   * A Tally register is exported per entity, so importing one into the wrong
+   * shop is the easiest mistake to make and the hardest to undo.
+   */
+  shopCheck: {
+    sheetOwnerName: string | null;
+    consigneeNames: string[];
+    matches: boolean;
+  } | null;
   invoices: PurchaseImportPreviewInvoice[];
   /** Product types in the sheet that match no category. `""` = blank. */
   unknownCategories: Array<{ name: string; rows: number }>;
+  /** Suppliers on file whose blank details this sheet would fill in. */
+  distributorUpdates: Array<{
+    distributorId: string;
+    name: string;
+    fields: Array<{ field: string; label: string; value: string }>;
+  }>;
   summary: {
     invoices: number;
     ready: number;
     units: number;
     newDistributors: number;
+    updatedDistributors: number;
     duplicates: number;
     withErrors: number;
+    demoUnits: number;
   };
 }
 
@@ -122,4 +180,26 @@ export interface PurchaseImportResult {
   skipped: number;
   failed: number;
   distributorsCreated: number;
+  distributorsUpdated: number;
+  /** The import run these invoices belong to, for the purchase list. */
+  batchId: string | null;
+}
+
+/** One past import run, for the imports history. */
+export interface PurchaseImportBatchSummary {
+  id: string;
+  fileName: string;
+  sourceFormat: string;
+  period: string | null;
+  sheetOwnerName: string | null;
+  shop: { id: string; name: string; code: string } | null;
+  invoiceCount: number;
+  unitCount: number;
+  netAmount: number;
+  skippedCount: number;
+  failedCount: number;
+  distributorsCreated: number;
+  distributorsUpdated: number;
+  createdByName: string | null;
+  createdAt: string;
 }

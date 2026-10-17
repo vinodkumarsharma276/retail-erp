@@ -4,7 +4,7 @@ import { authenticate } from '../../middleware/auth.js';
 import { requirePermission, requireAnyPermission } from '../../middleware/permissions.js';
 import { shopScope } from '../../middleware/shop-scope.js';
 import { validate } from '../../middleware/validate.js';
-import { createProductSchema, updateProductSchema } from './products.validation.js';
+import { createProductSchema, updateProductSchema, enrichBatchSchema } from './products.validation.js';
 
 export async function productRoutes(app: FastifyInstance) {
 
@@ -16,6 +16,17 @@ export async function productRoutes(app: FastifyInstance) {
 
   // Global search across categories (shop-scoped)
   app.get('/search', { preHandler: [authenticate, shopScope, requireAnyPermission('products.list', 'sales.create_full_payment', 'sales.create_partial_with_promise', 'sales.create_self_finance', 'sales.create_company_finance')] }, productsController.globalSearch as any);
+
+  // Fetch missing product details from the web for a whole import run.
+  // A pass can take a minute or two, so the client asks for a few models at
+  // a time and keeps calling until nothing is left.
+  app.get('/enrich/batch/:batchId', {
+    preHandler: [authenticate, shopScope, requirePermission('products.edit')],
+  }, productsController.enrichBatchStatus as any);
+
+  app.post('/enrich/batch/:batchId', {
+    preHandler: [authenticate, shopScope, requirePermission('products.edit'), validate(enrichBatchSchema)],
+  }, productsController.enrichBatch as any);
 
   // Create product (admin + accountant only)
   app.post('/', {
@@ -29,6 +40,11 @@ export async function productRoutes(app: FastifyInstance) {
   app.put('/:id', {
     preHandler: [authenticate, shopScope, requirePermission('products.edit'), validate(updateProductSchema)],
   }, productsController.update as any);
+
+  // Fetch missing specifications for one product from the web
+  app.post('/:id/enrich', {
+    preHandler: [authenticate, shopScope, requirePermission('products.edit')],
+  }, productsController.enrich as any);
 
   // Get product audit trail / history
   app.get('/:id/history', { preHandler: [authenticate, shopScope, requirePermission('products.audit_trail')] }, productsController.getHistory as any);

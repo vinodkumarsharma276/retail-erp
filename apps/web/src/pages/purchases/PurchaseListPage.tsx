@@ -139,6 +139,27 @@ export function PurchaseListPage() {
         ),
     },
     {
+      key: 'source',
+      header: 'Source',
+      sortable: true,
+      sortAccessor: (row) => row.source ?? 'manual',
+      // Imported invoices are worth telling apart at a glance: their product
+      // details came from a sheet, so they are the ones to check first.
+      render: (row) =>
+        row.source === 'excel_import' ? (
+          <span
+            className="inline-flex items-center gap-1 rounded-md bg-primary-muted px-2 py-0.5 text-xs font-medium text-primary"
+            title="Imported from a spreadsheet"
+          >
+            <FileSpreadsheet className="h-3 w-3" />
+            Imported
+          </span>
+        ) : (
+          <span className="text-xs text-muted-foreground">Entered</span>
+        ),
+      className: 'w-28',
+    },
+    {
       key: 'date',
       header: 'Date',
       sortable: true,

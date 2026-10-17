@@ -1,5 +1,6 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { productsService } from './products.service.js';
+import { productEnrichService } from './products.enrich.js';
 import { sendSuccess, sendError, sendPaginated } from '../../utils/response.js';
 import { parsePagination } from '../../utils/pagination.js';
 
@@ -212,6 +213,64 @@ export const productsController = {
       return sendSuccess(reply, history);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to fetch product history';
+      return sendError(reply, message, 500);
+    }
+  },
+
+  /**
+   * POST /products/:id/enrich — fill empty specifications from the web.
+   *
+   * Aimed at units that came off a spreadsheet, which arrive with every
+   * category attribute blank. Anything already entered is left alone.
+   */
+  async enrich(request: FastifyRequest<{ Params: { id: string } }>, reply: FastifyReply) {
+    try {
+      const result = await productEnrichService.enrichProduct(request.params.id, request.shopFilter!);
+      if (!result) {
+        return sendError(reply, 'Product not found', 404);
+      }
+      return sendSuccess(reply, result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to fetch the product details';
+      return sendError(reply, message, 500);
+    }
+  },
+
+  /** GET /products/enrich/batch/:batchId — how much of a run has no details. */
+  async enrichBatchStatus(request: FastifyRequest<{ Params: { batchId: string } }>, reply: FastifyReply) {
+    try {
+      const status = await productEnrichService.batchStatus(request.params.batchId, request.shopFilter!);
+      if (!status) {
+        return sendError(reply, 'Import run not found', 404);
+      }
+      return sendSuccess(reply, status);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to check the import run';
+      return sendError(reply, message, 500);
+    }
+  },
+
+  /**
+   * POST /products/enrich/batch/:batchId — look up the next few models of an
+   * import run. One pass per call, so the screen can show progress and the
+   * user can stop part-way; running it again only fills what is still blank.
+   */
+  async enrichBatch(
+    request: FastifyRequest<{ Params: { batchId: string }; Body: { limit?: number; refresh?: boolean } }>,
+    reply: FastifyReply,
+  ) {
+    try {
+      const result = await productEnrichService.enrichBatch(
+        request.params.batchId,
+        request.shopFilter!,
+        request.body ?? {},
+      );
+      if (!result) {
+        return sendError(reply, 'Import run not found', 404);
+      }
+      return sendSuccess(reply, result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to fetch the product details';
       return sendError(reply, message, 500);
     }
   },

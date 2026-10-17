@@ -1,7 +1,12 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { purchasesService } from './purchases.service.js';
 import { purchaseImportService } from './purchases.import.js';
-import type { PurchaseImportRequest } from '@retailerp/shared-types';
+import { itemClassifier } from './item-classifier.js';
+import type {
+  ClassifyItemsRequest,
+  PurchaseImportRequest,
+  SaveClassificationsRequest,
+} from '@retailerp/shared-types';
 import { sendSuccess, sendError, sendPaginated } from '../../utils/response.js';
 import { parsePagination } from '../../utils/pagination.js';
 
@@ -126,6 +131,54 @@ export const purchasesController = {
       return sendSuccess(reply, result, 201);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to import purchases';
+      return sendError(reply, message, 500);
+    }
+  },
+
+  /**
+   * POST /purchases/import/classify — say what each item name on the sheet is.
+   *
+   * A purchase register names products in the shop own shorthand and has no
+   * category, brand or colour column, so this runs before the preview.
+   */
+  async classifyItems(request: FastifyRequest<{ Body: ClassifyItemsRequest }>, reply: FastifyReply) {
+    try {
+      const result = await itemClassifier.classify(request.body, {
+        tenantId: request.currentUser!.tenantId,
+      });
+      return sendSuccess(reply, result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to identify the items';
+      return sendError(reply, message, 500);
+    }
+  },
+
+  /** PUT /purchases/import/classifications — keep a correction for later imports. */
+  async saveClassifications(request: FastifyRequest<{ Body: SaveClassificationsRequest }>, reply: FastifyReply) {
+    try {
+      const result = await itemClassifier.save(request.body, {
+        tenantId: request.currentUser!.tenantId,
+      });
+      return sendSuccess(reply, result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to save the corrections';
+      return sendError(reply, message, 500);
+    }
+  },
+
+  /** GET /purchases/import/batches — past import runs. */
+  async importBatches(request: FastifyRequest<{ Querystring: { limit?: string } }>, reply: FastifyReply) {
+    try {
+      const batches = await purchaseImportService.listBatches(
+        {
+          tenantId: request.currentUser!.tenantId,
+          shopId: request.shopFilter!.allShops ? null : request.shopFilter!.shopId,
+        },
+        Number(request.query.limit) || 20,
+      );
+      return sendSuccess(reply, batches);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to load the import history';
       return sendError(reply, message, 500);
     }
   },

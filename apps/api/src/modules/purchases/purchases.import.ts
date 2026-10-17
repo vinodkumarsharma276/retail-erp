@@ -35,6 +35,23 @@ function normalizeGst(gst: string | undefined): string | null {
   return /^[0-9]{2}[A-Z0-9]{13}$/.test(g) ? g : null;
 }
 
+/**
+ * Supplier details a sheet can fill in on a supplier already on file.
+ *
+ * Only blanks are ever filled: a Tally register is a snapshot of what the
+ * shop's accountant typed, so it is good enough to complete a record but not
+ * to overrule one somebody maintains by hand.
+ */
+const FILLABLE_FIELDS = [
+  { field: 'gstNumber', label: 'GSTIN', from: (row: PurchaseImportRow) => normalizeGst(row.distributorGst) ?? '' },
+  { field: 'panNumber', label: 'PAN', from: (row: PurchaseImportRow) => clean(row.distributorPan).toUpperCase().slice(0, 10) },
+  { field: 'phone', label: 'Phone', from: (row: PurchaseImportRow) => clean(row.distributorPhone).replace(/\D/g, '').slice(-10) },
+  { field: 'addressLine1', label: 'Address', from: (row: PurchaseImportRow) => clean(row.distributorAddress).slice(0, 255) },
+  { field: 'city', label: 'City', from: (row: PurchaseImportRow) => clean(row.distributorCity).slice(0, 100) },
+  { field: 'state', label: 'State', from: (row: PurchaseImportRow) => clean(row.distributorState).slice(0, 100) },
+  { field: 'pincode', label: 'PIN code', from: (row: PurchaseImportRow) => clean(row.distributorPincode).replace(/\D/g, '').slice(0, 6) },
+] as const;
+
 interface PlanContext {
   tenantId: string;
   shopId: string;
@@ -55,7 +72,10 @@ async function plan(request: PurchaseImportRequest, ctx: PlanContext) {
     }),
     prisma.distributor.findMany({
       where: { tenantId: ctx.tenantId },
-      select: { id: true, companyName: true, gstNumber: true },
+      select: {
+        id: true, companyName: true, gstNumber: true, panNumber: true, phone: true,
+        addressLine1: true, city: true, state: true, pincode: true,
+      },
     }),
   ]);
   if (!shop) throw new Error('Shop not found');
@@ -66,8 +86,10 @@ async function plan(request: PurchaseImportRequest, ctx: PlanContext) {
     categoryByName.set(lower(c.name), c);
   }
   const categoryById = new Map(categories.map((c) => [c.id, c]));
-  const resolveCategory = (name: string) => {
-    const key = lower(name);
+  /** A category settled by the item classifier wins over matching by name. */
+  const resolveCategory = (row: PurchaseImportRow) => {
+    if (row.categoryId && categoryById.has(row.categoryId)) return categoryById.get(row.categoryId)!;
+    const key = lower(row.categoryName);
     const mappedId = categoryMap.get(key);
     if (mappedId && categoryById.has(mappedId)) return categoryById.get(mappedId)!;
     return key ? categoryByName.get(key) ?? null : null;
@@ -120,6 +142,17 @@ async function plan(request: PurchaseImportRequest, ctx: PlanContext) {
       warnings.push(`GST number "${clean(lines.find((l) => l.distributorGst)?.distributorGst)}" doesn't look valid; it will be left blank.`);
     }
 
+    // Details the sheet can add to a supplier already on file.
+    const fieldsToFill: PurchaseImportPreviewInvoice['distributor']['fieldsToFill'] = [];
+    if (matched && request.updateDistributors) {
+      for (const { field, label, from } of FILLABLE_FIELDS) {
+        const existing = clean((matched as Record<string, unknown>)[field] as string | null | undefined);
+        if (existing) continue;
+        const value = lines.map(from).find(Boolean);
+        if (value) fieldsToFill.push({ field, label, value });
+      }
+    }
+
     // Lines → items
     const items: PurchaseImportPreviewInvoice['items'] = [];
     for (const line of lines) {
@@ -144,17 +177,17 @@ async function plan(request: PurchaseImportRequest, ctx: PlanContext) {
         errors.push(`${at}: a serial number can only be given for a single unit (quantity is ${quantity}).`);
       }
 
+      const category = resolveCategory(line);
       const categoryName = clean(line.categoryName);
-      const category = resolveCategory(categoryName);
       if (!category) {
-        const k = lower(categoryName);
-        const entry = unknownCategoryRows.get(k) ?? { name: categoryName, rows: 0 };
+        const k = lower(categoryName) || lower(modelNumber);
+        const entry = unknownCategoryRows.get(k) ?? { name: categoryName || modelNumber, rows: 0 };
         entry.rows += 1;
         unknownCategoryRows.set(k, entry);
         errors.push(
           categoryName
             ? `${at}: product type "${categoryName}" isn't a known category — choose one.`
-            : `${at}: no product type — choose a category for these rows.`,
+            : `${at}: "${modelNumber}" has no product type — choose a category for it.`,
         );
       }
 
@@ -179,13 +212,18 @@ async function plan(request: PurchaseImportRequest, ctx: PlanContext) {
         discount: round2(Number(line.discount) || 0),
         gstAmount: round2(Number(line.gstAmount) || 0),
         mrp,
+        attributes: line.attributes ?? {},
+        isDemoUnit: Boolean(line.isDemoUnit),
       });
     }
 
     const totalAmount = round2(items.reduce((s, i) => s + i.rate * i.quantity, 0));
     const discountAmount = round2(items.reduce((s, i) => s + i.discount, 0));
     const gstAmount = round2(items.reduce((s, i) => s + i.gstAmount, 0));
-    const netAmount = round2(totalAmount - discountAmount + gstAmount);
+    // Rounding the supplier applied, so the stored total is the printed
+    // one to the paisa rather than a few paise off it.
+    const roundOff = round2(Number(lines.find((l) => l.roundOff != null)?.roundOff) || 0);
+    const netAmount = round2(totalAmount - discountAmount + gstAmount + roundOff);
     const printedTotal = lines.find((l) => l.invoiceTotal != null && Number(l.invoiceTotal) > 0)?.invoiceTotal;
     if (printedTotal != null && Math.abs(Number(printedTotal) - netAmount) > 1) {
       warnings.push(`Lines add up to ₹${netAmount}, but the invoice total in the sheet is ₹${round2(Number(printedTotal))}.`);
@@ -202,6 +240,7 @@ async function plan(request: PurchaseImportRequest, ctx: PlanContext) {
         matchedId: matched?.id ?? null,
         matchedName: matched?.companyName ?? null,
         matchedBy,
+        fieldsToFill,
       },
       items,
       unitCount: items.reduce((s, i) => s + i.quantity, 0),
@@ -249,17 +288,51 @@ async function plan(request: PurchaseImportRequest, ctx: PlanContext) {
   const newSuppliers = new Set(
     invoices.filter((i) => !i.distributor.matchedId && i.distributor.name).map((i) => nameKey(i.distributor.name)),
   );
+
+  // Supplier updates, collected once per supplier rather than per invoice.
+  const updatesById = new Map<string, PurchaseImportPreview['distributorUpdates'][number]>();
+  for (const inv of invoices) {
+    const id = inv.distributor.matchedId;
+    if (!id || inv.distributor.fieldsToFill.length === 0) continue;
+    const entry = updatesById.get(id) ?? { distributorId: id, name: inv.distributor.matchedName ?? inv.distributor.name, fields: [] };
+    for (const field of inv.distributor.fieldsToFill) {
+      if (!entry.fields.some((f) => f.field === field.field)) entry.fields.push(field);
+    }
+    updatesById.set(id, entry);
+  }
+
+  /**
+   * Is this sheet even for this shop? A Tally register is exported one
+   * entity at a time, so importing September's Vinod Electronics register
+   * into Nishant Electronics is the easiest mistake to make here — and the
+   * one that takes longest to unpick afterwards.
+   */
+  const consigneeNames = [...new Set(rows.map((r) => clean(r.consigneeName)).filter(Boolean))];
+  const sheetOwnerName = clean(request.sheetOwnerName) || null;
+  const shopNameKey = nameKey(shop.name);
+  const namesToCheck = consigneeNames.length > 0 ? consigneeNames : sheetOwnerName ? [sheetOwnerName] : [];
+  const shopCheck = namesToCheck.length > 0
+    ? { sheetOwnerName, consigneeNames, matches: namesToCheck.every((n) => nameKey(n) === shopNameKey) }
+    : null;
+
   const preview: PurchaseImportPreview = {
     shop,
+    shopCheck,
     invoices,
     unknownCategories: [...unknownCategoryRows.values()].sort((a, b) => b.rows - a.rows),
+    distributorUpdates: [...updatesById.values()],
     summary: {
       invoices: invoices.length,
       ready: invoices.filter((i) => i.errors.length === 0 && !i.duplicateOf).length,
       units: invoices.reduce((s, i) => s + i.unitCount, 0),
       newDistributors: newSuppliers.size,
+      updatedDistributors: updatesById.size,
       duplicates: invoices.filter((i) => i.duplicateOf).length,
       withErrors: invoices.filter((i) => i.errors.length > 0).length,
+      demoUnits: invoices.reduce(
+        (s, i) => s + i.items.filter((item) => item.isDemoUnit).reduce((n, item) => n + item.quantity, 0),
+        0,
+      ),
     },
   };
   return { preview, rows };
@@ -276,6 +349,23 @@ export const purchaseImportService = {
     const createdSuppliers = new Map<string, string>(); // nameKey → id, for invoices later in this run
     const results: PurchaseImportResult['results'] = [];
 
+    // One record per import run, so every invoice it brought in can be traced
+    // back to the file it came from — and shown as imported on the list.
+    const batch = await prisma.purchaseImportBatch.create({
+      data: {
+        tenantId: ctx.tenantId,
+        shopId: ctx.shopId,
+        fileName: clean(request.fileName).slice(0, 255) || 'spreadsheet',
+        sourceFormat: request.sourceFormat === 'tally_purchase_register' ? 'tally_purchase_register' : 'mapped_columns',
+        period: clean(request.period).slice(0, 100) || null,
+        sheetOwnerName: clean(request.sheetOwnerName).slice(0, 300) || null,
+        createdBy: ctx.userId,
+      },
+      select: { id: true },
+    });
+
+    const updatedDistributors = new Set<string>();
+
     for (const inv of preview.invoices) {
       const base = { key: inv.key, invoiceNumber: inv.invoiceNumber, distributorName: inv.distributor.name };
       if (inv.duplicateOf) {
@@ -288,7 +378,7 @@ export const purchaseImportService = {
       }
 
       try {
-        const purchaseId = await prisma.$transaction(async (tx) => {
+        const outcome = await prisma.$transaction(async (tx) => {
           // Supplier: matched, created earlier in this run, or new.
           let distributorId = inv.distributor.matchedId ?? createdSuppliers.get(nameKey(inv.distributor.name)) ?? null;
           if (!distributorId) {
@@ -298,8 +388,9 @@ export const purchaseImportService = {
                 tenantId: ctx.tenantId,
                 companyName: inv.distributor.name,
                 contactPerson: inv.distributor.name,
-                phone: clean(firstRow?.distributorPhone).slice(0, 15),
+                phone: clean(firstRow?.distributorPhone).replace(/\D/g, '').slice(-10),
                 gstNumber: inv.distributor.gstNumber,
+                panNumber: clean(firstRow?.distributorPan).toUpperCase().slice(0, 10) || null,
                 addressLine1: clean(firstRow?.distributorAddress).slice(0, 255),
                 city: clean(firstRow?.distributorCity).slice(0, 100),
                 state: clean(firstRow?.distributorState).slice(0, 100),
@@ -311,6 +402,34 @@ export const purchaseImportService = {
             distributorId = d.id;
             createdSuppliers.set(nameKey(inv.distributor.name), d.id);
           } else {
+            // Fill blanks on a supplier already on file. Never overwrite a
+            // value somebody entered: a stale sheet must not undo their work.
+            if (inv.distributor.fieldsToFill.length > 0) {
+              // Read the supplier again here, so what gets filled is what is
+              // still blank now — not what was blank when the preview was built.
+              const current = await tx.distributor.findFirst({
+                where: { id: distributorId, tenantId: ctx.tenantId },
+                select: {
+                  gstNumber: true, panNumber: true, phone: true,
+                  addressLine1: true, city: true, state: true, pincode: true,
+                },
+              });
+              if (current) {
+                const data: Record<string, string> = {};
+                for (const { field, value } of inv.distributor.fieldsToFill) {
+                  const existing = clean((current as Record<string, unknown>)[field] as string | null | undefined);
+                  if (!existing) data[field] = value;
+                }
+                if (Object.keys(data).length > 0) {
+                  await tx.distributor.update({
+                    where: { id: distributorId },
+                    data: data as Prisma.DistributorUpdateInput,
+                  });
+                  updatedDistributors.add(distributorId);
+                }
+              }
+            }
+
             // Re-check inside the transaction: an earlier invoice in this run
             // may have recorded the same supplier invoice.
             const dup = await tx.purchase.findFirst({
@@ -334,6 +453,8 @@ export const purchaseImportService = {
               amountPaid: request.markPaid ? inv.netAmount : 0,
               paymentStatus: request.markPaid ? 'paid' : 'pending',
               notes: 'Imported from spreadsheet',
+              source: 'excel_import',
+              importBatchId: batch.id,
               createdBy: ctx.userId,
             },
           });
@@ -343,10 +464,17 @@ export const purchaseImportService = {
           for (const item of inv.items) {
             const row = rowByNumber.get(item.rowNumber);
             const costPerUnit = round2(item.rate - item.discount / item.quantity);
-            const sellingPrice = row?.sellingPrice != null && Number(row.sellingPrice) > 0 ? round2(Number(row.sellingPrice)) : item.mrp;
-            const attributes: Record<string, unknown> = { importedFrom: 'excel' };
+            const givenSellingPrice = row?.sellingPrice != null && Number(row.sellingPrice) > 0 ? round2(Number(row.sellingPrice)) : null;
+            const givenMrp = row?.mrp != null && Number(row.mrp) > 0 ? round2(Number(row.mrp)) : null;
+            const attributes: Record<string, unknown> = { importedFrom: 'excel', ...item.attributes };
             if (row?.hsnCode) attributes.hsnCode = clean(row.hsnCode);
             if (row?.gstRate != null) attributes.gstRate = Number(row.gstRate);
+            if (item.isDemoUnit) attributes.isDemoUnit = true;
+            // A purchase register carries cost and nothing else. Rather than
+            // invent a retail price, the unit is stored at cost and marked so
+            // it can be found and priced before it is sold.
+            if (!givenMrp && !givenSellingPrice) attributes.priceNotSet = true;
+
             for (let n = 0; n < item.quantity; n += 1) {
               units.push({
                 tenantId: ctx.tenantId,
@@ -355,8 +483,8 @@ export const purchaseImportService = {
                 brand: item.brand.slice(0, 200),
                 modelNumber: item.modelNumber.slice(0, 200),
                 serialNumber: item.serialNumber,
-                mrp: item.mrp,
-                sellingPrice,
+                mrp: givenMrp ?? item.mrp,
+                sellingPrice: givenSellingPrice ?? givenMrp ?? item.mrp,
                 purchasePrice: costPerUnit > 0 ? costPerUnit : item.rate,
                 color: clean(row?.color).slice(0, 50) || null,
                 distributorId,
@@ -407,22 +535,71 @@ export const purchaseImportService = {
           return { created: purchase.id };
         });
 
-        if ('skipped' in purchaseId) {
-          results.push({ ...base, status: 'skipped', purchaseId: purchaseId.skipped, message: 'Already recorded' });
+        if ('skipped' in outcome) {
+          results.push({ ...base, status: 'skipped', purchaseId: outcome.skipped, message: 'Already recorded' });
         } else {
-          results.push({ ...base, status: 'created', purchaseId: purchaseId.created });
+          results.push({ ...base, status: 'created', purchaseId: outcome.created });
         }
       } catch (error) {
         results.push({ ...base, status: 'failed', message: error instanceof Error ? error.message : 'Could not save' });
       }
     }
 
+    const created = results.filter((r) => r.status === 'created');
+    const createdKeys = new Set(created.map((r) => r.key));
+    const importedInvoices = preview.invoices.filter((i) => createdKeys.has(i.key));
+
+    await prisma.purchaseImportBatch.update({
+      where: { id: batch.id },
+      data: {
+        invoiceCount: created.length,
+        unitCount: importedInvoices.reduce((s, i) => s + i.unitCount, 0),
+        netAmount: round2(importedInvoices.reduce((s, i) => s + i.netAmount, 0)),
+        skippedCount: results.filter((r) => r.status === 'skipped').length,
+        failedCount: results.filter((r) => r.status === 'failed').length,
+        distributorsCreated: createdSuppliers.size,
+        distributorsUpdated: updatedDistributors.size,
+      },
+    });
+
     return {
       results,
-      created: results.filter((r) => r.status === 'created').length,
+      created: created.length,
       skipped: results.filter((r) => r.status === 'skipped').length,
       failed: results.filter((r) => r.status === 'failed').length,
       distributorsCreated: createdSuppliers.size,
+      distributorsUpdated: updatedDistributors.size,
+      batchId: batch.id,
     };
+  },
+
+  /** Past import runs, newest first, for the imports history. */
+  async listBatches(ctx: { tenantId: string; shopId?: string | null }, limit = 20) {
+    const batches = await prisma.purchaseImportBatch.findMany({
+      where: { tenantId: ctx.tenantId, ...(ctx.shopId ? { shopId: ctx.shopId } : {}) },
+      orderBy: { createdAt: 'desc' },
+      take: Math.min(Math.max(limit, 1), 100),
+      include: {
+        shop: { select: { id: true, name: true, code: true } },
+        creator: { select: { fullName: true } },
+      },
+    });
+    return batches.map((batch) => ({
+      id: batch.id,
+      fileName: batch.fileName,
+      sourceFormat: batch.sourceFormat,
+      period: batch.period,
+      sheetOwnerName: batch.sheetOwnerName,
+      shop: batch.shop,
+      invoiceCount: batch.invoiceCount,
+      unitCount: batch.unitCount,
+      netAmount: Number(batch.netAmount),
+      skippedCount: batch.skippedCount,
+      failedCount: batch.failedCount,
+      distributorsCreated: batch.distributorsCreated,
+      distributorsUpdated: batch.distributorsUpdated,
+      createdByName: batch.creator?.fullName ?? null,
+      createdAt: batch.createdAt.toISOString(),
+    }));
   },
 };

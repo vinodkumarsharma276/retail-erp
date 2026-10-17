@@ -10,6 +10,8 @@ import { DataTable } from '../../components/DataTable';
 import type { Column, PaginationState } from '../../components/DataTable';
 import { formatINR } from '@retailerp/shared-utils';
 import type { DistributorListItem } from '@retailerp/shared-types';
+import { IncompleteDetailsBadge } from '../../components/IncompleteDetailsBadge';
+import { distributorCompleteness } from '../../lib/distributor-completeness';
 
 const PAGE_SIZE = 20;
 
@@ -70,12 +72,15 @@ export function DistributorListPage() {
       sortable: true,
       sortAccessor: (row) => row.companyName,
       render: (row) => (
-        <button
-          onClick={() => navigate(`/distributors/${row.id}`)}
-          className="font-medium text-primary hover:underline text-left"
-        >
-          {row.companyName}
-        </button>
+        <span className="inline-flex items-center gap-1.5">
+          <button
+            onClick={() => navigate(`/distributors/${row.id}`)}
+            className="font-medium text-primary hover:underline text-left"
+          >
+            {row.companyName}
+          </button>
+          <IncompleteDetailsBadge completeness={distributorCompleteness(row)} />
+        </span>
       ),
     },
     {

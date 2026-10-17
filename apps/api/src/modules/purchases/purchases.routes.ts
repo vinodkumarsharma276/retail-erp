@@ -4,7 +4,14 @@ import { authenticate } from '../../middleware/auth.js';
 import { requirePermission, requireAnyPermission } from '../../middleware/permissions.js';
 import { shopScope } from '../../middleware/shop-scope.js';
 import { validate } from '../../middleware/validate.js';
-import { createPurchaseSchema, updatePurchaseSchema, recordPaymentSchema, purchaseImportSchema } from './purchases.validation.js';
+import {
+  createPurchaseSchema,
+  updatePurchaseSchema,
+  recordPaymentSchema,
+  purchaseImportSchema,
+  classifyItemsSchema,
+  saveClassificationsSchema,
+} from './purchases.validation.js';
 
 export async function purchaseRoutes(app: FastifyInstance) {
 
@@ -30,6 +37,22 @@ export async function purchaseRoutes(app: FastifyInstance) {
     bodyLimit: 25 * 1024 * 1024,
     preHandler: [authenticate, shopScope, requirePermission('purchases.create'), validate(purchaseImportSchema)],
   }, purchasesController.importCommit as any);
+
+  // Identify the sheet item names before the preview, and keep corrections.
+  app.post('/import/classify', {
+    bodyLimit: 2 * 1024 * 1024,
+    preHandler: [authenticate, requirePermission('purchases.create'), validate(classifyItemsSchema)],
+  }, purchasesController.classifyItems as any);
+
+  app.put('/import/classifications', {
+    bodyLimit: 2 * 1024 * 1024,
+    preHandler: [authenticate, requirePermission('purchases.create'), validate(saveClassificationsSchema)],
+  }, purchasesController.saveClassifications as any);
+
+  // Past import runs.
+  app.get('/import/batches', {
+    preHandler: [authenticate, shopScope, requirePermission('purchases.list')],
+  }, purchasesController.importBatches as any);
 
   // Get single purchase detail
   app.get('/:id', { preHandler: [authenticate, requirePermission('purchases.detail')] }, purchasesController.getById as any);

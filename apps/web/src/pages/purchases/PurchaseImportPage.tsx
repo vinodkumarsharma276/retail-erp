@@ -17,6 +17,7 @@ import type {
   PurchaseImportResult,
   PurchaseImportRow,
   ProductCategory,
+  ProductEnrichBatchModel,
 } from '@retailerp/shared-types';
 import { formatINR, formatDateIN } from '@retailerp/shared-utils';
 import { cn } from '../../lib/utils';
@@ -32,8 +33,21 @@ import {
   type ImportFieldKey,
   type ParsedWorkbook,
 } from '../../lib/purchase-import';
+import {
+  applyClassifications,
+  checkAgainstGrandTotal,
+  describeTallyRead,
+  looksLikeTallyRegister,
+  readTallyRegister,
+  type TallyRead,
+} from '../../lib/tally-import';
+import { ItemIdentifyStep } from './ItemIdentifyStep';
 import { usePurchaseImportCommitMutation, usePurchaseImportPreviewMutation } from '../../hooks/usePurchases';
-import { useCategoryTreeQuery } from '../../hooks/useProducts';
+import {
+  useCategoryTreeQuery,
+  useEnrichBatchMutation,
+  useEnrichBatchStatusQuery,
+} from '../../hooks/useProducts';
 import { useShopStore, isAllShops } from '../../stores/shop-store';
 import { PageHeader } from '../../components/PageHeader';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
@@ -44,7 +58,7 @@ import { Input } from '../../components/ui/input';
 import { Tabs } from '../../components/ui/tabs';
 import { StatCard } from '../../components/ui/card';
 
-type Step = 'upload' | 'map' | 'review' | 'done';
+type Step = 'upload' | 'map' | 'identify' | 'review' | 'done';
 type InvoiceFilter = 'all' | 'ready' | 'problems' | 'duplicates';
 
 const PAGE_SIZE = 50;
@@ -101,11 +115,29 @@ export function PurchaseImportPage() {
   const [paymentMode, setPaymentMode] = useState<'cash' | 'upi' | 'bank_transfer' | 'cheque'>('bank_transfer');
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [result, setResult] = useState<PurchaseImportResult | null>(null);
+  // Set when the file is a Tally purchase register, which is read outright
+  // rather than column-mapped.
+  const [tally, setTally] = useState<TallyRead | null>(null);
+  const [fileName, setFileName] = useState<string>("");
+  const [updateDistributors, setUpdateDistributors] = useState(true);
 
   const previewMutation = usePurchaseImportPreviewMutation();
   const commitMutation = usePurchaseImportCommitMutation();
   const { data: categoryTree } = useCategoryTreeQuery();
   const categoryOptions = useMemo(() => flattenCategories(categoryTree), [categoryTree]);
+  const topLevelCategories = useMemo(
+    () => (categoryTree ?? []).map((category) => ({ id: category.id, name: category.name })),
+    [categoryTree],
+  );
+
+  /** Units behind each item name, so the biggest lines are checked first. */
+  const unitsByName = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const row of tally?.rows ?? []) {
+      counts.set(row.modelNumber, (counts.get(row.modelNumber) ?? 0) + row.quantity);
+    }
+    return counts;
+  }, [tally]);
 
   const sheet = workbook?.sheets[sheetIndex];
   const headers = sheet?.rows[headerRow] ?? [];
@@ -136,6 +168,21 @@ export function PurchaseImportPage() {
       setSheetIndex(biggest);
       setHeaderRow(hdr);
       setMapping(autoMap(wb.sheets[biggest].rows[hdr] ?? []));
+      setFileName(file.name);
+
+      // A Tally purchase register has a fixed layout, so it is read as one
+      // rather than put through column mapping: its "Particulars" column
+      // means the supplier on a voucher row and the item on the rows under
+      // it, which no single column mapping can express.
+      const read = looksLikeTallyRegister(wb.sheets[biggest]) ? readTallyRegister(wb.sheets[biggest]) : null;
+      if (read && read.rows.length > 0) {
+        setTally(read);
+        setRows(read.rows);
+        setSkippedRows(read.parse.skipped.map((entry) => entry.rowNumber));
+        setStep('identify');
+        return;
+      }
+      setTally(null);
       setStep('map');
     } catch {
       setReadError("Couldn't read that file. If it came from Tally, export it again as Excel (.xlsx).");
@@ -165,8 +212,26 @@ export function PurchaseImportPage() {
   );
   const noPrice = mapping.rate == null && mapping.amount == null;
 
-  const runPreview = (nextRows: PurchaseImportRow[], nextMap: Record<string, string>) => {
-    const body: PurchaseImportRequest = { rows: nextRows, categoryMap: nextMap };
+  /** Everything the server needs besides the rows themselves. */
+  const importMeta = (): Partial<PurchaseImportRequest> => ({
+    fileName,
+    sourceFormat: tally ? 'tally_purchase_register' : 'mapped_columns',
+    period: tally?.parse.period || undefined,
+    sheetOwnerName: tally?.parse.ownerName || undefined,
+    updateDistributors,
+  });
+
+  const runPreview = (
+    nextRows: PurchaseImportRow[],
+    nextMap: Record<string, string>,
+    topUpSuppliers = updateDistributors,
+  ) => {
+    const body: PurchaseImportRequest = {
+      rows: nextRows,
+      categoryMap: nextMap,
+      ...importMeta(),
+      updateDistributors: topUpSuppliers,
+    };
     previewMutation.mutate(body, {
       onSuccess: (data) => {
         setPreview(data);
@@ -195,7 +260,7 @@ export function PurchaseImportPage() {
   const doImport = () => {
     setConfirmOpen(false);
     commitMutation.mutate(
-      { rows, categoryMap, markPaid: markPaid ? { paymentMode } : null },
+      { rows, categoryMap, markPaid: markPaid ? { paymentMode } : null, ...importMeta() },
       {
         onSuccess: (data) => {
           setResult(data);
@@ -208,6 +273,8 @@ export function PurchaseImportPage() {
   const reset = () => {
     setStep('upload');
     setWorkbook(null);
+    setTally(null);
+    setFileName('');
     setPreview(null);
     setResult(null);
     setRows([]);
@@ -236,7 +303,7 @@ export function PurchaseImportPage() {
         badge={<Badge tone="primary">Into {shopName ?? 'this shop'}{shopCode ? ` (${shopCode})` : ''}</Badge>}
       />
 
-      <Stepper step={step} />
+      <Stepper step={step} tally={Boolean(tally)} />
 
       {/* ------------------------------ Upload ------------------------------ */}
       {step === 'upload' && (
@@ -384,10 +451,38 @@ export function PurchaseImportPage() {
       )}
 
       {/* ------------------------------ Review ------------------------------ */}
+      {step === 'identify' && tally && (
+        <div className="space-y-5">
+          <TallySummary read={tally} fileName={fileName} />
+          <ItemIdentifyStep
+            itemNames={tally.itemNames}
+            unitsByName={unitsByName}
+            categoryOptions={categoryOptions}
+            topLevelCategories={topLevelCategories}
+            onBack={() => setStep('upload')}
+            continuing={previewMutation.isPending}
+            onContinue={({ classifications }) => {
+              const next = applyClassifications(tally.rows, classifications);
+              setRows(next);
+              runPreview(next, categoryMap);
+            }}
+          />
+          {previewMutation.isError && (
+            <p className="text-sm text-destructive">{apiError(previewMutation.error)}</p>
+          )}
+        </div>
+      )}
+
       {step === 'review' && preview && (
         <Review
           preview={preview}
           skippedRows={skippedRows}
+          updateDistributors={updateDistributors}
+          setUpdateDistributors={(value: boolean) => {
+            setUpdateDistributors(value);
+            // The preview reports which blanks would be filled, so recheck.
+            runPreview(rows, categoryMap, value);
+          }}
           categoryOptions={categoryOptions}
           categoryMap={categoryMap}
           onCategory={setCategoryFor}
@@ -396,7 +491,7 @@ export function PurchaseImportPage() {
           setMarkPaid={setMarkPaid}
           paymentMode={paymentMode}
           setPaymentMode={setPaymentMode}
-          onBack={() => setStep('map')}
+          onBack={() => setStep(tally ? 'identify' : 'map')}
           onImport={() => setConfirmOpen(true)}
           importing={commitMutation.isPending}
           importError={commitMutation.isError ? apiError(commitMutation.error) : null}
@@ -429,10 +524,11 @@ export function PurchaseImportPage() {
 
 // ---------------------------------------------------------------------------
 
-function Stepper({ step }: { step: Step }) {
+function Stepper({ step, tally }: { step: Step; tally: boolean }) {
   const steps: Array<{ key: Step; label: string }> = [
     { key: 'upload', label: 'Upload' },
-    { key: 'map', label: 'Match columns' },
+    // A Tally register needs no column matching; its items need identifying.
+    tally ? { key: 'identify', label: 'Identify items' } : { key: 'map', label: 'Match columns' },
     { key: 'review', label: 'Review' },
     { key: 'done', label: 'Done' },
   ];
@@ -539,6 +635,8 @@ function SheetPeek({ rows, headerRow, rowOffset }: { rows: unknown[][]; headerRo
 function Review(props: {
   preview: PurchaseImportPreview;
   skippedRows: number[];
+  updateDistributors: boolean;
+  setUpdateDistributors: (value: boolean) => void;
   categoryOptions: Array<{ id: string; label: string }>;
   categoryMap: Record<string, string>;
   onCategory: (name: string, id: string) => void;
@@ -582,6 +680,37 @@ function Review(props: {
 
   return (
     <div className="space-y-5">
+      {/* The sheet belongs to one shop. Importing it into another is the
+          easiest mistake here, and the slowest to undo. */}
+      {preview.shopCheck && !preview.shopCheck.matches && (
+        <div className="flex items-start gap-3 rounded-lg border border-destructive/40 bg-destructive/5 p-4">
+          <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
+          <div className="text-sm">
+            <p className="font-medium">This sheet may be for a different shop</p>
+            <p className="mt-1 text-muted-foreground">
+              It was exported for{" "}
+              <span className="font-medium text-foreground">
+                {preview.shopCheck.consigneeNames.join(", ") || preview.shopCheck.sheetOwnerName}
+              </span>
+              , but you are importing into{" "}
+              <span className="font-medium text-foreground">{preview.shop.name}</span>. Switch shops in the header
+              if that is wrong — these purchases and their stock go to the shop you are in.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {preview.summary.demoUnits > 0 && (
+        <div className="flex items-start gap-3 rounded-lg border border-border bg-muted/30 p-4 text-sm">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+          <p>
+            <span className="font-medium">{preview.summary.demoUnits} display piece
+            {preview.summary.demoUnits === 1 ? "" : "s"}</span> in this sheet. They will be brought in as stock and
+            marked as display units, so they are not sold as new.
+          </p>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
         <StatCard label="Invoices found" value={preview.summary.invoices} />
         <StatCard label="Ready to import" value={preview.summary.ready} tone="success" />
@@ -589,6 +718,40 @@ function Review(props: {
         <StatCard label="New suppliers" value={preview.summary.newDistributors} tone="info" />
         <StatCard label="Already recorded" value={preview.summary.duplicates} />
         <StatCard label="With problems" value={preview.summary.withErrors} tone={preview.summary.withErrors ? 'destructive' : 'default'} />
+      </div>
+
+      {/* Suppliers already on file whose blanks this sheet can fill. */}
+      <div className="rounded-lg border border-border bg-card px-5 py-4">
+        <label className="flex items-start gap-3 text-sm">
+          <input
+            type="checkbox"
+            checked={props.updateDistributors}
+            onChange={(event) => props.setUpdateDistributors(event.target.checked)}
+            className="mt-0.5 h-4 w-4 rounded border-border"
+          />
+          <span>
+            <span className="font-medium">Fill in missing supplier details from this sheet</span>
+            <span className="mt-0.5 block text-xs text-muted-foreground">
+              Suppliers are matched on GSTIN first, then name. Only blank fields are filled — anything already
+              entered is left exactly as it is.
+            </span>
+          </span>
+        </label>
+        {props.updateDistributors && preview.distributorUpdates.length > 0 && (
+          <ul className="mt-3 space-y-1.5 border-t border-border pt-3 text-sm">
+            {preview.distributorUpdates.map((update) => (
+              <li key={update.distributorId}>
+                <span className="font-medium">{update.name}</span>
+                <span className="text-muted-foreground"> — {update.fields.map((f) => f.label).join(", ")}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+        {props.updateDistributors && preview.distributorUpdates.length === 0 && (
+          <p className="mt-2 border-t border-border pt-3 text-xs text-muted-foreground">
+            No supplier on file has a blank this sheet can fill.
+          </p>
+        )}
       </div>
 
       {preview.unknownCategories.length > 0 && (
@@ -829,6 +992,7 @@ function Done({ result, onAgain }: { result: PurchaseImportResult; onAgain: () =
           </p>
         </div>
       </div>
+      {result.batchId && result.created > 0 && <FetchWebDetails batchId={result.batchId} />}
       {failed.length > 0 && (
         <div className="rounded-lg border bg-card">
           <h2 className="text-title border-b px-5 py-3">Not imported</h2>
@@ -846,6 +1010,234 @@ function Done({ result, onAgain }: { result: PurchaseImportResult; onAgain: () =
         <Link to="/purchases"><Button>Go to purchases</Button></Link>
         <Button variant="outline" onClick={onAgain}>Import another file</Button>
       </div>
+    </div>
+  );
+}
+
+/** Models per pass. Small enough that progress moves, large enough to be quick. */
+const DETAILS_PASS_SIZE = 5;
+
+/**
+ * Filling in what the register could not say, for a whole import run.
+ *
+ * A purchase register has no specification column of any kind, so every unit
+ * it brings in starts with empty details and sits at cost. The lookup is one
+ * web search per model — not per unit — but a month's register still names
+ * around 200 models, which is far too long for one request. So it runs in
+ * passes: each call takes the next few models and reports how many are left.
+ * Stopping is safe, and starting again only fills what is still blank.
+ */
+function FetchWebDetails({ batchId }: { batchId: string }) {
+  const { data: status } = useEnrichBatchStatusQuery(batchId);
+  const pass = useEnrichBatchMutation();
+
+  const [isRunning, setIsRunning] = useState(false);
+  const [models, setModels] = useState<ProductEnrichBatchModel[]>([]);
+  const [remaining, setRemaining] = useState<number | null>(null);
+  const [unitsUpdated, setUnitsUpdated] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const stopRequested = useRef(false);
+  // Frozen when a run starts: the status query refreshes as models get filled
+  // in, so reading the denominator off it would make the bar shrink as it fills.
+  const [plannedTotal, setPlannedTotal] = useState<number | null>(null);
+
+  const processed = models.length;
+  const total = plannedTotal ?? status?.pendingModels ?? 0;
+  const filledModels = models.filter((model) => model.filled.length > 0 || model.mrpSuggestion !== null);
+
+  const run = async () => {
+    stopRequested.current = false;
+    setPlannedTotal(processed + (remaining ?? status?.pendingModels ?? 0));
+    setIsRunning(true);
+    setError(null);
+    setNotice(null);
+    try {
+      for (;;) {
+        const result = await pass.mutateAsync({ batchId, limit: DETAILS_PASS_SIZE });
+        if (!result.aiEnabled) {
+          setNotice(result.message ?? 'Fetching product details is switched off.');
+          break;
+        }
+        setModels((prev) => [...prev, ...result.models]);
+        setUnitsUpdated((prev) => prev + result.unitsUpdated);
+        setRemaining(result.remainingModels);
+        if (result.remainingModels === 0 || stopRequested.current) break;
+      }
+    } catch (e) {
+      setError(apiError(e));
+    } finally {
+      setIsRunning(false);
+    }
+  };
+
+  if (status && status.aiEnabled && status.pendingModels === 0 && processed === 0) {
+    return null;
+  }
+
+  return (
+    <div className="rounded-lg border bg-card">
+      <div className="flex flex-wrap items-start justify-between gap-3 border-b px-5 py-3">
+        <div>
+          <h2 className="text-title">Fetch product details from the web</h2>
+          <p className="text-caption">
+            The register carried only costs, so these units have no specifications and no real
+            MRP. Each model is looked up once and the answer applied to every unit of it.
+          </p>
+        </div>
+        {status?.aiEnabled !== false && (
+          <div className="flex shrink-0 gap-2">
+            {isRunning ? (
+              <Button variant="outline" onClick={() => { stopRequested.current = true; }}>
+                Stop after this batch
+              </Button>
+            ) : (
+              <Button onClick={run} disabled={remaining === 0}>
+                {processed > 0 ? 'Carry on' : `Fetch details for ${total} model${total === 1 ? '' : 's'}`}
+              </Button>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="space-y-3 px-5 py-4 text-sm">
+        {status?.aiEnabled === false && (
+          <p className="text-warning">
+            Fetching details needs an AI key. Set OPENAI_API_KEY to look specifications up on the
+            web — the units are imported either way and can be filled in by hand.
+          </p>
+        )}
+
+        {notice && <p className="text-warning">{notice}</p>}
+
+        {status?.aiEnabled && processed === 0 && !isRunning && !notice && (
+          <p className="text-muted-foreground">
+            {status.pendingModels} model{status.pendingModels === 1 ? '' : 's'} across{' '}
+            {status.pendingUnits} unit{status.pendingUnits === 1 ? '' : 's'} have no details yet.
+            This takes a few seconds per model, and you can stop and carry on later.
+          </p>
+        )}
+
+        {(isRunning || processed > 0) && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              {isRunning && <Loader2 className="h-4 w-4 animate-spin text-primary" />}
+              <span className="font-medium">
+                {processed} of {total} model{total === 1 ? '' : 's'} looked up
+              </span>
+              <span className="text-muted-foreground">
+                · details filled for {filledModels.length} · {unitsUpdated} unit
+                {unitsUpdated === 1 ? '' : 's'} updated
+              </span>
+            </div>
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full rounded-full bg-primary transition-all"
+                style={{ width: `${total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : 0}%` }}
+              />
+            </div>
+            {remaining === 0 && !isRunning && (
+              <p className="text-success">
+                Every model in this import has been looked up. Any MRP found is saved as a
+                suggestion on the unit — nothing has been priced.
+              </p>
+            )}
+          </div>
+        )}
+
+        {error && (
+          <p className="flex items-start gap-2 text-destructive">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+            {error}
+          </p>
+        )}
+
+        {models.length > 0 && (
+          <ul className="max-h-64 divide-y overflow-y-auto rounded-md border">
+            {[...models].reverse().map((model) => (
+              <li key={`${model.brand}-${model.modelNumber}`} className="px-3 py-2">
+                <span className="font-medium">
+                  {model.brand} {model.modelNumber}
+                </span>
+                <span className="text-muted-foreground"> · {model.units} unit{model.units === 1 ? '' : 's'}</span>
+                {model.filled.length > 0 ? (
+                  <span className="text-muted-foreground"> · {model.filled.join(', ')}</span>
+                ) : (
+                  <span className="text-muted-foreground"> · {model.note ?? 'nothing found'}</span>
+                )}
+                {model.mrpSuggestion !== null && (
+                  <span className="text-muted-foreground"> · MRP suggestion {formatINR(model.mrpSuggestion)}</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * What was read out of a Tally register, and whether it reconciles.
+ *
+ * The register prints its own Grand Total, which is the best proof that the
+ * file was read correctly — so it is checked and shown before anything else.
+ */
+function TallySummary({ read, fileName }: { read: TallyRead; fileName: string }) {
+  const checks = checkAgainstGrandTotal(read);
+  const allOk = checks.length > 0 && checks.every((check) => check.ok);
+  const issues = read.parse.vouchers.filter((voucher) => voucher.issues.length > 0);
+
+  return (
+    <div className="space-y-3 rounded-lg border border-border bg-card p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-title flex items-center gap-2">
+            <FileSpreadsheet className="h-4 w-4 text-primary" />
+            Tally purchase register
+          </h2>
+          <p className="text-caption">
+            {fileName}
+            {read.parse.period && <> · {read.parse.period}</>}
+            {read.parse.ownerName && <> · {read.parse.ownerName}</>}
+          </p>
+        </div>
+        <Badge tone="neutral">{describeTallyRead(read)}</Badge>
+      </div>
+
+      {checks.length > 0 && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-border pt-3 text-xs">
+          <span className={cn("font-medium", allOk ? "text-success" : "text-destructive")}>
+            {allOk ? 'Matches the sheet Grand Total' : 'Does not match the sheet Grand Total'}
+          </span>
+          {checks.map((check) => (
+            <span key={check.label} className="inline-flex items-center gap-1 text-muted-foreground">
+              {check.ok ? (
+                <CheckCircle2 className="h-3.5 w-3.5 text-success" />
+              ) : (
+                <AlertCircle className="h-3.5 w-3.5 text-destructive" />
+              )}
+              {check.label}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {issues.length > 0 && (
+        <div className="border-t border-border pt-3">
+          <p className="text-sm font-medium text-warning">
+            {issues.length} voucher{issues.length === 1 ? "" : "s"} do not add up in the sheet itself
+          </p>
+          <ul className="mt-1 space-y-0.5 text-xs text-muted-foreground">
+            {issues.slice(0, 5).map((voucher) => (
+              <li key={voucher.rowNumber}>
+                Row {voucher.rowNumber}, {voucher.supplierName}: {voucher.issues[0]}
+              </li>
+            ))}
+            {issues.length > 5 && <li>…and {issues.length - 5} more.</li>}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }

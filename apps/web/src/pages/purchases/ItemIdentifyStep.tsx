@@ -1,0 +1,425 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { AlertTriangle, CheckCircle2, Database, Loader2, RefreshCw, Sparkles } from 'lucide-react';
+import type { ItemClassification } from '@retailerp/shared-types';
+import { cn } from '../../lib/utils';
+import { Button } from '../../components/ui/button';
+import { Badge } from '../../components/ui/badge';
+import { Select } from '../../components/ui/select';
+import { Input } from '../../components/ui/input';
+import { StatCard } from '../../components/ui/card';
+import {
+  useClassifyItemsMutation,
+  useSaveClassificationsMutation,
+} from '../../hooks/usePurchases';
+import { useCreateCategoryMutation } from '../../hooks/useProducts';
+
+/**
+ * Saying what each item on the sheet actually is.
+ *
+ * A Tally purchase register is read with no guesswork, but it names products
+ * in the shop's own shorthand and carries no category, brand or colour
+ * column. This step fills that in, shows every answer for checking, and keeps
+ * whatever gets corrected so the same names are right next month.
+ */
+
+export interface IdentifyResult {
+  classifications: ItemClassification[];
+}
+
+interface Props {
+  /** Distinct item names from the sheet. */
+  itemNames: string[];
+  /** How many units each name accounts for, for sorting by importance. */
+  unitsByName: Map<string, number>;
+  categoryOptions: Array<{ id: string; label: string }>;
+  /** Top-level categories, so an approved new one can be filed under one. */
+  topLevelCategories: Array<{ id: string; name: string }>;
+  onBack: () => void;
+  onContinue: (result: IdentifyResult) => void;
+  continuing: boolean;
+}
+
+type Edited = Record<string, Partial<Pick<ItemClassification, 'categoryId' | 'brand' | 'color' | 'isDemoUnit'>>>;
+
+const LOW_CONFIDENCE = 0.6;
+
+export function ItemIdentifyStep(props: Props) {
+  const classify = useClassifyItemsMutation();
+  const saveCorrections = useSaveClassificationsMutation();
+  const createCategory = useCreateCategoryMutation();
+
+  const [items, setItems] = useState<ItemClassification[]>([]);
+  const [edited, setEdited] = useState<Edited>({});
+  const [approved, setApproved] = useState<Record<string, boolean>>({});
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [onlyProblems, setOnlyProblems] = useState(false);
+  const askedFor = useRef<string>('');
+
+  const suggestions = classify.data?.suggestedCategories ?? [];
+
+  // Identify the names once per sheet; a different sheet asks again.
+  useEffect(() => {
+    const signature = props.itemNames.join('|');
+    if (!signature || askedFor.current === signature) return;
+    askedFor.current = signature;
+    classify.mutate(
+      { names: props.itemNames },
+      { onSuccess: (data) => setItems(data.classifications) },
+    );
+    // `classify` is a stable mutation object from react-query.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.itemNames]);
+
+  const refresh = () => {
+    classify.mutate(
+      { names: props.itemNames, refresh: true },
+      {
+        onSuccess: (data) => {
+          setItems(data.classifications);
+          setEdited({});
+        },
+      },
+    );
+  };
+
+  /** An item as it now stands, with any correction applied. */
+  const resolve = (item: ItemClassification): ItemClassification => {
+    const change = edited[item.nameKey];
+    if (!change) return item;
+    const categoryId = change.categoryId !== undefined ? change.categoryId : item.categoryId;
+    return {
+      ...item,
+      ...change,
+      categoryId,
+      categoryLabel:
+        change.categoryId !== undefined
+          ? props.categoryOptions.find((option) => option.id === change.categoryId)?.label ?? null
+          : item.categoryLabel,
+    };
+  };
+
+  const resolved = useMemo(() => items.map(resolve), [items, edited, props.categoryOptions]);
+
+  const counts = useMemo(() => {
+    let ready = 0;
+    let noCategory = 0;
+    let lowConfidence = 0;
+    let demo = 0;
+    for (const item of resolved) {
+      if (!item.categoryId) noCategory += 1;
+      else {
+        ready += 1;
+        if (item.decidedBy === 'ai' && item.confidence < LOW_CONFIDENCE) lowConfidence += 1;
+      }
+      if (item.isDemoUnit) demo += 1;
+    }
+    return { ready, noCategory, lowConfidence, demo };
+  }, [resolved]);
+
+  const rows = useMemo(() => {
+    const sorted = [...resolved].sort((a, b) => {
+      // Anything needing attention first, then the biggest quantities.
+      const weight = (item: ItemClassification) =>
+        !item.categoryId ? 0 : item.decidedBy === 'ai' && item.confidence < LOW_CONFIDENCE ? 1 : 2;
+      const byWeight = weight(a) - weight(b);
+      if (byWeight !== 0) return byWeight;
+      const units = (props.unitsByName.get(b.rawName) ?? 0) - (props.unitsByName.get(a.rawName) ?? 0);
+      if (units !== 0) return units;
+      return a.rawName.localeCompare(b.rawName);
+    });
+    if (!onlyProblems) return sorted;
+    return sorted.filter(
+      (item) => !item.categoryId || (item.decidedBy === 'ai' && item.confidence < LOW_CONFIDENCE),
+    );
+  }, [resolved, onlyProblems, props.unitsByName]);
+
+  const change = (nameKey: string, patch: Edited[string]) =>
+    setEdited((current) => ({ ...current, [nameKey]: { ...current[nameKey], ...patch } }));
+
+  /** Create the categories ticked for approval, then re-identify. */
+  const createApproved = async () => {
+    const wanted = suggestions.filter((suggestion) => approved[suggestion.name]);
+    if (wanted.length === 0) return;
+    setCreating(true);
+    setCreateError(null);
+    try {
+      for (const suggestion of wanted) {
+        const parent = suggestion.parentName
+          ? props.topLevelCategories.find(
+              (category) => category.name.toLowerCase() === suggestion.parentName!.toLowerCase(),
+            )
+          : undefined;
+        await createCategory.mutateAsync({
+          name: suggestion.name,
+          // A new category added here holds products directly.
+          isLeaf: true,
+          parentId: parent?.id ?? null,
+        });
+      }
+      setApproved({});
+      refresh();
+    } catch (error) {
+      const e = error as { response?: { data?: { error?: string } }; message?: string };
+      setCreateError(e?.response?.data?.error ?? e?.message ?? 'Could not create the categories.');
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const continueOn = async () => {
+    // Keep every correction so these names come back right next time.
+    const corrections = resolved.filter((item) => edited[item.nameKey] && item.categoryId);
+    if (corrections.length > 0) {
+      try {
+        await saveCorrections.mutateAsync({
+          classifications: corrections.map((item) => ({
+            nameKey: item.nameKey,
+            rawName: item.rawName,
+            categoryId: item.categoryId,
+            brand: item.brand,
+            modelNumber: item.modelNumber,
+            color: item.color,
+            attributes: item.attributes,
+            isDemoUnit: item.isDemoUnit,
+          })),
+        });
+      } catch {
+        // Not worth stopping the import over; the choice still applies to it.
+      }
+    }
+    props.onContinue({ classifications: resolved });
+  };
+
+  if (classify.isPending && items.length === 0) {
+    return (
+      <div className="flex flex-col items-center gap-3 rounded-lg border border-border bg-card py-16">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        <p className="text-sm font-medium">Working out what these {props.itemNames.length} items are…</p>
+        <p className="max-w-md text-center text-xs text-muted-foreground">
+          The sheet names products in your own shorthand, with no category or brand column. Names seen on an earlier
+          import are answered straight away.
+        </p>
+      </div>
+    );
+  }
+
+  if (classify.isError && items.length === 0) {
+    const e = classify.error as { response?: { data?: { error?: string } }; message?: string };
+    return (
+      <div className="space-y-4 rounded-lg border border-destructive/40 bg-destructive/5 p-6">
+        <div className="flex items-start gap-3">
+          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
+          <div>
+            <p className="font-medium">The items could not be identified</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {e?.response?.data?.error ?? e?.message ?? 'Something went wrong.'}
+            </p>
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={props.onBack}>
+            Back
+          </Button>
+          <Button onClick={refresh}>Try again</Button>
+        </div>
+      </div>
+    );
+  }
+
+  const blocked = counts.noCategory > 0;
+
+  return (
+    <div className="space-y-5">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <StatCard label="Identified" value={counts.ready} tone="success" />
+        <StatCard label="Need a category" value={counts.noCategory} tone={blocked ? 'destructive' : 'default'} />
+        <StatCard label="Worth checking" value={counts.lowConfidence} tone={counts.lowConfidence ? 'warning' : 'default'} />
+        <StatCard label="Display pieces" value={counts.demo} />
+      </div>
+
+      {classify.data && (
+        <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+          <span className="inline-flex items-center gap-1.5">
+            <Database className="h-3.5 w-3.5" />
+            {classify.data.fromCache} from earlier imports
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <Sparkles className="h-3.5 w-3.5" />
+            {classify.data.fromModel} identified now
+          </span>
+          <button type="button" onClick={refresh} className="inline-flex items-center gap-1.5 underline hover:text-foreground">
+            <RefreshCw className={cn('h-3.5 w-3.5', classify.isPending && 'animate-spin')} />
+            Identify all again
+          </button>
+        </p>
+      )}
+
+      {classify.data?.error && (
+        <p className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm">{classify.data.error}</p>
+      )}
+
+      {suggestions.length > 0 && (
+        <div className="space-y-3 rounded-lg border border-border bg-muted/30 p-4">
+          <div>
+            <p className="text-sm font-medium">
+              {suggestions.length} product type{suggestions.length === 1 ? '' : 's'} in this sheet have no category yet
+            </p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Tick the ones to add to your categories. Nothing is created until you press Add.
+            </p>
+          </div>
+          <ul className="space-y-2">
+            {suggestions.map((suggestion) => (
+              <li key={suggestion.name} className="flex items-start gap-3 text-sm">
+                <input
+                  type="checkbox"
+                  id={`new-cat-${suggestion.name}`}
+                  checked={Boolean(approved[suggestion.name])}
+                  onChange={(event) =>
+                    setApproved((current) => ({ ...current, [suggestion.name]: event.target.checked }))
+                  }
+                  className="mt-1 h-4 w-4 rounded border-border"
+                />
+                <label htmlFor={`new-cat-${suggestion.name}`} className="cursor-pointer">
+                  <span className="font-medium">{suggestion.name}</span>
+                  {suggestion.parentName && (
+                    <span className="text-muted-foreground"> under {suggestion.parentName}</span>
+                  )}
+                  <span className="text-muted-foreground">
+                    {' '}
+                    — {suggestion.items} item{suggestion.items === 1 ? '' : 's'}
+                  </span>
+                  <span className="mt-0.5 block text-xs text-muted-foreground">{suggestion.examples.join(', ')}</span>
+                </label>
+              </li>
+            ))}
+          </ul>
+          {createError && <p className="text-sm text-destructive">{createError}</p>}
+          <Button
+            size="sm"
+            onClick={createApproved}
+            loading={creating}
+            disabled={!Object.values(approved).some(Boolean)}
+          >
+            Add the ticked categories
+          </Button>
+        </div>
+      )}
+
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-sm text-muted-foreground">
+          {rows.length} of {resolved.length} item name{resolved.length === 1 ? '' : 's'}
+        </p>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={onlyProblems}
+            onChange={(event) => setOnlyProblems(event.target.checked)}
+            className="h-4 w-4 rounded border-border"
+          />
+          Only those needing attention
+        </label>
+      </div>
+
+      <div className="overflow-x-auto rounded-lg border border-border">
+        <table className="w-full text-sm">
+          <thead className="bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
+            <tr>
+              <th className="px-3 py-2 font-medium">Item on the sheet</th>
+              <th className="px-3 py-2 font-medium">Category</th>
+              <th className="px-3 py-2 font-medium">Brand</th>
+              <th className="px-3 py-2 font-medium">Colour</th>
+              <th className="px-3 py-2 text-center font-medium">Display</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {rows.map((item) => {
+              const units = props.unitsByName.get(item.rawName) ?? 0;
+              const unsure = item.decidedBy === 'ai' && item.confidence < LOW_CONFIDENCE;
+              return (
+                <tr key={item.nameKey} className={cn(!item.categoryId && 'bg-destructive/5')}>
+                  <td className="max-w-[22rem] px-3 py-2 align-top">
+                    <p className="font-medium leading-snug">{item.rawName}</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {units} unit{units === 1 ? '' : 's'}
+                      {item.modelNumber && item.modelNumber !== item.rawName && <> · model {item.modelNumber}</>}
+                    </p>
+                    {item.note && <p className="mt-0.5 text-xs text-warning">{item.note}</p>}
+                  </td>
+                  <td className="px-3 py-2 align-top">
+                    <Select
+                      value={item.categoryId ?? ''}
+                      onChange={(event) => change(item.nameKey, { categoryId: event.target.value || null })}
+                      className={cn('min-w-[13rem]', !item.categoryId && 'border-destructive')}
+                    >
+                      <option value="">Choose a category…</option>
+                      {props.categoryOptions.map((option) => (
+                        <option key={option.id} value={option.id}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </Select>
+                    <div className="mt-1 flex flex-wrap items-center gap-1">
+                      {item.decidedBy === 'user' && <Badge tone="neutral">Your choice</Badge>}
+                      {item.decidedBy === 'cache' && <Badge tone="neutral">From an earlier import</Badge>}
+                      {edited[item.nameKey]?.categoryId !== undefined && <Badge tone="neutral">Changed</Badge>}
+                      {unsure && <Badge tone="warning">Please check</Badge>}
+                    </div>
+                  </td>
+                  <td className="px-3 py-2 align-top">
+                    <Input
+                      value={item.brand}
+                      onChange={(event) => change(item.nameKey, { brand: event.target.value })}
+                      className="min-w-[8rem]"
+                      placeholder="Brand"
+                    />
+                  </td>
+                  <td className="px-3 py-2 align-top">
+                    <Input
+                      value={item.color ?? ''}
+                      onChange={(event) => change(item.nameKey, { color: event.target.value || null })}
+                      className="min-w-[8rem]"
+                      placeholder="—"
+                    />
+                  </td>
+                  <td className="px-3 py-2 text-center align-top">
+                    <input
+                      type="checkbox"
+                      checked={item.isDemoUnit}
+                      onChange={(event) => change(item.nameKey, { isDemoUnit: event.target.checked })}
+                      className="mt-2 h-4 w-4 rounded border-border"
+                      aria-label={`${item.rawName} is a display piece`}
+                    />
+                  </td>
+                </tr>
+              );
+            })}
+            {rows.length === 0 && (
+              <tr>
+                <td colSpan={5} className="px-3 py-8 text-center text-sm text-muted-foreground">
+                  <CheckCircle2 className="mx-auto mb-2 h-5 w-5 text-success" />
+                  Nothing needs attention.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-3">
+        <Button variant="outline" onClick={props.onBack}>
+          Back
+        </Button>
+        <Button onClick={continueOn} loading={props.continuing || saveCorrections.isPending} disabled={blocked}>
+          Check the invoices
+        </Button>
+        {blocked && (
+          <p className="text-sm text-destructive">
+            {counts.noCategory} item name{counts.noCategory === 1 ? '' : 's'} still need a category.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}

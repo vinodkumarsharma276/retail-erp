@@ -83,9 +83,16 @@ const importRowSchema = z.object({
   gstAmount: optNum,
   gstRate: optNum,
   invoiceTotal: optNum,
+  roundOff: optNum,
   hsnCode: optText,
   color: optText,
   warrantyMonths: optNum,
+  categoryId: z.string().uuid().nullable().optional(),
+  distributorPan: optText,
+  consigneeName: optText,
+  voucherNumber: optText,
+  attributes: z.record(z.string().max(200)).optional(),
+  isDemoUnit: z.boolean().optional(),
 });
 
 export const purchaseImportSchema = z.object({
@@ -95,4 +102,37 @@ export const purchaseImportSchema = z.object({
     .object({ paymentMode: z.enum(['cash', 'upi', 'bank_transfer', 'cheque']) })
     .nullable()
     .optional(),
+  fileName: z.string().max(255).optional(),
+  sourceFormat: z.enum(['tally_purchase_register', 'mapped_columns']).optional(),
+  period: z.string().max(100).optional(),
+  sheetOwnerName: z.string().max(300).optional(),
+  updateDistributors: z.boolean().optional(),
+});
+
+/** Item names from the sheet, to be identified before the preview. */
+export const classifyItemsSchema = z.object({
+  names: z
+    .array(z.string().min(1).max(300))
+    .min(1, 'There are no item names to identify')
+    .max(2000, 'At most 2,000 item names at a time'),
+  refresh: z.boolean().optional(),
+});
+
+/** Corrections made in the preview, saved so they hold for later imports. */
+export const saveClassificationsSchema = z.object({
+  classifications: z
+    .array(
+      z.object({
+        nameKey: z.string().max(300),
+        rawName: z.string().min(1).max(300),
+        categoryId: z.string().uuid().nullable(),
+        brand: z.string().max(200).optional(),
+        modelNumber: z.string().max(200).optional(),
+        color: z.string().max(50).nullable().optional(),
+        attributes: z.record(z.string().max(200)).optional(),
+        isDemoUnit: z.boolean().optional(),
+      }),
+    )
+    .min(1)
+    .max(2000),
 });

@@ -11,17 +11,24 @@ import {
   ReceiptText,
   RotateCcw,
   AlertCircle,
+  CheckCircle2,
+  Globe,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import {
   useProductDetailQuery,
   useProductHistoryQuery,
   useCategoryTreeQuery,
+  useEnrichProductMutation,
 } from '../../hooks/useProducts';
 import { StatusBadge } from '../../components/StatusBadge';
 import { formatINR, formatDateIN } from '@retailerp/shared-utils';
 import { ProductStatus } from '@retailerp/shared-types';
-import type { ProductCategory, ProductAuditTrailEntry } from '@retailerp/shared-types';
+import type {
+  ProductCategory,
+  ProductAuditTrailEntry,
+  ProductEnrichResult,
+} from '@retailerp/shared-types';
 
 export function ProductDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -30,6 +37,7 @@ export function ProductDetailPage() {
   const { data: product, isLoading, isError } = useProductDetailQuery(id);
   const { data: history, isLoading: isHistoryLoading } = useProductHistoryQuery(id);
   const { data: categoryTree } = useCategoryTreeQuery();
+  const enrich = useEnrichProductMutation();
 
   const can = useCanCheck();
   const canEdit = can('products.edit');
@@ -72,10 +80,15 @@ export function ProductDetailPage() {
     ? findCategoryHsnCode(categoryTree, product.categoryId)
     : null;
 
-  // Determine dynamic attribute entries
+  // Determine dynamic attribute entries. The web lookup's own bookkeeping
+  // (when it last ran, the MRP it suggested) is kept out of the grid — both
+  // are shown properly in the "Details from the web" card instead.
   const dynamicEntries = product.dynamicAttributes
-    ? Object.entries(product.dynamicAttributes)
+    ? Object.entries(product.dynamicAttributes).filter(([key]) => !WEB_LOOKUP_KEYS.has(key))
     : [];
+  const attributes = (product.dynamicAttributes ?? {}) as Record<string, unknown>;
+  const mrpSuggestion = Number(attributes.mrpSuggestion) || null;
+  const priceNotSet = attributes.priceNotSet === true;
 
   return (
     <div>
@@ -223,6 +236,20 @@ export function ProductDetailPage() {
             )}
           </div>
 
+          {/* Details fetched from the web */}
+          {(canEdit || mrpSuggestion !== null) && (
+            <WebDetailsCard
+              canEdit={canEdit}
+              priceNotSet={priceNotSet}
+              savedMrpSuggestion={mrpSuggestion}
+              isPending={enrich.isPending}
+              error={enrich.isError ? apiError(enrich.error) : null}
+              result={enrich.data ?? null}
+              onFetch={() => enrich.mutate(product.id)}
+              onEditPrice={() => navigate(`/products/${product.id}/edit`)}
+            />
+          )}
+
           {/* Dynamic attributes */}
           {dynamicEntries.length > 0 && (
             <div className="rounded-lg border bg-card p-6">
@@ -312,6 +339,138 @@ export function ProductDetailPage() {
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
+
+/**
+ * Filling in what a spreadsheet could not say.
+ *
+ * A unit imported from a purchase register has no specifications at all and
+ * sits at cost, because the register carries only a cost. This card asks the
+ * web for the rest. Anything already entered is left exactly as it is, and
+ * an MRP that comes back is a suggestion only — nobody's selling price is
+ * changed behind their back.
+ */
+function WebDetailsCard({
+  canEdit,
+  priceNotSet,
+  savedMrpSuggestion,
+  isPending,
+  error,
+  result,
+  onFetch,
+  onEditPrice,
+}: {
+  canEdit: boolean;
+  priceNotSet: boolean;
+  savedMrpSuggestion: number | null;
+  isPending: boolean;
+  error: string | null;
+  result: ProductEnrichResult | null;
+  onFetch: () => void;
+  onEditPrice: () => void;
+}) {
+  const mrpSuggestion = result?.mrpSuggestion ?? savedMrpSuggestion;
+
+  return (
+    <div className="rounded-lg border bg-card p-6">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-medium">Details from the web</h2>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            {priceNotSet
+              ? 'This unit came from a spreadsheet, which carried only its cost. Look the rest up by model number.'
+              : 'Fill in any specification that is still empty by looking the model up online.'}
+          </p>
+        </div>
+        {canEdit && (
+          <button
+            onClick={onFetch}
+            disabled={isPending}
+            className={cn(
+              'flex shrink-0 items-center gap-2 rounded-md border px-4 py-2 text-sm font-medium',
+              'hover:bg-muted transition-colors disabled:cursor-not-allowed disabled:opacity-60',
+            )}
+          >
+            {isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Globe className="h-4 w-4" />
+            )}
+            {isPending ? 'Searching...' : result ? 'Search again' : 'Fetch details'}
+          </button>
+        )}
+      </div>
+
+      {isPending && (
+        <p className="mt-4 text-sm text-muted-foreground">
+          Searching for this model's specifications. This usually takes a few seconds.
+        </p>
+      )}
+
+      {error && !isPending && (
+        <p className="mt-4 flex items-start gap-2 text-sm text-destructive">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+          {error}
+        </p>
+      )}
+
+      {result && !isPending && (
+        <div className="mt-4 space-y-3 text-sm">
+          {result.filled.length > 0 && (
+            <div>
+              <p className="flex items-center gap-2 font-medium text-success">
+                <CheckCircle2 className="h-4 w-4" />
+                Filled in {result.filled.length} detail{result.filled.length === 1 ? '' : 's'}
+              </p>
+              <dl className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {result.filled.map((item) => (
+                  <div key={item.attributeName}>
+                    <dt className="text-sm font-medium text-muted-foreground">{item.label}</dt>
+                    <dd className="mt-0.5 text-sm">{item.value}</dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+          )}
+
+          {result.message && (
+            <p className={cn('text-muted-foreground', !result.aiEnabled && 'text-warning')}>
+              {result.message}
+            </p>
+          )}
+
+          {result.kept.length > 0 && (
+            <p className="text-muted-foreground">
+              {result.kept.length} detail{result.kept.length === 1 ? '' : 's'} were already
+              filled in and left untouched: {result.kept.map((item) => item.label).join(', ')}.
+            </p>
+          )}
+
+          {result.unresolved.length > 0 && (
+            <p className="text-muted-foreground">
+              Still empty — the search could not establish{' '}
+              {result.unresolved.map((item) => item.label).join(', ')}.
+            </p>
+          )}
+        </div>
+      )}
+
+      {mrpSuggestion !== null && (
+        <div className="mt-4 rounded-md border border-warning/30 bg-warning-muted px-4 py-3 text-sm">
+          <p className="font-medium">Suggested MRP {formatINR(mrpSuggestion)}</p>
+          <p className="mt-0.5 text-muted-foreground">
+            Found on the web and kept as a suggestion only. Retail listings disagree about MRPs
+            often enough that it is worth checking against the box before you price this unit.
+          </p>
+          {canEdit && (
+            <button onClick={onEditPrice} className="mt-2 text-sm font-medium text-primary hover:underline">
+              Set the price
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
@@ -438,6 +597,14 @@ function findCategoryHsnCode(
     }
   }
   return null;
+}
+
+/** The web lookup's own bookkeeping, shown in its card rather than the grid. */
+const WEB_LOOKUP_KEYS = new Set(['mrpSuggestion', 'specsLookedUpAt']);
+
+function apiError(error: unknown): string {
+  const e = error as { response?: { data?: { error?: string; message?: string } }; message?: string };
+  return e?.response?.data?.error ?? e?.response?.data?.message ?? e?.message ?? 'Something went wrong.';
 }
 
 /** Convert snake_case attribute name to human-readable label */

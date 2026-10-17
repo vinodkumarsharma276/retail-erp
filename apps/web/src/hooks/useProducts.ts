@@ -7,6 +7,10 @@ import type {
   CategoryAttribute,
   Product,
   ProductAuditTrailEntry,
+  ProductEnrichResult,
+  ProductEnrichBatchRequest,
+  ProductEnrichBatchResult,
+  ProductEnrichBatchStatus,
 } from '@retailerp/shared-types';
 
 // ---------------------------------------------------------------------------
@@ -19,6 +23,7 @@ const keys = {
   productSearch: (query: string) => ['products', 'search', query] as const,
   productDetail: (id: string) => ['products', id] as const,
   productHistory: (id: string) => ['products', id, 'history'] as const,
+  enrichBatch: (batchId: string) => ['products', 'enrich-batch', batchId] as const,
 };
 
 // ---------------------------------------------------------------------------
@@ -237,23 +242,108 @@ export function useUpdateProductMutation() {
 }
 
 // ---------------------------------------------------------------------------
+// Fetch product details from the web
+// ---------------------------------------------------------------------------
+/**
+ * Look a product's missing specifications up on the web.
+ *
+ * Mostly for units that came off a spreadsheet: a purchase register carries
+ * cost and nothing else, so they arrive with every category field empty.
+ * Only empty fields are filled, and no price is written — an MRP found on
+ * the web comes back as a suggestion to confirm by hand.
+ */
+export function useEnrichProductMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { data } = await apiClient.post<ApiResponse<ProductEnrichResult>>(
+        `/products/${id}/enrich`,
+        {},
+        { timeout: 180_000 },
+      );
+      return data.data!;
+    },
+    onSuccess: (_data, id) => {
+      queryClient.invalidateQueries({ queryKey: keys.productDetail(id) });
+    },
+  });
+}
+
+/** How many models of an import run still have no specifications. */
+export function useEnrichBatchStatusQuery(batchId: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: keys.enrichBatch(batchId ?? ''),
+    queryFn: async () => {
+      const { data } = await apiClient.get<ApiResponse<ProductEnrichBatchStatus>>(
+        `/products/enrich/batch/${batchId}`,
+      );
+      return data.data!;
+    },
+    enabled: !!batchId && enabled,
+  });
+}
+
+/**
+ * One pass of the web lookup over an import run.
+ *
+ * A month's register can name 200 models, far too many for a single request,
+ * so the caller asks for a few at a time and repeats until nothing is left.
+ * Each pass only fills what is still blank, so stopping part-way costs
+ * nothing and starting again picks up where it stopped.
+ */
+export function useEnrichBatchMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      batchId,
+      ...payload
+    }: ProductEnrichBatchRequest & { batchId: string }) => {
+      const { data } = await apiClient.post<ApiResponse<ProductEnrichBatchResult>>(
+        `/products/enrich/batch/${batchId}`,
+        payload,
+        { timeout: 600_000 },
+      );
+      return data.data!;
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: keys.enrichBatch(variables.batchId) });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Category CRUD mutations
 // ---------------------------------------------------------------------------
+/** "Sewing Machine" becomes "sewing-machine", the slug shape the API expects. */
+function slugify(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 200);
+}
+
 export function useCreateCategoryMutation() {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async (payload: {
       name: string;
-      parentId?: string;
+      /** Derived from the name when not given; the server requires one. */
+      slug?: string;
+      parentId?: string | null;
+      isLeaf?: boolean;
       icon?: string;
       hsnCode?: string;
       displayOrder?: number;
     }) => {
-      const { data } = await apiClient.post<ApiResponse<ProductCategory>>(
-        '/categories',
-        payload,
-      );
+      const { data } = await apiClient.post<ApiResponse<ProductCategory>>('/categories', {
+        ...payload,
+        slug: payload.slug ?? slugify(payload.name),
+      });
       return data.data!;
     },
     onSuccess: () => {
