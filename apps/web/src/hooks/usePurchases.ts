@@ -199,14 +199,37 @@ export function usePurchaseImportCommitMutation() {
  * shorthand in one cell — so this runs before the preview. Names already
  * identified on an earlier import are answered from the server store.
  */
-export function useClassifyItemsMutation() {
-  return useMutation({
-    mutationFn: async (payload: ClassifyItemsRequest) => {
+/**
+ * Identifying the item names is a read, so it is a query rather than a
+ * mutation: the answer is cacheable, and a query survives the remount React
+ * StrictMode performs in development. Firing a mutation from an effect does
+ * not — the first pass sends the request, the simulated remount drops its
+ * result, and the screen waits for an answer that already arrived.
+ *
+ * `refreshToken` is part of the key: raising it asks the model again for
+ * names that are already stored.
+ */
+export function useClassifyItemsQuery(
+  names: string[],
+  options?: { enabled?: boolean; refreshToken?: number },
+) {
+  const refreshToken = options?.refreshToken ?? 0;
+  return useQuery({
+    queryKey: ['purchases', 'classify', names, refreshToken] as const,
+    queryFn: async () => {
+      const payload: ClassifyItemsRequest = { names, refresh: refreshToken > 0 };
       const { data } = await apiClient.post<ApiResponse<ClassifyItemsResponse>>('/purchases/import/classify', payload, {
         timeout: 300_000,
       });
       return data.data!;
     },
+    enabled: (options?.enabled ?? true) && names.length > 0,
+    // The sheet does not change while the screen is open, and a re-ask costs
+    // real money, so never refetch on its own.
+    staleTime: Infinity,
+    gcTime: 30 * 60 * 1000,
+    retry: false,
+    refetchOnWindowFocus: false,
   });
 }
 

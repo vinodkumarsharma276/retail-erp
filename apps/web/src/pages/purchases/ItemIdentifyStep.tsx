@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Database, Loader2, RefreshCw, Sparkles } from 'lucide-react';
 import type { ItemClassification } from '@retailerp/shared-types';
 import { cn } from '../../lib/utils';
@@ -8,7 +8,7 @@ import { Select } from '../../components/ui/select';
 import { Input } from '../../components/ui/input';
 import { StatCard } from '../../components/ui/card';
 import {
-  useClassifyItemsMutation,
+  useClassifyItemsQuery,
   useSaveClassificationsMutation,
 } from '../../hooks/usePurchases';
 import { useCreateCategoryMutation } from '../../hooks/useProducts';
@@ -44,43 +44,25 @@ type Edited = Record<string, Partial<Pick<ItemClassification, 'categoryId' | 'br
 const LOW_CONFIDENCE = 0.6;
 
 export function ItemIdentifyStep(props: Props) {
-  const classify = useClassifyItemsMutation();
+  const [refreshToken, setRefreshToken] = useState(0);
+  const classify = useClassifyItemsQuery(props.itemNames, { refreshToken });
   const saveCorrections = useSaveClassificationsMutation();
   const createCategory = useCreateCategoryMutation();
 
-  const [items, setItems] = useState<ItemClassification[]>([]);
   const [edited, setEdited] = useState<Edited>({});
   const [approved, setApproved] = useState<Record<string, boolean>>({});
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [onlyProblems, setOnlyProblems] = useState(false);
-  const askedFor = useRef<string>('');
+
+  const items: ItemClassification[] = classify.data?.classifications ?? [];
 
   const suggestions = classify.data?.suggestedCategories ?? [];
 
-  // Identify the names once per sheet; a different sheet asks again.
-  useEffect(() => {
-    const signature = props.itemNames.join('|');
-    if (!signature || askedFor.current === signature) return;
-    askedFor.current = signature;
-    classify.mutate(
-      { names: props.itemNames },
-      { onSuccess: (data) => setItems(data.classifications) },
-    );
-    // `classify` is a stable mutation object from react-query.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [props.itemNames]);
-
+  /** Ask the model again for names that are already stored. */
   const refresh = () => {
-    classify.mutate(
-      { names: props.itemNames, refresh: true },
-      {
-        onSuccess: (data) => {
-          setItems(data.classifications);
-          setEdited({});
-        },
-      },
-    );
+    setEdited({});
+    setRefreshToken((token) => token + 1);
   };
 
   /** An item as it now stands, with any correction applied. */
@@ -191,7 +173,7 @@ export function ItemIdentifyStep(props: Props) {
     props.onContinue({ classifications: resolved });
   };
 
-  if (classify.isPending && items.length === 0) {
+  if (classify.isPending) {
     return (
       <div className="flex flex-col items-center gap-3 rounded-lg border border-border bg-card py-16">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -204,7 +186,7 @@ export function ItemIdentifyStep(props: Props) {
     );
   }
 
-  if (classify.isError && items.length === 0) {
+  if (classify.isError) {
     const e = classify.error as { response?: { data?: { error?: string } }; message?: string };
     return (
       <div className="space-y-4 rounded-lg border border-destructive/40 bg-destructive/5 p-6">
@@ -249,7 +231,7 @@ export function ItemIdentifyStep(props: Props) {
             {classify.data.fromModel} identified now
           </span>
           <button type="button" onClick={refresh} className="inline-flex items-center gap-1.5 underline hover:text-foreground">
-            <RefreshCw className={cn('h-3.5 w-3.5', classify.isPending && 'animate-spin')} />
+            <RefreshCw className={cn('h-3.5 w-3.5', classify.isFetching && 'animate-spin')} />
             Identify all again
           </button>
         </p>
