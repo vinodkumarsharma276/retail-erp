@@ -1,4 +1,5 @@
-import { Plus, Trash2, Wand2 } from 'lucide-react';
+import { Archive, Lock, Plus, Trash2, Wand2 } from 'lucide-react';
+import { BankAccountsCard } from './components/BankAccountsCard';
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CategoryLabel } from './components/domain';
@@ -45,7 +46,13 @@ export default function BankRulesPage() {
     if (meta && !s) setS(meta.settings);
   }, [meta, s]);
   const saveSettings = useMutation({
-    mutationFn: () => api.saveSettings(s!),
+    mutationFn: () =>
+      api.saveSettings({
+        largeAmount: s!.largeAmount,
+        cashAlertAmount: s!.cashAlertAmount,
+        unknownPayeeAmount: s!.unknownPayeeAmount,
+        minAiConfidence: s!.minAiConfidence,
+      }),
     onSuccess: () => {
       toast('Review policy saved · flags recalculated', 'good');
       qc.invalidateQueries({ queryKey: ['bank-meta'] });
@@ -54,11 +61,25 @@ export default function BankRulesPage() {
     onError: (e: Error) => toast(e.message, 'critical'),
   });
 
+  // ---------------------------------------------------------------- original files (paid add-on)
+  const fileStorage = meta?.fileStorage;
+  const toggleFiles = useMutation({
+    mutationFn: (on: boolean) => api.saveSettings({ keepOriginalFiles: on }),
+    onSuccess: (_, on) => {
+      toast(on ? 'Original files will be kept for new uploads' : 'New uploads will not keep the original file', 'good');
+      qc.invalidateQueries({ queryKey: ['bank-meta'] });
+    },
+    onError: (e: Error) => toast(e.message, 'critical'),
+  });
+
   const groupOf = (c: string) => meta?.categories.find((x) => x.name === c)?.group ?? 'other';
 
   return (
     <div className="pb-10">
-      <PageHeader title="Rules & settings" subtitle="Teach the categorizer your vendors, and tune what gets flagged for review." filters={false} />
+      <PageHeader title="Rules & settings" subtitle="Register shop accounts, teach the categorizer your vendors, and tune what gets flagged for review." filters={false} />
+      <div className="mb-4">
+        <BankAccountsCard />
+      </div>
       <div className="grid gap-4 lg:grid-cols-5">
         {/* ---------------------------------------------------------------- rules */}
         <Card className="lg:col-span-3">
@@ -153,6 +174,38 @@ export default function BankRulesPage() {
                 )}
               </div>
             )}
+          </Card>
+
+          {/* ---------------------------------------------------------------- original files */}
+          <Card>
+            <CardHeader
+              title={
+                <span className="flex items-center gap-2">
+                  <Archive className="size-4 text-muted-foreground" /> Keep original files
+                  {!fileStorage?.entitled && <Badge tone="warning" icon={<Lock className="size-3" />}>Paid add-on</Badge>}
+                </span>
+              }
+              subtitle="Store each uploaded PDF / Excel / photo so it can be downloaded again later. Without this, only the extracted transactions are saved."
+            />
+            <div className="px-5 pb-5">
+              <label className={`flex items-center justify-between gap-3 rounded-lg border border-border p-3 ${fileStorage?.entitled && canEdit ? 'cursor-pointer' : 'opacity-60'}`}>
+                <span className="text-[13px]">
+                  <span className="block font-medium text-foreground">{fileStorage?.enabled ? 'On for new uploads' : 'Off'}</span>
+                  <span className="text-xs text-muted-foreground">Applies to files uploaded from now on. Password-protected PDFs are stored as uploaded.</span>
+                </span>
+                <input
+                  type="checkbox"
+                  role="switch"
+                  className="size-5 accent-primary"
+                  checked={!!fileStorage?.enabled}
+                  disabled={!fileStorage?.entitled || !canEdit || toggleFiles.isPending}
+                  onChange={(e) => toggleFiles.mutate(e.target.checked)}
+                />
+              </label>
+              {!fileStorage?.entitled && (
+                <p className="mt-2 text-xs text-muted-foreground">Not included in your plan. Contact support to add file storage.</p>
+              )}
+            </div>
           </Card>
 
           <Card className="p-5 text-[13px] text-foreground/80">

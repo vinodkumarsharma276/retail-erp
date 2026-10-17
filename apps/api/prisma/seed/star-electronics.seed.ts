@@ -31,6 +31,7 @@ const PASSWORD = '1234';
 const STANDARD_OFF = new Set<string>([
   FeatureKey.BANK_RECONCILIATION,
   FeatureKey.BANK_STATEMENT_FILES,
+  FeatureKey.BANK_API_FEEDS,
   FeatureKey.OCR_INVOICE_PARSING,
   FeatureKey.PUSH_NOTIFICATIONS,
   FeatureKey.MOBILE_APP,

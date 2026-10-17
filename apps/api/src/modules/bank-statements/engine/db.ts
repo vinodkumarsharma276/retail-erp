@@ -44,6 +44,8 @@ export const DEFAULT_SETTINGS = {
   unknownPayeeAmount: 5000, // flag first-time personal transfers at or above this
   minAiConfidence: 0.65,
   baseCurrency: 'INR',
+  /** Keep the original uploaded file (needs the paid "bank.statement_files" feature). */
+  keepOriginalFiles: false,
 };
 export type Settings = typeof DEFAULT_SETTINGS;
 

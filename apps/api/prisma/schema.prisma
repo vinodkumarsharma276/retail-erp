@@ -203,6 +203,9 @@ model Tenant {
   statementTxns                   StatementTransaction[]
   statementRules                  StatementRule[]
   statementSettings               StatementSettings?
+  statementFiles                  StatementFile[]
+  bankFeeds                       BankFeedConnection[]
+  bankFeedRuns                    BankFeedRun[]
   formDefinitions                 FormDefinition[]
   formFields                      FormField[]
   notificationTokens              NotificationToken[]
@@ -1490,7 +1493,7 @@ model BankAccount {
   shopId         String   @map("shop_id")
   bankName       String   @map("bank_name") @db.VarChar(200)
   accountNumber  String   @map("account_number") @db.VarChar(20)
-  ifscCode       String   @map("ifsc_code") @db.VarChar(11)
+  ifscCode       String?  @map("ifsc_code") @db.VarChar(11)
   accountType    String   @default("current") @map("account_type") @db.VarChar(20)
   openingBalance Decimal  @default(0) @map("opening_balance") @db.Decimal(14, 2)
   isActive       Boolean  @default(true) @map("is_active")
@@ -1499,6 +1502,8 @@ model BankAccount {
   shop         Shop              @relation(fields: [shopId], references: [id])
   tenant       Tenant            @relation(fields: [tenantId], references: [id])
   transactions BankTransaction[]
+  statements   BankStatement[]
+  feed         BankFeedConnection?
 
   @@index([tenantId])
   @@index([shopId])
@@ -1564,10 +1569,16 @@ model BankStatement {
   txCount        Int       @default(0) @map("tx_count")
   uploadedById   String?   @map("uploaded_by_id")
   uploadedAt     DateTime  @default(now()) @map("uploaded_at") @db.Timestamptz()
+  /// Registered shop account this statement was matched to (by account-number digits).
+  bankAccountId  String?   @map("bank_account_id")
+  /// upload = PDF / Excel / CSV / photo; api = pulled from the bank's API feed.
+  source         String    @default("upload") @db.VarChar(10)
 
   tenant       Tenant                 @relation(fields: [tenantId], references: [id])
   shop         Shop                   @relation(fields: [shopId], references: [id])
+  bankAccount  BankAccount?           @relation(fields: [bankAccountId], references: [id], onDelete: SetNull)
   transactions StatementTransaction[]
+  file         StatementFile?
 
   @@unique([shopId, fileHash])
   @@index([tenantId, shopId])
@@ -1616,6 +1627,78 @@ model StatementTransaction {
   @@index([category])
   @@index([fingerprint])
   @@map("statement_transactions")
+}
+
+/// Original uploaded file, kept only when the tenant has the paid
+/// "bank.statement_files" feature and has switched it on. Stored as-is
+/// (password-protected PDFs stay protected).
+model StatementFile {
+  statementId String   @id @map("statement_id")
+  tenantId    String   @map("tenant_id")
+  mimeType    String   @map("mime_type") @db.VarChar(100)
+  sizeBytes   Int      @map("size_bytes")
+  content     Bytes
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  statement BankStatement @relation(fields: [statementId], references: [id], onDelete: Cascade)
+  tenant    Tenant        @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
+  @@map("statement_files")
+}
+
+/// A shop bank account connected to its bank's statement API (paid add-on
+/// "bank.api_feeds"). Credentials are AES-256-GCM encrypted with
+/// BANK_FEED_SECRET_KEY and never sent back to the browser.
+model BankFeedConnection {
+  id                 String    @id @default(uuid())
+  tenantId           String    @map("tenant_id")
+  bankAccountId      String    @unique @map("bank_account_id")
+  /// Provider id, e.g. "federal" (live API) or "demo" (generated test data).
+  provider           String    @db.VarChar(20)
+  /// active | paused | error
+  status             String    @default("active") @db.VarChar(10)
+  credentials        String?
+  autoSync           Boolean   @default(true) @map("auto_sync")
+  /// Transactions are complete up to and including this date.
+  syncedThrough      DateTime? @map("synced_through") @db.Date
+  lastSyncAt         DateTime? @map("last_sync_at") @db.Timestamptz()
+  lastError          String?   @map("last_error")
+  createdById        String?   @map("created_by_id")
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+
+  tenant      Tenant        @relation(fields: [tenantId], references: [id])
+  bankAccount BankAccount   @relation(fields: [bankAccountId], references: [id], onDelete: Cascade)
+  runs        BankFeedRun[]
+
+  @@index([tenantId])
+  @@map("bank_feed_connections")
+}
+
+/// One sync attempt (manual or scheduled) for a feed connection.
+model BankFeedRun {
+  id           String    @id @default(uuid())
+  tenantId     String    @map("tenant_id")
+  connectionId String    @map("connection_id")
+  /// manual | scheduled
+  trigger      String    @db.VarChar(10)
+  fromDate     DateTime  @map("from_date") @db.Date
+  toDate       DateTime  @map("to_date") @db.Date
+  /// running | success | failed
+  status       String    @db.VarChar(10)
+  fetched      Int       @default(0)
+  imported     Int       @default(0)
+  skipped      Int       @default(0)
+  statementId  String?   @map("statement_id")
+  error        String?
+  startedAt    DateTime  @default(now()) @map("started_at") @db.Timestamptz()
+  finishedAt   DateTime? @map("finished_at") @db.Timestamptz()
+
+  tenant     Tenant             @relation(fields: [tenantId], references: [id])
+  connection BankFeedConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@index([connectionId, startedAt])
+  @@map("bank_feed_runs")
 }
 
 /// User-defined categorisation rule; runs before the built-in rules.

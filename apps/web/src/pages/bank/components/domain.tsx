@@ -85,4 +85,5 @@ export const METHOD_LABEL: Record<string, { label: string; tone: 'neutral' | 'ac
   'pdf-text': { label: 'PDF text', tone: 'neutral' },
   'ai-text': { label: 'AI · text', tone: 'accent' },
   'ai-vision': { label: 'AI · vision', tone: 'accent' },
+  'bank-api': { label: 'Bank API', tone: 'accent' },
 };

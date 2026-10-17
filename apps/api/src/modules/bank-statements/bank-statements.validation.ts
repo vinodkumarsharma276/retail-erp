@@ -44,6 +44,8 @@ export const uploadFieldsSchema = z.object({
   shopId: z.string().uuid(),
   bank: z.string().trim().max(80).optional(),
   password: z.string().max(200).optional(),
+  bankAccountId: z.string().uuid().optional(),
+  duplicates: z.enum(['skip', 'keep']).optional(),
 });
 
 export const statementPatchSchema = z.object({
@@ -76,4 +78,23 @@ export const settingsSchema = z.object({
   unknownPayeeAmount: z.number().positive().optional(),
   minAiConfidence: z.number().min(0).max(1).optional(),
   baseCurrency: z.string().length(3).optional(),
+  keepOriginalFiles: z.boolean().optional(),
+});
+
+export const accountSchema = z.object({
+  shopId: z.string().uuid(),
+  bankName: z.string().trim().min(2).max(80),
+  // Digits only; spaces / dashes from copy-paste are stripped.
+  accountNumber: z
+    .string()
+    .transform((v) => v.replace(/[\s-]/g, ''))
+    .pipe(z.string().regex(/^\d{4,20}$/, 'Account number must be 4–20 digits')),
+  ifscCode: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .regex(/^[A-Z]{4}0[A-Z0-9]{6}$/, 'IFSC looks like ABCD0123456')
+    .optional()
+    .or(z.literal('').transform(() => undefined)),
+  accountType: z.enum(['current', 'savings', 'overdraft', 'cash_credit']).default('current'),
 });

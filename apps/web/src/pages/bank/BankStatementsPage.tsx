@@ -1,11 +1,11 @@
-import { Bot, FileStack, MoreHorizontal, Pencil, Trash2, UploadCloud } from 'lucide-react';
+import { Bot, Download, FileStack, Landmark, MoreHorizontal, Pencil, Trash2, UploadCloud } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
 import { METHOD_LABEL } from './components/domain';
 import { PageHeader, ShopAvatar } from './components/BankLayout';
 import { Badge, Button, Card, ConfirmDialog, EmptyState, Input, Select, Skeleton, useToast } from './components/ui';
-import { api, type Statement } from './lib/api';
+import { api, downloadStatementFile, type Statement } from './lib/api';
 import { compactMoney, count, date, fileSize, pct, relativeTime } from './lib/format';
 import { useInvalidateData, useMeta, useStatements } from './lib/queries';
 import { useScope } from './lib/store';
@@ -34,7 +34,7 @@ function Menu({ s, onDelete, onEdit }: { s: Statement; onDelete: () => void; onE
     document.addEventListener('mousedown', h);
     return () => document.removeEventListener('mousedown', h);
   }, [open]);
-  if (!canChange && !canDelete) return null;
+  if (!canChange && !canDelete && !s.has_file) return null;
   return (
     <div className="relative" ref={ref}>
       <Button variant="ghost" size="sm" onClick={() => setOpen(!open)} aria-label="Statement actions" loading={recat.isPending}>
@@ -42,6 +42,17 @@ function Menu({ s, onDelete, onEdit }: { s: Statement; onDelete: () => void; onE
       </Button>
       {open && (
         <div className="absolute right-0 z-30 mt-1 w-60 rounded-xl border border-border bg-card p-1.5 shadow-lg">
+          {s.has_file && (
+            <button
+              className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[13px] hover:bg-subtle cursor-pointer"
+              onClick={() => {
+                setOpen(false);
+                downloadStatementFile(s).catch((e: Error) => toast(e.message, 'critical'));
+              }}
+            >
+              <Download className="size-4 text-muted-foreground" /> Download original file
+            </button>
+          )}
           {canChange && <>
           <button className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[13px] hover:bg-subtle cursor-pointer" onClick={() => { setOpen(false); recat.mutate(); }}>
             <Bot className="size-4 text-muted-foreground" /> Re-run categorization{meta?.ai.enabled ? ' (rules + AI)' : ''}
@@ -142,7 +153,7 @@ export default function BankStatementsPage() {
                             {s.file_name}
                           </Link>
                           <div className="text-xs text-muted-foreground">
-                            {s.file_type.toUpperCase()} · {fileSize(s.file_size)} · {relativeTime(s.uploaded_at)}
+                            {s.source === 'api' ? 'Synced from bank' : `${s.file_type.toUpperCase()} · ${fileSize(s.file_size)}`} · {relativeTime(s.uploaded_at)}
                             {s.uploaded_by ? ` · by ${s.uploaded_by}` : ''}
                           </div>
                         </td>
@@ -154,7 +165,18 @@ export default function BankStatementsPage() {
                         </td>
                         <td className="px-3 py-3">
                           {s.bank}
-                          {s.account_hint && <div className="text-xs text-muted-foreground">{s.account_hint}</div>}
+                          {s.account_hint && (
+                            <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                              {s.account_hint}
+                              {s.bank_account_id ? (
+                                <span className="inline-flex items-center gap-0.5 text-success" title="Matched to a registered shop account">
+                                  <Landmark className="size-3" /> registered
+                                </span>
+                              ) : (
+                                <span title="Add this account under Rules & settings → Bank accounts">· not registered</span>
+                              )}
+                            </div>
+                          )}
                         </td>
                         <td className="num px-3 py-3 whitespace-nowrap text-foreground/80">
                           {date(s.period_start)} –<br />

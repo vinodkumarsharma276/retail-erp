@@ -32,6 +32,7 @@ import { ocrRoutes } from './modules/ocr/ocr.routes.js';
 import { lookupRoutes } from './modules/lookup/lookup.routes.js';
 import { platformRoutes } from './modules/platform/platform.routes.js';
 import { registerInstallmentScheduler } from './jobs/installments-scheduler.js';
+import { registerBankFeedScheduler } from './jobs/bank-feeds-scheduler.js';
 import { featureGate } from './middleware/feature-gate.js';
 import { registerFieldAccess } from './middleware/field-access.js';
 import { FeatureKey } from '@retailerp/shared-types';
@@ -165,6 +166,7 @@ export async function buildApp() {
 
   // Background jobs (gated by ENABLE_SCHEDULER=true).
   registerInstallmentScheduler(app.log);
+  registerBankFeedScheduler(app.log);
 
   return app;
 }

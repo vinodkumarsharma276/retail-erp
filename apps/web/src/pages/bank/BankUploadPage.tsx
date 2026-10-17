@@ -18,31 +18,32 @@ import { Link } from 'react-router-dom';
 import { METHOD_LABEL } from './components/domain';
 import { PageHeader, ShopAvatar } from './components/BankLayout';
 import { Badge, Button, Card, Input, Select, useToast } from './components/ui';
-import { ApiError, uploadStatement, type Statement } from './lib/api';
+import { api, ApiError, uploadStatement, type Statement } from './lib/api';
+import { UploadProblemPanel, type RetryChanges, type UploadProblem } from './components/UploadProblem';
+import { useQuery } from '@tanstack/react-query';
+import { useCanCheck } from '../../hooks/usePermission';
 import { count, date, fileSize, pct } from './lib/format';
 import { useInvalidateData, useMeta } from './lib/queries';
 import { readLocal, writeLocal } from './lib/store';
 import { isAllShops, useShopStore } from '../../stores/shop-store';
 
-type Status = 'ready' | 'uploading' | 'processing' | 'done' | 'error' | 'needs-password' | 'duplicate';
+/** `blocked` = the server needs a decision (which account, or what to do with already-imported rows). */
+type Status = 'ready' | 'uploading' | 'processing' | 'done' | 'error' | 'needs-password' | 'duplicate' | 'blocked';
 
 interface Item {
   id: string;
   file: File;
   shopId: string;
-  bank: string;
+  /** Registered account picked by hand; '' = detect from the statement. */
+  bankAccountId: string;
   password: string;
+  duplicates?: 'skip' | 'keep';
   status: Status;
   progress: number;
   error?: string;
+  problem?: UploadProblem;
   result?: Statement;
 }
-
-const KNOWN_BANKS = [
-  'HDFC Bank', 'ICICI Bank', 'State Bank of India', 'Axis Bank', 'Kotak Mahindra Bank', 'Punjab National Bank', 'Bank of Baroda',
-  'Canara Bank', 'Union Bank of India', 'IndusInd Bank', 'Yes Bank', 'IDFC FIRST Bank', 'Bank of India', 'Indian Bank', 'Federal Bank',
-  'IDBI Bank', 'AU Small Finance Bank', 'RBL Bank', 'Central Bank of India',
-];
 
 const EXT_ICON: Record<string, typeof FileText> = { pdf: FileText, png: FileImage, jpg: FileImage, jpeg: FileImage, webp: FileImage };
 const extOf = (name: string) => name.split('.').pop()?.toLowerCase() ?? '';
@@ -51,6 +52,8 @@ export default function BankUploadPage() {
   const { data: meta } = useMeta();
   const toast = useToast();
   const invalidate = useInvalidateData();
+  const accounts = useQuery({ queryKey: ['bank-accounts'], queryFn: api.accounts });
+  const canAddAccount = useCanCheck()('bank.reconcile');
   const headerShopId = useShopStore((s) => s.currentShopId);
   // Default to the shop chosen in the header; in "All Shops" mode, the last shop used here.
   const [shopId, setShopIdState] = useState<string | null>(() =>
@@ -76,7 +79,7 @@ export default function BankUploadPage() {
     setShopIdState(id);
     writeLocal('bank.uploadShop', id);
     // Re-point any not-yet-processed files to the newly chosen shop.
-    setItems((prev) => prev.map((it) => (it.status === 'ready' ? { ...it, shopId: id } : it)));
+    setItems((prev) => prev.map((it) => (it.status === 'ready' ? { ...it, shopId: id, bankAccountId: '' } : it)));
   };
 
   const addFiles = useCallback(
@@ -94,7 +97,7 @@ export default function BankUploadPage() {
             id: crypto.randomUUID(),
             file,
             shopId: shopId ?? '',
-            bank: '',
+            bankAccountId: '',
             password: '',
             status: 'ready',
             progress: 0,
@@ -108,11 +111,12 @@ export default function BankUploadPage() {
   const patch = (id: string, p: Partial<Item>) => setItems((prev) => prev.map((it) => (it.id === id ? { ...it, ...p } : it)));
 
   const processOne = async (it: Item) => {
-    patch(it.id, { status: 'uploading', progress: 0, error: undefined });
+    patch(it.id, { status: 'uploading', progress: 0, error: undefined, problem: undefined });
     const form = new FormData();
     // Fields go before the file: the API reads them from the multipart stream ahead of the file part.
     form.append('shopId', it.shopId);
-    if (it.bank.trim()) form.append('bank', it.bank.trim());
+    if (it.bankAccountId) form.append('bankAccountId', it.bankAccountId);
+    if (it.duplicates) form.append('duplicates', it.duplicates);
     if (it.password) form.append('password', it.password);
     form.append('file', it.file, it.file.name);
     try {
@@ -121,9 +125,17 @@ export default function BankUploadPage() {
     } catch (e) {
       const err = e as ApiError;
       if (err.body?.needsPassword) patch(it.id, { status: 'needs-password', error: err.message });
+      else if (err.body?.code) patch(it.id, { status: 'blocked', problem: err.body as UploadProblem });
       else if (err.status === 409) patch(it.id, { status: 'duplicate', error: err.message });
       else patch(it.id, { status: 'error', error: err.message });
     }
+  };
+
+  /** Apply the user's decision from a problem panel and upload that file again. */
+  const retry = (it: Item, changes: RetryChanges) => {
+    const next: Item = { ...it, ...changes, status: 'ready', problem: undefined, error: undefined };
+    patch(it.id, next);
+    runAll([next]);
   };
 
   const runAll = async (subset?: Item[]) => {
@@ -298,7 +310,7 @@ export default function BankUploadPage() {
                       <div className="mt-2.5 flex flex-wrap items-center gap-2 sm:pl-12">
                         <Select
                           value={it.shopId || ''}
-                          onChange={(e) => patch(it.id, { shopId: e.target.value })}
+                          onChange={(e) => patch(it.id, { shopId: e.target.value, bankAccountId: '' })}
                           className="w-full sm:w-52"
                           aria-label="Shop"
                         >
@@ -311,19 +323,21 @@ export default function BankUploadPage() {
                             </option>
                           ))}
                         </Select>
-                        <Input
-                          list="known-banks"
-                          placeholder="Bank (auto-detect)"
-                          value={it.bank}
-                          onChange={(e) => patch(it.id, { bank: e.target.value })}
-                          className="w-full sm:w-48"
-                          aria-label="Bank"
-                          // Stop browsers treating this as the "username" for the password field below.
-                          name={`bank-${it.id}`}
-                          autoComplete="off"
-                          data-1p-ignore
-                          data-lpignore="true"
-                        />
+                        <Select
+                          value={it.bankAccountId}
+                          onChange={(e) => patch(it.id, { bankAccountId: e.target.value })}
+                          className="w-full sm:w-56"
+                          aria-label="Bank account"
+                        >
+                          <option value="">Account: detect from statement</option>
+                          {(accounts.data ?? [])
+                            .filter((a) => a.shop_id === it.shopId)
+                            .map((a) => (
+                              <option key={a.id} value={a.id}>
+                                {a.bank_name} ••{a.account_number.slice(-4)}
+                              </option>
+                            ))}
+                        </Select>
                         {extOf(it.file.name) === 'pdf' && (
                           <div className="relative w-full sm:w-56">
                             <KeyRound className="pointer-events-none absolute top-2.5 left-2.5 size-4 text-muted-foreground" />
@@ -359,16 +373,21 @@ export default function BankUploadPage() {
                         )}
                       </p>
                     )}
+                    {it.status === 'blocked' && it.problem && (
+                      <UploadProblemPanel
+                        key={it.problem.code}
+                        problem={it.problem}
+                        canAddAccount={canAddAccount}
+                        busy={running}
+                        onRetry={(changes) => retry(it, changes)}
+                        onRemove={() => setItems((p) => p.filter((x) => x.id !== it.id))}
+                      />
+                    )}
                     {it.result && <ResultLine s={it.result} />}
                   </li>
                 );
               })}
             </ul>
-            <datalist id="known-banks">
-              {KNOWN_BANKS.map((b) => (
-                <option key={b} value={b} />
-              ))}
-            </datalist>
           </Card>
         )}
 
@@ -423,6 +442,12 @@ function StatusCell({ item }: { item: Item }) {
       return <Badge tone="warning" icon={<KeyRound className="size-3" />}>Password needed</Badge>;
     case 'duplicate':
       return <Badge>Already uploaded</Badge>;
+    case 'blocked':
+      return (
+        <Badge tone="warning" icon={<AlertCircle className="size-3" />}>
+          Action needed
+        </Badge>
+      );
     default:
       return <Badge tone="critical">Failed</Badge>;
   }
@@ -435,6 +460,7 @@ function ResultLine({ s }: { s: Statement }) {
       <span>
         <b className="text-foreground">{count(s.tx_count)}</b> transactions
       </span>
+      <span>{s.shop_name}</span>
       <span>{s.bank}{s.account_hint ? ` ${s.account_hint}` : ''}</span>
       <span>
         {date(s.period_start)} – {date(s.period_end)}

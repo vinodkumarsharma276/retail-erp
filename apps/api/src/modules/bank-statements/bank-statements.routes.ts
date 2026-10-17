@@ -1,10 +1,12 @@
 import type { FastifyInstance } from 'fastify';
-import { FeatureKey } from '@retailerp/shared-types';
+import { FeatureKey, UserRole } from '@retailerp/shared-types';
 import { authenticate } from '../../middleware/auth.js';
 import { featureGate } from '../../middleware/feature-gate.js';
 import { requirePermission } from '../../middleware/permissions.js';
 import { shopScope } from '../../middleware/shop-scope.js';
 import { bankStatementsController as c } from './bank-statements.controller.js';
+import { feedsController as f } from './feeds/feeds.controller.js';
+import { authorize } from '../../middleware/rbac.js';
 
 /**
  * Bank statement analysis: upload PDF / Excel / CSV / image statements, parse
@@ -31,6 +33,24 @@ export async function bankStatementRoutes(app: FastifyInstance) {
   app.patch('/statements/:id', can('bank.upload_statement'), c.updateStatement as any);
   app.post('/statements/:id/recategorize', can('bank.upload_statement'), c.recategorize as any);
   app.delete('/statements/:id', can('bank.delete_statement'), c.deleteStatement as any);
+  // Original file (only exists if the tenant kept files when it was uploaded).
+  app.get('/statements/:id/file', can('bank.view'), c.downloadFile as any);
+
+  // Shop bank accounts, used to map statements to a shop and bank by account number.
+  app.get('/accounts', can('bank.view'), c.listAccounts as any);
+  app.post('/accounts', can('bank.reconcile'), c.createAccount as any);
+  app.delete('/accounts/:id', can('bank.reconcile'), c.deleteAccount as any);
+
+  // Automatic bank feeds (paid add-on). The list stays open so the UI can offer the upgrade;
+  // connecting holds bank credentials, so it is owner/admin only.
+  const feedsOn = featureGate(FeatureKey.BANK_API_FEEDS);
+  const ownerAdmin = [...base, authorize([UserRole.ADMIN]), requirePermission('bank.view'), feedsOn];
+  app.get('/feeds', can('bank.view'), f.list as any);
+  app.post('/feeds', { preHandler: ownerAdmin }, f.connect as any);
+  app.patch('/feeds/:id', { preHandler: ownerAdmin }, f.update as any);
+  app.delete('/feeds/:id', { preHandler: ownerAdmin }, f.disconnect as any);
+  app.post('/feeds/:id/sync', { preHandler: [...base, requirePermission('bank.upload_statement'), feedsOn] }, f.sync as any);
+  app.get('/feeds/:id/runs', { preHandler: [...base, requirePermission('bank.view'), feedsOn] }, f.runs as any);
 
   app.get('/transactions', can('bank.view'), c.listTransactions as any);
   app.get('/transactions/facets', can('bank.view'), c.facets as any);

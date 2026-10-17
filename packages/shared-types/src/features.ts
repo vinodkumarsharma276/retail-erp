@@ -22,6 +22,10 @@ export const FeatureKey = {
   TRANSFERS: 'transfers',
   EXPENSES: 'expenses',
   BANK_RECONCILIATION: 'bank.reconciliation',
+  /** Paid add-on: keep the original uploaded bank statement files in the database. */
+  BANK_STATEMENT_FILES: 'bank.statement_files',
+  /** Paid add-on: pull statements automatically from banks' APIs. */
+  BANK_API_FEEDS: 'bank.api_feeds',
   DASHBOARD_ANALYTICS: 'dashboard.analytics',
   YOY_REPORTING: 'reports.yoy',
   OCR_INVOICE_PARSING: 'ocr.invoice',
@@ -73,7 +77,9 @@ export const FEATURE_METADATA: Record<
   [FeatureKey.INSTALLMENTS]: { label: 'Installments / EMI', category: FEATURE_CATEGORIES.MODULES },
   [FeatureKey.TRANSFERS]: { label: 'Inter-shop transfers', category: FEATURE_CATEGORIES.MODULES },
   [FeatureKey.EXPENSES]: { label: 'Expenses', category: FEATURE_CATEGORIES.MODULES },
-  [FeatureKey.BANK_RECONCILIATION]: { label: 'Bank reconciliation', category: FEATURE_CATEGORIES.MODULES },
+  [FeatureKey.BANK_RECONCILIATION]: { label: 'Bank statements', category: FEATURE_CATEGORIES.MODULES },
+  [FeatureKey.BANK_STATEMENT_FILES]: { label: 'Keep original bank statement files (storage add-on)', category: FEATURE_CATEGORIES.MODULES },
+  [FeatureKey.BANK_API_FEEDS]: { label: 'Automatic bank statement feeds (bank API add-on)', category: FEATURE_CATEGORIES.MODULES },
   [FeatureKey.DASHBOARD_ANALYTICS]: { label: 'Dashboard analytics', category: FEATURE_CATEGORIES.MODULES },
   [FeatureKey.YOY_REPORTING]: { label: 'Year-over-year reporting', category: FEATURE_CATEGORIES.MODULES },
   [FeatureKey.OCR_INVOICE_PARSING]: { label: 'OCR invoice parsing', category: FEATURE_CATEGORIES.MODULES },

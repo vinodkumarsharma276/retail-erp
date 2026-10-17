@@ -18,6 +18,8 @@ export interface ParseResult {
   method: ParseMethod;
   bank: string | null;
   accountHint: string | null;
+  /** The account's own IFSC when the statement prints one next to an "IFSC" label. */
+  ifsc?: string | null;
   currency: string | null;
   warnings: string[];
   /** Share of rows whose running balance reconciles with the previous row (0..1), null if not checkable. */

@@ -21,6 +21,7 @@ export interface Settings {
   unknownPayeeAmount: number;
   minAiConfidence: number;
   baseCurrency: string;
+  keepOriginalFiles: boolean;
 }
 export interface Meta {
   shops: Shop[];
@@ -30,6 +31,8 @@ export interface Meta {
   supportedExtensions: string[];
   maxFileMb: number;
   settings: Settings;
+  /** Paid add-on: keep original uploaded files. */
+  fileStorage: { entitled: boolean; enabled: boolean };
 }
 export interface FlagReason {
   code: string;
@@ -81,7 +84,9 @@ export interface Statement {
   bank: string;
   account_hint: string | null;
   currency: string;
-  parse_method: 'spreadsheet' | 'pdf-text' | 'ai-text' | 'ai-vision';
+  parse_method: 'spreadsheet' | 'pdf-text' | 'ai-text' | 'ai-vision' | 'bank-api';
+  /** upload = PDF / Excel / photo; api = pulled from the bank's API feed. */
+  source: 'upload' | 'api';
   reconciliation: number | null;
   warnings: string[];
   period_start: string | null;
@@ -89,10 +94,69 @@ export interface Statement {
   tx_count: number;
   uploaded_at: string;
   uploaded_by: string | null;
+  bank_account_id: string | null;
+  account_number: string | null;
+  has_file: boolean;
   inflow: number;
   outflow: number;
   pending_review: number;
   flagged: number;
+}
+export interface BankAccount {
+  id: string;
+  shop_id: string;
+  shop_name: string;
+  bank_name: string;
+  account_number: string;
+  ifsc_code: string | null;
+  account_type: 'current' | 'savings' | 'overdraft' | 'cash_credit';
+  created_at: string;
+  statements: number;
+}
+export interface FeedProvider {
+  id: string;
+  label: string;
+  banks: string[] | 'any';
+  ready: boolean;
+  note: string;
+  credentialFields: { key: string; label: string; secret: boolean; placeholder?: string }[];
+}
+export interface BankFeed {
+  id: string;
+  bank_account_id: string;
+  provider: string;
+  status: 'active' | 'paused' | 'error';
+  auto_sync: boolean;
+  synced_through: string | null;
+  last_sync_at: string | null;
+  last_error: string | null;
+  shop_name: string;
+  bank_name: string;
+  account_number: string;
+  last_run_status: 'running' | 'success' | 'failed' | null;
+  last_run_imported: number | null;
+  last_run_skipped: number | null;
+}
+export interface FeedRun {
+  id: string;
+  trigger: 'manual' | 'scheduled';
+  from_date: string;
+  to_date: string;
+  status: 'running' | 'success' | 'failed';
+  fetched: number;
+  imported: number;
+  skipped: number;
+  statement_id: string | null;
+  error: string | null;
+  started_at: string;
+  finished_at: string | null;
+}
+export interface SyncResult {
+  fetched: number;
+  imported: number;
+  skipped: number;
+  from: string;
+  to: string;
 }
 export interface Rule {
   id: string;
@@ -214,18 +278,29 @@ export const api = {
     request<{ rule: Rule; applied: number }>('post', '/rules', { body: r }),
   deleteRule: (id: string) => request<void>('delete', `/rules/${id}`),
   saveSettings: (s: Partial<Settings>) => request<Settings>('put', '/settings', { body: s }),
+  accounts: () => request<BankAccount[]>('get', '/accounts'),
+  createAccount: (a: { shopId: string; bankName: string; accountNumber: string; ifscCode?: string; accountType: BankAccount['account_type'] }) =>
+    request<{ id: string; linked: number }>('post', '/accounts', { body: a }),
+  deleteAccount: (id: string) => request<void>('delete', `/accounts/${id}`),
+  feeds: () => request<{ entitled: boolean; providers: FeedProvider[]; feeds: BankFeed[] }>('get', '/feeds'),
+  connectFeed: (f: { bankAccountId: string; provider: string; credentials: Record<string, string>; startDate: string; autoSync: boolean }) =>
+    request<{ id: string; firstSync: (SyncResult & { error?: undefined }) | { error: string } | null }>('post', '/feeds', { body: f }),
+  updateFeed: (id: string, patch: { autoSync?: boolean; paused?: boolean }) => request<void>('patch', `/feeds/${id}`, { body: patch }),
+  disconnectFeed: (id: string) => request<void>('delete', `/feeds/${id}`),
+  syncFeed: (id: string) => request<SyncResult>('post', `/feeds/${id}/sync`),
+  feedRuns: (id: string) => request<FeedRun[]>('get', `/feeds/${id}/runs`),
 };
 
-/** Download the filtered transactions as Excel / CSV (needs the auth header, so no plain link). */
-export async function downloadExport(f: TxFilters, format: 'xlsx' | 'csv') {
+/** Fetch a file through the authenticated client and save it (a plain link can't send the auth header). */
+async function downloadFrom(path: string, params: Record<string, unknown> | undefined, fallbackName: string) {
   let res;
   try {
-    res = await apiClient.get(`${BASE}/export`, { params: toParams({ ...f, format }), responseType: 'blob' });
+    res = await apiClient.get(BASE + path, { params: params ? toParams(params) : undefined, responseType: 'blob' });
   } catch (err) {
     // Error bodies arrive as a Blob too; surface the JSON message.
     const blob = axios.isAxiosError(err) ? (err.response?.data as Blob | undefined) : undefined;
     const text = blob instanceof Blob ? await blob.text().catch(() => '') : '';
-    let message = 'Export failed';
+    let message = 'Download failed';
     try {
       message = JSON.parse(text).error ?? message;
     } catch {
@@ -233,15 +308,27 @@ export async function downloadExport(f: TxFilters, format: 'xlsx' | 'csv') {
     }
     throw new ApiError(axios.isAxiosError(err) ? (err.response?.status ?? 0) : 0, message, null);
   }
-  const name = /filename="([^"]+)"/.exec(String(res.headers['content-disposition'] ?? ''))?.[1] ?? `bank-transactions.${format}`;
+  const cd = String(res.headers['content-disposition'] ?? '');
+  const star = /filename\*=UTF-8''([^;]+)/i.exec(cd)?.[1];
+  const name = star ? decodeURIComponent(star) : (/filename="([^"]+)"/.exec(cd)?.[1] ?? fallbackName);
   const url = URL.createObjectURL(res.data as Blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = name;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = name;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/** Download the filtered transactions as Excel / CSV. */
+export function downloadExport(f: TxFilters, format: 'xlsx' | 'csv') {
+  return downloadFrom('/export', { ...f, format }, `bank-transactions.${format}`);
+}
+
+/** Download the original statement file, when it was kept. */
+export function downloadStatementFile(s: Pick<Statement, 'id' | 'file_name'>) {
+  return downloadFrom(`/statements/${s.id}/file`, undefined, s.file_name);
 }
 
 /** Upload one statement with progress. Text fields must precede the file in the form. */

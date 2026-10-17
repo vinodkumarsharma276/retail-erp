@@ -165,7 +165,13 @@ export function parseLines(lines: Line[], opts: { fallbackOrder?: DateOrder } = 
         }
         if (!s) continue;
         const cx = it.x + it.w / 2;
-        if (isAmountStr(s)) {
+        // Some banks (e.g. Federal Bank) print whole rupees with no decimals ("0", "2000").
+        // A bare integer counts as money only when it sits under a money column of the header,
+        // so reference numbers in other columns are never mistaken for amounts.
+        const underMoneyCol =
+          /^\d{1,12}$/.test(s) &&
+          ['debit', 'credit', 'amount', 'balance'].includes(nearestCol(cx, ['date', 'desc', 'ref', 'debit', 'credit', 'amount', 'balance', 'drcr']) ?? '');
+        if (isAmountStr(s) || underMoneyCol) {
           const v = parseAmount(s)!;
           const col = nearestCol(cx, ['debit', 'credit', 'amount', 'balance', 'desc', 'ref']);
           if (col === 'debit') draft.debit = v.value;

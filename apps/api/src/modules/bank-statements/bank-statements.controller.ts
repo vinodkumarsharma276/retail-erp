@@ -8,6 +8,7 @@ import { SUPPORTED_EXT } from './engine/parsers/index.js';
 import * as service from './bank-statements.service.js';
 import { HttpError, type Scope } from './bank-statements.service.js';
 import {
+  accountSchema,
   bulkPatchSchema,
   exportSchema,
   filterSchema,
@@ -19,10 +20,10 @@ import {
   uploadFieldsSchema,
 } from './bank-statements.validation.js';
 
-type Req = FastifyRequest<{ Params: { id: string }; Querystring: Record<string, unknown>; Body: unknown }>;
+export type Req = FastifyRequest<{ Params: { id: string }; Querystring: Record<string, unknown>; Body: unknown }>;
 
 /** Tenant + every shop the request may touch (one shop, or all accessible shops in "All Shops" mode). */
-function scopeOf(request: FastifyRequest): Scope {
+export function scopeOf(request: FastifyRequest): Scope {
   const sf = request.shopFilter!;
   return { tenantId: sf.tenantId, shopIds: sf.allShops && sf.shopIds?.length ? sf.shopIds : [sf.shopId] };
 }
@@ -33,7 +34,7 @@ async function reviewerName(request: FastifyRequest) {
 }
 
 /** Map service / validation / multipart errors to the app's `{ success: false, error }` shape. */
-function handle(fn: (request: Req, reply: FastifyReply) => Promise<unknown>) {
+export function handle(fn: (request: Req, reply: FastifyReply) => Promise<unknown>) {
   return async (request: Req, reply: FastifyReply) => {
     try {
       return await fn(request, reply);
@@ -75,7 +76,13 @@ export const bankStatementsController = {
       const f = part.fields[name] as { value?: unknown } | undefined;
       return typeof f?.value === 'string' && f.value !== '' ? f.value : undefined;
     };
-    const fields = uploadFieldsSchema.parse({ shopId: field('shopId'), bank: field('bank'), password: field('password') });
+    const fields = uploadFieldsSchema.parse({
+      shopId: field('shopId'),
+      bank: field('bank'),
+      password: field('password'),
+      bankAccountId: field('bankAccountId'),
+      duplicates: field('duplicates'),
+    });
     const buffer = await part.toBuffer();
     const result = await service.uploadStatement(scopeOf(req), {
       buffer,
@@ -83,6 +90,8 @@ export const bankStatementsController = {
       shopId: fields.shopId,
       bank: fields.bank,
       password: fields.password,
+      bankAccountId: fields.bankAccountId,
+      duplicates: fields.duplicates,
       uploadedById: req.currentUser!.userId,
     });
     return sendSuccess(reply, result, 201);
@@ -131,6 +140,26 @@ export const bankStatementsController = {
       .header('Content-Type', file.contentType)
       .header('Content-Disposition', `attachment; filename="${file.fileName}"`)
       .send(file.body);
+  }),
+
+  downloadFile: handle(async (req, reply) => {
+    const file = await service.getStatementFile(scopeOf(req), req.params.id);
+    return reply
+      .header('Content-Type', file.contentType)
+      .header('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(file.fileName)}`)
+      .send(file.body);
+  }),
+
+  // ---------------------------------------------------------------- shop bank accounts
+  listAccounts: handle(async (req, reply) => sendSuccess(reply, await service.listAccounts(scopeOf(req)))),
+
+  createAccount: handle(async (req, reply) =>
+    sendSuccess(reply, await service.createAccount(scopeOf(req), accountSchema.parse(req.body)), 201),
+  ),
+
+  deleteAccount: handle(async (req, reply) => {
+    await service.deleteAccount(scopeOf(req), req.params.id);
+    return sendSuccess(reply, { deleted: true });
   }),
 
   // ---------------------------------------------------------------- rules & settings
