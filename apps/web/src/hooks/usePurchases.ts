@@ -12,6 +12,8 @@ import type {
   PurchaseImportBatchSummary,
   ClassifyItemsRequest,
   ClassifyItemsResponse,
+  LookupItemRequest,
+  LookupItemResponse,
   SaveClassificationsRequest,
 } from '@retailerp/shared-types';
 
@@ -211,13 +213,18 @@ export function usePurchaseImportCommitMutation() {
  */
 export function useClassifyItemsQuery(
   names: string[],
-  options?: { enabled?: boolean; refreshToken?: number },
+  options?: { enabled?: boolean; refreshToken?: number; forceReask?: boolean },
 ) {
   const refreshToken = options?.refreshToken ?? 0;
+  const forceReask = Boolean(options?.forceReask);
   return useQuery({
-    queryKey: ['purchases', 'classify', names, refreshToken] as const,
+    queryKey: ['purchases', 'classify', names, refreshToken, forceReask] as const,
     queryFn: async () => {
-      const payload: ClassifyItemsRequest = { names, refresh: refreshToken > 0 };
+      // Only an explicit "identify all again" re-asks about names already
+      // answered. Raising the token alone just re-runs the step, so names
+      // settled earlier come straight back from the store and only the
+      // unresolved ones cost a call.
+      const payload: ClassifyItemsRequest = { names, refresh: forceReask };
       const { data } = await apiClient.post<ApiResponse<ClassifyItemsResponse>>('/purchases/import/classify', payload, {
         timeout: 300_000,
       });
@@ -230,6 +237,23 @@ export function useClassifyItemsQuery(
     gcTime: 30 * 60 * 1000,
     retry: false,
     refetchOnWindowFocus: false,
+  });
+}
+
+/**
+ * Fetch one product’s details from the web.
+ *
+ * Fired from a button, never from an effect — a mutation in an effect does
+ * not survive the remount React StrictMode performs in development.
+ */
+export function useLookupItemMutation() {
+  return useMutation({
+    mutationFn: async (payload: LookupItemRequest) => {
+      const { data } = await apiClient.post<ApiResponse<LookupItemResponse>>('/purchases/import/lookup', payload, {
+        timeout: 180_000,
+      });
+      return data.data!;
+    },
   });
 }
 

@@ -5,6 +5,7 @@ import { itemClassifier } from './item-classifier.js';
 import type {
   ClassifyItemsRequest,
   PurchaseImportRequest,
+  LookupItemRequest,
   SaveClassificationsRequest,
 } from '@retailerp/shared-types';
 import { sendSuccess, sendError, sendPaginated } from '../../utils/response.js';
@@ -149,6 +150,19 @@ export const purchasesController = {
       return sendSuccess(reply, result);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to identify the items';
+      return sendError(reply, message, 500);
+    }
+  },
+
+  /** POST /purchases/import/lookup — fetch one product’s details from the web. */
+  async lookupItem(request: FastifyRequest<{ Body: LookupItemRequest }>, reply: FastifyReply) {
+    try {
+      const result = await itemClassifier.lookup(request.body, {
+        tenantId: request.currentUser!.tenantId,
+      });
+      return sendSuccess(reply, result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to look the product up';
       return sendError(reply, message, 500);
     }
   },

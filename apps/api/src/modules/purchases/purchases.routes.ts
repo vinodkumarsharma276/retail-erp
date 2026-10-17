@@ -11,6 +11,7 @@ import {
   purchaseImportSchema,
   classifyItemsSchema,
   saveClassificationsSchema,
+  lookupItemSchema,
 } from './purchases.validation.js';
 
 export async function purchaseRoutes(app: FastifyInstance) {
@@ -43,6 +44,11 @@ export async function purchaseRoutes(app: FastifyInstance) {
     bodyLimit: 2 * 1024 * 1024,
     preHandler: [authenticate, requirePermission('purchases.create'), validate(classifyItemsSchema)],
   }, purchasesController.classifyItems as any);
+
+  // Fetch one product’s details from the web, from the identify screen.
+  app.post('/import/lookup', {
+    preHandler: [authenticate, requirePermission('purchases.create'), validate(lookupItemSchema)],
+  }, purchasesController.lookupItem as any);
 
   app.put('/import/classifications', {
     bodyLimit: 2 * 1024 * 1024,

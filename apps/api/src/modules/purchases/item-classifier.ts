@@ -3,10 +3,13 @@ import type {
   ClassifyItemsRequest,
   ClassifyItemsResponse,
   ItemClassification,
+  LookupItemRequest,
+  LookupItemResponse,
   SaveClassificationsRequest,
 } from '@retailerp/shared-types';
 import { prisma } from '../../config/database.js';
 import { config as appConfig } from '../../config/index.js';
+import { resolveProductSpecsByWebSearch } from '../ocr/providers/openai-vision.provider.js';
 
 /**
  * Working out what an item name on a purchase sheet means.
@@ -29,8 +32,12 @@ import { config as appConfig } from '../../config/index.js';
  */
 
 const MODEL_TIMEOUT_MS = 120_000;
-/** Names per request. Large enough to be cheap, small enough to stay accurate. */
-const BATCH_SIZE = 40;
+/**
+ * Names per request. Smaller batches are markedly more accurate: at 40 the
+ * model started overlooking categories that were on the list and proposing
+ * duplicates of them instead.
+ */
+const BATCH_SIZE = 20;
 /** Requests in flight at once. */
 const CONCURRENCY = 3;
 
@@ -144,11 +151,14 @@ For every input, return one object with its index.
 CATEGORY
 - "category_path" must be copied EXACTLY from the allowed category list, including the " > " separators. Choose the most specific entry that fits — prefer a child over its parent when the name makes the sub-type clear ("W/M- T80KMMB3Z" is a top loader, "FRONT LOAD" or "PX900H9SO4Z" a front loader).
 - When the sub-type genuinely cannot be told from the name, use the parent category instead of guessing a child.
-- If nothing in the list fits, set "category_path" to null and propose "new_category" with a short, conventional retail name (e.g. "Fan", "Sewing Machine", "Microwave Oven") and the best-fitting top-level parent from the list, or null if none fits. Never invent a path that is not on the list.
+- **Read the whole allowed list before deciding that nothing fits.** An existing category is almost always the right answer, and proposing a new one that duplicates an entry already on the list is the single worst mistake you can make here. A dry iron or steam iron is the list's "Iron". A mixer, grinder, JMG, juicer mixer grinder or food processor is its "Mixer Grinder". A phone, smartphone or mobile handset is its "Smartphone" (a basic keypad handset is "Feature Phone"). A steel almirah is its "Wardrobe". An inverter or tubular battery is its "Inverter Battery".
+- Only when NO entry on the list could reasonably hold the product: set "category_path" to null and fill "new_category". Whenever "category_path" is null you MUST give a "new_category" — returning null for both is never acceptable, because it leaves a person to work the product out with no help at all. A sewing machine, a fan, a microwave oven, a speaker, a home theatre, earbuds and a deep freezer are all real products that simply may not be on the list yet; name them plainly.
+- "new_category" needs a short, conventional retail name ("Fan", "Sewing Machine", "Microwave Oven", "Deep Freezer") and, as "parent", the top-level entry from the list that genuinely contains it — a deep freezer belongs with refrigeration, not with batteries. If no top-level entry genuinely contains it, use null rather than forcing a poor fit.
+- Never invent a "category_path" that is not on the list.
 
 BRAND
 - Return the real, properly spelled brand name, expanding the shop's abbreviations and correcting its typos: SAM / SAM MOB / SAMSUNG → Samsung; WHIR → Whirlpool; HIAER → Haier; SPK / ZEB → Zebronics; POLYCAB → Polycab; LUMINOUS → Luminous; WHIR REF → Whirlpool; SUJATA → Sujata.
-- Watch for brands that only appear mid-name, and for names where the leading token is a product type rather than a brand ("IRON MOD- GC098/30 DRY" and "DST1510/20 STEAM IRON PHILIPS" are both Philips; "SM BANDHAN DLX" is a Usha sewing machine model).
+- Watch for brands that only appear mid-name, and for names where the leading token is a product type rather than a brand ("IRON MOD- GC098/30 DRY" and "DST1510/20 STEAM IRON PHILIPS" are both Philips; "SM BANDHAN DLX" is a Usha sewing machine model; "ALMIRAH TRIVENI GT3-PF" and "TRIVENI ALMIRAH UGM-WF" are both Triveni, where ALMIRAH is the product type and TRIVENI the maker).
 - If no brand can be established, return an empty string and say so in "note".
 
 PRODUCT-TYPE ABBREVIATIONS the trade uses
@@ -285,6 +295,43 @@ async function askModel(names: string[], categoryList: string): Promise<ModelIte
 
 // --- Turning the model's answer into something storable --------------------------
 
+/** A category name reduced for comparison: lower case, letters and digits only. */
+function simplify(name: string): string {
+  return String(name ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+/**
+ * The existing category a proposed new one really means, if any.
+ *
+ * Models reach for a new category far too readily — proposing "Iron" when
+ * "Small Appliances > Iron" is already on the list, or "Juicer Mixer Grinder"
+ * for what the shop files under "Mixer Grinder". Creating those would split
+ * one product type across two categories for ever, so a proposal is matched
+ * back by name first: exactly, then by an existing name appearing whole
+ * inside the proposed one, longest match winning.
+ */
+function existingCategoryFor(
+  proposedName: string,
+  categoryByName: Map<string, CategoryNode>,
+): CategoryNode | null {
+  const proposed = simplify(proposedName);
+  if (!proposed) return null;
+  const exact = categoryByName.get(proposed);
+  if (exact) return exact;
+
+  let best: CategoryNode | null = null;
+  let bestLength = 0;
+  for (const [name, category] of categoryByName) {
+    if (name.length <= bestLength) continue;
+    // Whole words only, so "Iron" never matches "Ironing Board".
+    if (new RegExp(`(^| )${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}( |$)`).test(proposed)) {
+      best = category;
+      bestLength = name.length;
+    }
+  }
+  return best;
+}
+
 const titleCase = (value: string) =>
   value
     .toLowerCase()
@@ -369,6 +416,12 @@ export const itemClassifier = {
     ]);
     const categoryById = new Map(categories.map((category) => [category.id, category]));
     const categoryByLabel = new Map(categories.map((category) => [category.label.toLowerCase(), category]));
+    // By plain name, a leaf winning over a parent of the same name: used to
+    // catch a proposal for a category the tenant already has.
+    const categoryByName = new Map<string, CategoryNode>();
+    for (const category of [...categories].sort((a, b) => Number(a.isLeaf) - Number(b.isLeaf))) {
+      categoryByName.set(simplify(category.name), category);
+    }
     const topLevelByName = new Map(
       categories.filter((category) => !category.parentId).map((category) => [category.name.toLowerCase(), category]),
     );
@@ -439,9 +492,14 @@ export const itemClassifier = {
             results.set(key, unresolved(rawName, 'The model returned no answer for this name.'));
             return;
           }
-          const category = item.category_path
+          let category = item.category_path
             ? categoryByLabel.get(item.category_path.toLowerCase().replace(/\s*>\s*/g, ' > ')) ?? null
             : null;
+          // A proposal for something the tenant already has is that existing
+          // category, not a new one.
+          if (!category && item.new_category?.name) {
+            category = existingCategoryFor(item.new_category.name, categoryByName);
+          }
           const suggestion =
             !category && item.new_category?.name
               ? {
@@ -484,22 +542,37 @@ export const itemClassifier = {
     }
 
     // Categories the classifier asked for that the tenant does not have.
-    const suggestions = new Map<string, { name: string; parentName: string | null; examples: string[]; items: number }>();
+    //
+    // Grouped by name alone, never by name-and-parent: the model may file the
+    // same product type under different parents across batches, and offering
+    // "Sewing Machine" twice invites exactly the duplicate this is meant to
+    // avoid. When the parents disagree it is guessing, so the proposal goes to
+    // the top level rather than under a parent that may be wrong.
+    const suggestions = new Map<
+      string,
+      { name: string; parentName: string | null; examples: string[]; items: number; parents: Set<string | null> }
+    >();
     for (const classification of results.values()) {
       const suggestion = classification.suggestedCategory;
       if (!suggestion) continue;
-      const key = `${suggestion.name.toLowerCase()}|${suggestion.parentName?.toLowerCase() ?? ''}`;
-      const entry = suggestions.get(key) ?? { ...suggestion, examples: [], items: 0 };
+      const key = simplify(suggestion.name);
+      const entry = suggestions.get(key) ?? { ...suggestion, examples: [], items: 0, parents: new Set() };
       entry.items += 1;
+      entry.parents.add(suggestion.parentName);
       if (entry.examples.length < 4) entry.examples.push(classification.rawName);
       suggestions.set(key, entry);
+    }
+    for (const entry of suggestions.values()) {
+      if (entry.parents.size > 1) entry.parentName = null;
     }
 
     return {
       classifications: keys.map((key) => results.get(key)!),
       fromCache: cached.length,
       fromModel,
-      suggestedCategories: [...suggestions.values()].sort((a, b) => b.items - a.items),
+      suggestedCategories: [...suggestions.values()]
+        .map(({ parents, ...entry }) => entry)
+        .sort((a, b) => b.items - a.items),
       aiEnabled: classifierEnabled(),
       error,
     };
@@ -543,6 +616,59 @@ export const itemClassifier = {
         console.warn('[purchase-import] could not store classification:', cause);
       }
     }
+  },
+
+  /**
+   * Fetch one product’s specifications from the web.
+   *
+   * A register says what was bought but nothing about it, so this is offered
+   * per row once a brand and model are settled — either worked out by the
+   * classifier or typed in by hand. Without a model there is nothing to
+   * search for, which is why the model is required rather than optional.
+   */
+  async lookup(request: LookupItemRequest, ctx: ClassifierContext): Promise<LookupItemResponse> {
+    const modelNumber = String(request.modelNumber ?? '').trim();
+    if (!modelNumber) {
+      return { attributes: {}, filled: [], aiEnabled: classifierEnabled(), message: 'Enter the model number first — there is nothing to search for without it.' };
+    }
+    if (!classifierEnabled()) {
+      return { attributes: {}, filled: [], aiEnabled: false, message: 'Looking details up is switched off. Set OPENAI_API_KEY to use it.' };
+    }
+
+    const categories = await loadCategories(ctx.tenantId);
+    const category = categories.find((entry) => entry.id === request.categoryId) ?? null;
+    if (!category) {
+      return { attributes: {}, filled: [], aiEnabled: true, message: 'Choose a category first — it decides which details are worth looking for.' };
+    }
+    if (category.attributes.length === 0) {
+      return { attributes: {}, filled: [], aiEnabled: true, message: `${category.name} has no attributes set up, so there is nothing to fill in.` };
+    }
+
+    const found = await resolveProductSpecsByWebSearch({
+      brand: String(request.brand ?? '').trim() || null,
+      modelNumber,
+      categoryName: category.name,
+      attributes: category.attributes.map((attribute) => ({
+        attributeName: attribute.name,
+        attributeLabel: attribute.label,
+        attributeType: attribute.type,
+        options: attribute.options,
+      })),
+    });
+
+    const attributes = cleanAttributes(
+      Object.entries(found).map(([name, value]) => ({ name, value: String(value) })),
+      category,
+    );
+    const byName = new Map(category.attributes.map((attribute) => [attribute.name, attribute.label]));
+    const filled = Object.keys(attributes).map((name) => byName.get(name) ?? name);
+
+    return {
+      attributes,
+      filled,
+      aiEnabled: true,
+      message: filled.length === 0 ? 'Nothing reliable was found for this model.' : undefined,
+    };
   },
 
   /** Save corrections made in the preview so they hold for every later import. */

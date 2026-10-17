@@ -118,6 +118,15 @@ export const classifyItemsSchema = z.object({
   refresh: z.boolean().optional(),
 });
 
+/** One item to look up on the web from the identify screen. */
+export const lookupItemSchema = z.object({
+  nameKey: z.string().max(300),
+  rawName: z.string().min(1).max(300),
+  brand: z.string().max(200).default(''),
+  modelNumber: z.string().min(1, 'Enter the model number first').max(200),
+  categoryId: z.string().uuid(),
+});
+
 /** Corrections made in the preview, saved so they hold for later imports. */
 export const saveClassificationsSchema = z.object({
   classifications: z

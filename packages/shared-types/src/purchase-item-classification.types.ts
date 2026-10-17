@@ -81,3 +81,32 @@ export interface SaveClassificationsRequest {
     isDemoUnit?: boolean;
   }>;
 }
+
+/**
+ * Looking one item up on the web, from the identify screen.
+ *
+ * A purchase register names a product but describes nothing about it, so once
+ * the brand and model are settled — by the classifier, or typed in by hand
+ * when the sheet was too terse — this fetches the specifications that belong
+ * to that exact model.
+ */
+export interface LookupItemRequest {
+  /** The sheet name this is for, so the answer can be stored against it. */
+  nameKey: string;
+  rawName: string;
+  brand: string;
+  /** Required: nothing can be looked up without a model. */
+  modelNumber: string;
+  /** The category whose attributes should be filled. */
+  categoryId: string;
+}
+
+export interface LookupItemResponse {
+  /** Attributes found, keyed as the category defines them. */
+  attributes: Record<string, string>;
+  /** Their labels, for telling the user what came back. */
+  filled: string[];
+  aiEnabled: boolean;
+  /** Set when nothing could be found, or the lookup is unavailable. */
+  message?: string;
+}

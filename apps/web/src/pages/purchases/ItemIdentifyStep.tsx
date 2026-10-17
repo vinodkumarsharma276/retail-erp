@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Database, Loader2, RefreshCw, Sparkles } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Database, Globe, Loader2, RefreshCw, Sparkles } from 'lucide-react';
 import type { ItemClassification } from '@retailerp/shared-types';
 import { cn } from '../../lib/utils';
 import { Button } from '../../components/ui/button';
@@ -9,6 +9,7 @@ import { Input } from '../../components/ui/input';
 import { StatCard } from '../../components/ui/card';
 import {
   useClassifyItemsQuery,
+  useLookupItemMutation,
   useSaveClassificationsMutation,
 } from '../../hooks/usePurchases';
 import { useCreateCategoryMutation } from '../../hooks/useProducts';
@@ -39,14 +40,30 @@ interface Props {
   continuing: boolean;
 }
 
-type Edited = Record<string, Partial<Pick<ItemClassification, 'categoryId' | 'brand' | 'color' | 'isDemoUnit'>>>;
+type Edited = Record<
+  string,
+  Partial<Pick<ItemClassification, 'categoryId' | 'brand' | 'modelNumber' | 'color' | 'isDemoUnit' | 'attributes'>>
+>;
 
 const LOW_CONFIDENCE = 0.6;
 
+/**
+ * Whether a real model number is known.
+ *
+ * The classifier falls back to the sheet’s own wording when it cannot pick
+ * a model out, so a model identical to the raw name means it found none.
+ */
+function hasModel(item: ItemClassification): boolean {
+  const model = item.modelNumber.trim();
+  return model.length > 0 && model.toLowerCase() !== item.rawName.trim().toLowerCase();
+}
+
 export function ItemIdentifyStep(props: Props) {
   const [refreshToken, setRefreshToken] = useState(0);
-  const classify = useClassifyItemsQuery(props.itemNames, { refreshToken });
+  const [forceReask, setForceReask] = useState(false);
+  const classify = useClassifyItemsQuery(props.itemNames, { refreshToken, forceReask });
   const saveCorrections = useSaveClassificationsMutation();
+  const lookup = useLookupItemMutation();
   const createCategory = useCreateCategoryMutation();
 
   const [edited, setEdited] = useState<Edited>({});
@@ -54,14 +71,28 @@ export function ItemIdentifyStep(props: Props) {
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [onlyProblems, setOnlyProblems] = useState(false);
+  /** The row a web lookup is running for, and what each lookup reported. */
+  const [lookingUp, setLookingUp] = useState<string | null>(null);
+  const [lookupNotes, setLookupNotes] = useState<Record<string, string>>({});
 
   const items: ItemClassification[] = classify.data?.classifications ?? [];
 
   const suggestions = classify.data?.suggestedCategories ?? [];
 
-  /** Ask the model again for names that are already stored. */
-  const refresh = () => {
+  /** Ask the model again, even for names already answered. */
+  const reaskEverything = () => {
     setEdited({});
+    setForceReask(true);
+    setRefreshToken((token) => token + 1);
+  };
+
+  /**
+   * Run the step again without re-asking about names already settled —
+   * what is wanted after new categories are added, when only the items that
+   * had nowhere to go need looking at again.
+   */
+  const recheck = () => {
+    setForceReask(false);
     setRefreshToken((token) => token + 1);
   };
 
@@ -86,24 +117,32 @@ export function ItemIdentifyStep(props: Props) {
   const counts = useMemo(() => {
     let ready = 0;
     let noCategory = 0;
+    let noModel = 0;
     let lowConfidence = 0;
     let demo = 0;
     for (const item of resolved) {
       if (!item.categoryId) noCategory += 1;
-      else {
+      // The sheet is sometimes too terse to carry a model. Without one there
+      // is nothing to look the product up by, so it has to be typed in.
+      if (!hasModel(item)) noModel += 1;
+      if (item.categoryId && hasModel(item)) {
         ready += 1;
         if (item.decidedBy === 'ai' && item.confidence < LOW_CONFIDENCE) lowConfidence += 1;
       }
       if (item.isDemoUnit) demo += 1;
     }
-    return { ready, noCategory, lowConfidence, demo };
+    return { ready, noCategory, noModel, lowConfidence, demo };
   }, [resolved]);
 
   const rows = useMemo(() => {
     const sorted = [...resolved].sort((a, b) => {
       // Anything needing attention first, then the biggest quantities.
       const weight = (item: ItemClassification) =>
-        !item.categoryId ? 0 : item.decidedBy === 'ai' && item.confidence < LOW_CONFIDENCE ? 1 : 2;
+        !item.categoryId || !hasModel(item)
+          ? 0
+          : item.decidedBy === 'ai' && item.confidence < LOW_CONFIDENCE
+            ? 1
+            : 2;
       const byWeight = weight(a) - weight(b);
       if (byWeight !== 0) return byWeight;
       const units = (props.unitsByName.get(b.rawName) ?? 0) - (props.unitsByName.get(a.rawName) ?? 0);
@@ -112,12 +151,51 @@ export function ItemIdentifyStep(props: Props) {
     });
     if (!onlyProblems) return sorted;
     return sorted.filter(
-      (item) => !item.categoryId || (item.decidedBy === 'ai' && item.confidence < LOW_CONFIDENCE),
+      (item) =>
+        !item.categoryId ||
+        !hasModel(item) ||
+        (item.decidedBy === 'ai' && item.confidence < LOW_CONFIDENCE),
     );
   }, [resolved, onlyProblems, props.unitsByName]);
 
   const change = (nameKey: string, patch: Edited[string]) =>
     setEdited((current) => ({ ...current, [nameKey]: { ...current[nameKey], ...patch } }));
+
+  /** Fetch this product’s specifications from the web and fill them in. */
+  const findDetails = (item: ItemClassification) => {
+    if (!item.categoryId || !hasModel(item)) return;
+    setLookingUp(item.nameKey);
+    lookup.mutate(
+      {
+        nameKey: item.nameKey,
+        rawName: item.rawName,
+        brand: item.brand,
+        modelNumber: item.modelNumber,
+        categoryId: item.categoryId,
+      },
+      {
+        onSuccess: (result) => {
+          if (Object.keys(result.attributes).length > 0) {
+            change(item.nameKey, { attributes: { ...item.attributes, ...result.attributes } });
+          }
+          setLookupNotes((notes) => ({
+            ...notes,
+            [item.nameKey]: result.filled.length
+              ? `Found ${result.filled.join(', ')}.`
+              : result.message ?? 'Nothing was found for this model.',
+          }));
+        },
+        onError: (error) => {
+          const e = error as { response?: { data?: { error?: string } }; message?: string };
+          setLookupNotes((notes) => ({
+            ...notes,
+            [item.nameKey]: e?.response?.data?.error ?? e?.message ?? 'The lookup failed.',
+          }));
+        },
+        onSettled: () => setLookingUp(null),
+      },
+    );
+  };
 
   /** Create the categories ticked for approval, then re-identify. */
   const createApproved = async () => {
@@ -140,7 +218,7 @@ export function ItemIdentifyStep(props: Props) {
         });
       }
       setApproved({});
-      refresh();
+      recheck();
     } catch (error) {
       const e = error as { response?: { data?: { error?: string } }; message?: string };
       setCreateError(e?.response?.data?.error ?? e?.message ?? 'Could not create the categories.');
@@ -203,19 +281,20 @@ export function ItemIdentifyStep(props: Props) {
           <Button variant="outline" onClick={props.onBack}>
             Back
           </Button>
-          <Button onClick={refresh}>Try again</Button>
+          <Button onClick={reaskEverything}>Try again</Button>
         </div>
       </div>
     );
   }
 
-  const blocked = counts.noCategory > 0;
+  const blocked = counts.noCategory > 0 || counts.noModel > 0;
 
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatCard label="Identified" value={counts.ready} tone="success" />
         <StatCard label="Need a category" value={counts.noCategory} tone={blocked ? 'destructive' : 'default'} />
+        <StatCard label="Need a model" value={counts.noModel} tone={counts.noModel ? 'warning' : 'default'} />
         <StatCard label="Worth checking" value={counts.lowConfidence} tone={counts.lowConfidence ? 'warning' : 'default'} />
         <StatCard label="Display pieces" value={counts.demo} />
       </div>
@@ -230,7 +309,7 @@ export function ItemIdentifyStep(props: Props) {
             <Sparkles className="h-3.5 w-3.5" />
             {classify.data.fromModel} identified now
           </span>
-          <button type="button" onClick={refresh} className="inline-flex items-center gap-1.5 underline hover:text-foreground">
+          <button type="button" onClick={reaskEverything} className="inline-flex items-center gap-1.5 underline hover:text-foreground">
             <RefreshCw className={cn('h-3.5 w-3.5', classify.isFetching && 'animate-spin')} />
             Identify all again
           </button>
@@ -311,8 +390,10 @@ export function ItemIdentifyStep(props: Props) {
               <th className="px-3 py-2 font-medium">Item on the sheet</th>
               <th className="px-3 py-2 font-medium">Category</th>
               <th className="px-3 py-2 font-medium">Brand</th>
+              <th className="px-3 py-2 font-medium">Model</th>
               <th className="px-3 py-2 font-medium">Colour</th>
               <th className="px-3 py-2 text-center font-medium">Display</th>
+              <th className="px-3 py-2 font-medium">Details</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
@@ -359,6 +440,19 @@ export function ItemIdentifyStep(props: Props) {
                   </td>
                   <td className="px-3 py-2 align-top">
                     <Input
+                      value={hasModel(item) ? item.modelNumber : ''}
+                      onChange={(event) => change(item.nameKey, { modelNumber: event.target.value })}
+                      className={cn('min-w-[9rem]', !hasModel(item) && 'border-warning')}
+                      placeholder="Model number"
+                    />
+                    {!hasModel(item) && (
+                      <p className="mt-1 text-xs text-warning">
+                        The sheet does not say — type it in to look the details up.
+                      </p>
+                    )}
+                  </td>
+                  <td className="px-3 py-2 align-top">
+                    <Input
                       value={item.color ?? ''}
                       onChange={(event) => change(item.nameKey, { color: event.target.value || null })}
                       className="min-w-[8rem]"
@@ -374,12 +468,39 @@ export function ItemIdentifyStep(props: Props) {
                       aria-label={`${item.rawName} is a display piece`}
                     />
                   </td>
+                  <td className="px-3 py-2 align-top">
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      onClick={() => findDetails(item)}
+                      disabled={!item.categoryId || !hasModel(item) || lookingUp === item.nameKey}
+                      loading={lookingUp === item.nameKey}
+                      title={
+                        !hasModel(item)
+                          ? 'Enter the model number first'
+                          : !item.categoryId
+                            ? 'Choose a category first'
+                            : 'Search the web for this product’s details'
+                      }
+                    >
+                      <Globe className="mr-1 h-3 w-3" />
+                      Find details
+                    </Button>
+                    {Object.keys(item.attributes).length > 0 && (
+                      <p className="mt-1 max-w-[12rem] text-xs text-muted-foreground">
+                        {Object.entries(item.attributes).map(([k, v]) => `${k}: ${v}`).join(', ')}
+                      </p>
+                    )}
+                    {lookupNotes[item.nameKey] && (
+                      <p className="mt-1 max-w-[12rem] text-xs text-muted-foreground">{lookupNotes[item.nameKey]}</p>
+                    )}
+                  </td>
                 </tr>
               );
             })}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-3 py-8 text-center text-sm text-muted-foreground">
+                <td colSpan={7} className="px-3 py-8 text-center text-sm text-muted-foreground">
                   <CheckCircle2 className="mx-auto mb-2 h-5 w-5 text-success" />
                   Nothing needs attention.
                 </td>
@@ -398,7 +519,13 @@ export function ItemIdentifyStep(props: Props) {
         </Button>
         {blocked && (
           <p className="text-sm text-destructive">
-            {counts.noCategory} item name{counts.noCategory === 1 ? '' : 's'} still need a category.
+            {[
+              counts.noCategory > 0 && `${counts.noCategory} still need a category`,
+              counts.noModel > 0 && `${counts.noModel} still need a model number`,
+            ]
+              .filter(Boolean)
+              .join(', ')}
+            .
           </p>
         )}
       </div>
