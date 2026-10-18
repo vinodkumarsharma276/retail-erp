@@ -1,7 +1,9 @@
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle2, Database, Globe, Loader2, RefreshCw, RotateCcw, Sparkles } from 'lucide-react';
 import type { ItemClassification } from '@retailerp/shared-types';
+import { formatINR, formatDateIN } from '@retailerp/shared-utils';
 import { cn } from '../../lib/utils';
+import { itemNameKey } from '../../lib/tally-import';
 import { Button } from '../../components/ui/button';
 import { Badge } from '../../components/ui/badge';
 import { Select } from '../../components/ui/select';
@@ -24,6 +26,18 @@ import { useCreateCategoryMutation } from '../../hooks/useProducts';
  * whatever gets corrected so the same names are right next month.
  */
 
+export interface IdentifyInvoice {
+  key: string;
+  invoiceNumber: string;
+  voucherNumber: string | null;
+  supplier: string;
+  /** YYYY-MM-DD */
+  date: string;
+  units: number;
+  amount: number;
+  lines: Array<{ rowNumber: number; itemName: string; quantity: number; rate: number | null }>;
+}
+
 export interface IdentifyResult {
   classifications: ItemClassification[];
 }
@@ -31,10 +45,15 @@ export interface IdentifyResult {
 interface Props {
   /** Distinct item names from the sheet. */
   itemNames: string[];
-  /** Which invoices each name came in on, for context while deciding. */
-  sourcesByName: Map<string, Array<{ supplier: string; invoiceNumber: string; date: string }>>;
-  /** How many units each name accounts for, for sorting by importance. */
-  unitsByName: Map<string, number>;
+  /**
+   * The sheet read as invoices, each with the lines it carries.
+   *
+   * The screen is laid out this way because that is how the paper looks: a
+   * bill from a supplier with things on it. A product that arrives on two
+   * bills shows under both, and is still one decision — the choice is held
+   * against the item name, so changing it in one place changes it in both.
+   */
+  invoices: IdentifyInvoice[];
   categoryOptions: Array<{ id: string; label: string }>;
   /** Top-level categories, so an approved new one can be filed under one. */
   topLevelCategories: Array<{ id: string; name: string }>;
@@ -148,30 +167,34 @@ export function ItemIdentifyStep(props: Props) {
     return { ready, noCategory, noModel, lowConfidence, demo };
   }, [resolved]);
 
-  const rows = useMemo(() => {
-    const sorted = [...resolved].sort((a, b) => {
-      // Anything needing attention first, then the biggest quantities.
-      const weight = (item: ItemClassification) =>
-        !item.categoryId || !hasModel(item)
-          ? 0
-          : item.decidedBy === 'ai' && item.confidence <= LOW_CONFIDENCE
-            ? 1
-            : 2;
-      const byWeight = weight(a) - weight(b);
-      if (byWeight !== 0) return byWeight;
-      const units = (props.unitsByName.get(b.rawName) ?? 0) - (props.unitsByName.get(a.rawName) ?? 0);
-      if (units !== 0) return units;
-      return a.rawName.localeCompare(b.rawName);
-    });
-    if (!onlyProblems) return sorted;
-    return sorted.filter(
-      (item) =>
-        !item.categoryId ||
-        !hasModel(item) ||
-        (item.decidedBy === 'ai' && item.confidence <= LOW_CONFIDENCE),
-    );
-  }, [resolved, onlyProblems, props.unitsByName]);
+  const resolvedByKey = useMemo(
+    () => new Map(resolved.map((item) => [item.nameKey, item])),
+    [resolved],
+  );
 
+  /** An item still wanting a person: no category, no model, or a shaky guess. */
+  const needsAttention = (item: ItemClassification) =>
+    !item.categoryId || !hasModel(item) || (item.decidedBy === 'ai' && item.confidence <= LOW_CONFIDENCE);
+
+  /** The item names the table should show at all. */
+  const visibleKeys = useMemo(() => {
+    if (!onlyProblems) return new Set(resolved.map((item) => item.nameKey));
+    return new Set(resolved.filter(needsAttention).map((item) => item.nameKey));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resolved, onlyProblems]);
+
+  /**
+   * Invoices worth showing, in the order the sheet has them. Filtering down
+   * to what needs attention hides an invoice entirely once none of its lines
+   * do, rather than leaving an empty heading behind.
+   */
+  const visibleInvoices = useMemo(
+    () =>
+      props.invoices.filter((invoice) =>
+        invoice.lines.some((line) => visibleKeys.has(itemNameKey(line.itemName))),
+      ),
+    [props.invoices, visibleKeys],
+  );
   const change = (nameKey: string, patch: Edited[string]) =>
     setEdited((current) => ({ ...current, [nameKey]: { ...current[nameKey], ...patch } }));
 
@@ -425,9 +448,11 @@ export function ItemIdentifyStep(props: Props) {
         </div>
       )}
 
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">
-          {rows.length} of {resolved.length} item name{resolved.length === 1 ? '' : 's'}
+          {visibleInvoices.length} of {props.invoices.length} invoice{props.invoices.length === 1 ? '' : 's'}
+          {' · '}
+          {resolved.length} distinct item{resolved.length === 1 ? '' : 's'}
         </p>
         <label className="flex items-center gap-2 text-sm">
           <input
@@ -440,11 +465,13 @@ export function ItemIdentifyStep(props: Props) {
         </label>
       </div>
 
+      {/* One table, with each invoice announced by a heading row. Separate
+          tables per invoice would let the columns drift out of line. */}
       <div className="overflow-x-auto rounded-lg border border-border">
         <table className="w-full text-sm">
           <thead className="bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
             <tr>
-              <th className="px-3 py-2 font-medium">Item, and where it came from</th>
+              <th className="px-3 py-2 font-medium">Item</th>
               <th className="px-3 py-2 font-medium">Category</th>
               <th className="px-3 py-2 font-medium">Brand</th>
               <th className="px-3 py-2 font-medium">Model</th>
@@ -454,29 +481,44 @@ export function ItemIdentifyStep(props: Props) {
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {rows.map((item) => {
-              const units = props.unitsByName.get(item.rawName) ?? 0;
-              const sources = props.sourcesByName.get(item.rawName) ?? [];
-              const unsure = item.decidedBy === 'ai' && item.confidence <= LOW_CONFIDENCE;
-              return (
-                <tr key={item.nameKey} className={cn(!item.categoryId && 'bg-destructive/5')}>
+            {visibleInvoices.map((invoice) => (
+              <Fragment key={invoice.key}>
+                <tr className="border-t-2 border-border bg-muted/40">
+                  <td colSpan={7} className="px-3 py-2.5">
+                    <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5">
+                      <span>
+                        <span className="font-medium">{invoice.supplier || '(no supplier named)'}</span>
+                        <span className="ml-2 font-mono text-xs text-muted-foreground">{invoice.invoiceNumber}</span>
+                        {invoice.voucherNumber && (
+                          <span className="ml-2 text-xs text-muted-foreground">bill {invoice.voucherNumber}</span>
+                        )}
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {/^\d{4}-\d{2}-\d{2}$/.test(invoice.date) ? formatDateIN(invoice.date) : invoice.date}
+                        {' · '}
+                        {invoice.lines.length} line{invoice.lines.length === 1 ? '' : 's'}
+                        {' · '}
+                        {invoice.units} unit{invoice.units === 1 ? '' : 's'}
+                        {invoice.amount > 0 && <> · {formatINR(invoice.amount)}</>}
+                      </span>
+                    </div>
+                  </td>
+                </tr>
+                {invoice.lines
+                  .filter((line) => visibleKeys.has(itemNameKey(line.itemName)))
+                  .map((line) => {
+                    const item = resolvedByKey.get(itemNameKey(line.itemName));
+                    if (!item) return null;
+                    const units = line.quantity;
+                    const unsure = item.decidedBy === 'ai' && item.confidence <= LOW_CONFIDENCE;
+                    return (
+                <tr key={`${invoice.key}-${line.rowNumber}`} className={cn(!item.categoryId && 'bg-destructive/5')}>
                   <td className="max-w-[22rem] px-3 py-2 align-top">
                     <p className="font-medium leading-snug">{item.rawName}</p>
                     <p className="mt-0.5 text-xs text-muted-foreground">
                       {units} unit{units === 1 ? '' : 's'}
                       {item.modelNumber && item.modelNumber !== item.rawName && <> · model {item.modelNumber}</>}
                     </p>
-                    {sources.length > 0 && (
-                      <p className="mt-0.5 text-xs text-muted-foreground">
-                        {sources.slice(0, 2).map((source) => (
-                          <span key={`${source.invoiceNumber}-${source.supplier}`} className="mr-2 inline-block">
-                            <span className="text-foreground/70">{source.supplier}</span>
-                            <span className="font-mono"> {source.invoiceNumber}</span>
-                          </span>
-                        ))}
-                        {sources.length > 2 && <span>and {sources.length - 2} more</span>}
-                      </p>
-                    )}
                     {item.note && <p className="mt-0.5 text-xs text-warning">{item.note}</p>}
                   </td>
                   <td className="px-3 py-2 align-top">
@@ -581,8 +623,10 @@ export function ItemIdentifyStep(props: Props) {
                   </td>
                 </tr>
               );
-            })}
-            {rows.length === 0 && (
+                  })}
+              </Fragment>
+            ))}
+            {visibleInvoices.length === 0 && (
               <tr>
                 <td colSpan={7} className="px-3 py-8 text-center text-sm text-muted-foreground">
                   <CheckCircle2 className="mx-auto mb-2 h-5 w-5 text-success" />

@@ -46,7 +46,7 @@ import {
   readPurchaseSheet,
   type PurchaseSheetRead,
 } from '../../lib/purchase-sheet-import';
-import { ItemIdentifyStep } from './ItemIdentifyStep';
+import { ItemIdentifyStep, type IdentifyInvoice } from './ItemIdentifyStep';
 import { usePurchaseImportCommitMutation, usePurchaseImportPreviewMutation } from '../../hooks/usePurchases';
 import {
   useCategoryTreeQuery,
@@ -138,37 +138,42 @@ export function PurchaseImportPage() {
   );
 
   /**
-   * Which invoices each item name appears on.
+   * The sheet grouped the way the paper is: a bill from a supplier, with
+   * the things on it underneath.
    *
-   * The identify step holds one row per distinct item, so a product is
-   * decided once however many invoices it arrived on. That costs the
-   * invoice context the sheet has, so it is carried here instead: who it
-   * came from, on which bill, and when.
+   * A product arriving on two bills appears under both. That is not two
+   * decisions — what it is, is held against the item name — so setting it
+   * in either place sets it in both.
    */
-  const sourcesByName = useMemo(() => {
-    const map = new Map<string, Array<{ supplier: string; invoiceNumber: string; date: string }>>();
+  const identifyInvoices = useMemo<IdentifyInvoice[]>(() => {
+    const byKey = new Map<string, IdentifyInvoice>();
     for (const row of tally?.rows ?? purchaseSheet?.rows ?? []) {
-      const list = map.get(row.modelNumber) ?? [];
-      if (!list.some((s) => s.invoiceNumber === row.invoiceNumber && s.supplier === row.distributorName)) {
-        list.push({
-          supplier: row.distributorName,
+      const key = `${row.distributorName}|${row.invoiceNumber}`;
+      let invoice = byKey.get(key);
+      if (!invoice) {
+        invoice = {
+          key,
           invoiceNumber: row.invoiceNumber,
+          voucherNumber: row.voucherNumber ?? null,
+          supplier: row.distributorName,
           date: row.invoiceDate,
-        });
+          units: 0,
+          amount: 0,
+          lines: [],
+        };
+        byKey.set(key, invoice);
       }
-      map.set(row.modelNumber, list);
+      invoice.units += row.quantity;
+      invoice.amount += row.amount ?? (row.rate ?? 0) * row.quantity;
+      invoice.lines.push({
+        rowNumber: row.rowNumber,
+        itemName: row.modelNumber,
+        quantity: row.quantity,
+        rate: row.rate ?? null,
+      });
     }
-    return map;
-  }, [tally, purchaseSheet]);
+    return [...byKey.values()];  }, [tally, purchaseSheet]);
 
-  /** Units behind each item name, so the biggest lines are checked first. */
-  const unitsByName = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const row of tally?.rows ?? purchaseSheet?.rows ?? []) {
-      counts.set(row.modelNumber, (counts.get(row.modelNumber) ?? 0) + row.quantity);
-    }
-    return counts;
-  }, [tally, purchaseSheet]);
 
   const sheet = workbook?.sheets[sheetIndex];
   const headers = sheet?.rows[headerRow] ?? [];
@@ -508,8 +513,7 @@ export function PurchaseImportPage() {
           <SheetSummary read={purchaseSheet} fileName={fileName} />
           <ItemIdentifyStep
             itemNames={purchaseSheet.itemNames}
-            unitsByName={unitsByName}
-            sourcesByName={sourcesByName}
+            invoices={identifyInvoices}
             categoryOptions={categoryOptions}
             topLevelCategories={topLevelCategories}
             onBack={() => setStep('upload')}
@@ -531,8 +535,7 @@ export function PurchaseImportPage() {
           <TallySummary read={tally} fileName={fileName} />
           <ItemIdentifyStep
             itemNames={tally.itemNames}
-            unitsByName={unitsByName}
-            sourcesByName={sourcesByName}
+            invoices={identifyInvoices}
             categoryOptions={categoryOptions}
             topLevelCategories={topLevelCategories}
             onBack={() => setStep('upload')}
