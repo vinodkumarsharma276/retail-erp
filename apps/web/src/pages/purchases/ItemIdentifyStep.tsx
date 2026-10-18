@@ -167,6 +167,15 @@ export function ItemIdentifyStep(props: Props) {
     return { ready, noCategory, noModel, lowConfidence, demo };
   }, [resolved]);
 
+  /**
+   * Lines in the sheet, which is more than the number of products: the same
+   * item bought on four bills is four lines and one thing to identify.
+   */
+  const lineCount = useMemo(
+    () => props.invoices.reduce((sum, invoice) => sum + invoice.lines.length, 0),
+    [props.invoices],
+  );
+
   const resolvedByKey = useMemo(
     () => new Map(resolved.map((item) => [item.nameKey, item])),
     [resolved],
@@ -372,10 +381,10 @@ export function ItemIdentifyStep(props: Props) {
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StatCard label="Identified" value={counts.ready} tone="success" />
-        <StatCard label="Need a category" value={counts.noCategory} tone={blocked ? 'destructive' : 'default'} />
-        <StatCard label="Need a model" value={counts.noModel} tone={counts.noModel ? 'warning' : 'default'} />
-        <StatCard label="Worth checking" value={counts.lowConfidence} tone={counts.lowConfidence ? 'warning' : 'default'} />
+        <StatCard label="Products identified" value={counts.ready} tone="success" />
+        <StatCard label="Products needing a category" value={counts.noCategory} tone={blocked ? 'destructive' : 'default'} />
+        <StatCard label="Products needing a model" value={counts.noModel} tone={counts.noModel ? 'warning' : 'default'} />
+        <StatCard label="Products worth checking" value={counts.lowConfidence} tone={counts.lowConfidence ? 'warning' : 'default'} />
         <StatCard label="Display pieces" value={counts.demo} />
       </div>
 
@@ -452,7 +461,9 @@ export function ItemIdentifyStep(props: Props) {
         <p className="text-sm text-muted-foreground">
           {visibleInvoices.length} of {props.invoices.length} invoice{props.invoices.length === 1 ? '' : 's'}
           {' · '}
-          {resolved.length} distinct item{resolved.length === 1 ? '' : 's'}
+          {lineCount} item line{lineCount === 1 ? '' : 's'}
+          {' · '}
+          {resolved.length} distinct product{resolved.length === 1 ? '' : 's'} to identify
         </p>
         <label className="flex items-center gap-2 text-sm">
           <input
