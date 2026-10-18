@@ -31,6 +31,8 @@ export interface IdentifyResult {
 interface Props {
   /** Distinct item names from the sheet. */
   itemNames: string[];
+  /** Which invoices each name came in on, for context while deciding. */
+  sourcesByName: Map<string, Array<{ supplier: string; invoiceNumber: string; date: string }>>;
   /** How many units each name accounts for, for sorting by importance. */
   unitsByName: Map<string, number>;
   categoryOptions: Array<{ id: string; label: string }>;
@@ -442,7 +444,7 @@ export function ItemIdentifyStep(props: Props) {
         <table className="w-full text-sm">
           <thead className="bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
             <tr>
-              <th className="px-3 py-2 font-medium">Item on the sheet</th>
+              <th className="px-3 py-2 font-medium">Item, and where it came from</th>
               <th className="px-3 py-2 font-medium">Category</th>
               <th className="px-3 py-2 font-medium">Brand</th>
               <th className="px-3 py-2 font-medium">Model</th>
@@ -454,6 +456,7 @@ export function ItemIdentifyStep(props: Props) {
           <tbody className="divide-y divide-border">
             {rows.map((item) => {
               const units = props.unitsByName.get(item.rawName) ?? 0;
+              const sources = props.sourcesByName.get(item.rawName) ?? [];
               const unsure = item.decidedBy === 'ai' && item.confidence <= LOW_CONFIDENCE;
               return (
                 <tr key={item.nameKey} className={cn(!item.categoryId && 'bg-destructive/5')}>
@@ -463,6 +466,17 @@ export function ItemIdentifyStep(props: Props) {
                       {units} unit{units === 1 ? '' : 's'}
                       {item.modelNumber && item.modelNumber !== item.rawName && <> · model {item.modelNumber}</>}
                     </p>
+                    {sources.length > 0 && (
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {sources.slice(0, 2).map((source) => (
+                          <span key={`${source.invoiceNumber}-${source.supplier}`} className="mr-2 inline-block">
+                            <span className="text-foreground/70">{source.supplier}</span>
+                            <span className="font-mono"> {source.invoiceNumber}</span>
+                          </span>
+                        ))}
+                        {sources.length > 2 && <span>and {sources.length - 2} more</span>}
+                      </p>
+                    )}
                     {item.note && <p className="mt-0.5 text-xs text-warning">{item.note}</p>}
                   </td>
                   <td className="px-3 py-2 align-top">

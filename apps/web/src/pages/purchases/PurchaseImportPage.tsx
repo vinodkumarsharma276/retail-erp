@@ -137,6 +137,30 @@ export function PurchaseImportPage() {
     [categoryTree],
   );
 
+  /**
+   * Which invoices each item name appears on.
+   *
+   * The identify step holds one row per distinct item, so a product is
+   * decided once however many invoices it arrived on. That costs the
+   * invoice context the sheet has, so it is carried here instead: who it
+   * came from, on which bill, and when.
+   */
+  const sourcesByName = useMemo(() => {
+    const map = new Map<string, Array<{ supplier: string; invoiceNumber: string; date: string }>>();
+    for (const row of tally?.rows ?? purchaseSheet?.rows ?? []) {
+      const list = map.get(row.modelNumber) ?? [];
+      if (!list.some((s) => s.invoiceNumber === row.invoiceNumber && s.supplier === row.distributorName)) {
+        list.push({
+          supplier: row.distributorName,
+          invoiceNumber: row.invoiceNumber,
+          date: row.invoiceDate,
+        });
+      }
+      map.set(row.modelNumber, list);
+    }
+    return map;
+  }, [tally, purchaseSheet]);
+
   /** Units behind each item name, so the biggest lines are checked first. */
   const unitsByName = useMemo(() => {
     const counts = new Map<string, number>();
@@ -485,6 +509,7 @@ export function PurchaseImportPage() {
           <ItemIdentifyStep
             itemNames={purchaseSheet.itemNames}
             unitsByName={unitsByName}
+            sourcesByName={sourcesByName}
             categoryOptions={categoryOptions}
             topLevelCategories={topLevelCategories}
             onBack={() => setStep('upload')}
@@ -507,6 +532,7 @@ export function PurchaseImportPage() {
           <ItemIdentifyStep
             itemNames={tally.itemNames}
             unitsByName={unitsByName}
+            sourcesByName={sourcesByName}
             categoryOptions={categoryOptions}
             topLevelCategories={topLevelCategories}
             onBack={() => setStep('upload')}
@@ -706,7 +732,10 @@ function Review(props: {
   const { preview } = props;
   const [filter, setFilter] = useState<InvoiceFilter>('all');
   const [page, setPage] = useState(0);
-  const [open, setOpen] = useState<Set<string>>(new Set());
+  // Invoices show their items by default: what is about to be saved is the
+  // whole point of this screen, and a click per invoice to see it meant
+  // most were never looked at. The set now holds the ones collapsed.
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
   const filtered = preview.invoices.filter((inv) =>
     filter === 'ready'
@@ -724,7 +753,7 @@ function Review(props: {
     .reduce((s, i) => s + i.netAmount, 0);
 
   const toggle = (key: string) =>
-    setOpen((prev) => {
+    setCollapsed((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
       else next.add(key);
@@ -879,7 +908,7 @@ function Review(props: {
             </thead>
             <tbody>
               {shown.map((inv) => (
-                <InvoiceRow key={inv.key} inv={inv} open={open.has(inv.key)} onToggle={() => toggle(inv.key)} />
+                <InvoiceRow key={inv.key} inv={inv} open={!collapsed.has(inv.key)} onToggle={() => toggle(inv.key)} />
               ))}
               {shown.length === 0 && (
                 <tr>
