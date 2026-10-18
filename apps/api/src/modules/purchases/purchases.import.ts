@@ -18,6 +18,13 @@ import { prisma } from '../../config/database.js';
  * import skips invoices already recorded for that supplier.
  */
 
+/**
+ * The attribute that holds a handset’s IMEI numbers. Where a category
+ * requires it, a line without IMEIs is an error rather than a warning: an
+ * untraceable phone is no use for warranty or for finding who bought it.
+ */
+const IMEI_ATTRIBUTE = 'imeiNumbers';
+
 const round2 = (n: number) => Math.round(n * 100) / 100;
 const clean = (s: string | undefined | null) => (s ?? '').replace(/\s+/g, ' ').trim();
 const lower = (s: string | undefined | null) => clean(s).toLowerCase();
@@ -68,7 +75,18 @@ async function plan(request: PurchaseImportRequest, ctx: PlanContext) {
     prisma.shop.findFirst({ where: { id: ctx.shopId, tenantId: ctx.tenantId }, select: { id: true, name: true, code: true } }),
     prisma.productCategory.findMany({
       where: { tenantId: ctx.tenantId, isActive: true },
-      select: { id: true, name: true, path: true, isLeaf: true },
+      select: {
+        id: true,
+        name: true,
+        path: true,
+        isLeaf: true,
+        // Which categories insist on an IMEI, so a phone without one is
+        // caught here rather than saved half-identified.
+        attributes: {
+          where: { isActive: true, isRequired: true, attributeName: IMEI_ATTRIBUTE },
+          select: { attributeName: true },
+        },
+      },
     }),
     prisma.distributor.findMany({
       where: { tenantId: ctx.tenantId },
@@ -191,6 +209,17 @@ async function plan(request: PurchaseImportRequest, ctx: PlanContext) {
         );
       }
 
+      // A phone has to arrive with its IMEI numbers, one set per unit.
+      if (category && category.attributes.length > 0) {
+        const supplied = line.unitImeis ?? [];
+        const numbered = supplied.filter((unit) => unit.length > 0).length;
+        if (numbered === 0) {
+          errors.push(`${at}: "${modelNumber}" needs an IMEI number and the sheet gives none.`);
+        } else if (numbered !== quantity) {
+          errors.push(`${at}: ${numbered} of ${quantity} units have an IMEI number; every one needs its own.`);
+        }
+      }
+
       let brand = clean(line.brand);
       if (!brand && modelNumber) {
         brand = modelNumber.split(' ')[0];
@@ -214,6 +243,7 @@ async function plan(request: PurchaseImportRequest, ctx: PlanContext) {
         mrp,
         attributes: line.attributes ?? {},
         isDemoUnit: Boolean(line.isDemoUnit),
+        unitImeis: line.unitImeis ?? [],
       });
     }
 
@@ -476,6 +506,12 @@ export const purchaseImportService = {
             if (!givenMrp && !givenSellingPrice) attributes.priceNotSet = true;
 
             for (let n = 0; n < item.quantity; n += 1) {
+              // Each unit keeps its own IMEI numbers, so a handset can be
+              // traced from this invoice to the customer who buys it.
+              const imeis = item.unitImeis?.[n] ?? [];
+              const unitAttributes = imeis.length > 0
+                ? { ...attributes, [IMEI_ATTRIBUTE]: imeis }
+                : attributes;
               units.push({
                 tenantId: ctx.tenantId,
                 shopId: ctx.shopId,
@@ -490,7 +526,7 @@ export const purchaseImportService = {
                 distributorId,
                 purchaseId: purchase.id,
                 status: 'in_stock',
-                dynamicAttributes: attributes as Prisma.InputJsonValue,
+                dynamicAttributes: unitAttributes as Prisma.InputJsonValue,
                 warrantyMonths: row?.warrantyMonths != null ? Math.round(Number(row.warrantyMonths)) : null,
                 createdBy: ctx.userId,
               });

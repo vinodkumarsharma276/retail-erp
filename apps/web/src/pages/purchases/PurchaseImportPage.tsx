@@ -41,6 +41,11 @@ import {
   readTallyRegister,
   type TallyRead,
 } from '../../lib/tally-import';
+import {
+  describePurchaseSheet,
+  readPurchaseSheet,
+  type PurchaseSheetRead,
+} from '../../lib/purchase-sheet-import';
 import { ItemIdentifyStep } from './ItemIdentifyStep';
 import { usePurchaseImportCommitMutation, usePurchaseImportPreviewMutation } from '../../hooks/usePurchases';
 import {
@@ -118,6 +123,8 @@ export function PurchaseImportPage() {
   // Set when the file is a Tally purchase register, which is read outright
   // rather than column-mapped.
   const [tally, setTally] = useState<TallyRead | null>(null);
+  // The shop's own purchase sheet: flat columns, with IMEI numbers.
+  const [purchaseSheet, setPurchaseSheet] = useState<PurchaseSheetRead | null>(null);
   const [fileName, setFileName] = useState<string>("");
   const [updateDistributors, setUpdateDistributors] = useState(true);
 
@@ -133,11 +140,11 @@ export function PurchaseImportPage() {
   /** Units behind each item name, so the biggest lines are checked first. */
   const unitsByName = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const row of tally?.rows ?? []) {
+    for (const row of tally?.rows ?? purchaseSheet?.rows ?? []) {
       counts.set(row.modelNumber, (counts.get(row.modelNumber) ?? 0) + row.quantity);
     }
     return counts;
-  }, [tally]);
+  }, [tally, purchaseSheet]);
 
   const sheet = workbook?.sheets[sheetIndex];
   const headers = sheet?.rows[headerRow] ?? [];
@@ -169,6 +176,26 @@ export function PurchaseImportPage() {
       setHeaderRow(hdr);
       setMapping(autoMap(wb.sheets[biggest].rows[hdr] ?? []));
       setFileName(file.name);
+
+      // The shop's own sheet is tried first: it is the format they export
+      // deliberately, and its columns are declared rather than guessed at.
+      const own = readPurchaseSheet(wb);
+      if (own && own.rows.length > 0 && own.columns.missingRequired.length === 0) {
+        setPurchaseSheet(own);
+        setTally(null);
+        setRows(own.rows);
+        setSkippedRows(own.parse.skipped.map((entry) => entry.rowNumber));
+        setStep('identify');
+        return;
+      }
+      if (own && own.columns.missingRequired.length > 0) {
+        setReadError(
+          `That sheet is missing ${own.columns.missingRequired.map((c) => c.label).join(", ")}. ` +
+            own.columns.missingRequired.map((c) => c.purpose).join(" "),
+        );
+        return;
+      }
+      setPurchaseSheet(null);
 
       // A Tally purchase register has a fixed layout, so it is read as one
       // rather than put through column mapping: its "Particulars" column
@@ -274,6 +301,7 @@ export function PurchaseImportPage() {
     setStep('upload');
     setWorkbook(null);
     setTally(null);
+    setPurchaseSheet(null);
     setFileName('');
     setPreview(null);
     setResult(null);
@@ -303,7 +331,7 @@ export function PurchaseImportPage() {
         badge={<Badge tone="primary">Into {shopName ?? 'this shop'}{shopCode ? ` (${shopCode})` : ''}</Badge>}
       />
 
-      <Stepper step={step} tally={Boolean(tally)} />
+      <Stepper step={step} tally={Boolean(tally || purchaseSheet)} />
 
       {/* ------------------------------ Upload ------------------------------ */}
       {step === 'upload' && (
@@ -451,6 +479,28 @@ export function PurchaseImportPage() {
       )}
 
       {/* ------------------------------ Review ------------------------------ */}
+      {step === 'identify' && purchaseSheet && (
+        <div className="space-y-5">
+          <SheetSummary read={purchaseSheet} fileName={fileName} />
+          <ItemIdentifyStep
+            itemNames={purchaseSheet.itemNames}
+            unitsByName={unitsByName}
+            categoryOptions={categoryOptions}
+            topLevelCategories={topLevelCategories}
+            onBack={() => setStep('upload')}
+            continuing={previewMutation.isPending}
+            onContinue={({ classifications }) => {
+              const next = applyClassifications(purchaseSheet.rows, classifications);
+              setRows(next);
+              runPreview(next, categoryMap);
+            }}
+          />
+          {previewMutation.isError && (
+            <p className="text-sm text-destructive">{apiError(previewMutation.error)}</p>
+          )}
+        </div>
+      )}
+
       {step === 'identify' && tally && (
         <div className="space-y-5">
           <TallySummary read={tally} fileName={fileName} />
@@ -491,8 +541,8 @@ export function PurchaseImportPage() {
           setMarkPaid={setMarkPaid}
           paymentMode={paymentMode}
           setPaymentMode={setPaymentMode}
-          onBack={() => setStep(tally ? 'identify' : 'map')}
-          backLabel={tally ? 'Back to items' : 'Back to columns'}
+          onBack={() => setStep(tally || purchaseSheet ? 'identify' : 'map')}
+          backLabel={tally || purchaseSheet ? 'Back to items' : 'Back to columns'}
           onImport={() => setConfirmOpen(true)}
           importing={commitMutation.isPending}
           importError={commitMutation.isError ? apiError(commitMutation.error) : null}
@@ -1238,6 +1288,108 @@ function TallySummary({ read, fileName }: { read: TallyRead; fileName: string })
               </li>
             ))}
             {issues.length > 5 && <li>…and {issues.length - 5} more.</li>}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * What was read out of the shop's own purchase sheet, and how its columns
+ * lined up.
+ *
+ * The shops change their export over time, so the columns are reported
+ * rather than silently coerced: anything unrecognised is shown with example
+ * values, so a column added upstream is noticed here instead of going
+ * quietly missing from the stock it should have described.
+ */
+function SheetSummary({ read, fileName }: { read: PurchaseSheetRead; fileName: string }) {
+  const { columns } = read;
+  const imeiCount = read.rows.reduce((sum, row) => sum + (row.unitImeis?.flat().length ?? 0), 0);
+
+  return (
+    <div className="space-y-3 rounded-lg border border-border bg-card p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-title flex items-center gap-2">
+            <FileSpreadsheet className="h-4 w-4 text-primary" />
+            Purchase sheet
+          </h2>
+          <p className="text-caption">
+            {fileName}
+            {read.parse.sheetName && <> · {read.parse.sheetName}</>}
+            {read.imeiSheet && <> · IMEI numbers from “{read.imeiSheet.sheetName}”</>}
+          </p>
+        </div>
+        <Badge tone="neutral">{describePurchaseSheet(read)}</Badge>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-border pt-3 text-xs">
+        <span className="inline-flex items-center gap-1 text-success">
+          <CheckCircle2 className="h-3.5 w-3.5" />
+          {columns.recognised.length} columns recognised
+        </span>
+        {imeiCount > 0 && (
+          <span className="text-muted-foreground">{imeiCount} IMEI numbers matched to units</span>
+        )}
+        {columns.missingOptional.length > 0 && (
+          <span className="text-muted-foreground">
+            not in this sheet: {columns.missingOptional.join(", ")}
+          </span>
+        )}
+      </div>
+
+      {columns.unknown.length > 0 && (
+        <div className="rounded-md border border-warning/40 bg-warning/10 p-3">
+          <p className="flex items-center gap-2 text-sm font-medium">
+            <AlertTriangle className="h-4 w-4 text-warning" />
+            {columns.unknown.length} column{columns.unknown.length === 1 ? "" : "s"} this import does not know
+          </p>
+          <ul className="mt-2 space-y-1 text-xs">
+            {columns.unknown.map((column) => (
+              <li key={column.heading}>
+                <span className="font-medium">{column.heading}</span>
+                {column.samples.length > 0 && (
+                  <span className="text-muted-foreground"> — for example {column.samples.join(", ")}</span>
+                )}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Their values are read but not stored anywhere yet. Tell me what they mean and I will add them as
+            product fields; until then the rest of the sheet imports as normal.
+          </p>
+        </div>
+      )}
+
+      {read.imeiProblems.length > 0 && (
+        <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3">
+          <p className="flex items-center gap-2 text-sm font-medium">
+            <AlertCircle className="h-4 w-4 text-destructive" />
+            {read.imeiProblems.length} line{read.imeiProblems.length === 1 ? "" : "s"} whose IMEI numbers do not add up
+          </p>
+          <ul className="mt-1 space-y-0.5 text-xs text-muted-foreground">
+            {read.imeiProblems.slice(0, 5).map((problem) => (
+              <li key={problem.rowNumber}>
+                Row {problem.rowNumber}, {problem.item}: {problem.issue}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {read.parse.invoices.some((invoice) => invoice.issues.length > 0) && (
+        <div className="border-t border-border pt-3">
+          <p className="text-sm font-medium text-warning">Some invoices do not hang together</p>
+          <ul className="mt-1 space-y-0.5 text-xs text-muted-foreground">
+            {read.parse.invoices.flatMap((invoice) =>
+              invoice.issues.map((issue) => (
+                <li key={`${invoice.key}-${issue}`}>
+                  {invoice.invoiceNumber}: {issue}
+                </li>
+              )),
+            ).slice(0, 5)}
           </ul>
         </div>
       )}

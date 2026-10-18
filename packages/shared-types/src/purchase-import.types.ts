@@ -56,6 +56,12 @@ export interface PurchaseImportRow {
   warrantyMonths?: number;
   /** Category attributes to store on each unit (RAM, storage, size). */
   attributes?: Record<string, string>;
+  /**
+   * IMEI numbers for each unit of this line, in order: one entry per unit,
+   * each holding that handset’s number or numbers. A dual-SIM handset has
+   * two, so this is a list of lists rather than a flat list.
+   */
+  unitImeis?: string[][];
   /** A display or demo piece: bought, but not sellable as new. */
   isDemoUnit?: boolean;
   /** The buyer named on the voucher, used to check the sheet matches the shop. */
@@ -103,6 +109,8 @@ export interface PurchaseImportPreviewItem {
   attributes: Record<string, string>;
   /** A display or demo piece, flagged so it is not sold as new. */
   isDemoUnit: boolean;
+  /** IMEI numbers for each unit of this line, in order. */
+  unitImeis: string[][];
 }
 
 export interface PurchaseImportPreviewInvoice {
@@ -202,4 +210,23 @@ export interface PurchaseImportBatchSummary {
   distributorsUpdated: number;
   createdByName: string | null;
   createdAt: string;
+}
+
+/**
+ * What the reader made of a sheet’s columns.
+ *
+ * The shops change their export over time, so a sheet is never coerced into
+ * the shape the importer expects. What it did not recognise, and what it
+ * expected but could not find, are both put in front of the person
+ * uploading before anything is read.
+ */
+export interface SheetColumnReport {
+  /** Columns understood, by their heading in the sheet. */
+  recognised: Array<{ heading: string; field: string; label: string }>;
+  /** Headings that mean nothing to the importer yet, with sample values. */
+  unknown: Array<{ heading: string; samples: string[] }>;
+  /** Required columns the sheet does not carry, and what each was for. */
+  missingRequired: Array<{ label: string; purpose: string }>;
+  /** Optional columns absent. Worth knowing, never a problem. */
+  missingOptional: string[];
 }
