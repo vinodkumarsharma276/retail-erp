@@ -3,6 +3,8 @@ import type {
   ClassifyItemsRequest,
   ClassifyItemsResponse,
   ItemClassification,
+  ForgetClassificationsRequest,
+  ForgetClassificationsResponse,
   LookupItemRequest,
   LookupItemResponse,
   SaveClassificationsRequest,
@@ -169,7 +171,9 @@ PRODUCT-TYPE ABBREVIATIONS the trade uses
   MOB = mobile phone               PBC = plastic base cover     HA = hand attachment
 
 MODEL NUMBER
-- The manufacturer's model designation only, with the brand, the colour and any RAM/storage figures removed, and stray spacing inside it closed up ("UA 32H4680FUXXL" → "UA32H4680FUXXL").
+- The manufacturer's model designation only, with the brand, the colour and any RAM/storage figures removed.
+- Write it the way the manufacturer writes it. Close a gap ONLY where a space has obviously split one continuous part code: "UA 32H4680FUXXL" is "UA32H4680FUXXL", and "MH-2044 DB" is "MH-2044 DB". Never join two parts that are separate words of the name — "A6 5G" stays "A6 5G", not "A65G"; likewise "F33 5G", "A6X 5G", "Y31T", "Note 15 Pro". Suffixes such as 5G, Pro, Max, Plus, Neo and DLX are part of the model and keep their spacing.
+- When in doubt, leave the spacing exactly as the sheet has it. A model is searched for on the web later, so an invented spelling is worse than an untidy one.
 
 COLOUR
 - The colour as written, in Title Case ("ICE WHITE" → "Ice White", "SAPPHIRE BLUE" → "Sapphire Blue"). Null when the name gives none. Do not treat a finish that is part of the model code as a colour.
@@ -669,6 +673,23 @@ export const itemClassifier = {
       aiEnabled: true,
       message: filled.length === 0 ? 'Nothing reliable was found for this model.' : undefined,
     };
+  },
+
+  /**
+   * Forget stored answers for these names, so they are worked out again.
+   *
+   * Used when a stored answer is plainly wrong. Correcting a row by hand is
+   * usually better — that is kept as a decision and never overruled — but
+   * when the right answer is not obvious either, forgetting gives the
+   * classifier another go without disturbing the rest of the sheet.
+   */
+  async forget(request: ForgetClassificationsRequest, ctx: ClassifierContext): Promise<ForgetClassificationsResponse> {
+    const nameKeys = [...new Set((request.nameKeys ?? []).map(itemNameKey).filter(Boolean))];
+    if (nameKeys.length === 0) return { forgotten: 0 };
+    const { count } = await prisma.importItemClassification.deleteMany({
+      where: { tenantId: ctx.tenantId, nameKey: { in: nameKeys } },
+    });
+    return { forgotten: count };
   },
 
   /** Save corrections made in the preview so they hold for every later import. */

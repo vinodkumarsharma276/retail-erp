@@ -110,3 +110,20 @@ export interface LookupItemResponse {
   /** Set when nothing could be found, or the lookup is unavailable. */
   message?: string;
 }
+
+/**
+ * Forgetting stored answers.
+ *
+ * Caching is what makes a repeat import instant, but it also means a wrong
+ * answer keeps being served. Forgetting one drops it from the store so the
+ * next run works it out afresh — the way to undo a bad call without
+ * re-asking about every other name on the sheet.
+ */
+export interface ForgetClassificationsRequest {
+  /** The stored names to forget. */
+  nameKeys: string[];
+}
+
+export interface ForgetClassificationsResponse {
+  forgotten: number;
+}

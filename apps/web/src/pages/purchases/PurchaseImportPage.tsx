@@ -492,6 +492,7 @@ export function PurchaseImportPage() {
           paymentMode={paymentMode}
           setPaymentMode={setPaymentMode}
           onBack={() => setStep(tally ? 'identify' : 'map')}
+          backLabel={tally ? 'Back to items' : 'Back to columns'}
           onImport={() => setConfirmOpen(true)}
           importing={commitMutation.isPending}
           importError={commitMutation.isError ? apiError(commitMutation.error) : null}
@@ -635,6 +636,8 @@ function SheetPeek({ rows, headerRow, rowOffset }: { rows: unknown[][]; headerRo
 function Review(props: {
   preview: PurchaseImportPreview;
   skippedRows: number[];
+  /** Where Back goes: a Tally register has no column-matching step. */
+  backLabel: string;
   updateDistributors: boolean;
   setUpdateDistributors: (value: boolean) => void;
   categoryOptions: Array<{ id: string; label: string }>;
@@ -878,7 +881,7 @@ function Review(props: {
           {!props.markPaid && <span className="text-xs text-muted-foreground">Otherwise the full amount shows as owed to each supplier.</span>}
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={props.onBack}>Back to columns</Button>
+          <Button variant="outline" onClick={props.onBack}>{props.backLabel}</Button>
           <Button
             onClick={props.onImport}
             disabled={preview.summary.ready === 0 || props.rechecking}

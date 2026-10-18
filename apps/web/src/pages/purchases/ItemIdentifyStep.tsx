@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Database, Globe, Loader2, RefreshCw, Sparkles } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Database, Globe, Loader2, RefreshCw, RotateCcw, Sparkles } from 'lucide-react';
 import type { ItemClassification } from '@retailerp/shared-types';
 import { cn } from '../../lib/utils';
 import { Button } from '../../components/ui/button';
@@ -9,6 +9,7 @@ import { Input } from '../../components/ui/input';
 import { StatCard } from '../../components/ui/card';
 import {
   useClassifyItemsQuery,
+  useForgetClassificationsMutation,
   useLookupItemMutation,
   useSaveClassificationsMutation,
 } from '../../hooks/usePurchases';
@@ -64,6 +65,7 @@ export function ItemIdentifyStep(props: Props) {
   const classify = useClassifyItemsQuery(props.itemNames, { refreshToken, forceReask });
   const saveCorrections = useSaveClassificationsMutation();
   const lookup = useLookupItemMutation();
+  const forget = useForgetClassificationsMutation();
   const createCategory = useCreateCategoryMutation();
 
   const [edited, setEdited] = useState<Edited>({});
@@ -73,6 +75,7 @@ export function ItemIdentifyStep(props: Props) {
   const [onlyProblems, setOnlyProblems] = useState(false);
   /** The row a web lookup is running for, and what each lookup reported. */
   const [lookingUp, setLookingUp] = useState<string | null>(null);
+  const [forgetting, setForgetting] = useState<string | null>(null);
   const [lookupNotes, setLookupNotes] = useState<Record<string, string>>({});
 
   const items: ItemClassification[] = classify.data?.classifications ?? [];
@@ -160,6 +163,35 @@ export function ItemIdentifyStep(props: Props) {
 
   const change = (nameKey: string, patch: Edited[string]) =>
     setEdited((current) => ({ ...current, [nameKey]: { ...current[nameKey], ...patch } }));
+
+  /**
+   * Drop the stored answer for this name and work it out again.
+   *
+   * Only the forgotten name costs a call — every other name on the sheet
+   * still comes back from the store.
+   */
+  const reaskOne = (item: ItemClassification) => {
+    setForgetting(item.nameKey);
+    forget.mutate(
+      { nameKeys: [item.nameKey] },
+      {
+        onSuccess: () => {
+          setEdited((current) => {
+            const next = { ...current };
+            delete next[item.nameKey];
+            return next;
+          });
+          setLookupNotes((notes) => {
+            const next = { ...notes };
+            delete next[item.nameKey];
+            return next;
+          });
+          recheck();
+        },
+        onSettled: () => setForgetting(null),
+      },
+    );
+  };
 
   /** Fetch this product’s specifications from the web and fill them in. */
   const findDetails = (item: ItemClassification) => {
@@ -428,6 +460,21 @@ export function ItemIdentifyStep(props: Props) {
                       {item.decidedBy === 'cache' && <Badge tone="neutral">From an earlier import</Badge>}
                       {edited[item.nameKey]?.categoryId !== undefined && <Badge tone="neutral">Changed</Badge>}
                       {unsure && <Badge tone="warning">Please check</Badge>}
+                      {/* A stored answer can be plainly wrong. Correcting it above is
+                          kept as your decision; this instead throws the stored one away
+                          so it is worked out afresh. */}
+                      {(item.decidedBy === 'cache' || item.decidedBy === 'user') && (
+                        <button
+                          type="button"
+                          onClick={() => reaskOne(item)}
+                          disabled={forgetting === item.nameKey}
+                          className="inline-flex items-center gap-1 text-xs text-muted-foreground underline hover:text-foreground disabled:opacity-50"
+                          title="Forget the stored answer and work this name out again"
+                        >
+                          <RotateCcw className={cn('h-3 w-3', forgetting === item.nameKey && 'animate-spin')} />
+                          Work out again
+                        </button>
+                      )}
                     </div>
                   </td>
                   <td className="px-3 py-2 align-top">

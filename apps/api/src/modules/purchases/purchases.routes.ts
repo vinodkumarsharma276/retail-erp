@@ -12,6 +12,7 @@ import {
   classifyItemsSchema,
   saveClassificationsSchema,
   lookupItemSchema,
+  forgetClassificationsSchema,
 } from './purchases.validation.js';
 
 export async function purchaseRoutes(app: FastifyInstance) {
@@ -54,6 +55,11 @@ export async function purchaseRoutes(app: FastifyInstance) {
     bodyLimit: 2 * 1024 * 1024,
     preHandler: [authenticate, requirePermission('purchases.create'), validate(saveClassificationsSchema)],
   }, purchasesController.saveClassifications as any);
+
+  // Forget a stored answer, so the name is worked out again next run.
+  app.delete('/import/classifications', {
+    preHandler: [authenticate, requirePermission('purchases.create'), validate(forgetClassificationsSchema)],
+  }, purchasesController.forgetClassifications as any);
 
   // Past import runs.
   app.get('/import/batches', {

@@ -12,6 +12,8 @@ import type {
   PurchaseImportBatchSummary,
   ClassifyItemsRequest,
   ClassifyItemsResponse,
+  ForgetClassificationsRequest,
+  ForgetClassificationsResponse,
   LookupItemRequest,
   LookupItemResponse,
   SaveClassificationsRequest,
@@ -251,6 +253,23 @@ export function useLookupItemMutation() {
     mutationFn: async (payload: LookupItemRequest) => {
       const { data } = await apiClient.post<ApiResponse<LookupItemResponse>>('/purchases/import/lookup', payload, {
         timeout: 180_000,
+      });
+      return data.data!;
+    },
+  });
+}
+
+/**
+ * Forget stored answers, so those names are worked out again.
+ *
+ * The store is what makes a repeat import instant, but it also keeps
+ * serving a wrong answer. This is how one gets dropped.
+ */
+export function useForgetClassificationsMutation() {
+  return useMutation({
+    mutationFn: async (payload: ForgetClassificationsRequest) => {
+      const { data } = await apiClient.delete<ApiResponse<ForgetClassificationsResponse>>('/purchases/import/classifications', {
+        data: payload,
       });
       return data.data!;
     },

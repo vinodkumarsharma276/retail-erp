@@ -5,6 +5,7 @@ import { itemClassifier } from './item-classifier.js';
 import type {
   ClassifyItemsRequest,
   PurchaseImportRequest,
+  ForgetClassificationsRequest,
   LookupItemRequest,
   SaveClassificationsRequest,
 } from '@retailerp/shared-types';
@@ -176,6 +177,19 @@ export const purchasesController = {
       return sendSuccess(reply, result);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to save the corrections';
+      return sendError(reply, message, 500);
+    }
+  },
+
+  /** DELETE /purchases/import/classifications — forget stored answers. */
+  async forgetClassifications(request: FastifyRequest<{ Body: ForgetClassificationsRequest }>, reply: FastifyReply) {
+    try {
+      const result = await itemClassifier.forget(request.body, {
+        tenantId: request.currentUser!.tenantId,
+      });
+      return sendSuccess(reply, result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to forget those answers';
       return sendError(reply, message, 500);
     }
   },

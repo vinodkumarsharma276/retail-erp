@@ -118,6 +118,11 @@ export const classifyItemsSchema = z.object({
   refresh: z.boolean().optional(),
 });
 
+/** Stored answers to forget, so they are worked out again. */
+export const forgetClassificationsSchema = z.object({
+  nameKeys: z.array(z.string().min(1).max(300)).min(1).max(2000),
+});
+
 /** One item to look up on the web from the identify screen. */
 export const lookupItemSchema = z.object({
   nameKey: z.string().max(300),
