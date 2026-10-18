@@ -93,6 +93,7 @@ const importRowSchema = z.object({
   voucherNumber: optText,
   attributes: z.record(z.string().max(200)).optional(),
   isDemoUnit: z.boolean().optional(),
+  modelKnown: z.boolean().optional(),
   unitImeis: z.array(z.array(z.string().max(20))).max(500).optional(),
 });
 

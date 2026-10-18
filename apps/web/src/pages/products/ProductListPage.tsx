@@ -29,6 +29,7 @@ import {
   DropdownMenuItem,
 } from '../../components/ui/dropdown-menu';
 import { StatusBadge } from '../../components/StatusBadge';
+import { IncompleteProductBadge } from '../../components/IncompleteProductBadge';
 import { SerialPickerDialog } from '../../components/SerialPickerDialog';
 import {
   formatINR,
@@ -340,7 +341,12 @@ export function ProductListPage() {
                           </td>
                         )}
                         <td className="px-3 py-3 font-medium">{g.brand}</td>
-                        <td className="px-3 py-3">{g.modelNumber}</td>
+                        <td className="px-3 py-3">
+                          <span className="inline-flex items-center gap-1.5">
+                            {g.modelNumber}
+                            <IncompleteProductBadge counts={g.needsAttention} quantity={g.quantity} />
+                          </span>
+                        </td>
                         <td className="px-3 py-3 text-muted-foreground">{categoryName}</td>
                         <td className="px-3 py-3 text-right">
                           <span className="inline-flex items-center justify-center rounded-md bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">

@@ -214,6 +214,52 @@ export const productsService = {
     const shopMap = new Map(shops.map((s) => [s.id, s]));
     const categoryMap = new Map(categories.map((c) => [c.id, c]));
 
+    // How many units of each group are still missing something. A sheet says
+    // what was bought and little else, so these gaps are normal and need to
+    // be visible on the list rather than only inside each unit. Counted for
+    // the page being shown, never the whole table.
+    const groupKey = (g: { shopId: string; categoryId: string; brand: string; modelNumber: string; status: string }) =>
+      [g.shopId, g.categoryId, g.brand, g.modelNumber, g.status].join("|");
+    const incomplete = new Map<string, { model: number; price: number; specs: number }>();
+    if (pageSlice.length > 0) {
+      const units = await prisma.product.findMany({
+        where: {
+          AND: [
+            where,
+            {
+              OR: pageSlice.map((g) => ({
+                shopId: g.shopId,
+                categoryId: g.categoryId,
+                brand: g.brand,
+                modelNumber: g.modelNumber,
+                status: g.status,
+              })),
+            },
+          ],
+        },
+        select: {
+          shopId: true, categoryId: true, brand: true, modelNumber: true, status: true,
+          dynamicAttributes: true,
+        },
+      });
+      const BOOKKEEPING = new Set([
+        'importedFrom', 'priceNotSet', 'modelNotSet', 'isDemoUnit',
+        'mrpSuggestion', 'specsLookedUpAt', 'needsReview', 'imeiNumbers',
+      ]);
+      for (const unit of units) {
+        const key = groupKey(unit);
+        const entry = incomplete.get(key) ?? { model: 0, price: 0, specs: 0 };
+        const attributes = (unit.dynamicAttributes ?? {}) as Record<string, unknown>;
+        if (attributes.modelNotSet === true) entry.model += 1;
+        if (attributes.priceNotSet === true) entry.price += 1;
+        const hasSpecs = Object.entries(attributes).some(
+          ([k, v]) => !BOOKKEEPING.has(k) && v !== null && v !== undefined && v !== '',
+        );
+        if (!hasSpecs) entry.specs += 1;
+        incomplete.set(key, entry);
+      }
+    }
+
     const rows = pageSlice.map((g) => ({
       shopId: g.shopId,
       shop: shopMap.get(g.shopId) ?? null,
@@ -223,6 +269,7 @@ export const productsService = {
       modelNumber: g.modelNumber,
       status: g.status,
       quantity: g._count._all,
+      needsAttention: incomplete.get(groupKey(g)) ?? { model: 0, price: 0, specs: 0 },
       mrpMin: g._min.mrp,
       mrpMax: g._max.mrp,
       purchasePriceMin: g._min.purchasePrice,

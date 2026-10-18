@@ -62,6 +62,13 @@ export interface PurchaseImportRow {
    * two, so this is a list of lists rather than a flat list.
    */
   unitImeis?: string[][];
+/**
+   * False when no real model number could be worked out and the item name
+   * is standing in for one. The unit is still imported — it was bought and
+   * it exists — but it is marked so the gap can be filled from the product
+   * list rather than holding up the whole sheet.
+   */
+  modelKnown?: boolean;
   /** A display or demo piece: bought, but not sellable as new. */
   isDemoUnit?: boolean;
   /** The buyer named on the voucher, used to check the sheet matches the shop. */
@@ -117,6 +124,8 @@ export interface PurchaseImportPreviewInvoice {
   /** Stable grouping key: supplier + invoice number + date. */
   key: string;
   invoiceNumber: string;
+  /** The shop's own bill/voucher number, printed beside the supplier's. */
+  voucherNumber: string | null;
   invoiceDate: string;
   rowNumbers: number[];
   distributor: {

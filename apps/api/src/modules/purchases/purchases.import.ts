@@ -262,6 +262,7 @@ async function plan(request: PurchaseImportRequest, ctx: PlanContext) {
     invoices.push({
       key,
       invoiceNumber,
+      voucherNumber: clean(lines.find((l) => l.voucherNumber)?.voucherNumber) || null,
       invoiceDate,
       rowNumbers: lines.map((l) => l.rowNumber),
       distributor: {
@@ -504,6 +505,9 @@ export const purchaseImportService = {
             // invent a retail price, the unit is stored at cost and marked so
             // it can be found and priced before it is sold.
             if (!givenMrp && !givenSellingPrice) attributes.priceNotSet = true;
+            // No real model was established, so the item name is standing in.
+            // Marked rather than refused: the unit was genuinely bought.
+            if (row?.modelKnown === false) attributes.modelNotSet = true;
 
             for (let n = 0; n < item.quantity; n += 1) {
               // Each unit keeps its own IMEI numbers, so a handset can be

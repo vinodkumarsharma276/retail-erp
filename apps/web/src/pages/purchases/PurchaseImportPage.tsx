@@ -961,7 +961,14 @@ function InvoiceRow({ inv, open, onToggle }: { inv: PurchaseImportPreviewInvoice
           {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
         </td>
         <td className="whitespace-nowrap px-3 py-2">{/^\d{4}-\d{2}-\d{2}$/.test(inv.invoiceDate) ? formatDateIN(inv.invoiceDate) : inv.invoiceDate || '—'}</td>
-        <td className="px-3 py-2 font-mono text-xs">{inv.invoiceNumber || '—'}</td>
+        <td className="px-3 py-2 font-mono text-xs">
+          {inv.invoiceNumber || '—'}
+          {inv.voucherNumber && (
+            <span className="mt-0.5 block font-sans text-[11px] text-muted-foreground">
+              bill {inv.voucherNumber}
+            </span>
+          )}
+        </td>
         <td className="px-3 py-2">
           <span className="font-medium">{inv.distributor.name || '—'}</span>{' '}
           {inv.distributor.matchedId ? (

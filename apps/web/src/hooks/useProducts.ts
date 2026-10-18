@@ -114,6 +114,8 @@ export interface ProductGroupRow {
   modelNumber: string;
   status: string;
   quantity: number;
+  /** Units of this group still missing something, by what is missing. */
+  needsAttention?: { model: number; price: number; specs: number };
   mrpMin: string | null;
   mrpMax: string | null;
   purchasePriceMin: string | null;

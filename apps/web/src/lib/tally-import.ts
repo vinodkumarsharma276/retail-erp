@@ -109,6 +109,11 @@ export function applyClassifications(
       brand: match.brand || row.brand,
       // Keep the sheet's own wording as the model when nothing better was found.
       modelNumber: match.modelNumber || row.modelNumber,
+      // Whether a real model was ever established, so a unit without one can
+      // be flagged on the product list rather than holding up the sheet.
+      modelKnown:
+        Boolean(match.modelNumber) &&
+        match.modelNumber.trim().toLowerCase() !== match.rawName.trim().toLowerCase(),
       color: match.color ?? row.color,
       attributes: match.attributes,
       isDemoUnit: match.isDemoUnit,

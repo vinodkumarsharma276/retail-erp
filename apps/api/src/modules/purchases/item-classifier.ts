@@ -155,7 +155,8 @@ CATEGORY
 - "category_path" must be copied EXACTLY from the allowed category list, including the " > " separators. Choose the most specific entry that fits — prefer a child over its parent when the name makes the sub-type clear ("W/M- T80KMMB3Z" is a top loader, "FRONT LOAD" or "PX900H9SO4Z" a front loader).
 - When the sub-type genuinely cannot be told from the name, use the parent category instead of guessing a child.
 - **Read the whole allowed list before deciding that nothing fits.** An existing category is almost always the right answer, and proposing a new one that duplicates an entry already on the list is the single worst mistake you can make here. A dry iron or steam iron is the list's "Iron". A mixer, grinder, JMG, juicer mixer grinder or food processor is its "Mixer Grinder". A phone, smartphone or mobile handset is its "Smartphone" (a basic keypad handset is "Feature Phone"). A steel almirah is its "Wardrobe". An inverter or tubular battery is its "Inverter Battery".
-- Only when NO entry on the list could reasonably hold the product: set "category_path" to null and fill "new_category". Whenever "category_path" is null you MUST give a "new_category" — returning null for both is never acceptable, because it leaves a person to work the product out with no help at all. A sewing machine, a fan, a microwave oven, a speaker, a home theatre, earbuds and a deep freezer are all real products that simply may not be on the list yet; name them plainly.
+- When you know what the product is but NO entry on the list could hold it: set "category_path" to null and fill "new_category". A sewing machine, a fan, a microwave oven, a speaker, a home theatre, earbuds and a deep freezer are all real products that simply may not be on the list yet; name them plainly.
+- Leave BOTH null only when you cannot tell what the product is at all — see CARE below. Knowing the product but having nowhere to put it, and not knowing the product, are different answers and must not be confused: the first proposes a category, the second admits it cannot say.
 - "new_category" needs a short, conventional retail name ("Fan", "Sewing Machine", "Microwave Oven", "Deep Freezer") and, as "parent", the top-level entry from the list that genuinely contains it — a deep freezer belongs with refrigeration, not with batteries. If no top-level entry genuinely contains it, use null rather than forcing a poor fit.
 - Never invent a "category_path" that is not on the list.
 
@@ -187,7 +188,9 @@ DISPLAY PIECES
 
 CARE
 - Judge only from the text and what you know of these products. Do not search the internet.
-- "confidence" is 0 to 1 for the category and brand together. Below 0.6 means a person should check it.
+- **Some names say only a model code — "LG S40T . CINDLLK", "WHIRL- 200 IMPC PRM 1S". If no word in the name tells you the product type, and you do not genuinely recognise the code, say so: set "category_path" to null, leave "new_category" null too, give a confidence at or below 0.4, and put what you are unsure of in "note". Do not pick the category of a nearby item, and do not reach for a plausible-sounding one. A name you cannot place is a normal outcome and a person will settle it in seconds; a confident wrong answer is stored and reused for ever.**
+- Half-recognising a code is not recognising it. "WHIRL- 200 IMPC PRM 1S SAPPHIRE BLISS" gives you the brand and nothing else; knowing Whirlpool does not tell you whether that code is a refrigerator or a washing machine. Say you cannot tell rather than picking the likelier-sounding one.
+- "confidence" is 0 to 1 for the category and brand together. 0.6 or below means a person should check it, so use it honestly: a guess from a model code alone is not a 0.6.
 - Put anything doubtful or ambiguous in "note", in one short sentence. Never pad a field with a guess to avoid leaving it empty.
 - Return exactly one object per input index, and nothing else.`;
 

@@ -46,7 +46,16 @@ type Edited = Record<
   Partial<Pick<ItemClassification, 'categoryId' | 'brand' | 'modelNumber' | 'color' | 'isDemoUnit' | 'attributes'>>
 >;
 
-const LOW_CONFIDENCE = 0.6;
+/**
+ * At or below this, a person should look. Inclusive, and deliberately high.
+ *
+ * Two real misses set it: a sound bar read as a sewing machine at exactly
+ * 0.6, and a Whirlpool refrigerator read as a car battery at 0.7 — both
+ * names carrying a model code and no word saying what the thing is. A row
+ * flagged needlessly costs a glance; a wrong category is stored, reused
+ * for every later import, and ends up on the stock.
+ */
+const LOW_CONFIDENCE = 0.75;
 
 /**
  * Whether a real model number is known.
@@ -130,7 +139,7 @@ export function ItemIdentifyStep(props: Props) {
       if (!hasModel(item)) noModel += 1;
       if (item.categoryId && hasModel(item)) {
         ready += 1;
-        if (item.decidedBy === 'ai' && item.confidence < LOW_CONFIDENCE) lowConfidence += 1;
+        if (item.decidedBy === 'ai' && item.confidence <= LOW_CONFIDENCE) lowConfidence += 1;
       }
       if (item.isDemoUnit) demo += 1;
     }
@@ -143,7 +152,7 @@ export function ItemIdentifyStep(props: Props) {
       const weight = (item: ItemClassification) =>
         !item.categoryId || !hasModel(item)
           ? 0
-          : item.decidedBy === 'ai' && item.confidence < LOW_CONFIDENCE
+          : item.decidedBy === 'ai' && item.confidence <= LOW_CONFIDENCE
             ? 1
             : 2;
       const byWeight = weight(a) - weight(b);
@@ -157,7 +166,7 @@ export function ItemIdentifyStep(props: Props) {
       (item) =>
         !item.categoryId ||
         !hasModel(item) ||
-        (item.decidedBy === 'ai' && item.confidence < LOW_CONFIDENCE),
+        (item.decidedBy === 'ai' && item.confidence <= LOW_CONFIDENCE),
     );
   }, [resolved, onlyProblems, props.unitsByName]);
 
@@ -330,7 +339,10 @@ export function ItemIdentifyStep(props: Props) {
     );
   }
 
-  const blocked = counts.noCategory > 0 || counts.noModel > 0;
+// A missing category stops the import, because a product has nowhere to go
+// without one. A missing model does not: the unit is real, it was bought,
+// and the gap is carried onto the product list to be filled in later.
+  const blocked = counts.noCategory > 0;
 
   return (
     <div className="space-y-5">
@@ -442,7 +454,7 @@ export function ItemIdentifyStep(props: Props) {
           <tbody className="divide-y divide-border">
             {rows.map((item) => {
               const units = props.unitsByName.get(item.rawName) ?? 0;
-              const unsure = item.decidedBy === 'ai' && item.confidence < LOW_CONFIDENCE;
+              const unsure = item.decidedBy === 'ai' && item.confidence <= LOW_CONFIDENCE;
               return (
                 <tr key={item.nameKey} className={cn(!item.categoryId && 'bg-destructive/5')}>
                   <td className="max-w-[22rem] px-3 py-2 align-top">
@@ -577,13 +589,13 @@ export function ItemIdentifyStep(props: Props) {
         </Button>
         {blocked && (
           <p className="text-sm text-destructive">
-            {[
-              counts.noCategory > 0 && `${counts.noCategory} still need a category`,
-              counts.noModel > 0 && `${counts.noModel} still need a model number`,
-            ]
-              .filter(Boolean)
-              .join(', ')}
-            .
+            {counts.noCategory} item name{counts.noCategory === 1 ? '' : 's'} still need a category.
+          </p>
+        )}
+        {!blocked && counts.noModel > 0 && (
+          <p className="text-sm text-muted-foreground">
+            {counts.noModel} item{counts.noModel === 1 ? '' : 's'} have no model number. They will be imported and
+            marked as needing one, so you can fill them in from the product list.
           </p>
         )}
       </div>
