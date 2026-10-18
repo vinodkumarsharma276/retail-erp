@@ -53,6 +53,15 @@ const MRP_LOOKUP_ATTR: SpecAttributeDef = {
   attributeType: 'number',
 };
 
+/**
+ * How far above cost a believable MRP can sit.
+ *
+ * Indian MRPs are inflated, so a wide margin is normal, but a multiple past
+ * this means the search landed on a different product: a 10,592 handset came
+ * back with the 68,999 MRP of the flagship sharing part of its name.
+ */
+const MAX_MRP_MULTIPLE = 3;
+
 /** Marker left on a unit so a later pass need not pay for the same search. */
 const LOOKED_UP_AT_KEY = 'specsLookedUpAt';
 /** Where an MRP found on the web is parked for a human to confirm. */
@@ -104,9 +113,26 @@ type CategoryAttributeRow = {
  * serial numbers) belong to the box in the shop, not to the model, so they
  * are left out — the same rule the invoice scan applies.
  */
+/**
+ * Attributes no web search can answer, whatever it claims.
+ *
+ * A demo flag is a fact about the box standing on the shop floor, not about
+ * the model. Asked anyway, the resolver dutifully answered "false" for every
+ * unit it saw, and a string reads as true wherever the flag is checked
+ * plainly. "brand" only repeats the column the product already has.
+ */
+const UNRESEARCHABLE_NAME = /^(isdemounit|brand)$/i;
+const UNRESEARCHABLE_LABEL = /(demo|display unit)/i;
+
 function specAttributes(attributes: CategoryAttributeRow[]): SpecAttributeDef[] {
   return attributes
-    .filter((a) => String(a.attributeType) !== 'multi_text' && !/imei|serial/i.test(a.attributeName))
+    .filter(
+      (a) =>
+        String(a.attributeType) !== 'multi_text' &&
+        !/imei|serial/i.test(a.attributeName) &&
+        !UNRESEARCHABLE_NAME.test(a.attributeName) &&
+        !UNRESEARCHABLE_LABEL.test(a.attributeLabel),
+    )
     .map((a) => ({
       attributeName: a.attributeName,
       attributeLabel: a.attributeLabel,
@@ -144,6 +170,22 @@ export function parseMrp(raw: string | undefined): number | null {
  * whatever the web says, however many times the lookup is run. An MRP is
  * parked under its own key and never touched again once set.
  */
+/**
+ * Why a found MRP cannot be true, given what the shop paid; null when it can.
+ *
+ * An MRP below cost is impossible, and one far above it means the search
+ * found something else. Either way the number is worse than no number,
+ * because it would be read as a price to sell at.
+ */
+export function implausibleMrp(mrp: number, cost: number): string | null {
+  if (!(cost > 0)) return null;
+  if (mrp < cost) return `an MRP of ${mrp} is below the ${Math.round(cost)} paid for it`;
+  if (mrp > cost * MAX_MRP_MULTIPLE) {
+    return `an MRP of ${mrp} is over ${MAX_MRP_MULTIPLE} times the ${Math.round(cost)} paid, so it is probably a different product`;
+  }
+  return null;
+}
+
 export function mergeIntoAttributes(
   current: Attributes,
   specs: Record<string, string>,
@@ -418,6 +460,8 @@ interface BatchUnit {
   id: string;
   attributes: Attributes;
   lookedUp: boolean;
+  /** What the shop paid, so a found MRP can be checked against it. */
+  cost: number;
 }
 
 interface BatchGroup {
@@ -438,6 +482,7 @@ async function loadBatchGroups(batchId: string, scope: EnrichScope): Promise<Bat
       brand: true,
       modelNumber: true,
       categoryId: true,
+      purchasePrice: true,
       dynamicAttributes: true,
       category: {
         select: {
@@ -485,6 +530,7 @@ async function loadBatchGroups(batchId: string, scope: EnrichScope): Promise<Bat
       id: product.id,
       attributes,
       lookedUp: !isBlank(attributes[LOOKED_UP_AT_KEY]),
+      cost: Number(product.purchasePrice) || 0,
     });
   }
 
@@ -537,6 +583,17 @@ async function enrichGroup(group: BatchGroup): Promise<ProductEnrichBatchModel> 
     };
   }
 
+  // A price that cannot be true is worse than none, because it would be
+  // read as what to sell at. Check it against the dearest unit it would be
+  // written to, and say why it was dropped rather than drop it silently.
+  let mrpNote: string | null = null;
+  if (mrp !== null) {
+    const dearest = Math.max(0, ...group.units.filter((unit) => wantsMrp(unit.attributes)).map((unit) => unit.cost));
+    mrpNote = implausibleMrp(mrp, dearest);
+    if (mrpNote) mrp = null;
+  }
+
+
   const labelOf = new Map(group.defs.map((def) => [def.attributeName, def.attributeLabel]));
   const filledLabels = new Set<string>();
   const lookedUpAt = new Date().toISOString();
@@ -558,6 +615,8 @@ async function enrichGroup(group: BatchGroup): Promise<ProductEnrichBatchModel> 
     ...summary,
     filled,
     mrpSuggestion: mrp,
+    // `note` is what the screen shows, so the dropped price is explained there.
+    ...(mrpNote ? { note: `No price suggested: ${mrpNote}.` } : {}),
     note: filled.length === 0 && mrp === null ? 'The search found nothing definite.' : undefined,
   };
 }
