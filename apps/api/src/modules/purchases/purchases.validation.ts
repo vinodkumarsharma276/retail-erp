@@ -120,6 +120,13 @@ export const classifyItemsSchema = z.object({
   refresh: z.boolean().optional(),
 });
 
+/** Starting, or correcting, a product type’s own invoice numbering. */
+export const startSeriesSchema = z.object({
+  categoryId: z.string().uuid(),
+  prefix: z.string().min(1, 'Enter the letters the numbering starts with').max(10),
+  startNumber: z.number().int().min(1, 'The first number must be 1 or more'),
+});
+
 /** Stored answers to forget, so they are worked out again. */
 export const forgetClassificationsSchema = z.object({
   nameKeys: z.array(z.string().min(1).max(300)).min(1).max(2000),

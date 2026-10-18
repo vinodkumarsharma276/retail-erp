@@ -216,7 +216,8 @@ model Tenant {
   purchaseImportBatches           PurchaseImportBatch[]
   importItemClassifications       ImportItemClassification[]
 
-  platformAuditLogs PlatformAuditLog[]
+  platformAuditLogs     PlatformAuditLog[]
+  purchaseInvoiceSeries PurchaseInvoiceSeries[]
 
   @@index([planId])
   @@index([status])
@@ -615,18 +616,22 @@ model ProductCategory {
   /// Owning tenant. Each tenant maintains its own product taxonomy.
   /// Nullable during migration; becomes NOT NULL after backfill.
 
-  name         String   @db.VarChar(200)
-  slug         String   @db.VarChar(200)
-  parentId     String?  @map("parent_id")
-  level        Int      @default(0)
-  path         String   @db.VarChar(1000)
-  displayOrder Int      @default(0) @map("display_order")
-  isLeaf       Boolean  @default(false) @map("is_leaf")
-  icon         String?  @db.VarChar(100)
-  hsnCode      String?  @map("hsn_code") @db.VarChar(8)
-  isActive     Boolean  @default(true) @map("is_active")
-  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz()
-  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+  name          String   @db.VarChar(200)
+  slug          String   @db.VarChar(200)
+  parentId      String?  @map("parent_id")
+  level         Int      @default(0)
+  path          String   @db.VarChar(1000)
+  displayOrder  Int      @default(0) @map("display_order")
+  isLeaf        Boolean  @default(false) @map("is_leaf")
+  /// How goods of this type are bought: "billed", "unbilled", or "both".
+  /// Some types arrive both ways, so the picker on each workflow shows only
+  /// what belongs there.
+  purchaseModes String   @default("billed") @map("purchase_modes") @db.VarChar(10)
+  icon          String?  @db.VarChar(100)
+  hsnCode       String?  @map("hsn_code") @db.VarChar(8)
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   tenant   Tenant            @relation(fields: [tenantId], references: [id])
   parent   ProductCategory?  @relation("CategoryHierarchy", fields: [parentId], references: [id])
@@ -636,6 +641,7 @@ model ProductCategory {
   products                  Product[]
   distributorCategories     DistributorCategory[]
   importItemClassifications ImportItemClassification[]
+  purchaseInvoiceSeries     PurchaseInvoiceSeries[]
 
   @@unique([slug, parentId])
   @@index([tenantId])
@@ -832,6 +838,10 @@ model Purchase {
   amountPaid     Decimal  @default(0) @map("amount_paid") @db.Decimal(12, 2)
   paymentStatus  String   @default("pending") @map("payment_status") @db.VarChar(20)
   notes          String?  @db.Text
+  /// False for goods bought without a bill. They are real stock bought from
+  /// a real supplier, so they are recorded the same way, but they carry no
+  /// tax and their invoice number is one the shop generates itself.
+  billed         Boolean  @default(true)
   /// How the purchase was recorded: "manual" when typed in, "excel_import"
   /// when it came from an uploaded sheet. Shown as a column on the list.
   source         String   @default("manual") @db.VarChar(20)
@@ -2011,4 +2021,35 @@ model ImportItemClassification {
   @@unique([tenantId, nameKey])
   @@index([tenantId])
   @@map("import_item_classifications")
+}
+
+/// The shop's own invoice numbering for purchases made without a bill.
+///
+/// A bill from a supplier comes with its own number; goods bought without one
+/// still have to be identifiable, so the shop numbers them itself, by type:
+/// FURN1, FURN2 for furniture, ALMR1 for an almirah. The first number is
+/// entered by hand so it can carry on from whatever the written books already
+/// use, and every one after it follows.
+model PurchaseInvoiceSeries {
+  id       String @id @default(uuid())
+  tenantId String @map("tenant_id")
+  /// Owning tenant. Each tenant keeps its own numbering.
+
+  categoryId String @map("category_id")
+  /// Letters in front of the number, e.g. FURN or ALMR.
+  prefix     String @db.VarChar(10)
+  /// The number the next purchase of this type will take.
+  nextNumber Int    @default(1) @map("next_number")
+
+  createdBy String?  @map("created_by")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  tenant   Tenant          @relation(fields: [tenantId], references: [id])
+  category ProductCategory @relation(fields: [categoryId], references: [id])
+
+  @@unique([tenantId, categoryId])
+  @@unique([tenantId, prefix])
+  @@index([tenantId])
+  @@map("purchase_invoice_series")
 }

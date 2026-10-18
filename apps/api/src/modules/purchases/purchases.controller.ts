@@ -2,6 +2,7 @@ import type { FastifyRequest, FastifyReply } from 'fastify';
 import { purchasesService } from './purchases.service.js';
 import { purchaseImportService } from './purchases.import.js';
 import { itemClassifier } from './item-classifier.js';
+import { unbilledSeriesService } from './unbilled-series.js';
 import type {
   ClassifyItemsRequest,
   PurchaseImportRequest,
@@ -191,6 +192,37 @@ export const purchasesController = {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to forget those answers';
       return sendError(reply, message, 500);
+    }
+  },
+
+  /**
+   * GET /purchases/unbilled-series — product types bought without a bill,
+   * each with the invoice number its next purchase would take.
+   */
+  async listUnbilledSeries(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      return sendSuccess(reply, await unbilledSeriesService.list(request.currentUser!.tenantId));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to load the numbering';
+      return sendError(reply, message, 500);
+    }
+  },
+
+  /** PUT /purchases/unbilled-series — set where a type’s numbering starts. */
+  async startUnbilledSeries(
+    request: FastifyRequest<{ Body: { categoryId: string; prefix: string; startNumber: number } }>,
+    reply: FastifyReply,
+  ) {
+    try {
+      const saved = await unbilledSeriesService.start(
+        request.currentUser!.tenantId,
+        request.body,
+        request.currentUser!.userId,
+      );
+      return sendSuccess(reply, saved);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to save the numbering';
+      return sendError(reply, message, 400);
     }
   },
 

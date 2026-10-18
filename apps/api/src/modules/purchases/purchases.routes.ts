@@ -13,6 +13,7 @@ import {
   saveClassificationsSchema,
   lookupItemSchema,
   forgetClassificationsSchema,
+  startSeriesSchema,
 } from './purchases.validation.js';
 
 export async function purchaseRoutes(app: FastifyInstance) {
@@ -60,6 +61,15 @@ export async function purchaseRoutes(app: FastifyInstance) {
   app.delete('/import/classifications', {
     preHandler: [authenticate, requirePermission('purchases.create'), validate(forgetClassificationsSchema)],
   }, purchasesController.forgetClassifications as any);
+
+  // The numbering the shop keeps for purchases made without a bill.
+  app.get('/unbilled-series', {
+    preHandler: [authenticate, requirePermission('purchases.create')],
+  }, purchasesController.listUnbilledSeries as any);
+
+  app.put('/unbilled-series', {
+    preHandler: [authenticate, requirePermission('purchases.create'), validate(startSeriesSchema)],
+  }, purchasesController.startUnbilledSeries as any);
 
   // Past import runs.
   app.get('/import/batches', {
