@@ -47,14 +47,19 @@ export function productCompleteness(
   const attributes = attributesOf(product);
   const missing: MissingProductDetail[] = [];
 
+  // Only what genuinely stops the unit being used counts as important, and so
+  // shows red. A model number identifies the thing; a phone without its IMEI
+  // cannot be traced to whoever buys it. Everything else is a job to get round
+  // to — after an import that is every unit, and colouring them all as faults
+  // makes the mark useless.
   if (attributes.modelNotSet === true || isBlank(product.modelNumber)) {
     missing.push({ gap: 'model', label: 'Model number', important: true });
   }
-  if (attributes.priceNotSet === true) {
-    missing.push({ gap: 'price', label: 'Selling price', important: true });
-  }
   if (options?.requiresImei && isBlank(attributes.imeiNumbers)) {
     missing.push({ gap: 'imei', label: 'IMEI number', important: true });
+  }
+  if (attributes.priceNotSet === true) {
+    missing.push({ gap: 'price', label: 'Selling price not set yet', important: false });
   }
 
   // Anything beyond the importer's own bookkeeping keys counts as a real

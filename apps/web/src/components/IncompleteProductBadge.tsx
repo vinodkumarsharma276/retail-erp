@@ -24,10 +24,13 @@ export function IncompleteProductBadge({
   const id = useId();
 
   if (!counts) return null;
+  // Red is reserved for what stops the unit being used. A price or a
+  // specification still to be filled in is a job, not a fault, and after an
+  // import that is every unit — marking them all as faults says nothing.
   const gaps = [
     { n: counts.model, label: 'no model number', important: true },
-    { n: counts.price, label: 'no selling price', important: true },
-    { n: counts.specs, label: 'no specifications', important: false },
+    { n: counts.price, label: 'no selling price yet', important: false },
+    { n: counts.specs, label: 'no specifications yet', important: false },
   ].filter((gap) => gap.n > 0);
   if (gaps.length === 0) return null;
 
@@ -42,7 +45,7 @@ export function IncompleteProductBadge({
     >
       <button
         type="button"
-        aria-label={`${gaps.length} detail${gaps.length === 1 ? '' : 's'} missing`}
+        aria-label={`${gaps.length} detail${gaps.length === 1 ? '' : 's'} still to fill in`}
         aria-describedby={open ? id : undefined}
         onFocus={() => setOpen(true)}
         onBlur={() => setOpen(false)}
@@ -65,7 +68,9 @@ export function IncompleteProductBadge({
           role="tooltip"
           className="absolute left-1/2 top-full z-30 mt-1.5 w-56 -translate-x-1/2 rounded-lg border border-border bg-popover p-3 text-left shadow-lg"
         >
-          <span className="block text-xs font-semibold">Details missing</span>
+          <span className="block text-xs font-semibold">
+            {important ? 'Needs attention' : 'Still to fill in'}
+          </span>
           <span className="mt-1.5 block space-y-1">
             {gaps.map((gap) => (
               <span key={gap.label} className="block text-xs">
