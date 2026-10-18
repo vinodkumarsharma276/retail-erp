@@ -51,11 +51,24 @@ export const PURCHASE_SHEET_COLUMNS: SheetColumn[] = [
   { field: 'cgst', label: 'CGST', required: false, purpose: 'Central tax on the line.', headings: ['cgst', 'cgst amount', 'central tax'] },
   { field: 'sgst', label: 'SGST', required: false, purpose: 'State tax on the line.', headings: ['sgst', 'sgst amount', 'state tax', 'utgst'] },
   { field: 'igst', label: 'IGST', required: false, purpose: 'Integrated tax on the line.', headings: ['igst', 'igst amount', 'integrated tax'] },
-  { field: 'gstin', label: 'GSTIN', required: false, purpose: "The supplier's GST number, which also gives their PAN and state.", headings: ['gstin', 'gstin uin', 'gst no', 'gst number', 'party gstin'] },
+  { field: 'gstin', label: 'GSTIN', required: false, purpose: "The supplier's GST number, which also gives their PAN and state.", headings: ['supplier gstin', 'party gstin', 'gstin', 'gstin uin', 'gst no', 'gst number'] },
   { field: 'hsnCode', label: 'HSN', required: false, purpose: 'HSN code for the line.', headings: ['hsn', 'hsn code', 'hsn sac'] },
   { field: 'mrp', label: 'MRP', required: false, purpose: 'Printed retail price.', headings: ['mrp', 'm r p'] },
   { field: 'colour', label: 'Colour', required: false, purpose: 'Colour, when the sheet states it separately.', headings: ['colour', 'color'] },
   { field: 'serialNumber', label: 'Serial No.', required: false, purpose: 'Serial number for a single unit.', headings: ['serial no', 'serial number', 'sr no'] },
+
+  // Supplier details repeated on the line. The system has a field for each of
+  // these already, so a sheet carrying them fills a supplier record in
+  // properly instead of leaving it a bare name.
+  { field: 'supplierPhone', label: 'Phone', required: false, purpose: "The supplier's phone number.", headings: ['phone', 'supplier phone', 'mobile', 'contact no'] },
+  { field: 'supplierAddress', label: 'Address', required: false, purpose: "The supplier's address.", headings: ['address', 'supplier address', 'party address'] },
+  { field: 'supplierState', label: 'State', required: false, purpose: "The supplier's state, which decides whether tax is CGST/SGST or IGST.", headings: ['state', 'supplier state'] },
+  { field: 'supplierPincode', label: 'PIN code', required: false, purpose: "The supplier's PIN code.", headings: ['pin', 'pincode', 'pin code'] },
+  { field: 'supplierPan', label: 'PAN', required: false, purpose: "The supplier's PAN, when not derivable from a GSTIN.", headings: ['pan', 'pan no', 'pan number'] },
+  { field: 'bankDetails', label: 'Bank details', required: false, purpose: 'Bank account the supplier is paid into.', headings: ['bank details', 'bank', 'bank account'] },
+
+  { field: 'unit', label: 'Unit', required: false, purpose: 'Unit of measure for the quantity, e.g. Pcs.', headings: ['unit', 'uom', 'units of measure'] },
+  { field: 'amountInclTax', label: 'Amount incl. GST', required: false, purpose: 'Line total including tax, used to cross-check the other amounts.', headings: ['amount incl gst', 'amount including gst', 'amount incl tax', 'gross amount'] },
 ];
 
 /** Headings on the IMEI sheet. Its job is only to tie an IMEI to a line. */
@@ -173,6 +186,18 @@ export interface PurchaseSheetLine {
   mrp: number | null;
   colour: string;
   serialNumber: string;
+  /** Supplier details the line repeats, when the sheet carries them. */
+  supplier: {
+    phone: string;
+    address: string;
+    state: string;
+    pincode: string;
+    pan: string;
+    bankDetails: string;
+  };
+  unit: string;
+  /** Line total including tax, when the sheet states it. */
+  amountInclTax: number | null;
   /** Values of columns the importer does not understand, by heading. */
   extras: Record<string, string>;
   issues: string[];
@@ -404,6 +429,18 @@ export function parsePurchaseSheet(
       mrp: parseAmount(at(row, 'mrp')),
       colour: text(row, 'colour'),
       serialNumber: text(row, 'serialNumber'),
+      supplier: {
+        // A sheet may list two numbers in one cell; the first is enough to
+        // reach somebody, and the rest stays on the supplier's own record.
+        phone: text(row, 'supplierPhone'),
+        address: text(row, 'supplierAddress'),
+        state: text(row, 'supplierState'),
+        pincode: text(row, 'supplierPincode').replace(/\D/g, ''),
+        pan: text(row, 'supplierPan').toUpperCase().replace(/[^A-Z0-9]/g, ''),
+        bankDetails: text(row, 'bankDetails'),
+      },
+      unit: text(row, 'unit'),
+      amountInclTax: parseAmount(at(row, 'amountInclTax')),
       extras,
       issues,
     });
@@ -508,4 +545,203 @@ export function imeisPerUnit(
     perUnit.push(listed.slice(unit * each, unit * each + each));
   }
   return { perUnit, issue: null };
+}
+
+// --- The voucher totals sheet -------------------------------------------------
+
+/**
+ * Headings on the voucher sheet: one row per invoice, carrying what the bill
+ * itself says it comes to.
+ */
+export const VOUCHER_SHEET_COLUMNS: SheetColumn[] = [
+  { field: 'invoiceNumber', label: 'Supplier Invoice No.', required: true, purpose: 'Ties the totals to an invoice.', headings: ['supplier invoice no', 'supplier invoice number', 'invoice no', 'bill no'] },
+  { field: 'voucherNumber', label: 'Voucher No.', required: false, purpose: "The shop's own bill number.", headings: ['voucher no', 'voucher number', 'vch no'] },
+  { field: 'party', label: 'Supplier', required: false, purpose: 'The supplier.', headings: ['supplier', 'party', 'party name', 'supplier name'] },
+  { field: 'gstin', label: 'GSTIN', required: false, purpose: "The supplier's GST number.", headings: ['supplier gstin', 'gstin', 'gst no'] },
+  { field: 'taxableValue', label: 'Taxable Value', required: true, purpose: 'The invoice total before tax.', headings: ['taxable value', 'taxable amount', 'amount before tax'] },
+  { field: 'cgst', label: 'CGST', required: false, purpose: 'Central tax on the invoice.', headings: ['cgst', 'central tax'] },
+  { field: 'sgst', label: 'SGST', required: false, purpose: 'State tax on the invoice.', headings: ['sgst', 'state tax', 'utgst'] },
+  { field: 'igst', label: 'IGST', required: false, purpose: 'Integrated tax on the invoice.', headings: ['igst', 'integrated tax'] },
+  { field: 'roundOff', label: 'Round Off', required: false, purpose: 'Rounding the supplier applied to reach a whole-rupee total.', headings: ['round off other', 'round off', 'rounding'] },
+  { field: 'total', label: 'Voucher Total', required: true, purpose: 'What the invoice actually comes to, and so what is owed.', headings: ['voucher total', 'invoice total', 'grand total', 'bill total'] },
+  { field: 'narration', label: 'Narration', required: false, purpose: 'Any note written against the voucher.', headings: ['narration', 'notes', 'remarks'] },
+];
+
+export interface VoucherTotals {
+  invoiceNumber: string;
+  voucherNumber: string;
+  party: string;
+  gstin: string;
+  taxableValue: number;
+  cgst: number;
+  sgst: number;
+  igst: number;
+  /** Debit positive, credit negative, as applied to reach the total. */
+  roundOff: number;
+  /** The authoritative figure: what the shop owes for this bill. */
+  total: number;
+  narration: string;
+  issues: string[];
+}
+
+export interface VoucherSheetParse {
+  sheetName: string;
+  columns: PurchaseSheetColumns;
+  /** By invoice number, lower-cased. */
+  byInvoice: Map<string, VoucherTotals>;
+  total: number;
+}
+
+/**
+ * Read a sheet of per-invoice totals, if the workbook has one.
+ *
+ * This is the better source for what an invoice comes to: it carries the
+ * supplier's own rounding, which summing the lines cannot reproduce — on this
+ * shop's October book, 18 of 26 invoices have one.
+ */
+export function parseVoucherSheet(sheetName: string, rows: unknown[][]): VoucherSheetParse | null {
+  const headerIndex = locateHeaderRow(rows, VOUCHER_SHEET_COLUMNS);
+  if (headerIndex === -1) return null;
+  const columns = matchColumns(rows[headerIndex] ?? [], VOUCHER_SHEET_COLUMNS);
+  if (columns.missingRequired.length > 0) return null;
+
+  const at = (row: unknown[], field: string): unknown =>
+    columns.found[field] != null ? row[columns.found[field]!] : undefined;
+  const text = (row: unknown[], field: string) => cleanCell(at(row, field));
+
+  const byInvoice = new Map<string, VoucherTotals>();
+  let total = 0;
+
+  for (let index = headerIndex + 1; index < rows.length; index += 1) {
+    const row = rows[index] ?? [];
+    const invoiceNumber = text(row, 'invoiceNumber');
+    if (!invoiceNumber || /^(grand )?total$/i.test(invoiceNumber)) continue;
+
+    const taxableValue = parseAmount(at(row, 'taxableValue')) ?? 0;
+    const cgst = parseAmount(at(row, 'cgst')) ?? 0;
+    const sgst = parseAmount(at(row, 'sgst')) ?? 0;
+    const igst = parseAmount(at(row, 'igst')) ?? 0;
+    const roundOff = parseAmount(at(row, 'roundOff')) ?? 0;
+    const stated = parseAmount(at(row, 'total')) ?? 0;
+    const issues: string[] = [];
+
+    const computed = round2(taxableValue + cgst + sgst + igst + roundOff);
+    if (Math.abs(computed - stated) > 1) {
+      issues.push(
+        `Taxable value plus tax and rounding comes to ₹${computed}, but the voucher total says ₹${round2(stated)}.`,
+      );
+    }
+
+    byInvoice.set(invoiceNumber.toLowerCase(), {
+      invoiceNumber,
+      voucherNumber: text(row, 'voucherNumber'),
+      party: text(row, 'party'),
+      gstin: text(row, 'gstin').toUpperCase().replace(/[^A-Z0-9]/g, ''),
+      taxableValue,
+      cgst,
+      sgst,
+      igst,
+      roundOff,
+      total: stated,
+      narration: text(row, 'narration'),
+      issues,
+    });
+    total += stated;
+  }
+
+  return { sheetName, columns, byInvoice, total: round2(total) };
+}
+
+// --- The supplier master sheet -------------------------------------------------
+
+export const SUPPLIER_SHEET_COLUMNS: SheetColumn[] = [
+  { field: 'name', label: 'Supplier', required: true, purpose: 'The supplier this row describes.', headings: ['supplier', 'party', 'supplier name', 'party name', 'distributor'] },
+  { field: 'gstin', label: 'GSTIN', required: false, purpose: 'GST number, which also gives the PAN and state.', headings: ['gstin', 'supplier gstin', 'gst no'] },
+  { field: 'pan', label: 'PAN', required: false, purpose: 'PAN, when not derivable from the GSTIN.', headings: ['pan', 'pan no'] },
+  { field: 'phone', label: 'Phone', required: false, purpose: 'Landline or main number.', headings: ['phone', 'phone no', 'landline'] },
+  { field: 'mobile', label: 'Mobile', required: false, purpose: 'Mobile number.', headings: ['mobile', 'mobile no', 'cell'] },
+  { field: 'email', label: 'Email', required: false, purpose: 'Email address.', headings: ['email', 'e mail', 'email id'] },
+  { field: 'contact', label: 'Contact', required: false, purpose: 'Person to ask for.', headings: ['contact', 'contact person', 'contact name'] },
+  { field: 'address', label: 'Address', required: false, purpose: 'Street address.', headings: ['address', 'supplier address'] },
+  { field: 'state', label: 'State', required: false, purpose: 'State, which decides CGST/SGST against IGST.', headings: ['state'] },
+  { field: 'pincode', label: 'PIN', required: false, purpose: 'PIN code.', headings: ['pin', 'pincode', 'pin code'] },
+  { field: 'bankDetails', label: 'Bank Details', required: false, purpose: 'Bank account the supplier is paid into.', headings: ['bank details', 'bank', 'bank account'] },
+];
+
+export interface SupplierRecord {
+  name: string;
+  gstin: string;
+  pan: string;
+  phone: string;
+  mobile: string;
+  email: string;
+  contact: string;
+  address: string;
+  state: string;
+  pincode: string;
+  bankDetails: string;
+}
+
+export interface SupplierSheetParse {
+  sheetName: string;
+  columns: PurchaseSheetColumns;
+  /** By supplier name, reduced for matching. */
+  byName: Map<string, SupplierRecord>;
+  count: number;
+}
+
+/** Supplier name reduced for matching: lower case, no punctuation or "M/s". */
+export function supplierKey(name: string): string {
+  return String(name ?? '')
+    .toLowerCase()
+    .replace(/^m\/?s\.?\s+/, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+/**
+ * Read a sheet of supplier details, if the workbook has one.
+ *
+ * Without it a supplier created by an import is a name and nothing else, and
+ * somebody has to look the rest up when the bill falls due. With it they
+ * arrive complete.
+ */
+export function parseSupplierSheet(sheetName: string, rows: unknown[][]): SupplierSheetParse | null {
+  const headerIndex = locateHeaderRow(rows, SUPPLIER_SHEET_COLUMNS);
+  if (headerIndex === -1) return null;
+  const columns = matchColumns(rows[headerIndex] ?? [], SUPPLIER_SHEET_COLUMNS);
+  if (columns.missingRequired.length > 0) return null;
+  if (columns.found.name == null || rows.length < 2) return null;
+
+  // A purchase sheet names a supplier on every line, so having that column is
+  // not enough to be the supplier master. What settles it is that this sheet
+  // describes suppliers rather than things bought from them.
+  const purchase = matchColumns(rows[headerIndex] ?? [], PURCHASE_SHEET_COLUMNS);
+  if (purchase.found.item != null || purchase.found.quantity != null) return null;
+
+  const at = (row: unknown[], field: string): unknown =>
+    columns.found[field] != null ? row[columns.found[field]!] : undefined;
+  const text = (row: unknown[], field: string) => cleanCell(at(row, field));
+
+  const byName = new Map<string, SupplierRecord>();
+  for (let index = headerIndex + 1; index < rows.length; index += 1) {
+    const row = rows[index] ?? [];
+    const name = text(row, 'name');
+    if (!name) continue;
+    byName.set(supplierKey(name), {
+      name,
+      gstin: text(row, 'gstin').toUpperCase().replace(/[^A-Z0-9]/g, ''),
+      pan: text(row, 'pan').toUpperCase().replace(/[^A-Z0-9]/g, ''),
+      phone: text(row, 'phone'),
+      mobile: text(row, 'mobile'),
+      email: text(row, 'email'),
+      contact: text(row, 'contact'),
+      address: text(row, 'address'),
+      state: text(row, 'state'),
+      pincode: text(row, 'pincode').replace(/\D/g, ''),
+      bankDetails: text(row, 'bankDetails'),
+    });
+  }
+
+  return { sheetName, columns, byName, count: byName.size };
 }

@@ -253,10 +253,21 @@ async function plan(request: PurchaseImportRequest, ctx: PlanContext) {
     // Rounding the supplier applied, so the stored total is the printed
     // one to the paisa rather than a few paise off it.
     const roundOff = round2(Number(lines.find((l) => l.roundOff != null)?.roundOff) || 0);
-    const netAmount = round2(totalAmount - discountAmount + gstAmount + roundOff);
+    const computedNet = round2(totalAmount - discountAmount + gstAmount + roundOff);
     const printedTotal = lines.find((l) => l.invoiceTotal != null && Number(l.invoiceTotal) > 0)?.invoiceTotal;
-    if (printedTotal != null && Math.abs(Number(printedTotal) - netAmount) > 1) {
-      warnings.push(`Lines add up to ₹${netAmount}, but the invoice total in the sheet is ₹${round2(Number(printedTotal))}.`);
+
+    /**
+     * What the shop owes is what the bill says, not what its lines add up to.
+     *
+     * Tax is rounded on each line, so summing them lands a paisa or two from
+     * the invoice's own figure — on the October book, 13 of 26 invoices. Where
+     * the sheet states a total, that is used and the lines are only checked
+     * against it; a difference worth more than a rupee is a real disagreement
+     * and is said out loud rather than quietly adopted.
+     */
+    const netAmount = printedTotal != null ? round2(Number(printedTotal)) : computedNet;
+    if (printedTotal != null && Math.abs(Number(printedTotal) - computedNet) > 1) {
+      warnings.push(`Lines add up to ₹${computedNet}, but the invoice total in the sheet is ₹${round2(Number(printedTotal))}; the sheet total is used.`);
     }
 
     invoices.push({

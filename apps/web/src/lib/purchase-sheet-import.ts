@@ -4,8 +4,13 @@ import {
   lineKey,
   parseImeiSheet,
   parsePurchaseSheet,
+  parseSupplierSheet,
+  parseVoucherSheet,
+  supplierKey,
   type ImeiSheetParse,
   type PurchaseSheetParse,
+  type SupplierSheetParse,
+  type VoucherSheetParse,
 } from '@retailerp/shared-utils';
 import type { PurchaseImportRow, SheetColumnReport } from '@retailerp/shared-types';
 import type { ParsedWorkbook } from './purchase-import';
@@ -21,6 +26,12 @@ import type { ParsedWorkbook } from './purchase-import';
 export interface PurchaseSheetRead {
   parse: PurchaseSheetParse;
   imeiSheet: ImeiSheetParse | null;
+  /** Per-invoice totals, when the workbook carries them. */
+  voucherSheet: VoucherSheetParse | null;
+  /** The supplier master, when the workbook carries one. */
+  supplierSheet: SupplierSheetParse | null;
+  /** Invoices whose totals disagree with the lines beneath them. */
+  totalProblems: Array<{ invoiceNumber: string; issue: string }>;
   rows: PurchaseImportRow[];
   /** Distinct item names, in sheet order, to be identified. */
   itemNames: string[];
@@ -58,28 +69,68 @@ function columnReport(parse: PurchaseSheetParse, headings: unknown[]): SheetColu
  * from this invoice to the customer who buys it.
  */
 export function readPurchaseSheet(workbook: ParsedWorkbook): PurchaseSheetRead | null {
-  // The IMEI sheet first: the purchase reader wants it alongside.
-  let imeiSheet: ImeiSheetParse | null = null;
+  // The purchase sheet is found first, and it is the one that carries every
+  // field the importer needs. Looking for the companions first was a mistake:
+  // the purchase sheet names a supplier on every line, so it answered to the
+  // supplier master, and the real supplier list — which now shares several
+  // columns with it — answered to being the purchase sheet.
+  let parse: PurchaseSheetParse | null = null;
+  let headings: unknown[] = [];
+  let purchaseSheetName = '';
   for (const sheet of workbook.sheets) {
-    const read = parseImeiSheet(sheet.name, sheet.formatted);
-    if (read && read.total > 0) {
-      imeiSheet = read;
+    const read = parsePurchaseSheet(sheet.name, sheet.formatted);
+    if (read.detected && read.columns.missingRequired.length === 0) {
+      parse = read;
+      headings = sheet.formatted[read.headerRow - 1] ?? [];
+      purchaseSheetName = sheet.name;
       break;
     }
   }
-
-  let parse: PurchaseSheetParse | null = null;
-  let headings: unknown[] = [];
-  for (const sheet of workbook.sheets) {
-    if (imeiSheet && sheet.name === imeiSheet.sheetName) continue;
-    const read = parsePurchaseSheet(sheet.name, sheet.formatted, imeiSheet);
-    if (read.detected) {
-      parse = read;
-      headings = sheet.formatted[read.headerRow - 1] ?? [];
-      break;
+  // Nothing fully qualified: take the closest match so the missing columns
+  // can be named, rather than refusing the workbook with no explanation.
+  if (!parse) {
+    for (const sheet of workbook.sheets) {
+      const read = parsePurchaseSheet(sheet.name, sheet.formatted);
+      if (read.detected) {
+        parse = read;
+        headings = sheet.formatted[read.headerRow - 1] ?? [];
+        purchaseSheetName = sheet.name;
+        break;
+      }
     }
   }
   if (!parse) return null;
+
+  // Then the companions, from whatever is left.
+  let imeiSheet: ImeiSheetParse | null = null;
+  let voucherSheet: VoucherSheetParse | null = null;
+  let supplierSheet: SupplierSheetParse | null = null;
+  for (const sheet of workbook.sheets) {
+    if (sheet.name === purchaseSheetName) continue;
+    if (!imeiSheet) {
+      const read = parseImeiSheet(sheet.name, sheet.formatted);
+      if (read && read.total > 0) {
+        imeiSheet = read;
+        continue;
+      }
+    }
+    if (!voucherSheet) {
+      const read = parseVoucherSheet(sheet.name, sheet.formatted);
+      if (read && read.byInvoice.size > 0) {
+        voucherSheet = read;
+        continue;
+      }
+    }
+    if (!supplierSheet) {
+      const read = parseSupplierSheet(sheet.name, sheet.formatted);
+      if (read && read.count > 0) supplierSheet = read;
+    }
+  }
+
+  // The purchase sheet is re-read now the IMEI sheet is known, so its lines
+  // can be checked against it.
+  const withImeis = workbook.sheets.find((sheet) => sheet.name === purchaseSheetName);
+  if (withImeis) parse = parsePurchaseSheet(purchaseSheetName, withImeis.formatted, imeiSheet);
 
   const rows: PurchaseImportRow[] = [];
   const imeiProblems: PurchaseSheetRead['imeiProblems'] = [];
@@ -87,6 +138,8 @@ export function readPurchaseSheet(workbook: ParsedWorkbook): PurchaseSheetRead |
   for (const invoice of parse.invoices) {
     for (const line of invoice.lines) {
       const listed = imeiSheet?.byLine.get(lineKey(line.invoiceNumber, line.party, line.item)) ?? [];
+      const master = supplierSheet?.byName.get(supplierKey(line.party));
+      const totals = voucherSheet?.byInvoice.get(line.invoiceNumber.toLowerCase());
       const { perUnit, issue } = imeisPerUnit(line, listed);
       if (issue) imeiProblems.push({ rowNumber: line.rowNumber, item: line.item, issue });
 
@@ -95,7 +148,14 @@ export function readPurchaseSheet(workbook: ParsedWorkbook): PurchaseSheetRead |
         invoiceNumber: line.invoiceNumber,
         invoiceDate: line.date,
         distributorName: line.party,
-        distributorGst: line.gstin || undefined,
+        // The supplier master is the fuller record; the line fills any gap it
+        // leaves, so a workbook without that sheet still carries what it can.
+        distributorGst: master?.gstin || line.gstin || undefined,
+        distributorPan: master?.pan || line.supplier.pan || undefined,
+        distributorPhone: master?.mobile || master?.phone || line.supplier.phone || undefined,
+        distributorAddress: master?.address || line.supplier.address || undefined,
+        distributorState: master?.state || line.supplier.state || undefined,
+        distributorPincode: master?.pincode || line.supplier.pincode || undefined,
         voucherNumber: line.voucherNumber || undefined,
         // The item name is all the sheet says about the product; the
         // classifier splits it into brand, model, colour and category.
@@ -105,6 +165,10 @@ export function readPurchaseSheet(workbook: ParsedWorkbook): PurchaseSheetRead |
         amount: line.amount ?? undefined,
         gstAmount: line.gstAmount ?? undefined,
         gstRate: line.gstRate ?? undefined,
+        // What the bill itself says it comes to, and the rounding that gets
+        // it there. Summing lines cannot reproduce a supplier's rounding.
+        invoiceTotal: totals?.total ?? undefined,
+        roundOff: totals?.roundOff ?? undefined,
         hsnCode: line.hsnCode || undefined,
         mrp: line.mrp ?? undefined,
         color: line.colour || undefined,
@@ -123,7 +187,32 @@ export function readPurchaseSheet(workbook: ParsedWorkbook): PurchaseSheetRead |
     itemNames.push(row.modelNumber);
   }
 
-  return { parse, imeiSheet, rows, itemNames, columns: columnReport(parse, headings), imeiProblems };
+  // The voucher sheet is the authority on what is owed, so where it and the
+  // lines disagree that is worth saying before anything is saved.
+  const totalProblems: PurchaseSheetRead['totalProblems'] = [];
+  for (const invoice of parse.invoices) {
+    const totals = voucherSheet?.byInvoice.get(invoice.invoiceNumber.toLowerCase());
+    if (!totals) continue;
+    for (const issue of totals.issues) totalProblems.push({ invoiceNumber: invoice.invoiceNumber, issue });
+    if (Math.abs(totals.taxableValue - invoice.taxableValue) > 1) {
+      totalProblems.push({
+        invoiceNumber: invoice.invoiceNumber,
+        issue: `The voucher says ₹${totals.taxableValue} before tax, but its lines add up to ₹${invoice.taxableValue}.`,
+      });
+    }
+  }
+
+  return {
+    parse,
+    imeiSheet,
+    voucherSheet,
+    supplierSheet,
+    rows,
+    itemNames,
+    columns: columnReport(parse, headings),
+    imeiProblems,
+    totalProblems,
+  };
 }
 
 /** A short line describing what was read, for the upload step. */
