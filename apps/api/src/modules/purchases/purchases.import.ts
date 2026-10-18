@@ -408,6 +408,47 @@ export const purchaseImportService = {
 
     const updatedDistributors = new Set<string>();
 
+    /**
+     * Fill in blank supplier details before touching the invoices.
+     *
+     * This used to sit inside the transaction that records a purchase, so
+     * it never ran for an invoice already on file. Re-importing a book to
+     * pick up supplier details it had gained — which is exactly when this
+     * matters — skipped nearly all of them, and the preview promised
+     * updates the import then did not make.
+     *
+     * Supplier details have nothing to do with whether a particular bill is
+     * new, so they are applied once per supplier, for the whole sheet.
+     */
+    for (const update of preview.distributorUpdates) {
+      try {
+        // Read it again here: what gets filled is what is still blank now,
+        // not what was blank when the preview was built.
+        const current = await prisma.distributor.findFirst({
+          where: { id: update.distributorId, tenantId: ctx.tenantId },
+          select: {
+            gstNumber: true, panNumber: true, phone: true,
+            addressLine1: true, city: true, state: true, pincode: true,
+          },
+        });
+        if (!current) continue;
+        const data: Record<string, string> = {};
+        for (const { field, value } of update.fields) {
+          const existing = clean((current as Record<string, unknown>)[field] as string | null | undefined);
+          if (!existing) data[field] = value;
+        }
+        if (Object.keys(data).length === 0) continue;
+        await prisma.distributor.update({
+          where: { id: update.distributorId },
+          data: data as Prisma.DistributorUpdateInput,
+        });
+        updatedDistributors.add(update.distributorId);
+      } catch (cause) {
+        // A supplier that cannot be topped up must not stop the import.
+        console.warn('[purchase-import] could not fill in supplier details:', cause);
+      }
+    }
+
     for (const inv of preview.invoices) {
       const base = { key: inv.key, invoiceNumber: inv.invoiceNumber, distributorName: inv.distributor.name };
       if (inv.duplicateOf) {
@@ -444,34 +485,6 @@ export const purchaseImportService = {
             distributorId = d.id;
             createdSuppliers.set(nameKey(inv.distributor.name), d.id);
           } else {
-            // Fill blanks on a supplier already on file. Never overwrite a
-            // value somebody entered: a stale sheet must not undo their work.
-            if (inv.distributor.fieldsToFill.length > 0) {
-              // Read the supplier again here, so what gets filled is what is
-              // still blank now — not what was blank when the preview was built.
-              const current = await tx.distributor.findFirst({
-                where: { id: distributorId, tenantId: ctx.tenantId },
-                select: {
-                  gstNumber: true, panNumber: true, phone: true,
-                  addressLine1: true, city: true, state: true, pincode: true,
-                },
-              });
-              if (current) {
-                const data: Record<string, string> = {};
-                for (const { field, value } of inv.distributor.fieldsToFill) {
-                  const existing = clean((current as Record<string, unknown>)[field] as string | null | undefined);
-                  if (!existing) data[field] = value;
-                }
-                if (Object.keys(data).length > 0) {
-                  await tx.distributor.update({
-                    where: { id: distributorId },
-                    data: data as Prisma.DistributorUpdateInput,
-                  });
-                  updatedDistributors.add(distributorId);
-                }
-              }
-            }
-
             // Re-check inside the transaction: an earlier invoice in this run
             // may have recorded the same supplier invoice.
             const dup = await tx.purchase.findFirst({
