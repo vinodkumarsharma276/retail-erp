@@ -207,14 +207,25 @@ export function ItemIdentifyStep(props: Props) {
       },
       {
         onSuccess: (result) => {
-          if (Object.keys(result.attributes).length > 0) {
-            change(item.nameKey, { attributes: { ...item.attributes, ...result.attributes } });
+          // Only fill what is still empty. The item name is the shop's own
+          // record of what it bought — "(4+128)" means 128GB — so a search
+          // that reads the model differently must not overwrite it.
+          const added: Record<string, string> = {};
+          const alreadyKnown: string[] = [];
+          for (const [name, value] of Object.entries(result.attributes)) {
+            if (String(item.attributes[name] ?? '').trim()) alreadyKnown.push(name);
+            else added[name] = value;
+          }
+          if (Object.keys(added).length > 0) {
+            change(item.nameKey, { attributes: { ...item.attributes, ...added } });
           }
           setLookupNotes((notes) => ({
             ...notes,
-            [item.nameKey]: result.filled.length
-              ? `Found ${result.filled.join(', ')}.`
-              : result.message ?? 'Nothing was found for this model.',
+            [item.nameKey]: Object.keys(added).length
+              ? `Added ${Object.keys(added).join(', ')}.${alreadyKnown.length ? ` Kept ${alreadyKnown.join(', ')} from the item name.` : ''}`
+              : alreadyKnown.length
+                ? `Nothing new — the item name already gives ${alreadyKnown.join(', ')}.`
+                : result.message ?? 'Nothing was found for this model.',
           }));
         },
         onError: (error) => {

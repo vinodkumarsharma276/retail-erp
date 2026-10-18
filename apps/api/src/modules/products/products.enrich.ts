@@ -8,6 +8,7 @@ import type {
 } from '@retailerp/shared-types';
 import { prisma } from '../../config/database.js';
 import { config } from '../../config/index.js';
+import { researchableAttributes } from '../ocr/researchable.js';
 import {
   resolveProductSpecsByWebSearch,
   type SpecAttributeDef,
@@ -114,26 +115,12 @@ type CategoryAttributeRow = {
  * are left out — the same rule the invoice scan applies.
  */
 /**
- * Attributes no web search can answer, whatever it claims.
- *
- * A demo flag is a fact about the box standing on the shop floor, not about
- * the model. Asked anyway, the resolver dutifully answered "false" for every
- * unit it saw, and a string reads as true wherever the flag is checked
- * plainly. "brand" only repeats the column the product already has.
+ * The attributes of a category worth putting to a web search. The rule
+ * itself lives beside the resolver, in the OCR module's `researchable`.
  */
-const UNRESEARCHABLE_NAME = /^(isdemounit|brand)$/i;
-const UNRESEARCHABLE_LABEL = /(demo|display unit)/i;
-
 function specAttributes(attributes: CategoryAttributeRow[]): SpecAttributeDef[] {
-  return attributes
-    .filter(
-      (a) =>
-        String(a.attributeType) !== 'multi_text' &&
-        !/imei|serial/i.test(a.attributeName) &&
-        !UNRESEARCHABLE_NAME.test(a.attributeName) &&
-        !UNRESEARCHABLE_LABEL.test(a.attributeLabel),
-    )
-    .map((a) => ({
+  return researchableAttributes(
+    attributes.map((a) => ({
       attributeName: a.attributeName,
       attributeLabel: a.attributeLabel,
       attributeType: String(a.attributeType),
@@ -142,7 +129,8 @@ function specAttributes(attributes: CategoryAttributeRow[]): SpecAttributeDef[] 
             typeof o === 'object' && o !== null ? String((o as Record<string, unknown>).value ?? o) : String(o),
           )
         : undefined,
-    }));
+    })),
+  );
 }
 
 /** True when the unit was imported at cost and has no suggestion yet. */

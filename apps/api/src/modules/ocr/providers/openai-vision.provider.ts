@@ -1,4 +1,5 @@
 import { config } from '../../../config/index.js';
+import { researchableSpecs } from '../researchable.js';
 
 type OcrFile = {
   buffer: Buffer;
@@ -307,14 +308,17 @@ export async function resolveProductSpecsByWebSearch(args: {
   model?: string;
 }): Promise<Record<string, string>> {
   if (!config.ocr.openAiApiKey) return {};
-  if (!args.attributes.length) return {};
+  // Enforced here as well as by callers: a search cannot establish a demo
+  // flag or a serial number, and asked anyway it will invent an answer.
+  const askable = researchableSpecs(args.attributes);
+  if (!askable.length) return {};
 
   const searchModel = args.model || 'gpt-4o';
   const descriptor = [args.brand, args.modelNumber].filter(Boolean).join(' ');
   const category = args.categoryName ? ` (${args.categoryName})` : '';
 
   // Build a human-readable spec of the fields we want filled.
-  const fieldLines = args.attributes.map((a) => {
+  const fieldLines = askable.map((a) => {
     const opts =
       a.attributeType === 'select' && a.options?.length
         ? ` — choose EXACTLY one of: ${a.options.join(', ')}`
@@ -388,7 +392,7 @@ export async function resolveProductSpecsByWebSearch(args: {
 
     // Keep only requested keys, normalise to strings, drop empties, and
     // constrain `select` values to the allowed options (case-insensitive).
-    const byName = new Map(args.attributes.map((a) => [a.attributeName, a]));
+    const byName = new Map(askable.map((a) => [a.attributeName, a]));
     const out: Record<string, string> = {};
     for (const [key, rawValue] of Object.entries(parsed as Record<string, unknown>)) {
       const def = byName.get(key);

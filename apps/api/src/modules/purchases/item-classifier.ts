@@ -12,6 +12,7 @@ import type {
 import { prisma } from '../../config/database.js';
 import { config as appConfig } from '../../config/index.js';
 import { resolveProductSpecsByWebSearch } from '../ocr/providers/openai-vision.provider.js';
+import { researchableAttributes } from '../ocr/researchable.js';
 
 /**
  * Working out what an item name on a purchase sheet means.
@@ -648,16 +649,31 @@ export const itemClassifier = {
       return { attributes: {}, filled: [], aiEnabled: true, message: `${category.name} has no attributes set up, so there is nothing to fill in.` };
     }
 
-    const found = await resolveProductSpecsByWebSearch({
-      brand: String(request.brand ?? '').trim() || null,
-      modelNumber,
-      categoryName: category.name,
-      attributes: category.attributes.map((attribute) => ({
+    // Only what a search could actually establish. A demo flag or a serial
+    // number is a fact about the box in the shop, and a model asked about
+    // one answers anyway.
+    const askable = researchableAttributes(
+      category.attributes.map((attribute) => ({
         attributeName: attribute.name,
         attributeLabel: attribute.label,
         attributeType: attribute.type,
         options: attribute.options,
       })),
+    );
+    if (askable.length === 0) {
+      return {
+        attributes: {},
+        filled: [],
+        aiEnabled: true,
+        message: `Nothing about a ${category.name} can be looked up — its fields are ones only the shop knows.`,
+      };
+    }
+
+    const found = await resolveProductSpecsByWebSearch({
+      brand: String(request.brand ?? '').trim() || null,
+      modelNumber,
+      categoryName: category.name,
+      attributes: askable,
     });
 
     const attributes = cleanAttributes(
