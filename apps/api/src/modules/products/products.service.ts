@@ -366,7 +366,7 @@ export const productsService = {
     modelNumber: string;
     serialNumber?: string | null;
     mrp: number;
-    sellingPrice: number;
+    sellingPrice?: number;
     purchasePrice: number;
     color?: string | null;
     weightKg?: number | null;
@@ -391,6 +391,16 @@ export const productsService = {
 
     // Validate dynamicAttributes against category attributes
     const dynamicAttributes = data.dynamicAttributes ?? {};
+    /**
+     * A unit can arrive before anybody has priced it.
+     *
+     * It is held at its MRP, or at cost when there is none, and marked so
+     * the product list shows it as still to be priced — the same treatment
+     * an imported unit gets, so the two look alike wherever they are read.
+     */
+    const priced = data.sellingPrice != null && data.sellingPrice > 0;
+    const sellingPrice = priced ? data.sellingPrice! : data.mrp || data.purchasePrice;
+    if (!priced) dynamicAttributes.priceNotSet = true;
     const requiredAttrs = category.attributes.filter((a) => a.isRequired);
     for (const attr of requiredAttrs) {
       const value = dynamicAttributes[attr.attributeName];
@@ -424,7 +434,7 @@ export const productsService = {
         modelNumber: data.modelNumber,
         serialNumber: data.serialNumber ?? null,
         mrp: data.mrp,
-        sellingPrice: data.sellingPrice,
+        sellingPrice,
         purchasePrice: data.purchasePrice,
         color: data.color ?? null,
         weightKg: data.weightKg ?? null,

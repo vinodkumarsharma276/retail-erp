@@ -286,7 +286,6 @@ export function ProductAddPage() {
                   type="number"
                   step="0.01"
                   {...register('sellingPrice', {
-                    required: 'Selling price is required',
                     min: { value: 0, message: 'Selling price must be positive' },
                   })}
                   placeholder="0.00"
