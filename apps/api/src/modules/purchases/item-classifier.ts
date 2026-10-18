@@ -13,6 +13,7 @@ import { prisma } from '../../config/database.js';
 import { config as appConfig } from '../../config/index.js';
 import { resolveProductSpecsByWebSearch } from '../ocr/providers/openai-vision.provider.js';
 import { researchableAttributes } from '../ocr/researchable.js';
+import { identifyProductByWebSearch } from '../ocr/providers/openai-vision.provider.js';
 
 /**
  * Working out what an item name on a purchase sheet means.
@@ -543,6 +544,45 @@ export const itemClassifier = {
           // a suggestion becomes storable once the category exists.
           if (classification.categoryId) toStore.push(classification);
           fromModel += 1;
+        });
+      }
+
+      // Whatever the model could not place, search for. A name that is only
+      // a model code is the case it reads worst and a search engine reads
+      // best, and it is a handful of items, not the whole sheet.
+      const unplaced = [...results.values()].filter(
+        (item) => !item.categoryId && item.decidedBy === 'ai' && !item.suggestedCategory,
+      );
+      if (unplaced.length > 0) {
+        const paths = categories.map((category) => category.label);
+        await mapLimit(unplaced, CONCURRENCY, async (item) => {
+          try {
+            const found = await identifyProductByWebSearch({
+              rawName: item.rawName,
+              brand: item.brand || null,
+              modelNumber: item.modelNumber === item.rawName ? null : item.modelNumber,
+              categoryPaths: paths,
+            });
+            const category = found.categoryPath
+              ? categoryByLabel.get(found.categoryPath.toLowerCase().replace(/\s*>\s*/g, ' > ')) ?? null
+              : null;
+            if (category) {
+              item.categoryId = category.id;
+              item.categoryLabel = category.label;
+              // Found, not deduced: still worth a glance before it is kept.
+              item.confidence = Math.max(item.confidence, 0.7);
+              item.note = found.note ?? `Identified from the web as ${found.productType ?? category.name}.`;
+              toStore.push(item);
+            } else if (found.productType) {
+              // Known product, nowhere to put it: that is a category to add.
+              item.suggestedCategory = { name: titleCase(found.productType).slice(0, 100), parentName: null };
+              item.note = found.note ?? `The web says this is a ${found.productType}.`;
+            } else if (found.note) {
+              item.note = found.note;
+            }
+          } catch (cause) {
+            console.warn('[purchase-import] web identification failed:', cause);
+          }
         });
       }
 

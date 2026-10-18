@@ -413,3 +413,108 @@ export async function resolveProductSpecsByWebSearch(args: {
     return {};
   }
 }
+/**
+ * Work out what a product actually is, by searching for its model code.
+ *
+ * The item classifier reads an item name and usually knows the product from
+ * the words in it. Some names carry only a code — "LG S40T . CINDLLK",
+ * "WHIRL- 200 IMPC PRM 1S SAPPHIRE BLISS" — and there the classifier is
+ * guessing, which it has done badly: a sound bar read as a sewing machine, a
+ * refrigerator as a car battery. A code is exactly what a search engine is
+ * good at, so unplaced items come here before anyone is asked to sort them
+ * out by hand.
+ *
+ * Returns the category path copied from `categoryPaths`, or null when the
+ * search settles nothing. Failures are silent and return null: this runs
+ * after the classifier has already given up, so there is nothing to break.
+ */
+export async function identifyProductByWebSearch(args: {
+  rawName: string;
+  brand?: string | null;
+  modelNumber?: string | null;
+  /** The allowed category paths, exactly as the answer must be spelled. */
+  categoryPaths: string[];
+  model?: string;
+}): Promise<{ categoryPath: string | null; productType: string | null; note: string | null }> {
+  if (!config.ocr.openAiApiKey) return { categoryPath: null, productType: null, note: null };
+  if (!args.categoryPaths.length) return { categoryPath: null, productType: null, note: null };
+
+  const searchModel = args.model || 'gpt-4o';
+  const descriptor = [args.brand, args.modelNumber].filter(Boolean).join(' ') || args.rawName;
+
+  const systemPrompt = [
+    'You identify products for an Indian electronics, appliance, furniture and mobile retailer.',
+    'You are given one line copied from a shop purchase book. Somebody already tried to read it and could not tell what the product is, because the line is mostly a model code.',
+    'You MUST call the web_search_preview tool. A model code is precisely what a search settles and guessing from memory is what already went wrong.',
+    'Work out what the product IS — a sound bar, a refrigerator, a washing machine — from the search results.',
+    'Then return ONLY a JSON object, no prose and no markdown:',
+    '  {"product_type": "<what it is, in plain words>", "category_path": "<one path copied EXACTLY from the allowed list, or null>", "note": "<one short sentence on what you found, or null>"}',
+    'Copy "category_path" character for character from the allowed list, separators included. If the search tells you what the product is but no listed category could hold it, give "product_type" and set "category_path" to null.',
+    'The moment the search tells you what the product is, that belongs in "product_type", and the matching entry from the list belongs in "category_path". "note" is a remark for a person to read — it is NOT where the answer goes. Writing "Identified as a Whirlpool 200 L Single Door Refrigerator" in "note" while leaving both fields null is the one wrong way to answer: you found it, so say so in the fields.',
+    'If the search settles nothing, return {"product_type": null, "category_path": null, "note": "<why>"}. Saying so is a perfectly good answer; an invented one is not.',
+  ].join('\n');
+
+  const userPrompt = [
+    `Purchase book line: "${args.rawName}"`,
+    args.brand ? `Brand already read from it: ${args.brand}` : '',
+    args.modelNumber ? `Model code already read from it: ${args.modelNumber}` : '',
+    '',
+    'Allowed categories, to copy from exactly:',
+    ...args.categoryPaths.map((path) => `  ${path}`),
+    '',
+    'Search query suggestion:',
+    `  "${descriptor}" site:amazon.in OR site:flipkart.com OR site:croma.com OR site:reliancedigital.in`,
+    '',
+    'Respond with just the JSON object.',
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  try {
+    const response = await fetch('https://api.openai.com/v1/responses', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${config.ocr.openAiApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: searchModel,
+        input: [
+          { role: 'system', content: [{ type: 'input_text', text: systemPrompt }] },
+          { role: 'user', content: [{ type: 'input_text', text: userPrompt }] },
+        ],
+        tools: [{ type: 'web_search_preview' }],
+        tool_choice: { type: 'web_search_preview' },
+      }),
+    });
+    if (!response.ok) {
+      const body = await response.text().catch(() => '');
+      console.warn(`[ocr] Product identification failed (${response.status}): ${body.slice(0, 200)}`);
+      return { categoryPath: null, productType: null, note: null };
+    }
+
+    const text = extractOutputText(await response.json()).trim();
+    const match = text.match(/\{[\s\S]*\}/);
+    if (!match) return { categoryPath: null, productType: null, note: null };
+    const parsed = JSON.parse(match[0]) as {
+      product_type?: string | null;
+      category_path?: string | null;
+      note?: string | null;
+    };
+
+    // Only a path that really is on the list, compared loosely enough to
+    // survive spacing around the separator.
+    const wanted = String(parsed.category_path ?? '').toLowerCase().replace(/\s*>\s*/g, ' > ').trim();
+    const categoryPath =
+      args.categoryPaths.find((path) => path.toLowerCase().replace(/\s*>\s*/g, ' > ') === wanted) ?? null;
+
+    return {
+      categoryPath,
+      productType: parsed.product_type?.trim() || null,
+      note: parsed.note?.trim() || null,
+    };
+  } catch (error) {
+    console.warn('[ocr] Product identification error:', error);
+    return { categoryPath: null, productType: null, note: null };
+  }
+}
