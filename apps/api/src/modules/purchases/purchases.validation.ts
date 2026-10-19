@@ -26,6 +26,40 @@ export const createPurchaseSchema = z.object({
   items: z.array(purchaseItemSchema).min(1, 'At least one item is required'),
 });
 
+/**
+ * One item on a purchase made without a bill.
+ *
+ * Looser than the billed item on purpose: a wardrobe has no serial number,
+ * and nobody has decided what it will sell for at the moment it arrives.
+ * The cost is the one figure that is always known.
+ */
+const unbilledItemSchema = z.object({
+  categoryId: z.string().uuid('Category ID must be a valid UUID'),
+  brand: z.string().max(200).default(''),
+  modelNumber: z.string().min(1, 'Say what the item is').max(200),
+  serialNumber: z.string().max(200).nullable().optional(),
+  mrp: z.number().positive('MRP must be positive').optional(),
+  sellingPrice: z.number().positive('Selling price must be positive').optional(),
+  purchasePrice: z.number().positive('What was paid must be positive'),
+  color: z.string().max(50).nullable().optional(),
+  warrantyMonths: z.number().int().min(0).nullable().optional(),
+  barcode: z.string().max(100).nullable().optional(),
+  dynamicAttributes: z.record(z.unknown()).optional(),
+});
+
+/**
+ * A purchase made without a bill. No invoice number is accepted: it is issued
+ * from the product type's own series as the purchase is saved, so that two
+ * people entering one at the same time cannot be given the same number.
+ */
+export const createUnbilledPurchaseSchema = z.object({
+  distributorId: z.string().uuid('Distributor ID must be a valid UUID'),
+  seriesCategoryId: z.string().uuid('Product type must be a valid UUID'),
+  invoiceDate: z.string().min(1, 'Purchase date is required'),
+  notes: z.string().nullable().optional(),
+  items: z.array(unbilledItemSchema).min(1, 'At least one item is required'),
+});
+
 export const updatePurchaseSchema = z.object({
   invoiceNumber: z.string().min(1).max(100).optional(),
   invoiceDate: z.string().optional(),

@@ -74,6 +74,25 @@ export const unbilledSeriesService = {
   },
 
   /**
+   * The same thing the picker on the "without a bill" screen shows: each type
+   * bought that way, the kinds of goods filed under it, and the invoice
+   * number its next purchase would take.
+   */
+  async types(tenantId: string): Promise<UnbilledType[]> {
+    const categories = await prisma.productCategory.findMany({
+      where: { tenantId, isActive: true },
+      select: { id: true, name: true, parentId: true, displayOrder: true, purchaseModes: true },
+    });
+    const marked = categories.filter((c) => c.purchaseModes !== 'billed');
+    if (marked.length === 0) return [];
+    const series = await prisma.purchaseInvoiceSeries.findMany({
+      where: { tenantId, categoryId: { in: marked.map((c) => c.id) } },
+      select: { categoryId: true, prefix: true, nextNumber: true },
+    });
+    return buildUnbilledTypes(categories, series);
+  },
+
+  /**
    * Start a type's numbering, or correct it before it has been used.
    *
    * Changing where a series continues from is deliberately allowed: the shop
@@ -143,3 +162,93 @@ export const unbilledSeriesService = {
     return `${series.prefix}${updated.nextNumber - 1}`;
   },
 };
+
+/** One product type that can be filed against a series, e.g. Wardrobe. */
+export interface UnbilledTypeChoice {
+  categoryId: string;
+  /** The type's own name, e.g. "Wardrobe". */
+  categoryName: string;
+  /** Read down from the non-billed type, e.g. "Furniture › Wardrobe". */
+  label: string;
+}
+
+/** A type bought without a bill, with the kinds of goods filed under it. */
+export interface UnbilledType {
+  series: SeriesState;
+  choices: UnbilledTypeChoice[];
+}
+
+interface CategoryRow {
+  id: string;
+  name: string;
+  parentId: string | null;
+  displayOrder: number;
+  purchaseModes: string;
+}
+
+interface SeriesRow {
+  categoryId: string;
+  prefix: string;
+  nextNumber: number;
+}
+
+/**
+ * Work out what the "without a bill" picker offers.
+ *
+ * Only a handful of types are bought this way, and the numbering belongs to
+ * the type: Furniture has one series, so a wardrobe and a sofa bought off the
+ * books both take a FURN number. The picker therefore shows the marked type
+ * as a heading and the actual kinds of goods beneath it as the choices, since
+ * a product is filed against the leaf it really is, not against "Furniture".
+ *
+ * A type marked inside another marked type keeps its own numbering, so it
+ * becomes a heading of its own rather than a choice under its parent.
+ */
+export function buildUnbilledTypes(categories: CategoryRow[], series: SeriesRow[]): UnbilledType[] {
+  const children = new Map<string | null, CategoryRow[]>();
+  for (const category of categories) {
+    const siblings = children.get(category.parentId) ?? [];
+    siblings.push(category);
+    children.set(category.parentId, siblings);
+  }
+  const inOrder = (rows: CategoryRow[]) =>
+    [...rows].sort((a, b) => a.displayOrder - b.displayOrder || a.name.localeCompare(b.name));
+
+  const isMarked = (category: CategoryRow) => category.purchaseModes !== 'billed';
+  const bySeriesCategory = new Map(series.map((s) => [s.categoryId, s]));
+
+  const marked = inOrder(categories.filter(isMarked));
+
+  return marked.map((type) => {
+    const choices: UnbilledTypeChoice[] = [];
+
+    const walk = (category: CategoryRow, trail: string[]) => {
+      const kids = inOrder(children.get(category.id) ?? []).filter((kid) => !isMarked(kid));
+      if (kids.length === 0) {
+        choices.push({
+          categoryId: category.id,
+          categoryName: category.name,
+          label: [...trail, category.name].join(' › '),
+        });
+        return;
+      }
+      for (const kid of kids) walk(kid, [...trail, category.name]);
+    };
+    walk(type, []);
+
+    const existing = bySeriesCategory.get(type.id);
+    const prefix = existing?.prefix ?? suggestPrefix(type.name);
+    const nextNumber = existing?.nextNumber ?? 1;
+    return {
+      series: {
+        categoryId: type.id,
+        categoryName: type.name,
+        started: Boolean(existing),
+        prefix,
+        nextNumber,
+        nextInvoiceNumber: `${prefix}${nextNumber}`,
+      },
+      choices,
+    };
+  });
+}

@@ -1,5 +1,6 @@
 import { prisma } from '../../config/database.js';
 import type { Prisma } from '@prisma/client';
+import { unbilledSeriesService } from './unbilled-series.js';
 
 export const purchasesService = {
   /**
@@ -399,6 +400,202 @@ export const purchasesService = {
     });
 
     return fullPurchase;
+  },
+
+  /**
+   * Record a purchase made without a bill.
+   *
+   * Furniture and almirahs are often bought with no supplier invoice at all.
+   * The goods are real stock from a real supplier, so they are recorded like
+   * any other purchase; what differs is that there is no tax to account for
+   * and the invoice number is one the shop issues itself, the next in that
+   * product type's own series.
+   *
+   * The number is taken inside the same transaction that writes the purchase,
+   * so a failure here never burns a number and two people saving at once
+   * cannot be handed the same one. That also means the caller cannot know the
+   * number in advance — the saved purchase is what says what it became.
+   */
+  async createUnbilled(shopId: string, tenantId: string, data: {
+    distributorId: string;
+    /** The non-billed type whose numbering this purchase takes, e.g. Furniture. */
+    seriesCategoryId: string;
+    invoiceDate: string;
+    notes?: string | null;
+    items: Array<{
+      categoryId: string;
+      brand: string;
+      modelNumber: string;
+      serialNumber?: string | null;
+      mrp?: number;
+      sellingPrice?: number;
+      purchasePrice: number;
+      color?: string | null;
+      warrantyMonths?: number | null;
+      barcode?: string | null;
+      dynamicAttributes?: Record<string, unknown>;
+    }>;
+  }, userId: string) {
+    const distributor = await prisma.distributor.findFirst({
+      where: { id: data.distributorId, tenantId },
+      select: { id: true, companyName: true },
+    });
+    if (!distributor) {
+      throw new Error('Distributor not found');
+    }
+
+    const seriesCategory = await prisma.productCategory.findFirst({
+      where: { id: data.seriesCategoryId, tenantId },
+      select: { id: true, name: true, purchaseModes: true },
+    });
+    if (!seriesCategory) {
+      throw new Error('Product type not found');
+    }
+    if (seriesCategory.purchaseModes === 'billed') {
+      throw new Error(`${seriesCategory.name} is not bought without a bill.`);
+    }
+
+    // Serial numbers are optional here — a wardrobe has none — but one that
+    // is given still has to be unique, the same as on a billed purchase.
+    const serialNumbers = data.items.map((i) => i.serialNumber).filter((sn): sn is string => Boolean(sn));
+    const duplicateSerials = serialNumbers.filter((sn, i) => serialNumbers.indexOf(sn) !== i);
+    if (duplicateSerials.length > 0) {
+      throw new Error(`Duplicate serial numbers in items: ${[...new Set(duplicateSerials)].join(', ')}`);
+    }
+    for (const item of data.items) {
+      if (!item.serialNumber) continue;
+      const clash = await prisma.product.findFirst({
+        where: { serialNumber: item.serialNumber, categoryId: item.categoryId },
+        select: { id: true },
+      });
+      if (clash) {
+        throw new Error(`Serial number "${item.serialNumber}" already exists for this product category`);
+      }
+    }
+
+    const categoryIds = [...new Set(data.items.map((item) => item.categoryId))];
+    const categories = await prisma.productCategory.findMany({
+      where: { id: { in: categoryIds }, tenantId },
+      include: { attributes: { where: { isActive: true } } },
+    });
+    if (categories.length !== categoryIds.length) {
+      throw new Error('One or more category IDs are invalid');
+    }
+    const categoryMap = new Map(categories.map((c) => [c.id, c]));
+
+    for (const item of data.items) {
+      const category = categoryMap.get(item.categoryId)!;
+      const dynamicAttributes = item.dynamicAttributes ?? {};
+      for (const attr of category.attributes.filter((a) => a.isRequired)) {
+        const value = dynamicAttributes[attr.attributeName];
+        if (value === undefined || value === null || value === '') {
+          throw new Error(`Required attribute "${attr.attributeLabel}" is missing for item "${item.brand} ${item.modelNumber}"`);
+        }
+      }
+    }
+
+    const totalAmount = data.items.reduce((sum, item) => sum + (Number(item.purchasePrice) || 0), 0);
+    const invoiceDate = new Date(data.invoiceDate);
+
+    const result = await prisma.$transaction(async (tx) => {
+      const invoiceNumber = await unbilledSeriesService.take(tx, tenantId, data.seriesCategoryId);
+
+      const purchase = await tx.purchase.create({
+        data: {
+          tenantId,
+          shopId,
+          distributorId: data.distributorId,
+          invoiceNumber,
+          invoiceDate,
+          // No bill means no tax, and nothing is being discounted off a price
+          // nobody wrote down: what was paid for the goods is the whole of it.
+          totalAmount,
+          gstAmount: 0,
+          discountAmount: 0,
+          netAmount: totalAmount,
+          amountPaid: 0,
+          paymentStatus: 'pending',
+          notes: data.notes ?? null,
+          billed: false,
+          source: 'manual',
+          createdBy: userId,
+        },
+      });
+
+      // One product row per unit, written the way the sheet import writes
+      // them so stock looks the same however the purchase was entered.
+      const units: Prisma.ProductCreateManyInput[] = [];
+      for (const item of data.items) {
+        const attributes: Record<string, unknown> = { ...(item.dynamicAttributes ?? {}) };
+        const mrp = Number(item.mrp) > 0 ? Number(item.mrp) : null;
+        const sellingPrice = Number(item.sellingPrice) > 0 ? Number(item.sellingPrice) : null;
+        // Nobody has priced it for the shop floor yet. Rather than invent a
+        // retail price, the unit is held at cost and marked, so it can be
+        // found and priced before it is sold.
+        if (!mrp && !sellingPrice) attributes.priceNotSet = true;
+
+        let warrantyExpiry: Date | null = null;
+        if (item.warrantyMonths && item.warrantyMonths > 0) {
+          warrantyExpiry = new Date(invoiceDate);
+          warrantyExpiry.setMonth(warrantyExpiry.getMonth() + item.warrantyMonths);
+        }
+
+        units.push({
+          tenantId,
+          shopId,
+          categoryId: item.categoryId,
+          brand: ((item.dynamicAttributes?.brand as string) || item.brand).slice(0, 200),
+          modelNumber: item.modelNumber.slice(0, 200),
+          serialNumber: item.serialNumber ?? null,
+          mrp: mrp ?? sellingPrice ?? item.purchasePrice,
+          sellingPrice: sellingPrice ?? mrp ?? item.purchasePrice,
+          purchasePrice: item.purchasePrice,
+          color: item.color ?? null,
+          distributorId: data.distributorId,
+          purchaseId: purchase.id,
+          status: 'in_stock',
+          dynamicAttributes: attributes as Prisma.InputJsonValue,
+          warrantyMonths: item.warrantyMonths ?? null,
+          warrantyExpiry,
+          barcode: item.barcode ?? null,
+          createdBy: userId,
+        });
+      }
+
+      const products = await tx.product.createManyAndReturn({ data: units, select: { id: true } });
+      await tx.productAuditTrail.createMany({
+        data: products.map((product) => ({
+          tenantId,
+          productId: product.id,
+          eventType: 'purchased',
+          toShopId: shopId,
+          referenceId: purchase.id,
+          referenceType: 'purchase',
+          performedBy: userId,
+          notes: `Purchased without a bill from ${distributor.companyName}, Invoice: ${invoiceNumber}`,
+        })),
+      });
+
+      // Keep the supplier's "categories supplied" list in step, the same as
+      // a billed purchase does.
+      await tx.distributorCategory.createMany({
+        data: categoryIds.map((categoryId) => ({ tenantId, distributorId: data.distributorId, categoryId })),
+        skipDuplicates: true,
+      });
+
+      return purchase;
+    });
+
+    return prisma.purchase.findUnique({
+      where: { id: result.id },
+      include: {
+        distributor: { select: { id: true, companyName: true, contactPerson: true } },
+        products: {
+          include: { category: { select: { id: true, name: true, slug: true, path: true } } },
+        },
+        creator: { select: { id: true, username: true, fullName: true } },
+      },
+    });
   },
 
   async update(id: string, data: {

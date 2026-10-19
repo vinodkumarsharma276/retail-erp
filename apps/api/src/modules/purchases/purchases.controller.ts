@@ -208,6 +208,20 @@ export const purchasesController = {
     }
   },
 
+  /**
+   * GET /purchases/unbilled-types — what the "without a bill" picker offers:
+   * each type bought that way, the kinds of goods filed under it, and the
+   * invoice number its next purchase would take.
+   */
+  async listUnbilledTypes(request: FastifyRequest, reply: FastifyReply) {
+    try {
+      return sendSuccess(reply, await unbilledSeriesService.types(request.currentUser!.tenantId));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to load the product types';
+      return sendError(reply, message, 500);
+    }
+  },
+
   /** PUT /purchases/unbilled-series — set where a type’s numbering starts. */
   async startUnbilledSeries(
     request: FastifyRequest<{ Body: { categoryId: string; prefix: string; startNumber: number } }>,
@@ -287,6 +301,65 @@ export const purchasesController = {
         return sendError(reply, message, 400);
       }
       if (message.startsWith('Required attribute')) {
+        return sendError(reply, message, 400);
+      }
+      if (message.includes('already exists')) {
+        return sendError(reply, message, 409);
+      }
+      return sendError(reply, message, 500);
+    }
+  },
+
+  /**
+   * POST /purchases/unbilled — a purchase with no supplier bill behind it.
+   *
+   * The response carries the invoice number the series handed out, because
+   * the screen cannot know it until the purchase is saved.
+   */
+  async createUnbilled(
+    request: FastifyRequest<{
+      Body: {
+        distributorId: string;
+        seriesCategoryId: string;
+        invoiceDate: string;
+        notes?: string | null;
+        items: Array<{
+          categoryId: string;
+          brand: string;
+          modelNumber: string;
+          serialNumber?: string | null;
+          mrp?: number;
+          sellingPrice?: number;
+          purchasePrice: number;
+          color?: string | null;
+          warrantyMonths?: number | null;
+          barcode?: string | null;
+          dynamicAttributes?: Record<string, unknown>;
+        }>;
+      };
+    }>,
+    reply: FastifyReply,
+  ) {
+    try {
+      if (request.shopFilter!.allShops) {
+        return sendError(reply, 'Switch to a single shop to record a purchase', 400);
+      }
+      const purchase = await purchasesService.createUnbilled(
+        request.shopFilter!.shopId,
+        request.currentUser!.tenantId,
+        request.body,
+        request.currentUser!.userId,
+      );
+      return sendSuccess(reply, purchase, 201);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to record the purchase';
+      if (message === 'Distributor not found' || message === 'Product type not found') {
+        return sendError(reply, message, 404);
+      }
+      if (message === 'One or more category IDs are invalid') {
+        return sendError(reply, message, 400);
+      }
+      if (message.startsWith('Required attribute') || message.includes('no numbering yet')) {
         return sendError(reply, message, 400);
       }
       if (message.includes('already exists')) {

@@ -6,6 +6,7 @@ import { shopScope } from '../../middleware/shop-scope.js';
 import { validate } from '../../middleware/validate.js';
 import {
   createPurchaseSchema,
+  createUnbilledPurchaseSchema,
   updatePurchaseSchema,
   recordPaymentSchema,
   purchaseImportSchema,
@@ -61,6 +62,17 @@ export async function purchaseRoutes(app: FastifyInstance) {
   app.delete('/import/classifications', {
     preHandler: [authenticate, requirePermission('purchases.create'), validate(forgetClassificationsSchema)],
   }, purchasesController.forgetClassifications as any);
+
+  // A purchase with no supplier bill behind it. The invoice number is issued
+  // from the product type's own series as it saves, so none is sent.
+  app.post('/unbilled', {
+    preHandler: [authenticate, shopScope, requirePermission('purchases.create'), validate(createUnbilledPurchaseSchema)],
+  }, purchasesController.createUnbilled as any);
+
+  // What that screen's product-type picker offers.
+  app.get('/unbilled-types', {
+    preHandler: [authenticate, requirePermission('purchases.create')],
+  }, purchasesController.listUnbilledTypes as any);
 
   // The numbering the shop keeps for purchases made without a bill.
   app.get('/unbilled-series', {

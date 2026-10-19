@@ -17,6 +17,10 @@ import type {
   LookupItemRequest,
   LookupItemResponse,
   SaveClassificationsRequest,
+  UnbilledType,
+  UnbilledSeriesState,
+  StartUnbilledSeriesRequest,
+  CreateUnbilledPurchaseRequest,
 } from '@retailerp/shared-types';
 
 // ---------------------------------------------------------------------------
@@ -100,6 +104,63 @@ export function useCreatePurchaseMutation() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['purchases'] });
       queryClient.invalidateQueries({ queryKey: ['distributors'] });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Purchases made without a bill
+// ---------------------------------------------------------------------------
+/**
+ * The product types bought without a bill, each with the invoice number its
+ * next purchase would take.
+ *
+ * Never cached across the screen's lifetime: the number on offer moves the
+ * moment anybody records one of these, so a stale FURN7 would be wrong.
+ */
+export function useUnbilledTypesQuery(enabled = true) {
+  return useQuery({
+    queryKey: ['purchases', 'unbilled-types'],
+    queryFn: async () => {
+      const { data } = await apiClient.get<ApiResponse<UnbilledType[]>>('/purchases/unbilled-types');
+      return data.data ?? [];
+    },
+    enabled,
+    staleTime: 0,
+  });
+}
+
+/** Set where a type's numbering starts, for a type nobody has numbered yet. */
+export function useStartUnbilledSeriesMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: StartUnbilledSeriesRequest) => {
+      const { data } = await apiClient.put<ApiResponse<UnbilledSeriesState>>('/purchases/unbilled-series', payload);
+      return data.data!;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['purchases', 'unbilled-types'] });
+    },
+  });
+}
+
+/**
+ * Record a purchase made without a bill.
+ *
+ * The invoice number is not sent — it is issued as the purchase saves — so
+ * the returned purchase is the only thing that says what it became.
+ */
+export function useCreateUnbilledPurchaseMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: CreateUnbilledPurchaseRequest) => {
+      const { data } = await apiClient.post<ApiResponse<Purchase>>('/purchases/unbilled', payload);
+      return data.data!;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['purchases'] });
+      queryClient.invalidateQueries({ queryKey: ['distributors'] });
+      queryClient.invalidateQueries({ queryKey: ['products'] });
     },
   });
 }

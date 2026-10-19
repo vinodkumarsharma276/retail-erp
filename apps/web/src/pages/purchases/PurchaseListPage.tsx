@@ -191,7 +191,16 @@ export function PurchaseListPage() {
       align: 'right',
       sortable: true,
       sortAccessor: (row) => Number(row.gstAmount) || 0,
-      render: (row) => formatINR(row.gstAmount),
+      // Goods bought without a bill carry no tax at all, which is not the
+      // same thing as a bill that happened to add up to zero.
+      render: (row) =>
+        row.billed === false ? (
+          <span className="text-xs text-muted-foreground" title="Bought without a bill">
+            No bill
+          </span>
+        ) : (
+          formatINR(row.gstAmount)
+        ),
     },
     {
       key: 'paid',

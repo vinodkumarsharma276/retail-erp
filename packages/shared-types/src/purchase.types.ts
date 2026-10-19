@@ -21,6 +21,11 @@ export interface Purchase {
   paymentStatus: PurchasePaymentStatus;
   notes?: string;
   /**
+   * False for goods bought without a supplier bill. They carry no tax, and
+   * their invoice number is one the shop issued itself.
+   */
+  billed?: boolean;
+  /**
    * How the purchase was recorded: "manual" when typed in, "excel_import"
    * when it came from an uploaded sheet.
    */
@@ -92,6 +97,77 @@ export interface CreatePurchaseItemRequest {
   serialNumber?: string;
   mrp: number;
   sellingPrice: number;
+  purchasePrice: number;
+  color?: string;
+  warrantyMonths?: number;
+  barcode?: string;
+  dynamicAttributes?: Record<string, unknown>;
+}
+
+// ---------------------------------------------------------------------------
+// Purchases made without a bill
+//
+// Furniture and almirahs are often bought with no supplier invoice at all.
+// The shop numbers those itself, in a running series per product type —
+// FURN1, FURN2… and ALMR41, ALMR42… — and they carry no tax.
+// ---------------------------------------------------------------------------
+
+/** Where a product type's own invoice numbering has reached. */
+export interface UnbilledSeriesState {
+  categoryId: string;
+  categoryName: string;
+  /** False until somebody sets the first number. */
+  started: boolean;
+  /** Letters in front of the number, e.g. FURN. */
+  prefix: string;
+  nextNumber: number;
+  /** What the next invoice would be called, e.g. "FURN12". */
+  nextInvoiceNumber: string;
+}
+
+/** One kind of goods that can be filed against a series, e.g. Wardrobe. */
+export interface UnbilledTypeChoice {
+  categoryId: string;
+  categoryName: string;
+  /** Read down from the non-billed type, e.g. "Furniture › Wardrobe". */
+  label: string;
+}
+
+/** A type bought without a bill, with the kinds of goods filed under it. */
+export interface UnbilledType {
+  series: UnbilledSeriesState;
+  choices: UnbilledTypeChoice[];
+}
+
+/** Starting, or correcting, a type's numbering. */
+export interface StartUnbilledSeriesRequest {
+  categoryId: string;
+  prefix: string;
+  startNumber: number;
+}
+
+/**
+ * No invoice number is sent: it is issued from the type's own series as the
+ * purchase saves, so two people entering one at the same time cannot be
+ * given the same number. The saved purchase says what it became.
+ */
+export interface CreateUnbilledPurchaseRequest {
+  distributorId: string;
+  /** The non-billed type whose numbering this purchase takes. */
+  seriesCategoryId: string;
+  invoiceDate: string;
+  notes?: string;
+  items: CreateUnbilledPurchaseItemRequest[];
+}
+
+/** Looser than a billed item: no serial, and no price set for the floor yet. */
+export interface CreateUnbilledPurchaseItemRequest {
+  categoryId: string;
+  brand?: string;
+  modelNumber: string;
+  serialNumber?: string;
+  mrp?: number;
+  sellingPrice?: number;
   purchasePrice: number;
   color?: string;
   warrantyMonths?: number;

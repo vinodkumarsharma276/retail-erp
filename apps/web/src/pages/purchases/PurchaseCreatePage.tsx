@@ -11,6 +11,8 @@ import {
   Check,
   Search,
   ScanLine,
+  Receipt,
+  NotebookPen,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { FormSection, FormGrid, Field } from '../../components/ui/form';
@@ -28,6 +30,7 @@ import { ModelAutocomplete, type ProductMatch } from '../../components/ModelAuto
 import { ScanInvoiceDialog } from '../../components/ScanInvoiceDialog';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { AddDistributorDialog } from '../../components/AddDistributorDialog';
+import { UnbilledPurchaseForm } from './UnbilledPurchaseForm';
 import { formatINR } from '@retailerp/shared-utils';
 import type { Distributor, DistributorListItem } from '@retailerp/shared-types';
 import { apiClient } from '../../lib/api-client';
@@ -87,7 +90,14 @@ const STEPS = [
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
-export function PurchaseCreatePage() {
+/**
+ * Recording a purchase against a supplier's invoice — the ordinary case.
+ *
+ * Reached from the choice on {@link PurchaseCreatePage}; goods bought with no
+ * bill at all go to {@link UnbilledPurchaseForm} instead, because almost
+ * nothing on this screen applies to them.
+ */
+function BilledPurchaseWizard() {
   const navigate = useNavigate();
   const [currentStep, setCurrentStep] = useState(0);
   const [isScanOpen, setIsScanOpen] = useState(false);
@@ -1315,6 +1325,97 @@ export function PurchaseCreatePage() {
           }}
         />
       </FormProvider>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// The choice that comes first
+// ---------------------------------------------------------------------------
+/**
+ * Which kind of purchase is being recorded.
+ *
+ * The two are different enough to be worth asking up front rather than
+ * hiding a switch somewhere in the form. A purchase against a supplier's
+ * invoice has a bill with a number, tax on it, and a scan worth reading. One
+ * bought without a bill has none of that: no tax, and an invoice number the
+ * shop issues itself out of its own running series.
+ */
+export function PurchaseCreatePage() {
+  const navigate = useNavigate();
+  const [kind, setKind] = useState<'billed' | 'unbilled' | null>(null);
+
+  if (kind === 'billed') return <BilledPurchaseWizard />;
+  if (kind === 'unbilled') return <UnbilledPurchaseForm onBack={() => setKind(null)} />;
+
+  return (
+    <div className="mx-auto max-w-[900px]">
+      <div className="mb-8 flex items-center gap-4">
+        <button
+          onClick={() => navigate(-1)}
+          className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          <ArrowLeft className="h-5 w-5" />
+        </button>
+        <div>
+          <h1 className="text-display">New Purchase</h1>
+          <p className="text-caption mt-0.5">How did these goods come in?</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <button
+          type="button"
+          onClick={() => setKind('billed')}
+          className={cn(
+            'group rounded-lg border bg-card p-6 text-left transition-colors',
+            'hover:border-primary/60 hover:bg-primary-muted/30',
+          )}
+        >
+          <Receipt className="h-7 w-7 text-primary" />
+          <h2 className="mt-3 text-lg font-medium">Against a supplier invoice</h2>
+          <p className="text-caption mt-1">
+            The usual way. The supplier's bill carries its own number and its tax, and the
+            invoice can be scanned in.
+          </p>
+          <span className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-primary">
+            Continue
+            <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setKind('unbilled')}
+          className={cn(
+            'group rounded-lg border bg-card p-6 text-left transition-colors',
+            'hover:border-primary/60 hover:bg-primary-muted/30',
+          )}
+        >
+          <NotebookPen className="h-7 w-7 text-primary" />
+          <h2 className="mt-3 text-lg font-medium">Without a bill</h2>
+          <p className="text-caption mt-1">
+            Furniture, almirahs and the like, bought with no invoice at all. No tax, and the
+            invoice number is the next one in the shop's own series.
+          </p>
+          <span className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-primary">
+            Continue
+            <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+          </span>
+        </button>
+      </div>
+
+      <p className="text-caption mt-6">
+        A whole sheet of either kind can be brought in at once from{' '}
+        <button
+          type="button"
+          onClick={() => navigate('/purchases/import')}
+          className="font-medium text-primary underline-offset-4 hover:underline"
+        >
+          Import purchases
+        </button>
+        .
+      </p>
     </div>
   );
 }
