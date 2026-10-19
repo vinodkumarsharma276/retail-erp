@@ -68,7 +68,7 @@ export function DynamicAttributeFields({
     );
   }
 
-  if (!attributes || attributes.length === 0) {
+  if (!attributes || attributes.every((attr) => attr.attributeName === 'brand')) {
     return (
       <p className="text-sm text-muted-foreground py-2">
         No additional fields for this category.
@@ -90,6 +90,11 @@ export function DynamicAttributeFields({
             .map((attr) => [attr.attributeName, attr] as const),
         ).values(),
       )
+        // Brand is a column on Product, not a detail of the category, and
+        // every form that renders these already asks for it directly. It was
+        // seeded as an attribute too, which had each form asking twice.
+        // Its options still serve: they are what the brand field suggests.
+        .filter((attr) => attr.attributeName !== 'brand')
         .map((attr) => {
           const fieldName = `${fieldPrefix}.${attr.attributeName}`;
           // Resolve error by walking the fieldPrefix path (e.g. 'items.0.dynamicAttributes' -> errors.items[0].dynamicAttributes)

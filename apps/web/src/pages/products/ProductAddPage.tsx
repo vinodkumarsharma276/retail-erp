@@ -5,6 +5,7 @@ import { Loader2, Save, ArrowLeft, AlertCircle } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { CategoryCascader } from '../../components/CategoryCascader';
 import { DynamicAttributeFields } from '../../components/DynamicAttributeFields';
+import { BrandInput } from '../../components/BrandInput';
 import {
   useProductDetailQuery,
   useCreateProductMutation,
@@ -185,17 +186,15 @@ export function ProductAddPage() {
                 <label htmlFor="brand" className="block text-sm font-medium mb-1.5">
                   Brand <span className="text-destructive">*</span>
                 </label>
-                <input
+                <BrandInput
                   id="brand"
-                  type="text"
-                  {...register('brand', { required: 'Brand is required' })}
+                  categoryId={selectedCategoryId}
                   placeholder="e.g. Samsung, LG, Apple"
-                  className={cn(
-                    'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
-                    'placeholder:text-muted-foreground',
-                    'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                    errors.brand && 'border-destructive',
-                  )}
+                  aria-invalid={!!errors.brand || undefined}
+                  {...register('brand', {
+                    required: 'Brand is required',
+                    setValueAs: (value: unknown) => String(value ?? '').trim(),
+                  })}
                 />
                 {errors.brand && (
                   <p className="mt-1 text-xs text-destructive">

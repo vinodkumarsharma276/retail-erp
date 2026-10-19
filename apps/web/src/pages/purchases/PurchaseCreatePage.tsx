@@ -26,6 +26,7 @@ import { useDistributorsQuery } from '../../hooks/useDistributors';
 import { useCreatePurchaseMutation } from '../../hooks/usePurchases';
 import { CategoryCascader } from '../../components/CategoryCascader';
 import { DynamicAttributeFields } from '../../components/DynamicAttributeFields';
+import { BrandInput } from '../../components/BrandInput';
 import { ModelAutocomplete, type ProductMatch } from '../../components/ModelAutocomplete';
 import { ScanInvoiceDialog } from '../../components/ScanInvoiceDialog';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
@@ -894,11 +895,28 @@ function BilledPurchaseWizard() {
                     )}
                     aria-disabled={!itemCategoryIds[index]}
                   >
+                    <Field
+                      label="Brand"
+                      required
+                      span={4}
+                      error={errors.items?.[index]?.brand?.message}
+                    >
+                      <BrandInput
+                        categoryId={itemCategoryIds[index]}
+                        placeholder="Type or pick a brand"
+                        aria-invalid={!!errors.items?.[index]?.brand || undefined}
+                        {...register(`items.${index}.brand`, {
+                          required: 'Brand is required',
+                          setValueAs: (value: unknown) => String(value ?? '').trim(),
+                        })}
+                      />
+                    </Field>
+
                     {/* Model */}
                     <Field
                       label="Model"
                       required
-                      span={8}
+                      span={4}
                       error={errors.items?.[index]?.modelNumber?.message}
                     >
                       <ModelAutocomplete

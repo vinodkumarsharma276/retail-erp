@@ -26,6 +26,7 @@ import {
   useUnbilledTypesQuery,
 } from '../../hooks/usePurchases';
 import { DynamicAttributeFields } from '../../components/DynamicAttributeFields';
+import { BrandInput } from '../../components/BrandInput';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { AddDistributorDialog } from '../../components/AddDistributorDialog';
 import { useToast } from '../../stores/toast-store';
@@ -61,7 +62,6 @@ interface UnbilledItemValues {
   quantity: number | '';
   purchasePrice: number | '';
   mrp: number | '';
-  sellingPrice: number | '';
   color: string;
   warrantyMonths: number | '';
   dynamicAttributes: Record<string, unknown>;
@@ -81,7 +81,6 @@ const emptyItem = (categoryId: string): UnbilledItemValues => ({
   quantity: 1,
   purchasePrice: '',
   mrp: '',
-  sellingPrice: '',
   color: '',
   warrantyMonths: '',
   dynamicAttributes: {},
@@ -297,11 +296,10 @@ export function UnbilledPurchaseForm({ onBack }: UnbilledPurchaseFormProps) {
       const serials = parsedSerials[index] ?? [];
       const base = {
         categoryId: item.categoryId,
-        brand: item.brand.trim() || undefined,
+        brand: item.brand.trim(),
         modelNumber: item.modelNumber.trim(),
         purchasePrice: Number(item.purchasePrice),
         mrp: Number(item.mrp) > 0 ? Number(item.mrp) : undefined,
-        sellingPrice: Number(item.sellingPrice) > 0 ? Number(item.sellingPrice) : undefined,
         color: item.color.trim() || undefined,
         warrantyMonths: item.warrantyMonths ? Number(item.warrantyMonths) : undefined,
         dynamicAttributes: item.dynamicAttributes,
@@ -675,8 +673,21 @@ export function UnbilledPurchaseForm({ onBack }: UnbilledPurchaseFormProps) {
                         />
                       </Field>
 
-                      <Field label="Maker / brand" span={3} hint="Leave blank if it has none">
-                        <Input {...register(`items.${index}.brand`)} placeholder="e.g. Nilkamal" />
+                      <Field
+                        label="Maker / brand"
+                        span={3}
+                        required
+                        error={errors.items?.[index]?.brand?.message}
+                      >
+                        <BrandInput
+                          categoryId={categoryId}
+                          placeholder="e.g. Nilkamal"
+                          aria-invalid={!!errors.items?.[index]?.brand || undefined}
+                          {...register(`items.${index}.brand`, {
+                            required: 'Say which brand it is',
+                            setValueAs: (value: unknown) => String(value ?? '').trim(),
+                          })}
+                        />
                       </Field>
 
                       <Field
@@ -715,15 +726,6 @@ export function UnbilledPurchaseForm({ onBack }: UnbilledPurchaseFormProps) {
                           type="number"
                           step="0.01"
                           {...register(`items.${index}.mrp`)}
-                          placeholder="0.00"
-                        />
-                      </Field>
-
-                      <Field label="Selling price" span={2} hint="Optional — can be set later">
-                        <Input
-                          type="number"
-                          step="0.01"
-                          {...register(`items.${index}.sellingPrice`)}
                           placeholder="0.00"
                         />
                       </Field>

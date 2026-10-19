@@ -35,7 +35,9 @@ export const createPurchaseSchema = z.object({
  */
 const unbilledItemSchema = z.object({
   categoryId: z.string().uuid('Category ID must be a valid UUID'),
-  brand: z.string().max(200).default(''),
+  // Required, as on a billed purchase: a unit with no make cannot be told
+  // apart on the shop floor or looked up later.
+  brand: z.string().trim().min(1, 'Say which brand it is').max(200),
   modelNumber: z.string().min(1, 'Say what the item is').max(200),
   serialNumber: z.string().max(200).nullable().optional(),
   mrp: z.number().positive('MRP must be positive').optional(),

@@ -61,4 +61,60 @@ export async function lookupRoutes(app: FastifyInstance) {
       return sendSuccess(reply, cities);
     },
   );
+
+  /**
+   * GET /api/v1/lookup/brands?categoryId=<uuid>
+   *
+   * The brands worth offering for a category: the ones its "brand" attribute
+   * lists, plus the ones already on stock in it. The second half is what
+   * makes the list keep itself — a brand typed in once for a new make is
+   * offered from then on, with nobody having to curate a master list.
+   */
+  app.get<{ Querystring: { categoryId?: string } }>(
+    '/brands',
+    { preHandler: [authenticate] },
+    async (request, reply) => {
+      const categoryId = (request.query.categoryId ?? '').trim();
+      if (!categoryId) return sendSuccess(reply, []);
+
+      const [attribute, used] = await Promise.all([
+        prisma.categoryAttribute.findFirst({
+          where: { categoryId, attributeName: 'brand' },
+          select: { options: true },
+        }),
+        prisma.product.findMany({
+          where: { categoryId },
+          select: { brand: true },
+          distinct: ['brand'],
+          take: 500,
+        }),
+      ]);
+
+      // Case-insensitively unique, keeping the spelling seen first so the
+      // category's own list wins over however it was typed on a product.
+      const seen = new Map<string, string>();
+      const add = (value: unknown) => {
+        const text = String(value ?? '').trim();
+        if (!text) return;
+        const key = text.toLowerCase();
+        if (!seen.has(key)) seen.set(key, text);
+      };
+
+      const listed = attribute?.options;
+      if (Array.isArray(listed)) {
+        for (const option of listed) {
+          add(option !== null && typeof option === 'object'
+            ? (option as Record<string, unknown>).value ?? (option as Record<string, unknown>).label
+            : option);
+        }
+      }
+      for (const row of used) add(row.brand);
+
+      const brands = Array.from(seen.values()).sort((a, b) =>
+        a.localeCompare(b, undefined, { sensitivity: 'base' }),
+      );
+
+      return sendSuccess(reply, brands);
+    },
+  );
 }

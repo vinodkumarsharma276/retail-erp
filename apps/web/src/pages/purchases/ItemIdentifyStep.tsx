@@ -86,6 +86,11 @@ type Edited = Record<
  */
 const LOW_CONFIDENCE = 0.75;
 
+/** Whether a make is known. Required: every unit is stored under one. */
+function hasBrand(item: ItemClassification): boolean {
+  return item.brand.trim().length > 0;
+}
+
 /**
  * Whether a real model number is known.
  *
@@ -161,21 +166,23 @@ export function ItemIdentifyStep(props: Props) {
   const counts = useMemo(() => {
     let ready = 0;
     let noCategory = 0;
+    let noBrand = 0;
     let noModel = 0;
     let lowConfidence = 0;
     let demo = 0;
     for (const item of resolved) {
       if (!item.categoryId) noCategory += 1;
+      if (!hasBrand(item)) noBrand += 1;
       // The sheet is sometimes too terse to carry a model. Without one there
       // is nothing to look the product up by, so it has to be typed in.
       if (!hasModel(item)) noModel += 1;
-      if (item.categoryId && hasModel(item)) {
+      if (item.categoryId && hasBrand(item) && hasModel(item)) {
         ready += 1;
         if (item.decidedBy === 'ai' && item.confidence <= LOW_CONFIDENCE) lowConfidence += 1;
       }
       if (item.isDemoUnit) demo += 1;
     }
-    return { ready, noCategory, noModel, lowConfidence, demo };
+    return { ready, noCategory, noBrand, noModel, lowConfidence, demo };
   }, [resolved]);
 
   /**
@@ -192,9 +199,12 @@ export function ItemIdentifyStep(props: Props) {
     [resolved],
   );
 
-  /** An item still wanting a person: no category, no model, or a shaky guess. */
+  /** An item still wanting a person: no category, make, model, or a shaky guess. */
   const needsAttention = (item: ItemClassification) =>
-    !item.categoryId || !hasModel(item) || (item.decidedBy === 'ai' && item.confidence <= LOW_CONFIDENCE);
+    !item.categoryId ||
+    !hasBrand(item) ||
+    !hasModel(item) ||
+    (item.decidedBy === 'ai' && item.confidence <= LOW_CONFIDENCE);
 
   /** The item names the table should show at all. */
   const visibleKeys = useMemo(() => {
@@ -249,7 +259,7 @@ export function ItemIdentifyStep(props: Props) {
 
   /** Fetch this product’s specifications from the web and fill them in. */
   const findDetails = (item: ItemClassification) => {
-    if (!item.categoryId || !hasModel(item)) return;
+    if (!item.categoryId || !hasBrand(item) || !hasModel(item)) return;
     setLookingUp(item.nameKey);
     lookup.mutate(
       {
@@ -387,13 +397,14 @@ export function ItemIdentifyStep(props: Props) {
 // A missing category stops the import, because a product has nowhere to go
 // without one. A missing model does not: the unit is real, it was bought,
 // and the gap is carried onto the product list to be filled in later.
-  const blocked = counts.noCategory > 0;
+  const blocked = counts.noCategory > 0 || counts.noBrand > 0;
 
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatCard label="Products identified" value={counts.ready} tone="success" />
-        <StatCard label="Products needing a category" value={counts.noCategory} tone={blocked ? 'destructive' : 'default'} />
+        <StatCard label="Products needing a category" value={counts.noCategory} tone={counts.noCategory ? 'destructive' : 'default'} />
+        <StatCard label="Products needing a brand" value={counts.noBrand} tone={counts.noBrand ? 'destructive' : 'default'} />
         <StatCard label="Products needing a model" value={counts.noModel} tone={counts.noModel ? 'warning' : 'default'} />
         <StatCard label="Products worth checking" value={counts.lowConfidence} tone={counts.lowConfidence ? 'warning' : 'default'} />
         <StatCard label="Display pieces" value={counts.demo} />
@@ -621,14 +632,18 @@ export function ItemIdentifyStep(props: Props) {
                       size="xs"
                       variant="outline"
                       onClick={() => findDetails(item)}
-                      disabled={!item.categoryId || !hasModel(item) || lookingUp === item.nameKey}
+                      disabled={
+                        !item.categoryId || !hasBrand(item) || !hasModel(item) || lookingUp === item.nameKey
+                      }
                       loading={lookingUp === item.nameKey}
                       title={
                         !hasModel(item)
                           ? 'Enter the model number first'
-                          : !item.categoryId
-                            ? 'Choose a category first'
-                            : 'Search the web for this product’s details'
+                          : !hasBrand(item)
+                            ? 'Enter the brand first'
+                            : !item.categoryId
+                              ? 'Choose a category first'
+                              : 'Search the web for this product’s details'
                       }
                     >
                       <Globe className="mr-1 h-3 w-3" />
@@ -667,9 +682,15 @@ export function ItemIdentifyStep(props: Props) {
         <Button onClick={continueOn} loading={props.continuing || saveCorrections.isPending} disabled={blocked}>
           Check the invoices
         </Button>
-        {blocked && (
+        {counts.noCategory > 0 && (
           <p className="text-sm text-destructive">
             {counts.noCategory} item name{counts.noCategory === 1 ? '' : 's'} still need a category.
+          </p>
+        )}
+        {counts.noBrand > 0 && (
+          <p className="text-sm text-destructive">
+            {counts.noBrand} item name{counts.noBrand === 1 ? '' : 's'} still need a brand. Every unit is stored
+            under its make, so this one is not guessed from the item name.
           </p>
         )}
         {!blocked && counts.noModel > 0 && (

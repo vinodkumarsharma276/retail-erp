@@ -220,10 +220,13 @@ async function plan(request: PurchaseImportRequest, ctx: PlanContext) {
         }
       }
 
-      let brand = clean(line.brand);
-      if (!brand && modelNumber) {
-        brand = modelNumber.split(' ')[0];
-        warnings.push(`${at}: no brand given; using "${brand}" from the item name.`);
+      // The first word of an item name is the brand often enough to be
+      // tempting and wrong often enough to matter — "KING" is not the maker
+      // of "KING STORAGE 6X6". Every unit is stored under its make, so it is
+      // asked for rather than guessed.
+      const brand = clean(line.brand);
+      if (!brand) {
+        errors.push(`${at}: "${modelNumber}" has no brand — say which make it is.`);
       }
       const r = rate != null && !Number.isNaN(rate) ? round2(rate) : 0;
       const mrp = line.mrp != null && Number(line.mrp) > 0 ? round2(Number(line.mrp)) : r;
