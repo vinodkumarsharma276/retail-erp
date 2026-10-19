@@ -745,3 +745,221 @@ export function parseSupplierSheet(sheetName: string, rows: unknown[][]): Suppli
 
   return { sheetName, columns, byName, count: byName.size };
 }
+
+// --- Purchases made without a bill ---------------------------------------------
+
+/**
+ * Headings on a sheet of goods bought without a bill.
+ *
+ * A different shape from the billed sheet, because a different thing is being
+ * recorded: there is no supplier invoice, no tax and no quantity — one row is
+ * one item, numbered by the shop itself. What it does carry is the product
+ * type outright, so nothing has to be worked out from an item name.
+ */
+export const UNBILLED_SHEET_COLUMNS: SheetColumn[] = [
+  { field: 'date', label: 'Date', required: true, purpose: 'When the item was bought.', headings: ['date', 'purchase date', 'bill date'] },
+  { field: 'invoiceNumber', label: 'Invoice No', required: true, purpose: "The shop's own number for this purchase, such as FURN1.", headings: ['invoice no', 'invoice number', 'invoice', 'bill no'] },
+  { field: 'itemType', label: 'Item Type', required: true, purpose: 'The product type, matched to a category of that name.', headings: ['item type', 'product type', 'type', 'category'] },
+  { field: 'itemSubType', label: 'Item SubType', required: false, purpose: 'The sub-type within that product type, where it has one.', headings: ['item subtype', 'item sub type', 'subtype', 'sub type', 'sub category', 'subcategory'] },
+  { field: 'modelNumber', label: 'Model Number', required: true, purpose: 'The model, which is all the sheet says about the product itself.', headings: ['model number', 'model no', 'model', 'item', 'item name'] },
+  { field: 'party', label: 'Supplier Name', required: true, purpose: 'Who it was bought from.', headings: ['supplier name', 'supplier', 'party', 'party name', 'dealer', 'dealer name'] },
+  { field: 'dealerPrice', label: 'Dealer Price', required: true, purpose: 'What was paid for the item.', headings: ['dealer price', 'price', 'rate', 'amount', 'purchase price', 'cost'] },
+  { field: 'brand', label: 'Brand', required: false, purpose: 'The maker, when the sheet states it rather than leaving it in the model.', headings: ['brand', 'make', 'manufacturer'] },
+];
+
+export interface UnbilledLine {
+  /** 1-based row number as Excel shows it. */
+  rowNumber: number;
+  date: string;
+  invoiceNumber: string;
+  itemType: string;
+  itemSubType: string;
+  modelNumber: string;
+  party: string;
+  brand: string;
+  dealerPrice: number | null;
+  extras: Record<string, string>;
+  issues: string[];
+}
+
+export interface UnbilledInvoice {
+  key: string;
+  invoiceNumber: string;
+  party: string;
+  date: string;
+  itemType: string;
+  lines: UnbilledLine[];
+  total: number;
+  issues: string[];
+}
+
+export interface UnbilledSheetParse {
+  detected: boolean;
+  reason?: string;
+  sheetName: string;
+  headerRow: number;
+  columns: PurchaseSheetColumns;
+  invoices: UnbilledInvoice[];
+  lines: UnbilledLine[];
+  skipped: Array<{ rowNumber: number; reason: string }>;
+}
+
+/**
+ * Read a sheet of purchases made without a bill.
+ *
+ * Told apart from the billed sheet by what it lacks: no quantity and no
+ * separate item name, because one row is one item and the model is all there
+ * is. A sheet carrying those belongs to the other reader.
+ */
+export function parseUnbilledSheet(sheetName: string, rows: unknown[][]): UnbilledSheetParse {
+  const blank: UnbilledSheetParse = {
+    detected: false,
+    sheetName,
+    headerRow: 0,
+    columns: { found: {}, unknown: [], missingRequired: [], missingOptional: [] },
+    invoices: [],
+    lines: [],
+    skipped: [],
+  };
+
+  const headerIndex = locateHeaderRow(rows, UNBILLED_SHEET_COLUMNS);
+  if (headerIndex === -1) {
+    return {
+      ...blank,
+      reason:
+        'No heading row was found. A sheet of purchases without a bill needs columns for the date, invoice number, item type, model number, supplier and price.',
+    };
+  }
+
+  const columns = matchColumns(rows[headerIndex] ?? [], UNBILLED_SHEET_COLUMNS);
+  if (columns.missingRequired.length > 0) return { ...blank, headerRow: headerIndex + 1, columns };
+
+  // A billed sheet also names a supplier and a price. What settles it is the
+  // quantity column, which only a billed sheet has.
+  const billed = matchColumns(rows[headerIndex] ?? [], PURCHASE_SHEET_COLUMNS);
+  if (billed.found.quantity != null) {
+    return {
+      ...blank,
+      headerRow: headerIndex + 1,
+      reason: 'This sheet has a quantity column, so it is read as an ordinary purchase sheet instead.',
+    };
+  }
+
+  const at = (row: unknown[], field: string): unknown =>
+    columns.found[field] != null ? row[columns.found[field]!] : undefined;
+  const text = (row: unknown[], field: string) => cleanCell(at(row, field));
+
+  const lines: UnbilledLine[] = [];
+  const skipped: UnbilledSheetParse['skipped'] = [];
+
+  for (let index = headerIndex + 1; index < rows.length; index += 1) {
+    const row = rows[index] ?? [];
+    const rowNumber = index + 1;
+    if (!row.some((cell) => cleanCell(cell) !== '')) continue;
+
+    const modelNumber = text(row, 'modelNumber');
+    const invoiceNumber = text(row, 'invoiceNumber');
+    if (!modelNumber || /^(grand )?total$/i.test(modelNumber)) {
+      skipped.push({ rowNumber, reason: modelNumber ? `"${modelNumber}" is a total, not an item.` : 'No model number.' });
+      continue;
+    }
+    if (!invoiceNumber) {
+      skipped.push({ rowNumber, reason: `"${modelNumber}" has no invoice number.` });
+      continue;
+    }
+
+    const dealerPrice = parseAmount(at(row, 'dealerPrice'));
+    const issues: string[] = [];
+    if (dealerPrice == null || dealerPrice <= 0) {
+      issues.push(`Dealer price "${text(row, 'dealerPrice')}" is not an amount above zero.`);
+    }
+    if (!text(row, 'itemType')) issues.push('No item type, so there is nowhere to file this.');
+    if (!text(row, 'party')) issues.push('No supplier named.');
+
+    const extras: Record<string, string> = {};
+    for (const column of columns.unknown) {
+      const value = cleanCell(row[column.column]);
+      if (value) extras[column.heading] = value;
+      if (value && column.samples.length < 3 && !column.samples.includes(value)) column.samples.push(value);
+    }
+
+    lines.push({
+      rowNumber,
+      date: parseSheetDate(at(row, 'date')),
+      invoiceNumber,
+      itemType: text(row, 'itemType'),
+      itemSubType: text(row, 'itemSubType'),
+      modelNumber,
+      party: text(row, 'party'),
+      brand: text(row, 'brand'),
+      dealerPrice,
+      extras,
+      issues,
+    });
+  }
+
+  // One invoice number is one purchase, however many rows carry it.
+  const byKey = new Map<string, UnbilledInvoice>();
+  for (const line of lines) {
+    const key = line.invoiceNumber.toLowerCase();
+    let invoice = byKey.get(key);
+    if (!invoice) {
+      invoice = {
+        key,
+        invoiceNumber: line.invoiceNumber,
+        party: line.party,
+        date: line.date,
+        itemType: line.itemType,
+        lines: [],
+        total: 0,
+        issues: [],
+      };
+      byKey.set(key, invoice);
+    }
+    if (line.date && invoice.date && line.date !== invoice.date) {
+      invoice.issues.push(`Rows of ${invoice.invoiceNumber} give different dates (${invoice.date} and ${line.date}).`);
+    }
+    if (line.party && invoice.party && line.party !== invoice.party) {
+      invoice.issues.push(`${invoice.invoiceNumber} names two suppliers (${invoice.party} and ${line.party}).`);
+    }
+    invoice.lines.push(line);
+    invoice.total = round2(invoice.total + (line.dealerPrice ?? 0));
+  }
+
+  const invoices = [...byKey.values()].sort(
+    (a, b) => a.date.localeCompare(b.date) || a.invoiceNumber.localeCompare(b.invoiceNumber),
+  );
+  for (const invoice of invoices) {
+    if (!invoice.date) invoice.issues.push('No usable date on any row of this purchase.');
+  }
+
+  return {
+    detected: true,
+    sheetName,
+    headerRow: headerIndex + 1,
+    columns,
+    invoices,
+    lines,
+    skipped,
+  };
+}
+
+/**
+ * The highest number used against each set of letters, e.g. { ALMR: 45 }.
+ *
+ * A sheet carrying numbers the shop has already written down should move its
+ * own numbering past them, or the next purchase added on screen would reuse
+ * one and two different things would answer to the same invoice.
+ */
+export function highestSeriesNumbers(parse: UnbilledSheetParse): Map<string, number> {
+  const highest = new Map<string, number>();
+  for (const invoice of parse.invoices) {
+    const match = /^([A-Za-z]+)\s*(\d+)$/.exec(invoice.invoiceNumber.trim());
+    if (!match) continue;
+    const prefix = match[1].toUpperCase();
+    const number = Number(match[2]);
+    if (!Number.isFinite(number)) continue;
+    highest.set(prefix, Math.max(highest.get(prefix) ?? 0, number));
+  }
+  return highest;
+}
