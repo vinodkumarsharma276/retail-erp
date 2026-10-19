@@ -57,6 +57,14 @@ interface Props {
   categoryOptions: Array<{ id: string; label: string }>;
   /** Top-level categories, so an approved new one can be filed under one. */
   topLevelCategories: Array<{ id: string; name: string }>;
+  /**
+   * True when the sheet carried a model number column of its own.
+   *
+   * Then no model has to be dug out of an item name, so a row must not be
+   * flagged for lacking one. The classifier may still shorten it — parting
+   * "TRIVENI GT3D-PF" into a brand and a model — and that refinement stands.
+   */
+  modelFromSheet?: boolean;
   onBack: () => void;
   onContinue: (result: IdentifyResult) => void;
   continuing: boolean;
@@ -84,12 +92,15 @@ const LOW_CONFIDENCE = 0.75;
  * The classifier falls back to the sheet’s own wording when it cannot pick
  * a model out, so a model identical to the raw name means it found none.
  */
-function hasModel(item: ItemClassification): boolean {
+function modelFoundInName(item: ItemClassification): boolean {
   const model = item.modelNumber.trim();
   return model.length > 0 && model.toLowerCase() !== item.rawName.trim().toLowerCase();
 }
 
 export function ItemIdentifyStep(props: Props) {
+  /** A sheet that states the model has already answered; otherwise look. */
+  const hasModel = (item: ItemClassification) =>
+    props.modelFromSheet === true || modelFoundInName(item);
   const [refreshToken, setRefreshToken] = useState(0);
   const [forceReask, setForceReask] = useState(false);
   const classify = useClassifyItemsQuery(props.itemNames, { refreshToken, forceReask });

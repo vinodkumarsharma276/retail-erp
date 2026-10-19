@@ -46,6 +46,12 @@ import {
   readPurchaseSheet,
   type PurchaseSheetRead,
 } from '../../lib/purchase-sheet-import';
+import {
+  describeUnbilledSheet,
+  readUnbilledSheet,
+  type CategoryChoice,
+  type UnbilledRead,
+} from '../../lib/unbilled-import';
 import { ItemIdentifyStep, type IdentifyInvoice } from './ItemIdentifyStep';
 import { usePurchaseImportCommitMutation, usePurchaseImportPreviewMutation } from '../../hooks/usePurchases';
 import {
@@ -125,6 +131,8 @@ export function PurchaseImportPage() {
   const [tally, setTally] = useState<TallyRead | null>(null);
   // The shop's own purchase sheet: flat columns, with IMEI numbers.
   const [purchaseSheet, setPurchaseSheet] = useState<PurchaseSheetRead | null>(null);
+  // Goods bought without a bill: no tax, and the shop’s own invoice numbers.
+  const [unbilled, setUnbilled] = useState<UnbilledRead | null>(null);
   const [fileName, setFileName] = useState<string>("");
   const [updateDistributors, setUpdateDistributors] = useState(true);
 
@@ -137,6 +145,19 @@ export function PurchaseImportPage() {
     [categoryTree],
   );
 
+  /** Every category by name, so a sheet naming its own types can be matched. */
+  const categoryChoices = useMemo<CategoryChoice[]>(() => {
+    const out: CategoryChoice[] = [];
+    const walk = (nodes: ProductCategory[], parentName: string | null) => {
+      for (const node of nodes) {
+        out.push({ id: node.id, name: node.name, parentName });
+        if (node.children?.length) walk(node.children, node.name);
+      }
+    };
+    walk(categoryTree ?? [], null);
+    return out;
+  }, [categoryTree]);
+
   /**
    * The sheet grouped the way the paper is: a bill from a supplier, with
    * the things on it underneath.
@@ -147,7 +168,7 @@ export function PurchaseImportPage() {
    */
   const identifyInvoices = useMemo<IdentifyInvoice[]>(() => {
     const byKey = new Map<string, IdentifyInvoice>();
-    for (const row of tally?.rows ?? purchaseSheet?.rows ?? []) {
+    for (const row of tally?.rows ?? purchaseSheet?.rows ?? unbilled?.rows ?? []) {
       const key = `${row.distributorName}|${row.invoiceNumber}`;
       let invoice = byKey.get(key);
       if (!invoice) {
@@ -172,7 +193,7 @@ export function PurchaseImportPage() {
         rate: row.rate ?? null,
       });
     }
-    return [...byKey.values()];  }, [tally, purchaseSheet]);
+    return [...byKey.values()];  }, [tally, purchaseSheet, unbilled]);
 
 
   const sheet = workbook?.sheets[sheetIndex];
@@ -205,6 +226,20 @@ export function PurchaseImportPage() {
       setHeaderRow(hdr);
       setMapping(autoMap(wb.sheets[biggest].rows[hdr] ?? []));
       setFileName(file.name);
+
+      // Purchases without a bill first: that sheet has no quantity column,
+      // which is what tells it apart from an ordinary purchase sheet.
+      const withoutBill = readUnbilledSheet(wb, categoryChoices);
+      if (withoutBill && withoutBill.rows.length > 0) {
+        setUnbilled(withoutBill);
+        setPurchaseSheet(null);
+        setTally(null);
+        setRows(withoutBill.rows);
+        setSkippedRows(withoutBill.parse.skipped.map((entry) => entry.rowNumber));
+        setStep('identify');
+        return;
+      }
+      setUnbilled(null);
 
       // The shop's own sheet is tried first: it is the format they export
       // deliberately, and its columns are declared rather than guessed at.
@@ -271,7 +306,8 @@ export function PurchaseImportPage() {
   /** Everything the server needs besides the rows themselves. */
   const importMeta = (): Partial<PurchaseImportRequest> => ({
     fileName,
-    sourceFormat: tally ? 'tally_purchase_register' : 'mapped_columns',
+    sourceFormat: unbilled ? 'unbilled_sheet' : tally ? 'tally_purchase_register' : 'mapped_columns',
+    billed: !unbilled,
     period: tally?.parse.period || undefined,
     sheetOwnerName: tally?.parse.ownerName || undefined,
     updateDistributors,
@@ -331,6 +367,7 @@ export function PurchaseImportPage() {
     setWorkbook(null);
     setTally(null);
     setPurchaseSheet(null);
+    setUnbilled(null);
     setFileName('');
     setPreview(null);
     setResult(null);
@@ -360,7 +397,7 @@ export function PurchaseImportPage() {
         badge={<Badge tone="primary">Into {shopName ?? 'this shop'}{shopCode ? ` (${shopCode})` : ''}</Badge>}
       />
 
-      <Stepper step={step} tally={Boolean(tally || purchaseSheet)} />
+      <Stepper step={step} tally={Boolean(tally || purchaseSheet || unbilled)} />
 
       {/* ------------------------------ Upload ------------------------------ */}
       {step === 'upload' && (
@@ -508,6 +545,29 @@ export function PurchaseImportPage() {
       )}
 
       {/* ------------------------------ Review ------------------------------ */}
+      {step === 'identify' && unbilled && (
+        <div className="space-y-5">
+          <UnbilledSummary read={unbilled} fileName={fileName} />
+          <ItemIdentifyStep
+            itemNames={unbilled.itemNames}
+            modelFromSheet
+            invoices={identifyInvoices}
+            categoryOptions={categoryOptions}
+            topLevelCategories={topLevelCategories}
+            onBack={() => setStep('upload')}
+            continuing={previewMutation.isPending}
+            onContinue={({ classifications }) => {
+              const next = applyClassifications(unbilled.rows, classifications);
+              setRows(next);
+              runPreview(next, categoryMap);
+            }}
+          />
+          {previewMutation.isError && (
+            <p className="text-sm text-destructive">{apiError(previewMutation.error)}</p>
+          )}
+        </div>
+      )}
+
       {step === 'identify' && purchaseSheet && (
         <div className="space-y-5">
           <SheetSummary read={purchaseSheet} fileName={fileName} />
@@ -570,8 +630,8 @@ export function PurchaseImportPage() {
           setMarkPaid={setMarkPaid}
           paymentMode={paymentMode}
           setPaymentMode={setPaymentMode}
-          onBack={() => setStep(tally || purchaseSheet ? 'identify' : 'map')}
-          backLabel={tally || purchaseSheet ? 'Back to items' : 'Back to columns'}
+          onBack={() => setStep(tally || purchaseSheet || unbilled ? 'identify' : 'map')}
+          backLabel={tally || purchaseSheet || unbilled ? 'Back to items' : 'Back to columns'}
           onImport={() => setConfirmOpen(true)}
           importing={commitMutation.isPending}
           importError={commitMutation.isError ? apiError(commitMutation.error) : null}
@@ -1429,6 +1489,102 @@ function SheetSummary({ read, fileName }: { read: PurchaseSheetRead; fileName: s
                 </li>
               )),
             ).slice(0, 5)}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * What was read out of a sheet of purchases made without a bill.
+ *
+ * These carry no tax and no supplier invoice number, so the things worth
+ * saying are different: which product types the sheet names, whether the
+ * shop has a category for each, and how far its own numbering has run.
+ */
+function UnbilledSummary({ read, fileName }: { read: UnbilledRead; fileName: string }) {
+  const { columns } = read;
+
+  return (
+    <div className="space-y-3 rounded-lg border border-border bg-card p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-title flex items-center gap-2">
+            <FileSpreadsheet className="h-4 w-4 text-primary" />
+            Purchases without a bill
+          </h2>
+          <p className="text-caption">
+            {fileName}
+            {read.parse.sheetName && <> · {read.parse.sheetName}</>}
+          </p>
+        </div>
+        <Badge tone="neutral">{describeUnbilledSheet(read)}</Badge>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-border pt-3 text-xs">
+        <span className="inline-flex items-center gap-1 text-success">
+          <CheckCircle2 className="h-3.5 w-3.5" />
+          {columns.recognised.length} columns recognised
+        </span>
+        <span className="text-muted-foreground">No tax: these carry none.</span>
+        {read.highestNumbers.length > 0 && (
+          <span className="text-muted-foreground">
+            numbering reaches {read.highestNumbers.map((h) => `${h.prefix}${h.number}`).join(', ')}
+          </span>
+        )}
+      </div>
+
+      {columns.unknown.length > 0 && (
+        <div className="rounded-md border border-warning/40 bg-warning/10 p-3">
+          <p className="flex items-center gap-2 text-sm font-medium">
+            <AlertTriangle className="h-4 w-4 text-warning" />
+            {columns.unknown.length} column{columns.unknown.length === 1 ? '' : 's'} this import does not know
+          </p>
+          <ul className="mt-2 space-y-1 text-xs">
+            {columns.unknown.map((column) => (
+              <li key={column.heading}>
+                <span className="font-medium">{column.heading}</span>
+                {column.samples.length > 0 && (
+                  <span className="text-muted-foreground"> — for example {column.samples.join(', ')}</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {read.unknownTypes.length > 0 && (
+        <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3">
+          <p className="flex items-center gap-2 text-sm font-medium">
+            <AlertCircle className="h-4 w-4 text-destructive" />
+            {read.unknownTypes.length} product type{read.unknownTypes.length === 1 ? '' : 's'} you have no category for
+          </p>
+          <ul className="mt-1 space-y-0.5 text-xs text-muted-foreground">
+            {read.unknownTypes.map((type) => (
+              <li key={`${type.type}-${type.subType}`}>
+                {type.type}
+                {type.subType && <> › {type.subType}</>}
+                {' '}— {type.rows} item{type.rows === 1 ? '' : 's'}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Add them below, or in Settings, and upload again.
+          </p>
+        </div>
+      )}
+
+      {read.parse.invoices.some((invoice) => invoice.issues.length > 0) && (
+        <div className="border-t border-border pt-3">
+          <p className="text-sm font-medium text-warning">Some purchases do not hang together</p>
+          <ul className="mt-1 space-y-0.5 text-xs text-muted-foreground">
+            {read.parse.invoices
+              .flatMap((invoice) => invoice.issues.map((issue) => ({ key: invoice.key, issue })))
+              .slice(0, 5)
+              .map((entry) => (
+                <li key={`${entry.key}-${entry.issue}`}>{entry.issue}</li>
+              ))}
           </ul>
         </div>
       )}

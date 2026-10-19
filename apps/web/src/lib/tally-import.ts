@@ -102,18 +102,26 @@ export function applyClassifications(
   return rows.map((row) => {
     const match = byKey.get(itemNameKey(row.modelNumber));
     if (!match) return row;
+    // A sheet that states the product type outright has already answered the
+    // question, and it knows better than a guess from a model number. The
+    // classifier still contributes the brand and the model, which such a
+    // sheet does not carry.
+    const categoryFromSheet = Boolean(row.categoryId);
     return {
       ...row,
-      categoryId: match.categoryId,
-      categoryName: match.categoryLabel ?? row.categoryName,
+      categoryId: categoryFromSheet ? row.categoryId : match.categoryId,
+      categoryName: categoryFromSheet ? row.categoryName : match.categoryLabel ?? row.categoryName,
       brand: match.brand || row.brand,
       // Keep the sheet's own wording as the model when nothing better was found.
       modelNumber: match.modelNumber || row.modelNumber,
       // Whether a real model was ever established, so a unit without one can
       // be flagged on the product list rather than holding up the sheet.
+      // A sheet with a model number column has said so outright; only a
+      // model dug out of an item name can fail to be found.
       modelKnown:
-        Boolean(match.modelNumber) &&
-        match.modelNumber.trim().toLowerCase() !== match.rawName.trim().toLowerCase(),
+        row.modelKnown === true ||
+        (Boolean(match.modelNumber) &&
+          match.modelNumber.trim().toLowerCase() !== match.rawName.trim().toLowerCase()),
       color: match.color ?? row.color,
       attributes: match.attributes,
       isDemoUnit: match.isDemoUnit,

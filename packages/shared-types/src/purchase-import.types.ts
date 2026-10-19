@@ -85,8 +85,13 @@ export interface PurchaseImportRequest {
   markPaid?: { paymentMode: 'cash' | 'upi' | 'bank_transfer' | 'cheque' } | null;
   /** The file these rows came from, recorded against the import. */
   fileName?: string;
+  /**
+   * False for goods bought without a bill: no tax, and an invoice number
+   * the shop wrote itself rather than one from a supplier.
+   */
+  billed?: boolean;
   /** How the sheet was read. */
-  sourceFormat?: 'tally_purchase_register' | 'mapped_columns';
+  sourceFormat?: 'tally_purchase_register' | 'mapped_columns' | 'unbilled_sheet';
   /** Period the register covered, as printed on it ("1-Sep-26 to 30-Sep-26"). */
   period?: string;
   /** The entity named in the sheet header, kept so a mis-filed import can be traced. */

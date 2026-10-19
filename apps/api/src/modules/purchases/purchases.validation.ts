@@ -105,7 +105,8 @@ export const purchaseImportSchema = z.object({
     .nullable()
     .optional(),
   fileName: z.string().max(255).optional(),
-  sourceFormat: z.enum(['tally_purchase_register', 'mapped_columns']).optional(),
+  sourceFormat: z.enum(['tally_purchase_register', 'mapped_columns', 'unbilled_sheet']).optional(),
+  billed: z.boolean().optional(),
   period: z.string().max(100).optional(),
   sheetOwnerName: z.string().max(300).optional(),
   updateDistributors: z.boolean().optional(),
