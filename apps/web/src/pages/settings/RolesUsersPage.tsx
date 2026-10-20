@@ -68,6 +68,9 @@ function RolesPanel() {
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [showOnlyGranted, setShowOnlyGranted] = useState(false);
 
+  /** Allowed to look, not to change. */
+  const readOnly = !can('roles.edit_permissions');
+
   // Auto-select first role
   useEffect(() => {
     if (!selectedId && rolesQ.data?.length) setSelectedId(rolesQ.data[0].id);
@@ -204,8 +207,10 @@ function RolesPanel() {
         </ul>
       </aside>
 
-      {/* Permission editor — read-only without permission to change roles */}
-      <fieldset disabled={!can('roles.edit_permissions')} className="min-w-0 space-y-4">
+      {/* Permission editor. Without permission to change roles it stays
+          readable — filtering and opening groups still work — and only the
+          controls that would alter something are turned off. */}
+      <div className="min-w-0 space-y-4">
         {selectedRole ? (
           <>
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border bg-card p-4">
@@ -219,6 +224,11 @@ function RolesPanel() {
                   permissions selected
                   {selectedRole.isSystem && ' · System role (cannot be deleted)'}
                 </p>
+                {readOnly && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    You can see what this role holds but not change it.
+                  </p>
+                )}
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <div className="relative">
@@ -266,20 +276,22 @@ function RolesPanel() {
                     if (!name) return;
                     cloneMut.mutate({ id: selectedRole.id, code, name });
                   }}
-                  className="inline-flex items-center gap-1 rounded-md border bg-field px-3 py-1.5 text-sm hover:bg-accent"
+                  disabled={readOnly}
+                  className="inline-flex items-center gap-1 rounded-md border bg-field px-3 py-1.5 text-sm hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <Copy className="h-4 w-4" /> Clone
                 </button>
                 {!selectedRole.isSystem && (
                   <button
                     onClick={() => setConfirmDelete(selectedRole)}
-                    className="inline-flex items-center gap-1 rounded-md border border-destructive/50 px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10"
+                    disabled={readOnly}
+                    className="inline-flex items-center gap-1 rounded-md border border-destructive/50 px-3 py-1.5 text-sm text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <Trash2 className="h-4 w-4" /> Delete
                   </button>
                 )}
                 <button
-                  disabled={!dirty || saveMut.isPending}
+                  disabled={readOnly || !dirty || saveMut.isPending}
                   onClick={() => saveMut.mutate(Array.from(draftPerms))}
                   className="inline-flex items-center gap-1 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
                 >
@@ -351,7 +363,8 @@ function RolesPanel() {
                             if (el) el.indeterminate = partial;
                           }}
                           onChange={(e) => toggleGroup(group, e.target.checked)}
-                          className="h-4 w-4"
+                          disabled={readOnly}
+                          className="h-4 w-4 disabled:cursor-not-allowed disabled:opacity-50"
                           title={allOn ? 'Uncheck all in this group' : 'Check all in this group'}
                         />
                       </div>
@@ -362,7 +375,7 @@ function RolesPanel() {
                             return (
                               <li key={p.key}>
                                 <label
-                                  className={`flex cursor-pointer items-start gap-2 rounded-md border px-2.5 py-2 text-xs transition ${
+                                  className={`flex items-start gap-2 rounded-md border px-2.5 py-2 text-xs transition ${readOnly ? '' : 'cursor-pointer'} ${
                                     checked
                                       ? 'border-primary/40 bg-primary/5'
                                       : 'border-transparent hover:bg-accent/50'
@@ -372,7 +385,8 @@ function RolesPanel() {
                                     type="checkbox"
                                     checked={checked}
                                     onChange={() => togglePerm(p.key)}
-                                    className="mt-0.5 h-3.5 w-3.5"
+                                    disabled={readOnly}
+                                    className="mt-0.5 h-3.5 w-3.5 disabled:cursor-not-allowed"
                                   />
                                   <div className="min-w-0 flex-1">
                                     <p className="text-xs font-medium leading-snug">
@@ -398,7 +412,7 @@ function RolesPanel() {
             Select a role on the left
           </div>
         )}
-      </fieldset>
+      </div>
 
       {showNewRole && (
         <NewRoleDialog
