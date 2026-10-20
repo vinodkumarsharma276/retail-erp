@@ -18,6 +18,70 @@ interface CategoryTreeNode {
   children: CategoryTreeNode[];
 }
 
+/** Raised when a category would be the second of its name in the same place. */
+export class DuplicateCategoryError extends Error {}
+
+/**
+ * The sibling that already is what this category is about to become.
+ *
+ * Two types of the same name side by side split one kind of goods across two
+ * rows — some products filed under the first, some under the second, both
+ * showing in every picker, and nothing in the tree to say which is the real
+ * one. So a name, and a slug, may appear only once among the categories that
+ * sit together under the same parent.
+ *
+ * The database cannot see this on its own. Its unique index is on
+ * (slug, parent_id), and Postgres counts two NULL parents as different
+ * values, so nothing down there stops a second top-level row — which is
+ * exactly where the shop adds most of its types.
+ *
+ * Switched-off categories count: re-adding one by name would leave two rows
+ * wearing the same name, which is the muddle this guards against.
+ */
+export function siblingClash<T extends { id: string; name: string; slug: string }>(
+  siblings: T[],
+  candidate: { name: string; slug: string; exceptId?: string },
+): T | null {
+  const name = candidate.name.trim().toLowerCase();
+  const slug = candidate.slug.trim().toLowerCase();
+  return (
+    siblings.find(
+      (sibling) =>
+        sibling.id !== candidate.exceptId &&
+        (sibling.name.trim().toLowerCase() === name || sibling.slug.trim().toLowerCase() === slug),
+    ) ?? null
+  );
+}
+
+/** What to tell somebody who has just tried to add a type twice. */
+export function clashMessage(
+  clash: { name: string; isActive: boolean },
+  parentName: string | null,
+): string {
+  const place = parentName ? ` under ${parentName}` : '';
+  return clash.isActive
+    ? `${clash.name} is already there${place}.`
+    : `${clash.name} is already there${place}, switched off. Switch it back on rather than adding it again.`;
+}
+
+/** Stop before writing a category that would be the second of its name. */
+async function assertNoSiblingClash(
+  parentId: string | null,
+  candidate: { name: string; slug: string; exceptId?: string },
+) {
+  const siblings = await prisma.productCategory.findMany({
+    where: { parentId },
+    select: { id: true, name: true, slug: true, isActive: true },
+  });
+  const clash = siblingClash(siblings, candidate);
+  if (!clash) return;
+
+  const parent = parentId
+    ? await prisma.productCategory.findUnique({ where: { id: parentId }, select: { name: true } })
+    : null;
+  throw new DuplicateCategoryError(clashMessage(clash, parent?.name ?? null));
+}
+
 export const categoriesService = {
   async getTree(): Promise<CategoryTreeNode[]> {
     const all = await prisma.productCategory.findMany({
@@ -84,6 +148,8 @@ export const categoriesService = {
       path = `${parent.path}.${data.slug}`;
     }
 
+    await assertNoSiblingClash(data.parentId ?? null, { name: data.name, slug: data.slug });
+
     const category = await prisma.productCategory.create({
       data: {
         name: data.name,
@@ -136,6 +202,16 @@ export const categoriesService = {
         updateData.level = 0;
         updateData.path = newSlug;
       }
+    }
+
+    // A rename, a new slug or a move can all land this category beside one
+    // that is already what it is about to be.
+    if (data.name !== undefined || data.slug !== undefined || data.parentId !== undefined) {
+      await assertNoSiblingClash(newParentId, {
+        name: data.name ?? existing.name,
+        slug: newSlug,
+        exceptId: id,
+      });
     }
 
     const updated = await prisma.productCategory.update({

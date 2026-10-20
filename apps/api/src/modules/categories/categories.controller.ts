@@ -1,5 +1,5 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
-import { categoriesService } from './categories.service.js';
+import { categoriesService, DuplicateCategoryError } from './categories.service.js';
 import { sendSuccess, sendError } from '../../utils/response.js';
 
 export const categoriesController = {
@@ -50,6 +50,9 @@ export const categoriesController = {
       return sendSuccess(reply, category, 201);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to create category';
+      if (error instanceof DuplicateCategoryError) {
+        return sendError(reply, message, 409);
+      }
       if (message === 'Parent category not found') {
         return sendError(reply, message, 404);
       }
@@ -80,6 +83,9 @@ export const categoriesController = {
       return sendSuccess(reply, updated);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to update category';
+      if (error instanceof DuplicateCategoryError) {
+        return sendError(reply, message, 409);
+      }
       if (message === 'Parent category not found') {
         return sendError(reply, message, 404);
       }
