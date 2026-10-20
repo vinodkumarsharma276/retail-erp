@@ -504,6 +504,24 @@ export function ProductListPage() {
 }
 
 // ---------------------------------------------------------------------------
+/**
+ * What tells this unit apart from the next one of the same model.
+ *
+ * A handset carries IMEI numbers, one per SIM slot, kept in the category's
+ * own attributes; everything else carries a serial number, if it carries
+ * anything at all. A wardrobe has neither.
+ */
+function unitIdentifiers(unit: Product): string[] {
+  const attributes = (unit.dynamicAttributes ?? {}) as Record<string, unknown>;
+  const imeis = attributes.imeiNumbers;
+  if (Array.isArray(imeis)) {
+    const marks = imeis.map((value) => String(value ?? '').trim()).filter(Boolean);
+    if (marks.length > 0) return marks;
+  }
+  const serial = String(unit.serialNumber ?? '').trim();
+  return serial ? [serial] : [];
+}
+
 // Expanded-row content: lazy-loads in-stock units for a (brand, model,
 // category) tuple and lists per-unit details with row-level Sell/Transfer.
 // ---------------------------------------------------------------------------
@@ -561,7 +579,7 @@ function ExpandedGroupUnits({
     <table className="w-full text-xs">
       <thead className="text-muted-foreground">
         <tr>
-          <th className="px-2 py-1.5 text-left">Serial Number</th>
+          <th className="px-2 py-1.5 text-left">Serial / IMEI</th>
           {canSeeSupplier && <th className="px-2 py-1.5 text-left">Distributor</th>}
           <th className="px-2 py-1.5 text-left">Date of Purchase</th>
           <th className="px-2 py-1.5 text-right">MRP</th>
@@ -575,7 +593,19 @@ function ExpandedGroupUnits({
           const purchase = (u as any).purchase as { invoiceDate?: string } | null;
           return (
             <tr key={u.id} className="border-t border-border/40">
-              <td className="px-2 py-1.5 font-mono">{u.serialNumber || '-'}</td>
+              <td className="px-2 py-1.5 font-mono">
+                {(() => {
+                  const marks = unitIdentifiers(u);
+                  if (marks.length === 0) return '-';
+                  return (
+                    <span className="flex flex-col gap-0.5">
+                      {marks.map((mark) => (
+                        <span key={mark}>{mark}</span>
+                      ))}
+                    </span>
+                  );
+                })()}
+              </td>
               {canSeeSupplier && <td className="px-2 py-1.5">{distributor?.companyName ?? '-'}</td>}
               <td className="px-2 py-1.5">
                 {purchase?.invoiceDate ? formatDateIN(purchase.invoiceDate) : '-'}
