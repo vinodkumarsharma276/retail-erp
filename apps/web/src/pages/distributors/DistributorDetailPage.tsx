@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useCanCheck } from '../../hooks/usePermission';
 import { useEscapeKey } from '../../hooks/useEscapeKey';
+import { isAllShops, useShopStore } from '../../stores/shop-store';
 import {
   ArrowLeft,
   Loader2,
@@ -9,6 +10,7 @@ import {
   AlertCircle,
   Calendar,
   Banknote,
+  Plus,
   X,
   CheckCircle,
 } from 'lucide-react';
@@ -51,6 +53,10 @@ export function DistributorDetailPage() {
 
   // Payment dialog state
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
+
+  // A purchase belongs to one shop's books, so it cannot be started while the
+  // header is showing every shop at once.
+  const allShopsMode = isAllShops(useShopStore((s) => s.currentShopId));
 
   // Distributor detail
   const { data: distributor, isLoading, isError } = useDistributorDetailQuery(id);
@@ -136,6 +142,34 @@ export function DistributorDetailPage() {
         </div>
 
         <div className="flex items-center gap-3">
+          {can('purchases.create') && (
+            allShopsMode ? (
+              <button
+                disabled
+                title="Switch to a single shop to record a purchase"
+                className={cn(
+                  'flex items-center gap-2 rounded-md border px-4 py-2 text-sm font-medium',
+                  'cursor-not-allowed opacity-50',
+                )}
+              >
+                <Plus className="h-4 w-4" />
+                New purchase
+              </button>
+            ) : (
+              <button
+                onClick={() =>
+                  navigate(`/purchases/new?distributorId=${distributor.id}`)
+                }
+                className={cn(
+                  'flex items-center gap-2 rounded-md border px-4 py-2 text-sm font-medium',
+                  'hover:bg-muted transition-colors',
+                )}
+              >
+                <Plus className="h-4 w-4" />
+                New purchase
+              </button>
+            )
+          )}
           {totalPending > 0 && can('purchases.record_payment') && (
             <button
               onClick={() => setShowPaymentDialog(true)}

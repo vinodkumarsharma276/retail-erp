@@ -1,6 +1,6 @@
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { useCanCheck } from '../../hooks/usePermission';
-import { Plus, Search, X, Pencil } from 'lucide-react';
+import { Plus, Search, X, Pencil, Receipt } from 'lucide-react';
 import { PageHeader } from '../../components/PageHeader';
 import { Button } from '../../components/ui/button';
 import { cn } from '../../lib/utils';
@@ -12,6 +12,7 @@ import { formatINR } from '@retailerp/shared-utils';
 import type { DistributorListItem } from '@retailerp/shared-types';
 import { IncompleteDetailsBadge } from '../../components/IncompleteDetailsBadge';
 import { distributorCompleteness } from '../../lib/distributor-completeness';
+import { isAllShops, useShopStore } from '../../stores/shop-store';
 
 const PAGE_SIZE = 20;
 
@@ -19,6 +20,10 @@ export function DistributorListPage() {
   const navigate = useNavigate();
   const can = useCanCheck();
   const [searchParams, setSearchParams] = useSearchParams();
+
+  // A purchase belongs to one shop's books, so the shortcut is out while the
+  // header is showing every shop at once.
+  const allShopsMode = isAllShops(useShopStore((s) => s.currentShopId));
 
   // ------ Filters state (URL search params) ------
   const page = Number(searchParams.get('page')) || 1;
@@ -148,6 +153,18 @@ export function DistributorListPage() {
       header: 'Actions',
       render: (row) => (
         <div className="flex items-center gap-2">
+          {can('purchases.create') && !allShopsMode && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              navigate(`/purchases/new?distributorId=${row.id}`);
+            }}
+            className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+            title="New purchase from this distributor"
+          >
+            <Receipt className="h-4 w-4" />
+          </button>
+          )}
           {can('distributors.edit') && (
           <button
             onClick={(e) => {

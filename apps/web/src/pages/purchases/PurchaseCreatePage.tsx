@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useForm, useFieldArray, FormProvider } from 'react-hook-form';
 import {
   ArrowLeft,
@@ -22,7 +22,7 @@ import { Textarea } from '../../components/ui/textarea';
 import { Button } from '../../components/ui/button';
 import { Badge } from '../../components/ui/badge';
 import { useDebounce } from '../../hooks/useDebounce';
-import { useDistributorsQuery } from '../../hooks/useDistributors';
+import { useDistributorsQuery, usePresetDistributor } from '../../hooks/useDistributors';
 import { useCreatePurchaseMutation } from '../../hooks/usePurchases';
 import { CategoryCascader } from '../../components/CategoryCascader';
 import { DynamicAttributeFields } from '../../components/DynamicAttributeFields';
@@ -98,14 +98,24 @@ const STEPS = [
  * bill at all go to {@link UnbilledPurchaseForm} instead, because almost
  * nothing on this screen applies to them.
  */
-function BilledPurchaseWizard() {
+function BilledPurchaseWizard({
+  presetDistributor,
+}: {
+  /** Already chosen, when the purchase was started from this supplier's page. */
+  presetDistributor: DistributorListItem | null;
+}) {
   const navigate = useNavigate();
-  const [currentStep, setCurrentStep] = useState(0);
+  // Nothing to ask on the first step when the supplier came with the link, so
+  // start on the invoice. The step strip still goes back to it.
+  const [currentStep, setCurrentStep] = useState(presetDistributor ? 1 : 0);
   const [isScanOpen, setIsScanOpen] = useState(false);
 
   // Step 1: Distributor selection
-  const [selectedDistributor, setSelectedDistributor] = useState<DistributorListItem | null>(null);
-  const [distributorSearchText, setDistributorSearchText] = useState('');
+  const [selectedDistributor, setSelectedDistributor] =
+    useState<DistributorListItem | null>(presetDistributor);
+  const [distributorSearchText, setDistributorSearchText] = useState(
+    presetDistributor?.companyName ?? '',
+  );
   const [isAddDistributorOpen, setIsAddDistributorOpen] = useState(false);
   const debouncedDistSearch = useDebounce(distributorSearchText, 300);
 
@@ -1362,10 +1372,32 @@ function BilledPurchaseWizard() {
  */
 export function PurchaseCreatePage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [kind, setKind] = useState<'billed' | 'unbilled' | null>(null);
 
-  if (kind === 'billed') return <BilledPurchaseWizard />;
-  if (kind === 'unbilled') return <UnbilledPurchaseForm onBack={() => setKind(null)} />;
+  // Set when the purchase was started from a supplier's own page.
+  const preset = usePresetDistributor(searchParams.get('distributorId') ?? undefined);
+
+  // Resolved here rather than inside the wizards: each of them seeds its first
+  // step from the supplier, so it has to know before it mounts or it opens on
+  // the invoice step with nobody behind it.
+  if (preset.isLoading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (kind === 'billed')
+    return <BilledPurchaseWizard presetDistributor={preset.distributor} />;
+  if (kind === 'unbilled')
+    return (
+      <UnbilledPurchaseForm
+        onBack={() => setKind(null)}
+        presetDistributor={preset.distributor}
+      />
+    );
 
   return (
     <div className="mx-auto max-w-[900px]">
@@ -1378,7 +1410,11 @@ export function PurchaseCreatePage() {
         </button>
         <div>
           <h1 className="text-display">New Purchase</h1>
-          <p className="text-caption mt-0.5">How did these goods come in?</p>
+          <p className="text-caption mt-0.5">
+            {preset.distributor
+              ? `From ${preset.distributor.companyName}. How did these goods come in?`
+              : 'How did these goods come in?'}
+          </p>
         </div>
       </div>
 

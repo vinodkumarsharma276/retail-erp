@@ -72,6 +72,33 @@ export function useDistributorDetailQuery(id: string | undefined) {
   });
 }
 
+/**
+ * The supplier a purchase was started against, named in the URL by the
+ * distributor pages so the wizard can open with it already chosen.
+ *
+ * Shaped as a list item because that is what the purchase wizards hold. A
+ * detail record carries no purchase aggregates, and the wizards never read
+ * them, so they start at zero exactly as they do for a supplier created from
+ * inside the wizard.
+ *
+ * A missing or unreadable id resolves to no supplier and the wizard then just
+ * asks for one — a stale link is not worth an error screen.
+ */
+export function usePresetDistributor(id: string | undefined) {
+  const query = useDistributorDetailQuery(id);
+
+  const distributor: DistributorListItem | null = query.data
+    ? {
+        ...query.data,
+        totalProductsPurchased: 0,
+        totalPaymentPaid: 0,
+        pendingPayment: 0,
+      }
+    : null;
+
+  return { distributor, isLoading: !!id && query.isLoading };
+}
+
 // ---------------------------------------------------------------------------
 // Distributor products (paginated)
 // ---------------------------------------------------------------------------

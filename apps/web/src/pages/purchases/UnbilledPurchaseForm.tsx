@@ -91,16 +91,26 @@ const emptyItem = (categoryId: string): UnbilledItemValues => ({
 export interface UnbilledPurchaseFormProps {
   /** Back to the choice between a billed purchase and one without a bill. */
   onBack: () => void;
+  /** Already chosen, when the purchase was started from this supplier's page. */
+  presetDistributor?: DistributorListItem | null;
 }
 
-export function UnbilledPurchaseForm({ onBack }: UnbilledPurchaseFormProps) {
+export function UnbilledPurchaseForm({
+  onBack,
+  presetDistributor = null,
+}: UnbilledPurchaseFormProps) {
   const navigate = useNavigate();
   const toast = useToast();
-  const [currentStep, setCurrentStep] = useState(0);
+  // Nothing to ask on the first step when the supplier came with the link, so
+  // start on the invoice. The step strip still goes back to it.
+  const [currentStep, setCurrentStep] = useState(presetDistributor ? 1 : 0);
 
   // Step 1 — supplier
-  const [selectedDistributor, setSelectedDistributor] = useState<DistributorListItem | null>(null);
-  const [distributorSearchText, setDistributorSearchText] = useState('');
+  const [selectedDistributor, setSelectedDistributor] =
+    useState<DistributorListItem | null>(presetDistributor);
+  const [distributorSearchText, setDistributorSearchText] = useState(
+    presetDistributor?.companyName ?? '',
+  );
   const [isAddDistributorOpen, setIsAddDistributorOpen] = useState(false);
   // A kind of goods the shop has only just taken on.
   const [isAddTypeOpen, setIsAddTypeOpen] = useState(false);
