@@ -41,6 +41,7 @@ export const categoriesController = {
         isLeaf?: boolean;
         icon?: string | null;
         displayOrder?: number;
+        purchaseModes?: 'billed' | 'unbilled' | 'both';
       };
     }>,
     reply: FastifyReply,
@@ -70,6 +71,7 @@ export const categoriesController = {
         isLeaf?: boolean;
         icon?: string | null;
         displayOrder?: number;
+        purchaseModes?: 'billed' | 'unbilled' | 'both';
         isActive?: boolean;
       };
     }>,

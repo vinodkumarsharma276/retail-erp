@@ -875,6 +875,7 @@ function BilledPurchaseWizard() {
                   <div className="mb-4">
                     <CategoryCascader
                       required
+                      allowCreate
                       onCategorySelect={(catId) =>
                         handleItemCategorySelect(index, catId)
                       }

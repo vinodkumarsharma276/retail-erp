@@ -168,6 +168,7 @@ export function ProductAddPage() {
             <CategoryCascader
               onCategorySelect={setSelectedCategoryId}
               initialCategoryId={existingProduct?.categoryId}
+              allowCreate
             />
             {!selectedCategoryId && (
               <p className="mt-2 text-xs text-muted-foreground">

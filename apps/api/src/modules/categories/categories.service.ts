@@ -10,6 +10,7 @@ interface CategoryTreeNode {
   path: string;
   displayOrder: number;
   isLeaf: boolean;
+  purchaseModes: string;
   icon: string | null;
   hsnCode: string | null;
   isActive: boolean;
@@ -133,6 +134,7 @@ export const categoriesService = {
     icon?: string | null;
     hsnCode?: string;
     displayOrder?: number;
+    purchaseModes?: string;
   }) {
     let level = 0;
     let path = data.slug;
@@ -161,6 +163,9 @@ export const categoriesService = {
         isLeaf: data.isLeaf ?? false,
         icon: data.icon ?? null,
         hsnCode: data.hsnCode ?? null,
+        // Billed unless the shop says otherwise, which is how goods arrive
+        // for all but a few types.
+        purchaseModes: data.purchaseModes ?? 'billed',
       },
     });
 
@@ -168,6 +173,7 @@ export const categoriesService = {
   },
 
   async update(id: string, data: {
+    purchaseModes?: string;
     name?: string;
     slug?: string;
     parentId?: string | null;

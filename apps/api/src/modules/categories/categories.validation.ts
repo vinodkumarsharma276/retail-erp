@@ -1,5 +1,11 @@
 import { z } from 'zod';
 
+/**
+ * How goods of this type are bought. Until now only the seed could say, so
+ * a type bought without a bill could not be created from the app at all.
+ */
+export const purchaseModesSchema = z.enum(['billed', 'unbilled', 'both']);
+
 export const createCategorySchema = z.object({
   name: z.string().min(1, 'Name is required').max(200),
   slug: z
@@ -12,9 +18,11 @@ export const createCategorySchema = z.object({
   icon: z.string().max(100).nullable().optional(),
   hsnCode: z.string().max(8).optional(),
   displayOrder: z.number().int().min(0).optional(),
+  purchaseModes: purchaseModesSchema.optional(),
 });
 
 export const updateCategorySchema = z.object({
+  purchaseModes: purchaseModesSchema.optional(),
   name: z.string().min(1).max(200).optional(),
   slug: z
     .string()

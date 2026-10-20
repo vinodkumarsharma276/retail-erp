@@ -29,6 +29,8 @@ import { DynamicAttributeFields } from '../../components/DynamicAttributeFields'
 import { BrandInput } from '../../components/BrandInput';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { AddDistributorDialog } from '../../components/AddDistributorDialog';
+import { AddCategoryDialog } from '../../components/AddCategoryDialog';
+import { useCanCheck } from '../../hooks/usePermission';
 import { useToast } from '../../stores/toast-store';
 import { formatINR } from '@retailerp/shared-utils';
 import type {
@@ -100,6 +102,10 @@ export function UnbilledPurchaseForm({ onBack }: UnbilledPurchaseFormProps) {
   const [selectedDistributor, setSelectedDistributor] = useState<DistributorListItem | null>(null);
   const [distributorSearchText, setDistributorSearchText] = useState('');
   const [isAddDistributorOpen, setIsAddDistributorOpen] = useState(false);
+  // A kind of goods the shop has only just taken on.
+  const [isAddTypeOpen, setIsAddTypeOpen] = useState(false);
+  const can = useCanCheck();
+  const mayAddType = can('categories.create');
   const debouncedDistSearch = useDebounce(distributorSearchText, 300);
 
   const distributorsQuery = useDistributorsQuery({
@@ -363,6 +369,23 @@ export function UnbilledPurchaseForm({ onBack }: UnbilledPurchaseFormProps) {
         />
       )}
 
+      {/* Reached from this screen, so it is offered as bought without a
+          bill; the list here shows nothing else. */}
+      {isAddTypeOpen && (
+        <AddCategoryDialog
+          parentChoices={types.map((type) => ({
+            id: type.series.categoryId,
+            label: type.series.categoryName,
+          }))}
+          defaultPurchaseMode="unbilled"
+          onCreated={() => {
+            setIsAddTypeOpen(false);
+            typesQuery.refetch();
+          }}
+          onClose={() => setIsAddTypeOpen(false)}
+        />
+      )}
+
       {/* Step indicator */}
       <div className="mb-8 flex items-center gap-2 overflow-x-auto pb-2">
         {STEPS.map((step, index) => (
@@ -478,9 +501,26 @@ export function UnbilledPurchaseForm({ onBack }: UnbilledPurchaseFormProps) {
                     Loading product types...
                   </div>
                 ) : types.length === 0 ? (
-                  <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
-                    No product type is marked as bought without a bill yet. Mark one in
-                    Settings → Categories first.
+                  <div className="rounded-md border border-dashed p-4 text-sm">
+                    <p className="text-muted-foreground">
+                      No product type is marked as bought without a bill yet.
+                    </p>
+                    {mayAddType ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="mt-3"
+                        onClick={() => setIsAddTypeOpen(true)}
+                      >
+                        <Plus className="mr-1 h-3.5 w-3.5" />
+                        Add the first one
+                      </Button>
+                    ) : (
+                      <p className="mt-1 text-muted-foreground">
+                        Someone who can change categories has to mark one first.
+                      </p>
+                    )}
                   </div>
                 ) : (
                   <div className="space-y-4">
@@ -513,6 +553,17 @@ export function UnbilledPurchaseForm({ onBack }: UnbilledPurchaseFormProps) {
                         </div>
                       </div>
                     ))}
+                    {mayAddType && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setIsAddTypeOpen(true)}
+                      >
+                        <Plus className="mr-1 h-3.5 w-3.5" />
+                        New type
+                      </Button>
+                    )}
                   </div>
                 )}
               </FormSection>

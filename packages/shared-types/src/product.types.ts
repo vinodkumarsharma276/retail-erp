@@ -9,6 +9,8 @@ export interface ProductCategory {
   path: string;
   displayOrder: number;
   isLeaf: boolean;
+  /** How goods of this type are bought: with a bill, without, or either. */
+  purchaseModes?: 'billed' | 'unbilled' | 'both';
   icon?: string;
   hsnCode?: string | null;
   isActive: boolean;

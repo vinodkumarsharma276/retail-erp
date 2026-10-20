@@ -320,7 +320,7 @@ export function useEnrichBatchMutation() {
 // Category CRUD mutations
 // ---------------------------------------------------------------------------
 /** "Sewing Machine" becomes "sewing-machine", the slug shape the API expects. */
-function slugify(name: string): string {
+export function slugify(name: string): string {
   return name
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
@@ -341,6 +341,8 @@ export function useCreateCategoryMutation() {
       icon?: string;
       hsnCode?: string;
       displayOrder?: number;
+      /** How goods of this type are bought; billed unless said otherwise. */
+      purchaseModes?: 'billed' | 'unbilled' | 'both';
     }) => {
       const { data } = await apiClient.post<ApiResponse<ProductCategory>>('/categories', {
         ...payload,

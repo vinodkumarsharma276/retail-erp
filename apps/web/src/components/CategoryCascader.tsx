@@ -1,8 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
-import {  Loader2 } from 'lucide-react';
+import { Loader2, Plus } from 'lucide-react';
+import { AddCategoryDialog } from './AddCategoryDialog';
+import { Button } from './ui/button';
 import { Label } from './ui/label';
 import { Select } from './ui/select';
 import { useCategoryTreeQuery } from '../hooks/useProducts';
+import { useCanCheck } from '../hooks/usePermission';
 import type { ProductCategory } from '@retailerp/shared-types';
 
 interface CategoryCascaderProps {
@@ -14,6 +17,13 @@ interface CategoryCascaderProps {
   required?: boolean;
   /** Allow selecting non-leaf categories (e.g., for filtering) */
   allowNonLeaf?: boolean;
+  /**
+   * Offer a way to add a type that is not on the list yet.
+   *
+   * Off by default: on a filter, a missing category means nothing was
+   * bought of it, not that one needs creating.
+   */
+  allowCreate?: boolean;
 }
 
 /**
@@ -25,8 +35,12 @@ export function CategoryCascader({
   initialCategoryId,
   required = false,
   allowNonLeaf = false,
+  allowCreate = false,
 }: CategoryCascaderProps) {
   const { data: tree, isLoading } = useCategoryTreeQuery();
+  const [adding, setAdding] = useState(false);
+  const can = useCanCheck();
+  const mayCreate = allowCreate && can('categories.create');
 
   // selections[i] = the category ID selected at level i
   const [selections, setSelections] = useState<(string | undefined)[]>([]);
@@ -107,6 +121,29 @@ export function CategoryCascader({
     [selections, getLevelOptions, allowNonLeaf, onCategorySelect],
   );
 
+  /** Show the new type as chosen, under whatever it was filed beneath. */
+  const useNewCategory = (category: ProductCategory) => {
+    setAdding(false);
+    setSelections(category.parentId ? [...selections.filter(Boolean), category.id] : [category.id]);
+    onCategorySelect(category.id);
+  };
+
+  const addDialog = adding ? (
+    <AddCategoryDialog
+      parentChoices={(tree ?? []).map((node) => ({ id: node.id, label: node.name }))}
+      parentId={selections.filter(Boolean).at(-1) ?? null}
+      onCreated={useNewCategory}
+      onClose={() => setAdding(false)}
+    />
+  ) : null;
+
+  const addButton = mayCreate ? (
+    <Button type="button" variant="outline" size="sm" onClick={() => setAdding(true)}>
+      <Plus className="mr-1 h-3.5 w-3.5" />
+      New type
+    </Button>
+  ) : null;
+
   if (isLoading) {
     return (
       <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
@@ -118,9 +155,11 @@ export function CategoryCascader({
 
   if (!tree || tree.length === 0) {
     return (
-      <p className="text-sm text-muted-foreground py-2">
-        No categories available.
-      </p>
+      <div className="flex flex-wrap items-center gap-3 py-2">
+        <p className="text-sm text-muted-foreground">No categories available.</p>
+        {addButton}
+        {addDialog}
+      </div>
     );
   }
 
@@ -136,7 +175,7 @@ export function CategoryCascader({
   const levelLabels = ['Category', 'Subcategory', 'Type', 'Variant'];
 
   return (
-    <div className="flex flex-wrap gap-3">
+    <div className="flex flex-wrap items-end gap-3">
       {levels.map((level) => {
         const options = getLevelOptions(level);
         if (options.length === 0) return null;
@@ -164,6 +203,9 @@ export function CategoryCascader({
           </div>
         );
       })}
+
+      {addButton}
+      {addDialog}
     </div>
   );
 }
