@@ -47,6 +47,7 @@ import {
   DEFAULT_TENANT_INSTALLMENT_SETTINGS,
 } from '@retailerp/shared-types';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
+import { useEscapeKey } from '../../hooks/useEscapeKey';
 import type { Customer, Product } from '@retailerp/shared-types';
 import type { EMICalculationResult } from '@retailerp/shared-types';
 
@@ -268,6 +269,9 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
   const [showGuarantorDropdown, setShowGuarantorDropdown] = useState(false);
   const [showNewGuarantorForm, setShowNewGuarantorForm] = useState(false);
   const [summaryOpen, setSummaryOpen] = useState(false);
+  // The summary is a sheet over the form on mobile; on desktop it is a column
+  // that is always there and `summaryOpen` stays false.
+  useEscapeKey(summaryOpen, () => setSummaryOpen(false));
   const [newGuarantor, setNewGuarantor] = useState<NewGuarantorFormValues>(emptyNewGuarantor);
   const createGuarantorMutation = useCreateCustomerMutation();
 

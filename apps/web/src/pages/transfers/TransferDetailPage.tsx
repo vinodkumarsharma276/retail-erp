@@ -17,6 +17,7 @@ import {
 import { StatusBadge } from '../../components/StatusBadge';
 import { formatINR, formatDateIN } from '@retailerp/shared-utils';
 import { useShopStore } from '../../stores/shop-store';
+import { useEscapeKey } from '../../hooks/useEscapeKey';
 
 export function TransferDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -404,6 +405,8 @@ function ConfirmDialog({
   onCancel: () => void;
   icon: React.ReactNode;
 }) {
+  useEscapeKey(true, onCancel);
+
   const btnClass =
     confirmColor === 'green'
       ? 'bg-primary hover:bg-primary-hover'

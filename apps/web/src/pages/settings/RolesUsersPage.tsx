@@ -7,6 +7,7 @@ import { dependentsOf, prerequisitesFor } from '@retailerp/shared-types';
 import { useToastStore } from '../../stores/toast-store';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { usePermission, useCanCheck } from '../../hooks/usePermission';
+import { useEscapeKey } from '../../hooks/useEscapeKey';
 
 type Tab = 'roles' | 'users';
 
@@ -432,6 +433,8 @@ function NewRoleDialog({
   onClose: () => void;
   onCreated: (r: RoleSummary) => void;
 }) {
+  useEscapeKey(true, onClose);
+
   const [code, setCode] = useState('');
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -630,6 +633,10 @@ function UsersPanel() {
     setConfirmPassword('');
     setShowNewPassword(false);
   };
+
+  useEscapeKey(!!resetTarget, closeResetDialog);
+  useEscapeKey(!!shopTarget, () => setShopTarget(null));
+  useEscapeKey(!!resetResult, () => setResetResult(null));
 
   return (
     <div className="space-y-4">
@@ -993,6 +1000,8 @@ function UserPermissionsDialog({
   catalog: PermissionGroup[];
   onClose: () => void;
 }) {
+  useEscapeKey(true, onClose);
+
   const qc = useQueryClient();
   const toast = useToastStore((s) => s.addToast);
   const permsQ = useQuery({

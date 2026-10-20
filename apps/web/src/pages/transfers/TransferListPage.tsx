@@ -23,6 +23,7 @@ import { DataTable } from '../../components/DataTable';
 import type { Column, PaginationState } from '../../components/DataTable';
 import { DateInput } from '../../components/DateInput';
 import { StatusBadge } from '../../components/StatusBadge';
+import { useEscapeKey } from '../../hooks/useEscapeKey';
 import { formatINR, formatDateIN, getCurrentFinancialYearRange, getLastFinancialYearRange } from '@retailerp/shared-utils';
 
 const PAGE_SIZE = 20;
@@ -92,6 +93,8 @@ export function TransferListPage() {
   // ------ Receive mutation (for incoming tab) ------
   const receiveMutation = useReceiveTransferMutation();
   const [confirmReceiveId, setConfirmReceiveId] = useState<string | null>(null);
+
+  useEscapeKey(!!confirmReceiveId, () => setConfirmReceiveId(null));
 
   const handleReceive = (id: string) => {
     receiveMutation.mutate(id, {
