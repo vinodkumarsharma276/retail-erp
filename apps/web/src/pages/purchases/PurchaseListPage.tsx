@@ -42,6 +42,10 @@ export function PurchaseListPage() {
   const canCreate = usePermission('purchases.create');
   const canViewDetail = usePermission('purchases.detail');
   const canDelete = usePermission('purchases.delete');
+  // What is still owed on each purchase. Its own permission, because seeing
+  // a purchase and seeing what the shop still owes on it are different
+  // things — the column was shown to everyone until now.
+  const canSeePending = usePermission('purchases.view_pending_amount');
   const toast = useToast();
 
   // Kept by id, so a tick survives sorting, paging and refetching.
@@ -478,7 +482,7 @@ export function PurchaseListPage() {
 
       {/* Data table */}
       <DataTable<Purchase>
-        columns={columns}
+        columns={columns.filter((column) => column.key !== 'pending' || canSeePending)}
         data={purchases}
         isLoading={purchasesQuery.isLoading}
         pagination={paginationState}
