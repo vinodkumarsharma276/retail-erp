@@ -4,10 +4,10 @@ import { buildUnbilledTypes, unbilledSeriesService } from '../../src/modules/pur
 /**
  * What the "without a bill" screen offers, and the number it hands out.
  *
- * The shop buys furniture and almirahs with no supplier invoice. The
- * numbering belongs to the type — a wardrobe and a sofa bought off the books
- * both take a FURN number — but the product is still filed as the wardrobe it
- * is, so the picker has to show both levels.
+ * Anything can turn up without a supplier invoice, so every type is offered.
+ * The numbering belongs to the type — a wardrobe and a sofa bought off the
+ * books both take a FURN number — but the product is still filed as the
+ * wardrobe it is, so the picker has to show both levels.
  */
 
 const category = (
@@ -29,9 +29,15 @@ const CATEGORIES = [
 ];
 
 describe('what the picker offers', () => {
-  it('offers only the types bought without a bill', () => {
+  it('offers every type, since anything may be bought without a bill', () => {
     const types = buildUnbilledTypes(CATEGORIES, []);
-    expect(types.map((t) => t.series.categoryName)).toEqual(['Furniture', 'Almirah']);
+    expect(types.map((t) => t.series.categoryName)).toEqual(['Furniture', 'Almirah', 'Mobiles']);
+  });
+
+  it('gives a type never marked as unbilled its own numbering all the same', () => {
+    const mobiles = buildUnbilledTypes(CATEGORIES, []).find((t) => t.series.categoryId === 'mobiles')!;
+    expect(mobiles.series).toMatchObject({ started: false, nextInvoiceNumber: 'MOBI1' });
+    expect(mobiles.choices.map((c) => c.categoryName)).toEqual(['Samsung']);
   });
 
   it('files the goods under the type rather than against it', () => {
@@ -41,7 +47,7 @@ describe('what the picker offers', () => {
   });
 
   it('offers a type with no kinds beneath it as the choice itself', () => {
-    const almirah = buildUnbilledTypes(CATEGORIES, [])[1];
+    const almirah = buildUnbilledTypes(CATEGORIES, []).find((t) => t.series.categoryId === 'almirah')!;
     expect(almirah.choices).toEqual([
       { categoryId: 'almirah', categoryName: 'Almirah', label: 'Almirah' },
     ]);
@@ -65,7 +71,9 @@ describe('what the picker offers', () => {
   it('gives a type nested inside another its own numbering, not its parent’s', () => {
     const nested = [...CATEGORIES, category('recliner', 'Recliner', 'furn', 'unbilled', 4)];
     const types = buildUnbilledTypes(nested, []);
-    expect(types.map((t) => t.series.categoryName).sort()).toEqual(['Almirah', 'Furniture', 'Recliner']);
+    expect(types.map((t) => t.series.categoryName).sort()).toEqual([
+      'Almirah', 'Furniture', 'Mobiles', 'Recliner',
+    ]);
     const furniture = types.find((t) => t.series.categoryId === 'furn')!;
     expect(furniture.choices.map((c) => c.categoryId)).not.toContain('recliner');
   });

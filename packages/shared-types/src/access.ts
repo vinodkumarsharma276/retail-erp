@@ -105,6 +105,7 @@ const DETAIL_PART = /\.(section\.|audit_trail$|payment_timeline$|view_purchase_h
 const EXTRA_REQUIRES: Record<string, string[]> = {
   // Picking what you need for the job.
   'purchases.create': ['distributors.list'],
+  'purchases.create_unbilled': ['distributors.list'],
   'purchases.edit': ['distributors.list'],
   'sales.create_full_payment': ['customers.list', 'products.list'],
   'sales.create_partial_with_promise': ['customers.list', 'products.list'],

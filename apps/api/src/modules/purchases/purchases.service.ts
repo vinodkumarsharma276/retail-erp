@@ -446,13 +446,10 @@ export const purchasesService = {
 
     const seriesCategory = await prisma.productCategory.findFirst({
       where: { id: data.seriesCategoryId, tenantId },
-      select: { id: true, name: true, purchaseModes: true },
+      select: { id: true, name: true },
     });
     if (!seriesCategory) {
       throw new Error('Product type not found');
-    }
-    if (seriesCategory.purchaseModes === 'billed') {
-      throw new Error(`${seriesCategory.name} is not bought without a bill.`);
     }
 
     // Serial numbers are optional here — a wardrobe has none — but one that

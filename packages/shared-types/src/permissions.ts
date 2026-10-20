@@ -82,6 +82,7 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
     ['purchases.list', 'Open purchase list'],
     ['purchases.detail', 'Open purchase detail'],
     ['purchases.create', 'Record new purchase'],
+    ['purchases.create_unbilled', 'Record a purchase made without a bill'],
     ['purchases.edit', 'Edit purchase'],
     ['purchases.delete', 'Delete purchase'],
     ['purchases.record_payment', 'Record payment against purchase'],
@@ -315,7 +316,8 @@ export const ROLE_ACCOUNTANT_PERMISSIONS: string[] = [
   'distributors.create', 'distributors.edit',
   'distributors.view_bank_details', 'distributors.view_gst', 'distributors.view_credit_limit',
   // Purchases
-  'purchases.list', 'purchases.detail', 'purchases.create', 'purchases.edit',
+  'purchases.list', 'purchases.detail', 'purchases.create', 'purchases.create_unbilled',
+  'purchases.edit',
   'purchases.record_payment', 'purchases.view_pending_amount', 'purchases.export',
   // Customers
   'customers.list', 'customers.detail', 'customers.create', 'customers.edit',

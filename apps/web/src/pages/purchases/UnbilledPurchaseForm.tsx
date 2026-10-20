@@ -503,7 +503,7 @@ export function UnbilledPurchaseForm({
             <div className="space-y-4">
               <FormSection
                 title="What kind of goods?"
-                description="Only the types the shop buys without a bill are shown."
+                description="Anything can arrive without a bill, so every type is here. Each keeps its own numbering."
               >
                 {typesQuery.isLoading ? (
                   <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground">

@@ -66,21 +66,21 @@ export async function purchaseRoutes(app: FastifyInstance) {
   // A purchase with no supplier bill behind it. The invoice number is issued
   // from the product type's own series as it saves, so none is sent.
   app.post('/unbilled', {
-    preHandler: [authenticate, shopScope, requirePermission('purchases.create'), validate(createUnbilledPurchaseSchema)],
+    preHandler: [authenticate, shopScope, requirePermission('purchases.create_unbilled'), validate(createUnbilledPurchaseSchema)],
   }, purchasesController.createUnbilled as any);
 
   // What that screen's product-type picker offers.
   app.get('/unbilled-types', {
-    preHandler: [authenticate, requirePermission('purchases.create')],
+    preHandler: [authenticate, requirePermission('purchases.create_unbilled')],
   }, purchasesController.listUnbilledTypes as any);
 
   // The numbering the shop keeps for purchases made without a bill.
   app.get('/unbilled-series', {
-    preHandler: [authenticate, requirePermission('purchases.create')],
+    preHandler: [authenticate, requirePermission('purchases.create_unbilled')],
   }, purchasesController.listUnbilledSeries as any);
 
   app.put('/unbilled-series', {
-    preHandler: [authenticate, requirePermission('purchases.create'), validate(startSeriesSchema)],
+    preHandler: [authenticate, requirePermission('purchases.create_unbilled'), validate(startSeriesSchema)],
   }, purchasesController.startUnbilledSeries as any);
 
   // Past import runs.

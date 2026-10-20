@@ -83,10 +83,9 @@ export const unbilledSeriesService = {
       where: { tenantId, isActive: true },
       select: { id: true, name: true, parentId: true, displayOrder: true, purchaseModes: true },
     });
-    const marked = categories.filter((c) => c.purchaseModes !== 'billed');
-    if (marked.length === 0) return [];
+    if (categories.length === 0) return [];
     const series = await prisma.purchaseInvoiceSeries.findMany({
-      where: { tenantId, categoryId: { in: marked.map((c) => c.id) } },
+      where: { tenantId, categoryId: { in: categories.map((c) => c.id) } },
       select: { categoryId: true, prefix: true, nextNumber: true },
     });
     return buildUnbilledTypes(categories, series);
@@ -105,12 +104,9 @@ export const unbilledSeriesService = {
   ): Promise<SeriesState> {
     const category = await prisma.productCategory.findFirst({
       where: { id: data.categoryId, tenantId },
-      select: { id: true, name: true, purchaseModes: true },
+      select: { id: true, name: true },
     });
     if (!category) throw new Error('Product type not found');
-    if (category.purchaseModes === 'billed') {
-      throw new Error(`${category.name} is not bought without a bill, so it has no numbering of its own.`);
-    }
 
     const prefix = String(data.prefix ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10);
     if (!prefix) throw new Error('The numbering needs some letters in front of it, such as FURN.');
@@ -195,14 +191,17 @@ interface SeriesRow {
 /**
  * Work out what the "without a bill" picker offers.
  *
- * Only a handful of types are bought this way, and the numbering belongs to
- * the type: Furniture has one series, so a wardrobe and a sofa bought off the
- * books both take a FURN number. The picker therefore shows the marked type
- * as a heading and the actual kinds of goods beneath it as the choices, since
- * a product is filed against the leaf it really is, not against "Furniture".
+ * Anything the shop sells can turn up without a supplier invoice, so every
+ * type is offered rather than a marked few. The numbering belongs to the
+ * type: Furniture has one series, so a wardrobe and a sofa bought off the
+ * books both take a FURN number. Each top-level type is therefore a heading
+ * with its own numbering, and the actual kinds of goods beneath it are the
+ * choices, since a product is filed against the leaf it really is, not
+ * against "Furniture".
  *
- * A type marked inside another marked type keeps its own numbering, so it
- * becomes a heading of its own rather than a choice under its parent.
+ * A type marked as bought without a bill keeps its own numbering even when
+ * it sits inside another, so it becomes a heading rather than a choice under
+ * its parent. That is all the marking still decides.
  */
 export function buildUnbilledTypes(categories: CategoryRow[], series: SeriesRow[]): UnbilledType[] {
   const children = new Map<string | null, CategoryRow[]>();
@@ -214,16 +213,17 @@ export function buildUnbilledTypes(categories: CategoryRow[], series: SeriesRow[
   const inOrder = (rows: CategoryRow[]) =>
     [...rows].sort((a, b) => a.displayOrder - b.displayOrder || a.name.localeCompare(b.name));
 
-  const isMarked = (category: CategoryRow) => category.purchaseModes !== 'billed';
+  // A heading of its own: a type at the top of the tree, or one marked as
+  // bought without a bill wherever it sits.
+  const ownsNumbering = (category: CategoryRow) =>
+    category.parentId === null || category.purchaseModes !== 'billed';
   const bySeriesCategory = new Map(series.map((s) => [s.categoryId, s]));
 
-  const marked = inOrder(categories.filter(isMarked));
-
-  return marked.map((type) => {
+  return inOrder(categories.filter(ownsNumbering)).map((type) => {
     const choices: UnbilledTypeChoice[] = [];
 
     const walk = (category: CategoryRow, trail: string[]) => {
-      const kids = inOrder(children.get(category.id) ?? []).filter((kid) => !isMarked(kid));
+      const kids = inOrder(children.get(category.id) ?? []).filter((kid) => !ownsNumbering(kid));
       if (kids.length === 0) {
         choices.push({
           categoryId: category.id,

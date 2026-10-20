@@ -25,6 +25,7 @@ import { useDebounce } from '../../hooks/useDebounce';
 import { useDistributorsQuery, usePresetDistributor } from '../../hooks/useDistributors';
 import { useCreatePurchaseMutation } from '../../hooks/usePurchases';
 import { CategoryCascader } from '../../components/CategoryCascader';
+import { useCanCheck } from '../../hooks/usePermission';
 import { DynamicAttributeFields } from '../../components/DynamicAttributeFields';
 import { BrandInput } from '../../components/BrandInput';
 import { ModelAutocomplete, type ProductMatch } from '../../components/ModelAutocomplete';
@@ -1373,7 +1374,14 @@ function BilledPurchaseWizard({
 export function PurchaseCreatePage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const [kind, setKind] = useState<'billed' | 'unbilled' | null>(null);
+  const can = useCanCheck();
+  // Buying off the books is kept to the people answerable for it, so the
+  // choice is not offered to anyone else — and with only one kind left to
+  // record, there is nothing to choose.
+  const mayRecordUnbilled = can('purchases.create_unbilled');
+  const [kind, setKind] = useState<'billed' | 'unbilled' | null>(
+    mayRecordUnbilled ? null : 'billed',
+  );
 
   // Set when the purchase was started from a supplier's own page.
   const preset = usePresetDistributor(searchParams.get('distributorId') ?? undefined);
@@ -1439,25 +1447,27 @@ export function PurchaseCreatePage() {
           </span>
         </button>
 
-        <button
-          type="button"
-          onClick={() => setKind('unbilled')}
-          className={cn(
-            'group rounded-lg border bg-card p-6 text-left transition-colors',
-            'hover:border-primary/60 hover:bg-primary-muted/30',
-          )}
-        >
-          <NotebookPen className="h-7 w-7 text-primary" />
-          <h2 className="mt-3 text-lg font-medium">Without a bill</h2>
-          <p className="text-caption mt-1">
-            Furniture, almirahs and the like, bought with no invoice at all. No tax, and the
-            invoice number is the next one in the shop's own series.
-          </p>
-          <span className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-primary">
-            Continue
-            <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
-          </span>
-        </button>
+        {mayRecordUnbilled && (
+          <button
+            type="button"
+            onClick={() => setKind('unbilled')}
+            className={cn(
+              'group rounded-lg border bg-card p-6 text-left transition-colors',
+              'hover:border-primary/60 hover:bg-primary-muted/30',
+            )}
+          >
+            <NotebookPen className="h-7 w-7 text-primary" />
+            <h2 className="mt-3 text-lg font-medium">Without a bill</h2>
+            <p className="text-caption mt-1">
+              Goods bought with no invoice at all. No tax, and the invoice number is the next
+              one in the shop's own series.
+            </p>
+            <span className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-primary">
+              Continue
+              <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+            </span>
+          </button>
+        )}
       </div>
 
       <p className="text-caption mt-6">
