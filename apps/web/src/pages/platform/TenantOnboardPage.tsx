@@ -10,6 +10,7 @@ import {
   Copy,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { useEscapeKey } from '../../hooks/useEscapeKey';
 import {
   useCreateTenantMutation,
   usePlansListQuery,
@@ -711,6 +712,8 @@ function SuccessModal({
   created: { slug: string; name: string; ownerUsername: string; ownerPassword: string };
   onClose: () => void;
 }) {
+  useEscapeKey(true, onClose);
+
   const [copied, setCopied] = useState(false);
 
   const copy = async () => {

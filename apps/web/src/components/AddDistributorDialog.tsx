@@ -1,6 +1,7 @@
 import { X, Building2 } from 'lucide-react';
 import type { Distributor } from '@retailerp/shared-types';
 import { DistributorForm } from './DistributorForm';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 interface AddDistributorDialogProps {
   /** Seeds the company name from whatever the user typed in the search box. */
@@ -14,6 +15,8 @@ export function AddDistributorDialog({
   onCreated,
   onClose,
 }: AddDistributorDialogProps) {
+  useEscapeKey(true, onClose);
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div className="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-lg border border-border bg-popover shadow-lg">

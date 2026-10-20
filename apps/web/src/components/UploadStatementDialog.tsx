@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useBulkImportTransactionsMutation } from '../hooks/useBank';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 // ---------------------------------------------------------------------------
 // CSV Parsing Utility
@@ -173,6 +174,8 @@ export function UploadStatementDialog({
   accountId,
   onClose,
 }: UploadStatementDialogProps) {
+  useEscapeKey(true, onClose);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const bulkImportMutation = useBulkImportTransactionsMutation();
 

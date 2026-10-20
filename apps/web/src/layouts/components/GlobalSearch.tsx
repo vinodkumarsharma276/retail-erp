@@ -1,10 +1,11 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, X, Loader2, Package } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useDebounce } from '../../hooks/useDebounce';
 import { useProductSearchQuery } from '../../hooks/useProducts';
 import { StatusBadge } from '../../components/StatusBadge';
+import { useEscapeKey, isOverlayOpen } from '../../hooks/useEscapeKey';
 
 export function GlobalSearch() {
   const navigate = useNavigate();
@@ -39,20 +40,26 @@ export function GlobalSearch() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isOpen]);
 
-  // Keyboard handler
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        close();
-      }
-    },
-    [],
-  );
-
   const close = () => {
     setIsOpen(false);
     setQuery('');
   };
+
+  useEscapeKey(isOpen, close);
+
+  // Ctrl+K / Cmd+K opens the search, as the collapsed button's tooltip says it
+  // does. Not while something is layered over the page, where the shortcut
+  // would pull focus out from under a dialog.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'k') return;
+      if (isOverlayOpen()) return;
+      e.preventDefault();
+      setIsOpen(true);
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
 
   const handleResultClick = (productId: string) => {
     close();
@@ -83,7 +90,6 @@ export function GlobalSearch() {
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={handleKeyDown}
           placeholder="Search products by brand, model, serial..."
           className={cn(
             'w-full rounded-md border bg-field pl-9 pr-9 py-2 text-sm',

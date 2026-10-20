@@ -2,6 +2,7 @@ import { X, Loader2 } from 'lucide-react';
 import { useProductsQuery } from '../hooks/useProducts';
 import { formatINR, formatDateIN } from '@retailerp/shared-utils';
 import type { Product } from '@retailerp/shared-types';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 interface SerialPickerDialogProps {
   open: boolean;
@@ -30,6 +31,8 @@ export function SerialPickerDialog({
   onPick,
   onClose,
 }: SerialPickerDialogProps) {
+  useEscapeKey(open, onClose);
+
   const q = useProductsQuery({
     page: 1,
     pageSize: 200,

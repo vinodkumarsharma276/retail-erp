@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 interface ConfirmDialogProps {
   isOpen: boolean;
@@ -28,25 +29,17 @@ export function ConfirmDialog({
   const dialogRef = useRef<HTMLDivElement>(null);
   const confirmBtnRef = useRef<HTMLButtonElement>(null);
 
-  // Focus management and Escape key
+  useEscapeKey(isOpen, onCancel);
+
+  // Focus management
   useEffect(() => {
     if (!isOpen) return;
 
     const previousFocus = document.activeElement as HTMLElement;
     confirmBtnRef.current?.focus();
 
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') {
-        onCancel();
-      }
-    }
-
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown);
-      previousFocus?.focus();
-    };
-  }, [isOpen, onCancel]);
+    return () => previousFocus?.focus();
+  }, [isOpen]);
 
   if (!isOpen) return null;
 

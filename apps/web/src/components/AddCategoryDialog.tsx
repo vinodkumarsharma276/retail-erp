@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { X, FolderPlus, Loader2 } from 'lucide-react';
 import type { ProductCategory } from '@retailerp/shared-types';
 import { slugify, useCreateCategoryMutation } from '../hooks/useProducts';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Select } from './ui/select';
@@ -58,15 +59,7 @@ export function AddCategoryDialog({
   const [parentId, setParentId] = useState<string>(initialParentId ?? '');
   const [mode, setMode] = useState<PurchaseMode>(defaultPurchaseMode);
   const create = useCreateCategoryMutation();
-
-  // Escape closes it, as it does every other dialog here.
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  useEscapeKey(true, onClose);
 
   const slug = useMemo(() => slugify(name), [name]);
   const parentLabel = parentChoices.find((choice) => choice.id === initialParentId)?.label;

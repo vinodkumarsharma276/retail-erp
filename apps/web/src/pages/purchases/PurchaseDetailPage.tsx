@@ -17,6 +17,7 @@ import { formatINR, formatDateIN } from '@retailerp/shared-utils';
 import { PaymentMode } from '@retailerp/shared-types';
 import type { PurchaseProduct, PurchasePayment } from '@retailerp/shared-types';
 import { usePermission } from '../../hooks/usePermission';
+import { useEscapeKey } from '../../hooks/useEscapeKey';
 
 // ---------------------------------------------------------------------------
 // Payment form values
@@ -300,6 +301,8 @@ function RecordPaymentDialog({
   pendingAmount: number;
   onClose: () => void;
 }) {
+  useEscapeKey(true, onClose);
+
   const recordPaymentMutation = useRecordPurchasePaymentMutation();
 
   const {

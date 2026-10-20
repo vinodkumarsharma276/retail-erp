@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { Loader2, Search } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { apiClient } from '../lib/api-client';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 /**
  * Shape returned by `/products/search`. Note `brand` is a top-level column on
@@ -118,6 +119,10 @@ export function ModelAutocomplete({
     setResults([]);
   };
 
+  // Registered only while the list is showing, so inside a dialog the first
+  // Escape closes the suggestions and the dialog stays put.
+  useEscapeKey(isOpen, () => setIsOpen(false));
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (!isOpen || results.length === 0) return;
 
@@ -130,8 +135,6 @@ export function ModelAutocomplete({
     } else if (e.key === 'Enter' && highlightIdx >= 0) {
       e.preventDefault();
       handleSelect(results[highlightIdx]);
-    } else if (e.key === 'Escape') {
-      setIsOpen(false);
     }
   };
 

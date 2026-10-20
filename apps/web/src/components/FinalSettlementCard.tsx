@@ -7,6 +7,7 @@ import {
 import { formatINR } from '@retailerp/shared-utils';
 import { useToastStore } from '../stores/toast-store';
 import { cn } from '../lib/utils';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 interface Props {
   scheduleId: string;
@@ -33,6 +34,8 @@ export function FinalSettlementCard({ scheduleId, canSettle }: Props) {
   const settle = useRecordFinalSettlementMutation();
   const addToast = useToastStore((s) => s.addToast);
   const [confirmOpen, setConfirmOpen] = useState(false);
+
+  useEscapeKey(confirmOpen, () => setConfirmOpen(false));
   const [paymentMode, setPaymentMode] = useState('cash');
   const [paymentDate, setPaymentDate] = useState(() =>
     new Date().toISOString().split('T')[0],

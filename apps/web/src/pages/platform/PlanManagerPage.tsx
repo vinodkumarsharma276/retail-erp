@@ -9,6 +9,7 @@ import {
   type PlanListItem,
 } from '../../hooks/usePlatform';
 import { ALL_FEATURE_KEYS, FEATURE_METADATA } from '@retailerp/shared-types';
+import { useEscapeKey } from '../../hooks/useEscapeKey';
 
 export function PlanManagerPage() {
   const plansQuery = usePlansListQuery();
@@ -273,6 +274,8 @@ function PlanDetail({ plan }: { plan: PlanListItem }) {
 }
 
 function CreatePlanModal({ onClose }: { onClose: () => void }) {
+  useEscapeKey(true, onClose);
+
   const create = useCreatePlanMutation();
   const [form, setForm] = useState({
     code: '',

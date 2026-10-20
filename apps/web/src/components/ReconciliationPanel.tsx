@@ -17,6 +17,7 @@ import {
 import type { BankTransaction, SuggestedMatch } from '../hooks/useBank';
 import { formatINR, formatDateIN } from '@retailerp/shared-utils';
 import { StatusBadge } from './StatusBadge';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 // ---------------------------------------------------------------------------
 // Props
@@ -65,6 +66,8 @@ export function ReconciliationPanel({
   transaction,
   onClose,
 }: ReconciliationPanelProps) {
+  useEscapeKey(true, onClose);
+
   const [manualNotes, setManualNotes] = useState('');
   const [reconciled, setReconciled] = useState(false);
 

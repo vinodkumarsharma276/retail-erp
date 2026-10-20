@@ -10,6 +10,7 @@ import { compactMoney, count, date, fileSize, pct, relativeTime } from './lib/fo
 import { useInvalidateData, useMeta, useStatements } from './lib/queries';
 import { useScope } from './lib/store';
 import { useCanCheck } from '../../hooks/usePermission';
+import { useEscapeKey } from '../../hooks/useEscapeKey';
 
 function Menu({ s, onDelete, onEdit }: { s: Statement; onDelete: () => void; onEdit: () => void }) {
   const can = useCanCheck();
@@ -34,6 +35,7 @@ function Menu({ s, onDelete, onEdit }: { s: Statement; onDelete: () => void; onE
     document.addEventListener('mousedown', h);
     return () => document.removeEventListener('mousedown', h);
   }, [open]);
+  useEscapeKey(open, () => setOpen(false));
   if (!canChange && !canDelete && !s.has_file) return null;
   return (
     <div className="relative" ref={ref}>

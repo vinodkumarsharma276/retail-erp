@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { BankReviewCount } from '../../pages/bank/components/BankReviewCount';
 import { useSidebarStore } from '../../stores/sidebar-store';
+import { useEscapeKey } from '../../hooks/useEscapeKey';
 import { useAuthStore } from '../../stores/auth-store';
 import { cn } from '../../lib/utils';
 import { useCanCheck } from '../../hooks/usePermission';
@@ -148,6 +149,10 @@ export function Sidebar() {
   useEffect(() => {
     close();
   }, [location.pathname, close]);
+
+  // Only the mobile drawer is a layer over the page; on desktop the sidebar is
+  // always there and `isOpen` stays false.
+  useEscapeKey(isOpen, close);
 
   const visibleSections = navSections
     .map((section) => ({

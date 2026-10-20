@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useCanCheck } from '../../hooks/usePermission';
+import { useEscapeKey } from '../../hooks/useEscapeKey';
 import {
   ArrowLeft,
   Loader2,
@@ -632,6 +633,8 @@ function LumpsumPaymentDialog({
   pendingInvoiceCount: number;
   onClose: () => void;
 }) {
+  useEscapeKey(true, onClose);
+
   const toast = useToast();
   const mutation = useRecordDistributorPaymentMutation();
 

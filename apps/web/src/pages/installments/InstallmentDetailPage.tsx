@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useCanCheck } from '../../hooks/usePermission';
+import { useEscapeKey } from '../../hooks/useEscapeKey';
 import {
   ArrowLeft,
   Loader2,
@@ -119,6 +120,41 @@ export function InstallmentDetailPage() {
     !!undoRescheduleTarget,
   );
   const undoRescheduleMutation = useUndoRescheduleMutation();
+
+  // Each dialog's reset, hoisted out of its render block so Escape can reach
+  // it as well as the backdrop and the close button.
+  const closeRevert = useCallback(() => {
+    setRevertTarget(null);
+    setRevertReason('');
+    setRevertApplyInterest(false);
+    setRevertInterestAmount('');
+    setRevertInterestNotes('');
+    setRevertCascade(true);
+    setRevertMoveEnabled(false);
+    setRevertMoveTargetId('');
+    setRevertMovePaymentDate('');
+    setRevertMoveInterestEnabled(false);
+    setRevertMoveInterestAmount('');
+    setRevertMoveInterestNotes('');
+  }, []);
+
+  const closeModify = useCallback(() => {
+    setModifyTarget(null);
+    setModifyCorrectAmount('');
+    setModifyReason('');
+    setModifyApplyInterest(false);
+    setModifyInterestAmount('');
+    setModifyInterestNotes('');
+  }, []);
+
+  const closeUndoResched = useCallback(() => {
+    setUndoRescheduleTarget(null);
+    setUndoRescheduleReason('');
+  }, []);
+
+  useEscapeKey(!!revertTarget, closeRevert);
+  useEscapeKey(!!modifyTarget, closeModify);
+  useEscapeKey(!!undoRescheduleTarget, closeUndoResched);
 
   // Toggle to show/hide rescheduled (superseded) rows
   const [showRescheduled, setShowRescheduled] = useState(false);
@@ -743,20 +779,6 @@ export function InstallmentDetailPage() {
         const suggestedInterest = Math.round(
           revertTarget.expectedRemainingAfterRevert * dailyRate * daysOverdue * 100,
         ) / 100;
-        const closeRevert = () => {
-          setRevertTarget(null);
-          setRevertReason('');
-          setRevertApplyInterest(false);
-          setRevertInterestAmount('');
-          setRevertInterestNotes('');
-          setRevertCascade(true);
-          setRevertMoveEnabled(false);
-          setRevertMoveTargetId('');
-          setRevertMovePaymentDate('');
-          setRevertMoveInterestEnabled(false);
-          setRevertMoveInterestAmount('');
-          setRevertMoveInterestNotes('');
-        };
         return (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/50" onClick={closeRevert} />
@@ -1259,15 +1281,6 @@ export function InstallmentDetailPage() {
           ? computeDistributionPreview(totalToDistribute, modifyTarget.installmentId)
           : null;
 
-        const closeModify = () => {
-          setModifyTarget(null);
-          setModifyCorrectAmount('');
-          setModifyReason('');
-          setModifyApplyInterest(false);
-          setModifyInterestAmount('');
-          setModifyInterestNotes('');
-        };
-
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center">
             <div className="absolute inset-0 bg-black/50" onClick={closeModify} />
@@ -1488,10 +1501,6 @@ export function InstallmentDetailPage() {
 
       {/* ── Undo Reschedule dialog ─────────────────────────────────────── */}
       {undoRescheduleTarget && (() => {
-        const closeUndoResched = () => {
-          setUndoRescheduleTarget(null);
-          setUndoRescheduleReason('');
-        };
         const preview = undoReschedulePreviewQuery.data;
         const isLoading = undoReschedulePreviewQuery.isLoading;
         const isError = undoReschedulePreviewQuery.isError;
@@ -1747,7 +1756,12 @@ function PenaltyRateRow({
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') save();
-              if (e.key === 'Escape') setEditing(false);
+              // Spend the keypress here so it does not also close a layer
+              // this editor happens to sit inside.
+              if (e.key === 'Escape') {
+                e.preventDefault();
+                setEditing(false);
+              }
             }}
             aria-invalid={!valid || undefined}
             aria-label="Late penalty in rupees per day"

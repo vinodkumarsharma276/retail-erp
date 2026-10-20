@@ -28,6 +28,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Textarea } from './ui/textarea';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 // ---------------------------------------------------------------------------
 // Props
@@ -131,6 +132,8 @@ export function RecordPaymentDialog({
   onSuccess,
   onClose,
 }: RecordPaymentDialogProps) {
+  useEscapeKey(true, onClose);
+
   const can = useCanCheck();
   const addToast = useToastStore((s) => s.addToast);
   const canChargePenalty = can('installments.interest.apply');

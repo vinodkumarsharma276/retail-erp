@@ -8,6 +8,7 @@ import { SHOP_COLOR } from '../lib/colors';
 import { useMeta } from '../lib/queries';
 import { GlobalProvider, PRESET_LABEL, useGlobal, type DatePreset } from '../lib/store';
 import { Input, Skeleton } from './ui';
+import { useEscapeKey } from '../../../hooks/useEscapeKey';
 
 function initials(name: string) {
   return name
@@ -36,14 +37,10 @@ function usePopover() {
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => ref.current && !ref.current.contains(e.target as Node) && setOpen(false);
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
     document.addEventListener('mousedown', onDown);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('mousedown', onDown);
-      document.removeEventListener('keydown', onKey);
-    };
+    return () => document.removeEventListener('mousedown', onDown);
   }, [open]);
+  useEscapeKey(open, () => setOpen(false));
   return { open, setOpen, ref };
 }
 

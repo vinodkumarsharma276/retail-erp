@@ -27,6 +27,7 @@ import { StatusBadge } from '../../components/StatusBadge';
 import { CompletionBadge } from '../../components/CompletionBadge';
 import { RecordPaymentDialog } from '../../components/RecordPaymentDialog';
 import { AccessDenied } from '../../routes/RoleGuard';
+import { useEscapeKey } from '../../hooks/useEscapeKey';
 import { formatINR, formatDateIN } from '@retailerp/shared-utils';
 import { SaleType, FinancePaymentStatus, InstallmentStatus } from '@retailerp/shared-types';
 
@@ -87,6 +88,11 @@ function SaleDetailPageInner() {
   const [paymentMode, setPaymentMode] = useState('cash');
   const [paymentNotes, setPaymentNotes] = useState('');
   const recordPaymentMutation = useRecordPendingPaymentMutation();
+
+  useEscapeKey(showPaymentDialog, () => {
+    setShowPaymentDialog(false);
+    recordPaymentMutation.reset();
+  });
 
   // Per-installment "Pay" dialog state (for advance payments + overpayments)
   const [installmentPaymentTarget, setInstallmentPaymentTarget] = useState<

@@ -3,7 +3,6 @@ import { Loader2, X } from 'lucide-react';
 import {
   forwardRef,
   useCallback,
-  useEffect,
   type ButtonHTMLAttributes,
   type InputHTMLAttributes,
   type ReactNode,
@@ -11,6 +10,7 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { useToastStore } from '../../../stores/toast-store';
+import { useEscapeKey } from '../../../hooks/useEscapeKey';
 
 // ---------------------------------------------------------------- Button
 type Variant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'good';
@@ -180,12 +180,7 @@ export function Kbd({ children }: { children: ReactNode }) {
 
 // ---------------------------------------------------------------- Drawer / Modal
 export function Drawer({ open, onClose, title, children, width = 520 }: { open: boolean; onClose: () => void; title: ReactNode; children: ReactNode; width?: number }) {
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
+  useEscapeKey(open, onClose);
   if (!open) return null;
   return createPortal(
     <div className="fixed inset-0 z-[70]">
@@ -228,6 +223,7 @@ export function ConfirmDialog({
   onCancel: () => void;
   loading?: boolean;
 }) {
+  useEscapeKey(open, onCancel);
   if (!open) return null;
   return createPortal(
     <div className="fixed inset-0 z-[70] grid place-items-center p-4">

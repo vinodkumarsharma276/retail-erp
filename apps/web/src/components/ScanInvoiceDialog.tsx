@@ -8,6 +8,7 @@ import { useOcrStatusQuery, useScanInvoiceMutation } from '../hooks/useOcr';
 import { useCreateDistributorMutation } from '../hooks/useDistributors';
 import { useToastStore } from '../stores/toast-store';
 import type { InvoiceParseResult } from '../api/ocr-api';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 type Props = {
   open: boolean;
@@ -104,6 +105,8 @@ function toListItem(distributor: any): DistributorListItem {
 }
 
 export function ScanInvoiceDialog({ open, onClose, onApply }: Props) {
+  useEscapeKey(open, onClose);
+
   const toast = useToastStore((s) => s.addToast);
   const ocrStatus = useOcrStatusQuery();
   const scanMutation = useScanInvoiceMutation();

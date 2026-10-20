@@ -12,6 +12,7 @@ import { useAnalytics, useTransactions, useUpdateTx } from './lib/queries';
 import { useScope } from './lib/store';
 import { useAuthStore } from '../../stores/auth-store';
 import { useCanCheck } from '../../hooks/usePermission';
+import { isOverlayOpen } from '../../hooks/useEscapeKey';
 
 type Tab = 'pending' | 'verified' | 'suspicious';
 
@@ -82,6 +83,9 @@ export default function BankReviewPage() {
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement;
       if (el.closest('input, textarea, select') || e.metaKey || e.ctrlKey || e.altKey) return;
+      // A single letter must not move the row underneath while the drawer or a
+      // confirmation is open over it.
+      if (isOverlayOpen()) return;
       if (e.key === 'j' || e.key === 'ArrowDown') {
         e.preventDefault();
         move(1);

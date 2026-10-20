@@ -6,6 +6,7 @@ import {
   downloadInvoiceFromData,
 } from '../lib/invoice-utils';
 import type { InvoiceData } from './InvoicePDF';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 /**
  * Modal that previews the soon-to-be-generated invoice details so the
@@ -25,6 +26,8 @@ export function InvoiceConfirmDialog({
   saleId: string;
   onClose: () => void;
 }) {
+  useEscapeKey(true, onClose);
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<InvoiceData | null>(null);

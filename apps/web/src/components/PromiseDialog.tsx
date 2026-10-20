@@ -10,6 +10,7 @@ import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Textarea } from './ui/textarea';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 interface PromiseDialogProps {
   scheduleId: string;
@@ -49,6 +50,8 @@ export function PromiseDialog({
   onClose,
   onCreated,
 }: PromiseDialogProps) {
+  useEscapeKey(true, onClose);
+
   const today = localTodayIso();
   const addToast = useToastStore((s) => s.addToast);
   const { data: promises } = useInstallmentPromisesQuery({ scheduleId });

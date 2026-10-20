@@ -2,6 +2,7 @@ import * as React from 'react';
 import { MoreHorizontal } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { Button, type ButtonProps } from './button';
+import { useEscapeKey } from '../../hooks/useEscapeKey';
 
 /**
  * Minimal dependency-free dropdown. Replaces the per-row button clusters
@@ -90,19 +91,14 @@ export function DropdownMenuContent({
       setOpen(false);
     }
 
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key !== 'Escape') return;
-      setOpen(false);
-      triggerRef.current?.focus();
-    }
-
     document.addEventListener('mousedown', onPointerDown);
-    document.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.removeEventListener('mousedown', onPointerDown);
-      document.removeEventListener('keydown', onKeyDown);
-    };
+    return () => document.removeEventListener('mousedown', onPointerDown);
   }, [open, setOpen, triggerRef]);
+
+  useEscapeKey(open, () => {
+    setOpen(false);
+    triggerRef.current?.focus();
+  });
 
   if (!open) return null;
 
