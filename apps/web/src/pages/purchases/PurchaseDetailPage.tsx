@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { useParams,  useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import {
+  Pencil,
+  Trash2,
   ArrowLeft,
   Loader2,
   AlertCircle,
@@ -11,7 +13,14 @@ import {
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { usePurchaseDetailQuery } from '../../hooks/usePurchases';
-import { useRecordPurchasePaymentMutation } from '../../hooks/usePurchases';
+import {
+  useRecordPurchasePaymentMutation,
+  useUpdatePurchaseMutation,
+  useDeletePurchasesMutation,
+} from '../../hooks/usePurchases';
+import { ConfirmDialog } from '../../components/ConfirmDialog';
+import { Button } from '../../components/ui/button';
+import { useToast } from '../../stores/toast-store';
 import { StatusBadge } from '../../components/StatusBadge';
 import { formatINR, formatDateIN } from '@retailerp/shared-utils';
 import { PaymentMode } from '@retailerp/shared-types';
@@ -38,6 +47,12 @@ export function PurchaseDetailPage() {
   const navigate = useNavigate();
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
   const canRecordPayment = usePermission('purchases.record_payment');
+  const canEdit = usePermission('purchases.edit');
+  const canDelete = usePermission('purchases.delete');
+  const toast = useToast();
+  const [editing, setEditing] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const deleteMut = useDeletePurchasesMutation();
 
   const { data: purchase, isLoading, isError } = usePurchaseDetailQuery(id);
 
@@ -93,7 +108,63 @@ export function PurchaseDetailPage() {
             </div>
           </div>
         </div>
+
+        <div className="flex items-center gap-2">
+          {canEdit && (
+            <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
+              <Pencil className="mr-1 h-3.5 w-3.5" />
+              Edit
+            </Button>
+          )}
+          {canDelete && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-destructive/50 text-destructive hover:bg-destructive/10"
+              onClick={() => setDeleting(true)}
+            >
+              <Trash2 className="mr-1 h-3.5 w-3.5" />
+              Delete
+            </Button>
+          )}
+        </div>
       </div>
+
+      {editing && (
+        <EditPurchaseDialog
+          purchase={purchase}
+          onClose={() => setEditing(false)}
+          onSaved={() => {
+            setEditing(false);
+            toast.success('Purchase updated.');
+          }}
+        />
+      )}
+
+      <ConfirmDialog
+        isOpen={deleting}
+        title={`Delete purchase ${purchase.invoiceNumber}?`}
+        message={`The ${purchase.products?.length ?? 0} unit(s) this purchase brought in are deleted with it. If any has been sold or transferred, nothing is deleted.`}
+        confirmText="Delete"
+        variant="danger"
+        loading={deleteMut.isPending}
+        onCancel={() => setDeleting(false)}
+        onConfirm={() => {
+          deleteMut.mutate([purchase.id], {
+            onSuccess: (result) => {
+              toast.success(`Deleted the purchase and ${result.units} unit(s).`);
+              navigate('/purchases');
+            },
+            onError: (error) => {
+              const e = error as { response?: { data?: { error?: string; message?: string } }; message?: string };
+              toast.error(
+                e?.response?.data?.error ?? e?.response?.data?.message ?? e?.message ?? 'Could not delete.',
+              );
+              setDeleting(false);
+            },
+          });
+        }}
+      />
 
       {/* Invoice info card */}
       <div className="rounded-lg border bg-card p-6 mb-6">
@@ -555,6 +626,116 @@ function InfoRow({
       >
         {value}
       </dd>
+    </div>
+  );
+}
+
+/**
+ * Change a purchase's own details.
+ *
+ * Its invoice number, date, figures and notes — not what it contains. Units
+ * are stock, and stock is corrected on the product itself, where an audit
+ * trail is kept of who changed what.
+ */
+function EditPurchaseDialog({
+  purchase,
+  onClose,
+  onSaved,
+}: {
+  purchase: { id: string; invoiceNumber: string; invoiceDate: string; totalAmount: number | string; gstAmount: number | string; discountAmount: number | string; notes?: string | null };
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const update = useUpdatePurchaseMutation();
+  const [invoiceNumber, setInvoiceNumber] = useState(purchase.invoiceNumber);
+  const [invoiceDate, setInvoiceDate] = useState(String(purchase.invoiceDate).slice(0, 10));
+  const [totalAmount, setTotalAmount] = useState(String(purchase.totalAmount ?? ''));
+  const [gstAmount, setGstAmount] = useState(String(purchase.gstAmount ?? ''));
+  const [discountAmount, setDiscountAmount] = useState(String(purchase.discountAmount ?? ''));
+  const [notes, setNotes] = useState(purchase.notes ?? '');
+  const [error, setError] = useState<string | null>(null);
+  useEscapeKey(true, onClose);
+
+  const net = Number(totalAmount || 0) + Number(gstAmount || 0) - Number(discountAmount || 0);
+
+  const save = (event: React.FormEvent) => {
+    event.preventDefault();
+    setError(null);
+    update.mutate(
+      {
+        id: purchase.id,
+        payload: {
+          invoiceNumber: invoiceNumber.trim(),
+          invoiceDate,
+          totalAmount: Number(totalAmount || 0),
+          gstAmount: Number(gstAmount || 0),
+          discountAmount: Number(discountAmount || 0),
+          notes: notes.trim() || null,
+        },
+      },
+      {
+        onSuccess: onSaved,
+        onError: (err) => {
+          const e = err as { response?: { data?: { error?: string; message?: string } }; message?: string };
+          setError(e?.response?.data?.error ?? e?.response?.data?.message ?? e?.message ?? 'Could not save.');
+        },
+      },
+    );
+  };
+
+  const field = 'w-full rounded-md border bg-field px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring';
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+      <form
+        onSubmit={save}
+        className="w-full max-w-lg space-y-4 rounded-lg border border-border bg-popover p-5 shadow-lg"
+      >
+        <h2 className="text-lg font-semibold">Edit purchase</h2>
+
+        <div className="grid grid-cols-2 gap-3">
+          <label className="text-sm">
+            <span className="mb-1 block text-xs font-medium text-muted-foreground">Invoice number</span>
+            <input className={field} value={invoiceNumber} onChange={(e) => setInvoiceNumber(e.target.value)} />
+          </label>
+          <label className="text-sm">
+            <span className="mb-1 block text-xs font-medium text-muted-foreground">Invoice date</span>
+            <input type="date" className={field} value={invoiceDate} onChange={(e) => setInvoiceDate(e.target.value)} />
+          </label>
+          <label className="text-sm">
+            <span className="mb-1 block text-xs font-medium text-muted-foreground">Goods value</span>
+            <input type="number" step="0.01" className={field} value={totalAmount} onChange={(e) => setTotalAmount(e.target.value)} />
+          </label>
+          <label className="text-sm">
+            <span className="mb-1 block text-xs font-medium text-muted-foreground">Tax</span>
+            <input type="number" step="0.01" className={field} value={gstAmount} onChange={(e) => setGstAmount(e.target.value)} />
+          </label>
+          <label className="text-sm">
+            <span className="mb-1 block text-xs font-medium text-muted-foreground">Discount</span>
+            <input type="number" step="0.01" className={field} value={discountAmount} onChange={(e) => setDiscountAmount(e.target.value)} />
+          </label>
+          <div className="self-end rounded-md border border-border bg-muted/40 px-3 py-2">
+            <p className="text-xs text-muted-foreground">Net</p>
+            <p className="text-sm font-semibold">{formatINR(net)}</p>
+          </div>
+        </div>
+
+        <label className="block text-sm">
+          <span className="mb-1 block text-xs font-medium text-muted-foreground">Notes</span>
+          <textarea rows={2} className={field} value={notes} onChange={(e) => setNotes(e.target.value)} />
+        </label>
+
+        {error && <p className="text-sm text-destructive">{error}</p>}
+
+        <div className="flex justify-end gap-2 border-t border-border pt-3">
+          <Button type="button" variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="submit" loading={update.isPending} disabled={!invoiceNumber.trim()}>
+            Save
+          </Button>
+        </div>
+      </form>
     </div>
   );
 }

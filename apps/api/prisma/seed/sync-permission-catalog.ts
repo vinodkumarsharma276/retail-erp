@@ -16,7 +16,12 @@ import { PERMISSION_GROUPS } from '@retailerp/shared-types';
 const NEW_DEFAULTS: Record<string, string[]> = {
   owner: ['installments.revert_payment', 'purchases.create_unbilled'],
   admin: ['roles.list', 'installments.revert_payment', 'purchases.create_unbilled'],
-  accountant: ['settings.view', 'installments.revert_payment', 'purchases.create_unbilled'],
+  accountant: [
+    'settings.view',
+    'installments.revert_payment',
+    'purchases.create_unbilled',
+    'purchases.delete',
+  ],
 };
 
 const prisma = new PrismaClient();

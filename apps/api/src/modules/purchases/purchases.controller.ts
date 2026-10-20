@@ -1,5 +1,5 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
-import { purchasesService } from './purchases.service.js';
+import { purchasesService, PurchaseInUseError } from './purchases.service.js';
 import { purchaseImportService } from './purchases.import.js';
 import { itemClassifier } from './item-classifier.js';
 import { unbilledSeriesService } from './unbilled-series.js';
@@ -25,13 +25,14 @@ export const purchasesController = {
         paymentStatus?: string;
         allShops?: string;
         search?: string;
+        source?: string;
       };
     }>,
     reply: FastifyReply,
   ) {
     try {
       const { page, pageSize, skip, take } = parsePagination(request.query);
-      const { distributorId, dateFrom, dateTo, paymentStatus, allShops, search } = request.query;
+      const { distributorId, dateFrom, dateTo, paymentStatus, allShops, search, source } = request.query;
 
       // Two ways to get a cross-shop view:
       //   1. Legacy: ?allShops=true with distributorId on the Distributor
@@ -62,6 +63,7 @@ export const purchasesController = {
         dateFrom,
         dateTo,
         paymentStatus,
+        source,
         search,
       });
 
@@ -395,6 +397,24 @@ export const purchasesController = {
         return sendError(reply, message, 409);
       }
       return sendError(reply, message, 500);
+    }
+  },
+
+  /** Delete one purchase, or a batch of them, with the units they brought in. */
+  async remove(
+    request: FastifyRequest<{ Body: { ids: string[] } }>,
+    reply: FastifyReply,
+  ) {
+    try {
+      const { shopId, shopIds } = request.shopFilter!;
+      const result = await purchasesService.remove(request.body.ids, { shopId, shopIds });
+      return sendSuccess(reply, result);
+    } catch (error) {
+      if (error instanceof PurchaseInUseError) {
+        return sendError(reply, error.message, 409);
+      }
+      const message = error instanceof Error ? error.message : 'Failed to delete purchases';
+      return sendError(reply, message, 400);
     }
   },
 

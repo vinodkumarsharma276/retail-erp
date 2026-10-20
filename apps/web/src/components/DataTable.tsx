@@ -60,6 +60,16 @@ interface DataTableProps<T> {
   onRowClick?: (row: T, index: number) => void;
   /** Initial sort to apply to the table. Column must be `sortable`. */
   defaultSort?: { key: string; dir: SortDir };
+  /**
+   * Tick rows off to act on several at once. Needs `rowKey`, since the
+   * selection is kept by key and has to survive sorting and paging.
+   */
+  selection?: {
+    selected: Set<string>;
+    onChange: (next: Set<string>) => void;
+    /** Rows that cannot be picked, with the reason, shown on hover. */
+    disabledReason?: (row: T) => string | null;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -75,7 +85,11 @@ export function DataTable<T>({
   rowKey,
   onRowClick,
   defaultSort,
+  selection,
 }: DataTableProps<T>) {
+  // Only on the desktop table: a row of tickboxes is no way to work on a phone.
+  const picking = Boolean(selection && rowKey);
+  const keyOf = (row: T, idx: number) => (rowKey ? rowKey(row, idx) : String(idx));
   const mobileColumns = columns
     .filter((column) => !column.hideOnMobile)
     .sort((a, b) => (a.mobilePriority ?? 50) - (b.mobilePriority ?? 50));
@@ -114,6 +128,18 @@ export function DataTable<T>({
     });
     return arr;
   }, [data, sort, columns]);
+
+  /** Rows on this page the user may actually pick. */
+  const pickableKeys = useMemo(
+    () =>
+      picking
+        ? sortedData
+            .map((row, idx) => ({ key: keyOf(row, idx), why: selection!.disabledReason?.(row) ?? null }))
+            .filter((r) => !r.why)
+            .map((r) => r.key)
+        : [],
+    [picking, sortedData, selection],
+  );
 
   const toggleSort = (key: string) => {
     setSort((prev) => {
@@ -257,6 +283,30 @@ export function DataTable<T>({
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border bg-muted/40">
+              {picking && (
+                <th className="h-9 w-10 px-3 text-left align-middle">
+                  <input
+                    type="checkbox"
+                    aria-label="Select every row on this page"
+                    className="h-4 w-4"
+                    checked={pickableKeys.length > 0 && pickableKeys.every((k) => selection!.selected.has(k))}
+                    ref={(el) => {
+                      if (el) {
+                        const picked = pickableKeys.filter((k) => selection!.selected.has(k)).length;
+                        el.indeterminate = picked > 0 && picked < pickableKeys.length;
+                      }
+                    }}
+                    onChange={(event) => {
+                      const next = new Set(selection!.selected);
+                      for (const k of pickableKeys) {
+                        if (event.target.checked) next.add(k);
+                        else next.delete(k);
+                      }
+                      selection!.onChange(next);
+                    }}
+                  />
+                </th>
+              )}
               {columns.map((col) => {
                 const isActive = sort?.key === col.key;
                 const Icon = !isActive ? ChevronsUpDown : sort?.dir === 'asc' ? ChevronUp : ChevronDown;
@@ -298,13 +348,40 @@ export function DataTable<T>({
           <tbody className="stagger">
             {sortedData.map((row, idx) => (
               <tr
-                key={rowKey ? rowKey(row, idx) : idx}
+                key={keyOf(row, idx)}
                 onClick={onRowClick ? () => onRowClick(row, idx) : undefined}
                 className={cn(
                   'border-b border-border/60 transition-colors last:border-0 hover:bg-subtle',
                   onRowClick && 'cursor-pointer',
+                  picking && selection!.selected.has(keyOf(row, idx)) && 'bg-primary/5',
                 )}
               >
+                {picking && (() => {
+                  const key = keyOf(row, idx);
+                  const why = selection!.disabledReason?.(row) ?? null;
+                  return (
+                    <td
+                      className="w-10 px-3 py-2 align-middle"
+                      // The row itself may open the record; ticking it must not.
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 disabled:cursor-not-allowed disabled:opacity-40"
+                        aria-label="Select this row"
+                        checked={selection!.selected.has(key)}
+                        disabled={Boolean(why)}
+                        title={why ?? undefined}
+                        onChange={(event) => {
+                          const next = new Set(selection!.selected);
+                          if (event.target.checked) next.add(key);
+                          else next.delete(key);
+                          selection!.onChange(next);
+                        }}
+                      />
+                    </td>
+                  );
+                })()}
                 {columns.map((col) => (
                   <td
                     key={col.key}

@@ -4,12 +4,16 @@ import {
   ChevronDown,
   
   X,
+  Trash2,
   Search,
   FileSpreadsheet } from 'lucide-react';
 import { PageHeader } from '../../components/PageHeader';
 import { Button } from '../../components/ui/button';
 import { cn } from '../../lib/utils';
-import { usePurchasesQuery } from '../../hooks/usePurchases';
+import { usePurchasesQuery, useDeletePurchasesMutation } from '../../hooks/usePurchases';
+import { ConfirmDialog } from '../../components/ConfirmDialog';
+import { useToast } from '../../stores/toast-store';
+import { useState } from 'react';
 import { useDistributorsQuery } from '../../hooks/useDistributors';
 import { DataTable } from '../../components/DataTable';
 import type { Column, PaginationState } from '../../components/DataTable';
@@ -37,6 +41,13 @@ export function PurchaseListPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const canCreate = usePermission('purchases.create');
   const canViewDetail = usePermission('purchases.detail');
+  const canDelete = usePermission('purchases.delete');
+  const toast = useToast();
+
+  // Kept by id, so a tick survives sorting, paging and refetching.
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const deleteMut = useDeletePurchasesMutation();
 
   // ------ Filters state (URL search params) ------
   const page = Number(searchParams.get('page')) || 1;
@@ -47,6 +58,7 @@ export function PurchaseListPage() {
   const dateFrom = searchParams.get('dateFrom') || (search ? '' : getDateDaysAgo(30));
   const dateTo = searchParams.get('dateTo') || (search ? '' : getToday());
   const paymentStatus = searchParams.get('paymentStatus') || '';
+  const source = searchParams.get('source') || '';
 
   const updateFilters = (updates: Record<string, string>) => {
     setSearchParams((prev) => {
@@ -71,6 +83,7 @@ export function PurchaseListPage() {
     dateTo: dateTo || undefined,
     paymentStatus: paymentStatus || undefined,
     search: search || undefined,
+    source: source || undefined,
   });
 
   // Distributors for the filter dropdown (load all for dropdown)
@@ -81,7 +94,7 @@ export function PurchaseListPage() {
   const pagination = purchasesQuery.data?.pagination;
 
   // ------ Clear filters ------
-  const hasFilters = distributorId || paymentStatus || search || dateFrom !== getDateDaysAgo(30) || dateTo !== getToday();
+  const hasFilters = distributorId || paymentStatus || source || search || dateFrom !== getDateDaysAgo(30) || dateTo !== getToday();
   const clearFilters = () => {
     setSearchParams({}, { replace: true });
   };
@@ -396,6 +409,30 @@ export function PurchaseListPage() {
           </div>
         </div>
 
+        {/* Where it came from */}
+        <div className="w-full sm:w-40">
+          <label className="block text-xs font-medium text-muted-foreground mb-1">
+            Entered
+          </label>
+          <div className="relative">
+            <select
+              value={source}
+              onChange={(e) => {
+                updateFilters({ source: e.target.value, page: '1' });
+              }}
+              className={cn(
+                'w-full appearance-none rounded-md border bg-field px-3 py-2 pr-8 text-sm',
+                'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+              )}
+            >
+              <option value="">Any way</option>
+              <option value="manual">By hand</option>
+              <option value="excel_import">From a sheet</option>
+            </select>
+            <ChevronDown className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          </div>
+        </div>
+
         {/* Clear filters */}
         {hasFilters && (
           <button
@@ -415,6 +452,30 @@ export function PurchaseListPage() {
         </div>
       )}
 
+      {/* What to do with the ticked ones */}
+      {canDelete && picked.size > 0 && (
+        <div className="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-primary/40 bg-primary/5 px-4 py-3">
+          <span className="text-sm font-medium">
+            {picked.size} purchase{picked.size === 1 ? '' : 's'} selected
+          </span>
+          <Button variant="outline" size="sm" onClick={() => setPicked(new Set())}>
+            Clear
+          </Button>
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={() => setConfirmingDelete(true)}
+            loading={deleteMut.isPending}
+          >
+            <Trash2 className="mr-1 h-3.5 w-3.5" />
+            Delete
+          </Button>
+          <span className="text-xs text-muted-foreground">
+            The units they brought in go too.
+          </span>
+        </div>
+      )}
+
       {/* Data table */}
       <DataTable<Purchase>
         columns={columns}
@@ -424,6 +485,46 @@ export function PurchaseListPage() {
         onPageChange={(p) => updateFilters({ page: String(p) })}
         emptyMessage="No purchases found matching your filters."
         rowKey={(row) => row.id}
+        selection={
+          canDelete
+            ? {
+                selected: picked,
+                onChange: setPicked,
+                disabledReason: (row) =>
+                  Number(row.amountPaid) > 0
+                    ? 'Has payments recorded against it'
+                    : null,
+              }
+            : undefined
+        }
+      />
+
+      <ConfirmDialog
+        isOpen={confirmingDelete}
+        title={`Delete ${picked.size} purchase${picked.size === 1 ? '' : 's'}?`}
+        message="The units these purchases brought in are deleted with them. Anything already sold or transferred will stop this, and nothing will be deleted."
+        confirmText="Delete"
+        variant="danger"
+        loading={deleteMut.isPending}
+        onCancel={() => setConfirmingDelete(false)}
+        onConfirm={() => {
+          deleteMut.mutate(Array.from(picked), {
+            onSuccess: (result) => {
+              toast.success(
+                `Deleted ${result.purchases} purchase${result.purchases === 1 ? '' : 's'} and ${result.units} unit${result.units === 1 ? '' : 's'}.`,
+              );
+              setPicked(new Set());
+              setConfirmingDelete(false);
+            },
+            onError: (error) => {
+              const e = error as { response?: { data?: { error?: string; message?: string } }; message?: string };
+              toast.error(
+                e?.response?.data?.error ?? e?.response?.data?.message ?? e?.message ?? 'Could not delete.',
+              );
+              setConfirmingDelete(false);
+            },
+          });
+        }}
       />
     </div>
   );

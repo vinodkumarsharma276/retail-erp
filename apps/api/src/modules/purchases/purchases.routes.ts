@@ -15,6 +15,7 @@ import {
   lookupItemSchema,
   forgetClassificationsSchema,
   startSeriesSchema,
+  deletePurchasesSchema,
 } from './purchases.validation.js';
 
 export async function purchaseRoutes(app: FastifyInstance) {
@@ -95,6 +96,12 @@ export async function purchaseRoutes(app: FastifyInstance) {
   app.put('/:id', {
     preHandler: [authenticate, requirePermission('purchases.edit'), validate(updatePurchaseSchema)],
   }, purchasesController.update as any);
+
+  // Delete purchases. One id or many arrive the same way, so the screen's
+  // single-row delete and its tick-several-off delete share a route.
+  app.post('/delete', {
+    preHandler: [authenticate, shopScope, requirePermission('purchases.delete'), validate(deletePurchasesSchema)],
+  }, purchasesController.remove as any);
 
   // Record a payment for a purchase
   app.post('/:id/payments', {

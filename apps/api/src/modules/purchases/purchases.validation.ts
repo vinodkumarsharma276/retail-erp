@@ -71,6 +71,17 @@ export const updatePurchaseSchema = z.object({
   notes: z.string().nullable().optional(),
 });
 
+/**
+ * The purchases to delete. One id or many: the screen lets a row be deleted
+ * on its own or a batch of them ticked off together, and both arrive here.
+ */
+export const deletePurchasesSchema = z.object({
+  ids: z
+    .array(z.string().uuid('Purchase ID must be a valid UUID'))
+    .min(1, 'Choose at least one purchase')
+    .max(200, 'Delete at most 200 purchases at a time'),
+});
+
 export const recordPaymentSchema = z.object({
   amount: z.number().positive('Amount must be positive'),
   paymentMode: z.enum(['cash', 'credit_card', 'debit_card', 'upi', 'bank_transfer', 'cheque'], {

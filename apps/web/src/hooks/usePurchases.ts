@@ -43,6 +43,8 @@ export interface PurchaseFilters {
   paymentStatus?: string;
   allShops?: boolean;
   search?: string;
+  /** 'manual' or 'excel_import' — where the purchase came from. */
+  source?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -61,6 +63,7 @@ export function usePurchasesQuery(filters: PurchaseFilters) {
       if (filters.paymentStatus) params.set('paymentStatus', filters.paymentStatus);
       if (filters.allShops) params.set('allShops', 'true');
       if (filters.search?.trim()) params.set('search', filters.search.trim());
+      if (filters.source) params.set('source', filters.source);
 
       const { data } = await apiClient.get<PaginatedResponse<Purchase>>(
         `/purchases?${params.toString()}`,
@@ -356,5 +359,29 @@ export function usePurchaseImportBatchesQuery(enabled = true) {
       return data.data ?? [];
     },
     enabled,
+  });
+}
+
+/**
+ * Delete purchases, and the units they brought in.
+ *
+ * One id or many go the same way, so a row deleted on its own and a batch
+ * ticked off share this. The server refuses outright if anything has been
+ * sold or moved, and says which purchase and why.
+ */
+export function useDeletePurchasesMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (ids: string[]) => {
+      const { data } = await apiClient.post<ApiResponse<{ purchases: number; units: number }>>(
+        '/purchases/delete',
+        { ids },
+      );
+      return data.data!;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['purchases'] });
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+    },
   });
 }

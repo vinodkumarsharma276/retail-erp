@@ -2,6 +2,9 @@ import { prisma } from '../../config/database.js';
 import type { Prisma } from '@prisma/client';
 import { unbilledSeriesService } from './unbilled-series.js';
 
+/** A purchase that cannot go, because something of it has already moved on. */
+export class PurchaseInUseError extends Error {}
+
 export const purchasesService = {
   /**
    * List purchases.
@@ -27,6 +30,8 @@ export const purchasesService = {
       dateTo?: string;
       paymentStatus?: string;
       search?: string;
+      /** 'manual' for ones keyed in, 'excel_import' for ones read off a sheet. */
+      source?: string;
     },
   ) {
     const where: Prisma.PurchaseWhereInput = {};
@@ -39,6 +44,10 @@ export const purchasesService = {
 
     if (filters.distributorId) {
       where.distributorId = filters.distributorId;
+    }
+
+    if (filters.source) {
+      where.source = filters.source;
     }
 
     if (filters.paymentStatus) {
@@ -592,6 +601,93 @@ export const purchasesService = {
         },
         creator: { select: { id: true, username: true, fullName: true } },
       },
+    });
+  },
+
+  /**
+   * Delete purchases, and the units they brought in.
+   *
+   * A purchase is not a record of itself: it is where stock came from. Taking
+   * it away has to take its units with it, or the shop is left holding goods
+   * that arrived from nowhere. So anything that has already moved on — sold,
+   * transferred, or simply no longer in stock — stops the whole thing, and
+   * the caller is told which purchase and why rather than being left with
+   * half of one deleted.
+   *
+   * All or nothing: either every purchase named goes, or none does.
+   */
+  async remove(ids: string[], scope: { shopId?: string; shopIds?: string[] }) {
+    const where: Prisma.PurchaseWhereInput = { id: { in: ids } };
+    if (scope.shopIds && scope.shopIds.length > 0) {
+      where.shopId = { in: scope.shopIds };
+    } else if (scope.shopId) {
+      where.shopId = scope.shopId;
+    }
+
+    const purchases = await prisma.purchase.findMany({
+      where,
+      select: {
+        id: true,
+        invoiceNumber: true,
+        amountPaid: true,
+        products: { select: { id: true, status: true, modelNumber: true } },
+      },
+    });
+
+    const missing = ids.filter((id) => !purchases.some((p) => p.id === id));
+    if (missing.length > 0) {
+      throw new PurchaseInUseError(
+        missing.length === ids.length
+          ? 'That purchase is not here to delete.'
+          : `${missing.length} of those purchases are not here to delete.`,
+      );
+    }
+
+    const productIds = purchases.flatMap((p) => p.products.map((u) => u.id));
+    const [sales, sanitized, transfers] = await Promise.all([
+      productIds.length
+        ? prisma.saleRecord.findMany({ where: { productId: { in: productIds } }, select: { productId: true } })
+        : [],
+      productIds.length
+        ? prisma.saleRecordSanitized.findMany({ where: { productId: { in: productIds } }, select: { productId: true } })
+        : [],
+      productIds.length
+        ? prisma.interShopTransfer.findMany({ where: { productId: { in: productIds } }, select: { productId: true } })
+        : [],
+    ]);
+    const spokenFor = new Set([
+      ...sales.map((r) => r.productId),
+      ...sanitized.map((r) => r.productId),
+      ...transfers.map((r) => r.productId),
+    ]);
+
+    for (const purchase of purchases) {
+      const sold = purchase.products.filter((u) => spokenFor.has(u.id));
+      if (sold.length > 0) {
+        throw new PurchaseInUseError(
+          `${purchase.invoiceNumber} cannot be deleted: ${sold.length} of its ${purchase.products.length} units have been sold or transferred.`,
+        );
+      }
+      const gone = purchase.products.filter((u) => u.status !== 'in_stock');
+      if (gone.length > 0) {
+        throw new PurchaseInUseError(
+          `${purchase.invoiceNumber} cannot be deleted: ${gone.length} of its units are no longer in stock.`,
+        );
+      }
+      if (Number(purchase.amountPaid) > 0) {
+        throw new PurchaseInUseError(
+          `${purchase.invoiceNumber} cannot be deleted: it has payments recorded against it. Reverse those first.`,
+        );
+      }
+    }
+
+    const purchaseIds = purchases.map((p) => p.id);
+    return prisma.$transaction(async (tx) => {
+      await tx.productAuditTrail.deleteMany({ where: { productId: { in: productIds } } });
+      await tx.purchasePayment.deleteMany({ where: { purchaseId: { in: purchaseIds } } });
+      const units = await tx.product.deleteMany({ where: { id: { in: productIds } } });
+      const removed = await tx.purchase.deleteMany({ where: { id: { in: purchaseIds } } });
+      return { purchases: removed.count, units: units.count };
     });
   },
 

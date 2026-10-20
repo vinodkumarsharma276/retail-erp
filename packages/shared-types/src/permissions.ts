@@ -317,7 +317,7 @@ export const ROLE_ACCOUNTANT_PERMISSIONS: string[] = [
   'distributors.view_bank_details', 'distributors.view_gst', 'distributors.view_credit_limit',
   // Purchases
   'purchases.list', 'purchases.detail', 'purchases.create', 'purchases.create_unbilled',
-  'purchases.edit',
+  'purchases.edit', 'purchases.delete',
   'purchases.record_payment', 'purchases.view_pending_amount', 'purchases.export',
   // Customers
   'customers.list', 'customers.detail', 'customers.create', 'customers.edit',
