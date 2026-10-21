@@ -65,3 +65,10 @@ export const lumpsumPaymentSchema = z.object({
   referenceNumber: z.string().max(100).optional(),
   notes: z.string().optional(),
 });
+
+export const deleteDistributorsSchema = z.object({
+  ids: z
+    .array(z.string().uuid('Distributor ID must be a valid UUID'))
+    .min(1, 'Choose at least one distributor')
+    .max(200, 'Delete at most 200 distributors at a time'),
+});

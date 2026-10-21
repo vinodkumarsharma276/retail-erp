@@ -12,10 +12,21 @@
 import { PrismaClient } from '@prisma/client';
 import { PERMISSION_GROUPS } from '@retailerp/shared-types';
 
-/** Defaults added after roles were first seeded (2026-10-05). */
+/**
+ * Defaults added after roles were first seeded (2026-10-05).
+ *
+ * `distributors.delete` (2026-10-22) goes to owner and admin only, following
+ * `customers.delete`: removing a party the books point at is not routine
+ * bookkeeping. An owner can grant it to anyone else in Settings → Roles.
+ */
 const NEW_DEFAULTS: Record<string, string[]> = {
-  owner: ['installments.revert_payment', 'purchases.create_unbilled'],
-  admin: ['roles.list', 'installments.revert_payment', 'purchases.create_unbilled'],
+  owner: ['installments.revert_payment', 'purchases.create_unbilled', 'distributors.delete'],
+  admin: [
+    'roles.list',
+    'installments.revert_payment',
+    'purchases.create_unbilled',
+    'distributors.delete',
+  ],
   accountant: [
     'settings.view',
     'installments.revert_payment',

@@ -161,6 +161,30 @@ export function useCreateDistributorMutation() {
   });
 }
 
+/**
+ * Delete distributors. One id or many go the same way, so a single-row
+ * delete and a tick-several-off delete share this.
+ *
+ * The API refuses the whole batch if any of them has traded, so nothing is
+ * half-deleted and the error names the supplier that stopped it.
+ */
+export function useDeleteDistributorsMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (ids: string[]) => {
+      const { data } = await apiClient.post<ApiResponse<{ distributors: number }>>(
+        '/distributors/delete',
+        { ids },
+      );
+      return data.data!;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['distributors'] });
+    },
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Record lumpsum payment to distributor
 // ---------------------------------------------------------------------------

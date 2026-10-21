@@ -3,7 +3,12 @@ import { distributorsController } from './distributors.controller.js';
 import { authenticate } from '../../middleware/auth.js';
 import { requirePermission } from '../../middleware/permissions.js';
 import { validate } from '../../middleware/validate.js';
-import { createDistributorSchema, updateDistributorSchema, lumpsumPaymentSchema } from './distributors.validation.js';
+import {
+  createDistributorSchema,
+  updateDistributorSchema,
+  lumpsumPaymentSchema,
+  deleteDistributorsSchema,
+} from './distributors.validation.js';
 
 export async function distributorRoutes(app: FastifyInstance) {
 
@@ -22,6 +27,12 @@ export async function distributorRoutes(app: FastifyInstance) {
   app.put('/:id', {
     preHandler: [authenticate, requirePermission('distributors.edit'), validate(updateDistributorSchema)],
   }, distributorsController.update as any);
+
+  // Delete distributors. One id or many arrive the same way, so the screen's
+  // single-row delete and its tick-several-off delete share a route.
+  app.post('/delete', {
+    preHandler: [authenticate, requirePermission('distributors.delete'), validate(deleteDistributorsSchema)],
+  }, distributorsController.remove as any);
 
   // Get products from this distributor
   app.get('/:id/products', { preHandler: [authenticate, requirePermission('distributors.detail')] }, distributorsController.getProducts as any);

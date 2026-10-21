@@ -72,6 +72,7 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
     ['distributors.detail', 'Open distributor detail'],
     ['distributors.create', 'Create distributor'],
     ['distributors.edit', 'Edit distributor'],
+    ['distributors.delete', 'Delete distributor'],
     ['distributors.deactivate', 'Deactivate distributor'],
     ['distributors.view_bank_details', 'See distributor bank details'],
     ['distributors.view_gst', 'See distributor GST'],

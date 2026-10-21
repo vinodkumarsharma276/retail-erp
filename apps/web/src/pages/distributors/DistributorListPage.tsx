@@ -1,11 +1,17 @@
+import { useState } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { useCanCheck } from '../../hooks/usePermission';
-import { Plus, Search, X, Pencil, Receipt } from 'lucide-react';
+import { Plus, Search, X, Pencil, Receipt, Trash2 } from 'lucide-react';
 import { PageHeader } from '../../components/PageHeader';
 import { Button } from '../../components/ui/button';
+import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { cn } from '../../lib/utils';
 import { useDebounce } from '../../hooks/useDebounce';
-import { useDistributorsQuery } from '../../hooks/useDistributors';
+import { useToast } from '../../stores/toast-store';
+import {
+  useDistributorsQuery,
+  useDeleteDistributorsMutation,
+} from '../../hooks/useDistributors';
 import { DataTable } from '../../components/DataTable';
 import type { Column, PaginationState } from '../../components/DataTable';
 import { formatINR } from '@retailerp/shared-utils';
@@ -24,6 +30,13 @@ export function DistributorListPage() {
   // A purchase belongs to one shop's books, so the shortcut is out while the
   // header is showing every shop at once.
   const allShopsMode = isAllShops(useShopStore((s) => s.currentShopId));
+
+  // ------ Ticking rows off to delete several at once ------
+  const canDelete = can('distributors.delete');
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const deleteMut = useDeleteDistributorsMutation();
+  const toast = useToast();
 
   // ------ Filters state (URL search params) ------
   const page = Number(searchParams.get('page')) || 1;
@@ -259,6 +272,30 @@ export function DistributorListPage() {
         </div>
       )}
 
+      {/* What to do with the ticked ones */}
+      {canDelete && picked.size > 0 && (
+        <div className="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-primary/40 bg-primary/5 px-4 py-3">
+          <span className="text-sm font-medium">
+            {picked.size} distributor{picked.size === 1 ? '' : 's'} selected
+          </span>
+          <Button variant="outline" size="sm" onClick={() => setPicked(new Set())}>
+            Clear
+          </Button>
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={() => setConfirmingDelete(true)}
+            loading={deleteMut.isPending}
+          >
+            <Trash2 className="mr-1 h-3.5 w-3.5" />
+            Delete
+          </Button>
+          <span className="text-xs text-muted-foreground">
+            Only suppliers you have never bought from can go.
+          </span>
+        </div>
+      )}
+
       {/* Data table */}
       <DataTable<DistributorListItem>
         columns={columns}
@@ -268,6 +305,46 @@ export function DistributorListPage() {
         onPageChange={(p) => updateFilters({ page: String(p) })}
         emptyMessage="No distributors found matching your search."
         rowKey={(row) => row.id}
+        selection={
+          canDelete
+            ? {
+                selected: picked,
+                onChange: setPicked,
+                disabledReason: (row) =>
+                  row.totalProductsPurchased > 0
+                    ? 'Stock has been bought from this distributor'
+                    : null,
+              }
+            : undefined
+        }
+      />
+
+      <ConfirmDialog
+        isOpen={confirmingDelete}
+        title={`Delete ${picked.size} distributor${picked.size === 1 ? '' : 's'}?`}
+        message="This removes the supplier record itself. A supplier anything was ever bought from will stop this, and nothing will be deleted."
+        confirmText="Delete"
+        variant="danger"
+        loading={deleteMut.isPending}
+        onCancel={() => setConfirmingDelete(false)}
+        onConfirm={() => {
+          deleteMut.mutate(Array.from(picked), {
+            onSuccess: (result) => {
+              toast.success(
+                `Deleted ${result.distributors} distributor${result.distributors === 1 ? '' : 's'}.`,
+              );
+              setPicked(new Set());
+              setConfirmingDelete(false);
+            },
+            onError: (error) => {
+              const e = error as { response?: { data?: { error?: string; message?: string } }; message?: string };
+              toast.error(
+                e?.response?.data?.error ?? e?.response?.data?.message ?? e?.message ?? 'Could not delete.',
+              );
+              setConfirmingDelete(false);
+            },
+          });
+        }}
       />
     </div>
   );

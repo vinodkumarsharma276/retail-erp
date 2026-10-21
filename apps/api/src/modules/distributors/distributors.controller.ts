@@ -1,5 +1,5 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
-import { distributorsService } from './distributors.service.js';
+import { distributorsService, DistributorInUseError } from './distributors.service.js';
 import { sendSuccess, sendError, sendPaginated } from '../../utils/response.js';
 import { parsePagination } from '../../utils/pagination.js';
 
@@ -220,6 +220,23 @@ export const distributorsController = {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to fetch distributor payments';
       return sendError(reply, message, 500);
+    }
+  },
+
+  /** Delete one distributor, or a batch of them. */
+  async remove(
+    request: FastifyRequest<{ Body: { ids: string[] } }>,
+    reply: FastifyReply,
+  ) {
+    try {
+      const result = await distributorsService.remove(request.body.ids);
+      return sendSuccess(reply, result);
+    } catch (error) {
+      if (error instanceof DistributorInUseError) {
+        return sendError(reply, error.message, 409);
+      }
+      const message = error instanceof Error ? error.message : 'Failed to delete distributors';
+      return sendError(reply, message, 400);
     }
   },
 };

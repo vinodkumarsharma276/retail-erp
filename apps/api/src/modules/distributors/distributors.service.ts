@@ -1,6 +1,9 @@
 import { prisma } from '../../config/database.js';
 import type { Prisma } from '@prisma/client';
 
+/** A supplier that cannot be deleted, because the books still point at it. */
+export class DistributorInUseError extends Error {}
+
 export const distributorsService = {
   async list(filters: {
     skip: number;
@@ -217,6 +220,67 @@ export const distributorsService = {
     });
 
     return distributor;
+  },
+
+  /**
+   * Delete one supplier, or a batch of them.
+   *
+   * A supplier is the other half of every purchase recorded against it, so
+   * one that has traded cannot be taken away: the purchase would be left
+   * pointing at nobody, and the stock it brought in would have arrived from
+   * nowhere. Same for stock still carrying this supplier's name. Those are
+   * the shop's own books, not clutter, so the answer is to refuse and say
+   * which supplier and why — this exists for the duplicates and typos a
+   * sheet import leaves behind, which have no history at all.
+   *
+   * The categories a supplier is marked as supplying are its own, and go
+   * with it.
+   *
+   * All or nothing: either every supplier named goes, or none does.
+   */
+  async remove(ids: string[]) {
+    const distributors = await prisma.distributor.findMany({
+      where: { id: { in: ids } },
+      select: {
+        id: true,
+        companyName: true,
+        _count: { select: { purchases: true, products: true } },
+      },
+    });
+
+    const missing = ids.filter((id) => !distributors.some((d) => d.id === id));
+    if (missing.length > 0) {
+      throw new DistributorInUseError(
+        missing.length === ids.length
+          ? 'That distributor is not here to delete.'
+          : `${missing.length} of those distributors are not here to delete.`,
+      );
+    }
+
+    for (const distributor of distributors) {
+      const { purchases, products } = distributor._count;
+      if (purchases > 0) {
+        throw new DistributorInUseError(
+          `${distributor.companyName} cannot be deleted: ${purchases} purchase${purchases === 1 ? '' : 's'} recorded against it. Delete those first.`,
+        );
+      }
+      if (products > 0) {
+        throw new DistributorInUseError(
+          `${distributor.companyName} cannot be deleted: ${products} product${products === 1 ? ' carries' : 's carry'} its name.`,
+        );
+      }
+    }
+
+    const distributorIds = distributors.map((d) => d.id);
+    return prisma.$transaction(async (tx) => {
+      await tx.distributorCategory.deleteMany({
+        where: { distributorId: { in: distributorIds } },
+      });
+      const removed = await tx.distributor.deleteMany({
+        where: { id: { in: distributorIds } },
+      });
+      return { distributors: removed.count };
+    });
   },
 
   async update(id: string, data: {
