@@ -197,11 +197,15 @@ export const distributorsController = {
   async recordLumpsumPayment(
     request: FastifyRequest<{
       Params: { id: string };
+      // Already normalised to tenders by `lumpsumPaymentSchema`.
       Body: {
-        amount: number;
-        paymentMode: string;
+        tenders: Array<{
+          amount: number;
+          paymentMode: string;
+          referenceNumber?: string | null;
+          notes?: string | null;
+        }>;
         paymentDate: string;
-        referenceNumber?: string;
         notes?: string;
       };
     }>,

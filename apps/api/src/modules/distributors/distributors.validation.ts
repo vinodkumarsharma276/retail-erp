@@ -58,13 +58,50 @@ export const distributorProductsQuerySchema = z.object({
   dateTo: z.string().optional(),
 });
 
-export const lumpsumPaymentSchema = z.object({
-  amount: z.number().positive('Amount must be a positive number'),
+/** One part of a payment: what was handed over, and how. */
+const tenderSchema = z.object({
+  amount: z.number().positive('Each amount must be a positive number'),
   paymentMode: z.string().min(1, 'Payment mode is required'),
-  paymentDate: z.string().min(1, 'Payment date is required'),
-  referenceNumber: z.string().max(100).optional(),
-  notes: z.string().optional(),
+  referenceNumber: z.string().max(100).nullable().optional(),
+  notes: z.string().max(500).nullable().optional(),
 });
+
+/**
+ * A payment to a supplier, in one or more tenders.
+ *
+ * The single-amount shape is still accepted and folded into a one-tender
+ * payment, so anything already calling this — the mobile app, a script —
+ * keeps working.
+ */
+export const lumpsumPaymentSchema = z
+  .object({
+    tenders: z.array(tenderSchema).min(1).max(10, 'At most 10 parts to one payment').optional(),
+    amount: z.number().positive('Amount must be a positive number').optional(),
+    paymentMode: z.string().min(1).optional(),
+    paymentDate: z.string().min(1, 'Payment date is required'),
+    referenceNumber: z.string().max(100).optional(),
+    notes: z.string().optional(),
+  })
+  .transform((value) => ({
+    paymentDate: value.paymentDate,
+    notes: value.notes,
+    tenders:
+      value.tenders ??
+      (value.amount != null && value.paymentMode
+        ? [
+            {
+              amount: value.amount,
+              paymentMode: value.paymentMode,
+              referenceNumber: value.referenceNumber ?? null,
+              notes: null,
+            },
+          ]
+        : []),
+  }))
+  .refine((value) => value.tenders.length > 0, {
+    message: 'Say how much was paid, and how',
+    path: ['tenders'],
+  });
 
 export const deleteDistributorsSchema = z.object({
   ids: z

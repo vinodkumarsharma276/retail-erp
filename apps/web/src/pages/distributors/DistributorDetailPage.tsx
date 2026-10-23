@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useCanCheck } from '../../hooks/usePermission';
 import { useEscapeKey } from '../../hooks/useEscapeKey';
@@ -40,6 +40,14 @@ import type {
 } from '@retailerp/shared-types';
 
 type TabType = 'products' | 'payments' | 'invoices' | 'missing';
+
+/** One part of a payment: what was handed over, and how. */
+interface PaymentTender {
+  id: string;
+  paymentMode: string;
+  amount: string;
+  referenceNumber: string;
+}
 
 const PAGE_SIZE = 20;
 
@@ -678,13 +686,37 @@ function LumpsumPaymentDialog({
   const toast = useToast();
   const mutation = useRecordDistributorPaymentMutation();
 
-  const [amount, setAmount] = useState(String(totalPending));
-  const [paymentMode, setPaymentMode] = useState('cash');
+  // One payment, made up of however many parts it was actually made of.
+  const [tenders, setTenders] = useState<PaymentTender[]>(() => [
+    { id: 't1', paymentMode: 'cash', amount: String(totalPending), referenceNumber: '' },
+  ]);
   const [paymentDate, setPaymentDate] = useState(
     new Date().toISOString().split('T')[0],
   );
-  const [referenceNumber, setReferenceNumber] = useState('');
   const [notes, setNotes] = useState('');
+
+  const nextTenderId = useRef(2);
+
+  const updateTender = (id: string, change: Partial<PaymentTender>) =>
+    setTenders((prev) => prev.map((t) => (t.id === id ? { ...t, ...change } : t)));
+
+  const addTender = () => {
+    const covered = tenders.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
+    const left = Math.max(0, totalPending - covered);
+    setTenders((prev) => [
+      ...prev,
+      {
+        id: `t${nextTenderId.current++}`,
+        // Whatever is still outstanding is the usual next amount.
+        paymentMode: 'cheque',
+        amount: left > 0 ? String(left) : '',
+        referenceNumber: '',
+      },
+    ]);
+  };
+
+  const removeTender = (id: string) =>
+    setTenders((prev) => (prev.length === 1 ? prev : prev.filter((t) => t.id !== id)));
   const [result, setResult] = useState<{
     totalDistributed: number;
     invoicesPaidFull: number;
@@ -692,8 +724,9 @@ function LumpsumPaymentDialog({
     remainingAmount: number;
   } | null>(null);
 
-  const parsedAmount = parseFloat(amount) || 0;
-  const isValid = parsedAmount > 0 && paymentMode && paymentDate;
+  const parsedAmount = tenders.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
+  const everyTenderFilled = tenders.every((t) => (parseFloat(t.amount) || 0) > 0 && t.paymentMode);
+  const isValid = parsedAmount > 0 && everyTenderFilled && Boolean(paymentDate);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -703,10 +736,12 @@ function LumpsumPaymentDialog({
       const res = await mutation.mutateAsync({
         id: distributorId,
         payload: {
-          amount: parsedAmount,
-          paymentMode,
+          tenders: tenders.map((t) => ({
+            amount: parseFloat(t.amount) || 0,
+            paymentMode: t.paymentMode,
+            referenceNumber: t.referenceNumber.trim() || null,
+          })),
           paymentDate,
-          referenceNumber: referenceNumber || undefined,
           notes: notes || undefined,
         },
       });
@@ -794,46 +829,99 @@ function LumpsumPaymentDialog({
               <span className="font-medium">{pendingInvoiceCount} invoice(s)</span>
             </div>
 
-            {/* Amount */}
-            <div>
-              <label className="block text-sm font-medium mb-1">Amount</label>
-              <input
-                type="number"
-                step="0.01"
-                min="0.01"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                className={cn(
-                  'w-full rounded-md border bg-field px-3 py-2 text-sm',
-                  'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+            {/* How the money was made up. One line is the usual case; a
+                payment that is half cash and half cheque is two. */}
+            <div className="space-y-2">
+              <div className="flex items-baseline justify-between">
+                <label className="block text-sm font-medium">Paid by</label>
+                {tenders.length > 1 && (
+                  <span className="text-xs text-muted-foreground">
+                    {tenders.length} parts · {formatINR(parsedAmount)}
+                  </span>
                 )}
-                placeholder="Enter amount"
-                required
-              />
+              </div>
+
+              {tenders.map((tender, index) => (
+                <div key={tender.id} className="rounded-md border p-2.5">
+                  <div className="flex gap-2">
+                    <select
+                      value={tender.paymentMode}
+                      onChange={(e) => updateTender(tender.id, { paymentMode: e.target.value })}
+                      aria-label={`Payment mode for part ${index + 1}`}
+                      className={cn(
+                        'w-[42%] shrink-0 rounded-md border bg-field px-2 py-2 text-sm',
+                        'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                      )}
+                      required
+                    >
+                      <option value="cash">Cash</option>
+                      <option value="bank_transfer">Bank Transfer</option>
+                      <option value="cheque">Cheque</option>
+                      <option value="upi">UPI</option>
+                      <option value="credit_card">Credit Card</option>
+                      <option value="debit_card">Debit Card</option>
+                    </select>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0.01"
+                      value={tender.amount}
+                      onChange={(e) => updateTender(tender.id, { amount: e.target.value })}
+                      aria-label={`Amount for part ${index + 1}`}
+                      className={cn(
+                        'min-w-0 flex-1 rounded-md border bg-field px-3 py-2 text-sm',
+                        'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                      )}
+                      placeholder="Amount"
+                      required
+                    />
+                    {tenders.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeTender(tender.id)}
+                        aria-label={`Remove part ${index + 1}`}
+                        className="shrink-0 rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-destructive"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
+                  {/* Only the modes that come with a number worth keeping. */}
+                  {tender.paymentMode !== 'cash' && (
+                    <input
+                      type="text"
+                      value={tender.referenceNumber}
+                      onChange={(e) => updateTender(tender.id, { referenceNumber: e.target.value })}
+                      aria-label={`Reference for part ${index + 1}`}
+                      className={cn(
+                        'mt-2 w-full rounded-md border bg-field px-3 py-1.5 text-sm',
+                        'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+                      )}
+                      placeholder={
+                        tender.paymentMode === 'cheque' ? 'Cheque number' : 'Reference / UTR'
+                      }
+                    />
+                  )}
+                </div>
+              ))}
+
+              {tenders.length < 10 && (
+                <button
+                  type="button"
+                  onClick={addTender}
+                  className="inline-flex items-center gap-1.5 text-sm font-medium text-primary underline-offset-4 hover:underline"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  Add another payment method
+                </button>
+              )}
+
               {parsedAmount > totalPending && (
-                <p className="text-xs text-amber-600 mt-1">
-                  Amount exceeds total pending. Excess ({formatINR(parsedAmount - totalPending)}) will remain unallocated.
+                <p className="text-xs text-amber-600">
+                  That is {formatINR(parsedAmount - totalPending)} more than is outstanding. The
+                  excess stays unallocated.
                 </p>
               )}
-            </div>
-
-            {/* Payment Mode */}
-            <div>
-              <label className="block text-sm font-medium mb-1">Payment Mode</label>
-              <select
-                value={paymentMode}
-                onChange={(e) => setPaymentMode(e.target.value)}
-                className={cn(
-                  'w-full rounded-md border bg-field px-3 py-2 text-sm',
-                  'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                )}
-                required
-              >
-                <option value="cash">Cash</option>
-                <option value="bank_transfer">Bank Transfer</option>
-                <option value="cheque">Cheque</option>
-                <option value="upi">UPI</option>
-              </select>
             </div>
 
             {/* Payment Date */}
@@ -851,22 +939,6 @@ function LumpsumPaymentDialog({
               />
             </div>
 
-            {/* Reference Number */}
-            <div>
-              <label className="block text-sm font-medium mb-1">
-                Reference Number <span className="text-muted-foreground font-normal">(optional)</span>
-              </label>
-              <input
-                type="text"
-                value={referenceNumber}
-                onChange={(e) => setReferenceNumber(e.target.value)}
-                className={cn(
-                  'w-full rounded-md border bg-field px-3 py-2 text-sm',
-                  'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                )}
-                placeholder="Cheque no., UTR, etc."
-              />
-            </div>
 
             {/* Notes */}
             <div>

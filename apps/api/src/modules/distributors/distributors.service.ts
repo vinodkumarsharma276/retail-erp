@@ -742,13 +742,30 @@ export const distributorsService = {
     return { products, totalItems };
   },
 
+  /**
+   * Settle a supplier's oldest invoices with one payment, which may be made
+   * up of several tenders.
+   *
+   * A payment to a supplier is rarely one clean thing: half in cash, the
+   * rest by cheque, and the cheque has a number worth keeping against it.
+   * So the money arrives as a list, each part carrying its own mode and
+   * reference, and each lands as its own `PurchasePayment` row — an invoice
+   * settled by cash and cheque together shows both, which is what the
+   * payment history has to be able to say.
+   *
+   * The invoices themselves are still filled oldest-first across the whole
+   * payment: the tenders decide what the money *is*, not where it goes.
+   */
   async recordLumpsumPayment(
     distributorId: string,
     data: {
-      amount: number;
-      paymentMode: string;
+      tenders: Array<{
+        amount: number;
+        paymentMode: string;
+        referenceNumber?: string | null;
+        notes?: string | null;
+      }>;
       paymentDate: string;
-      referenceNumber?: string;
       notes?: string;
     },
     userId: string,
@@ -774,67 +791,89 @@ export const distributorsService = {
       throw new Error('No pending invoices found for this distributor');
     }
 
-    let remaining = data.amount;
-    let invoicesPaidFull = 0;
-    let invoicesPaidPartial = 0;
+    /** What each invoice has been paid so far, as this payment proceeds. */
+    const paidSoFar = new Map(
+      pendingPurchases.map((p) => [p.id, Number(p.amountPaid)]),
+    );
+    const rowsToWrite: Array<{
+      purchase: (typeof pendingPurchases)[number];
+      amount: number;
+      paymentMode: string;
+      referenceNumber: string | null;
+      notes: string | null;
+    }> = [];
+
     let totalDistributed = 0;
+    let unallocated = 0;
 
-    const result = await prisma.$transaction(async (tx) => {
+    for (const tender of data.tenders) {
+      let left = tender.amount;
       for (const purchase of pendingPurchases) {
-        if (remaining <= 0) break;
-
-        const pending = Number(purchase.netAmount) - Number(purchase.amountPaid);
+        if (left <= 0) break;
+        const pending = Number(purchase.netAmount) - (paidSoFar.get(purchase.id) ?? 0);
         if (pending <= 0) continue;
 
-        const payAmount = Math.min(remaining, pending);
+        const payAmount = Math.min(left, pending);
+        rowsToWrite.push({
+          purchase,
+          amount: payAmount,
+          paymentMode: tender.paymentMode,
+          referenceNumber: tender.referenceNumber ?? null,
+          notes: tender.notes ?? data.notes ?? null,
+        });
 
-        // Create PurchasePayment record. `tenantId` is taken from the parent
-        // purchase rather than the request context so the payment can never
-        // land in a different tenant than the invoice it settles.
+        paidSoFar.set(purchase.id, (paidSoFar.get(purchase.id) ?? 0) + payAmount);
+        totalDistributed += payAmount;
+        left -= payAmount;
+      }
+      // More money than there are invoices to put it against.
+      unallocated += left;
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      for (const row of rowsToWrite) {
+        // `tenantId` comes from the parent purchase rather than the request
+        // context, so a payment can never land in a different tenant than
+        // the invoice it settles.
         await tx.purchasePayment.create({
           data: {
-            tenantId: purchase.tenantId,
-            purchaseId: purchase.id,
-            amount: payAmount,
-            paymentMode: data.paymentMode as any,
+            tenantId: row.purchase.tenantId,
+            purchaseId: row.purchase.id,
+            amount: row.amount,
+            paymentMode: row.paymentMode as any,
             paymentDate: new Date(data.paymentDate),
-            referenceNumber: data.referenceNumber ?? null,
-            notes: data.notes ?? null,
+            referenceNumber: row.referenceNumber,
+            notes: row.notes,
             createdBy: userId,
           },
         });
+      }
 
-        const newAmountPaid = Number(purchase.amountPaid) + payAmount;
-        const netAmount = Number(purchase.netAmount);
+      let invoicesPaidFull = 0;
+      let invoicesPaidPartial = 0;
 
-        // Determine new payment status
-        let paymentStatus: string;
-        if (newAmountPaid >= netAmount) {
-          paymentStatus = 'paid';
-          invoicesPaidFull++;
-        } else {
-          paymentStatus = 'partial';
-          invoicesPaidPartial++;
-        }
+      // One update per invoice at the end, not one per tender that touched
+      // it: an invoice settled by cash and cheque together is still one
+      // invoice that has moved to "paid".
+      for (const purchase of pendingPurchases) {
+        const finalPaid = paidSoFar.get(purchase.id) ?? 0;
+        if (finalPaid === Number(purchase.amountPaid)) continue;
 
-        // Update purchase
+        const paymentStatus = finalPaid >= Number(purchase.netAmount) ? 'paid' : 'partial';
+        if (paymentStatus === 'paid') invoicesPaidFull++;
+        else invoicesPaidPartial++;
+
         await tx.purchase.update({
           where: { id: purchase.id },
-          data: {
-            amountPaid: newAmountPaid,
-            paymentStatus,
-          },
+          data: { amountPaid: finalPaid, paymentStatus },
         });
-
-        totalDistributed += payAmount;
-        remaining -= payAmount;
       }
 
       return {
         totalDistributed,
         invoicesPaidFull,
         invoicesPaidPartial,
-        remainingAmount: remaining,
+        remainingAmount: unallocated,
       };
     });
 

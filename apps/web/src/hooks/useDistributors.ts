@@ -381,11 +381,23 @@ export function useMergeDistributorsMutation() {
 // ---------------------------------------------------------------------------
 // Record lumpsum payment to distributor
 // ---------------------------------------------------------------------------
-export interface LumpsumPaymentPayload {
+/** One part of a payment: what was handed over, and how. */
+export interface PaymentTenderPayload {
   amount: number;
   paymentMode: string;
+  referenceNumber?: string | null;
+  notes?: string | null;
+}
+
+/**
+ * A payment to a supplier, in one or more tenders.
+ *
+ * Half in cash and the rest by cheque is one payment, not two, and the
+ * cheque has a number that belongs against its own part of it.
+ */
+export interface LumpsumPaymentPayload {
+  tenders: PaymentTenderPayload[];
   paymentDate: string;
-  referenceNumber?: string;
   notes?: string;
 }
 
