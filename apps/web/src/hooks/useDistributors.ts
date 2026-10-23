@@ -168,19 +168,54 @@ export function useCreateDistributorMutation() {
  * The API refuses the whole batch if any of them has traded, so nothing is
  * half-deleted and the error names the supplier that stopped it.
  */
+export interface DeleteDistributorsResult {
+  distributors: number;
+  /** Only when the invoices and stock went too. */
+  purchases?: number;
+  units?: number;
+}
+
 export function useDeleteDistributorsMutation() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (ids: string[]) => {
-      const { data } = await apiClient.post<ApiResponse<{ distributors: number }>>(
+    mutationFn: async (vars: { ids: string[]; cascade?: boolean }) => {
+      const { data } = await apiClient.post<ApiResponse<DeleteDistributorsResult>>(
         '/distributors/delete',
-        { ids },
+        vars,
       );
       return data.data!;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['distributors'] });
+      queryClient.invalidateQueries({ queryKey: ['purchases'] });
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+    },
+  });
+}
+
+export interface DistributorDeletionImpact {
+  id: string;
+  companyName: string;
+  purchases: number;
+  products: number;
+}
+
+/**
+ * What deleting these suppliers would destroy, asked before confirming.
+ *
+ * A count the browser already has would be a guess — the list only knows
+ * products, not invoices, and both move. This comes from the same rows the
+ * delete will act on.
+ */
+export function useDistributorDeletionImpact() {
+  return useMutation({
+    mutationFn: async (ids: string[]) => {
+      const { data } = await apiClient.post<ApiResponse<DistributorDeletionImpact[]>>(
+        '/distributors/deletion-impact',
+        { ids },
+      );
+      return data.data!;
     },
   });
 }

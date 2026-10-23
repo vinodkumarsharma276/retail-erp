@@ -8,6 +8,7 @@ import {
   updateDistributorSchema,
   lumpsumPaymentSchema,
   deleteDistributorsSchema,
+  distributorImpactSchema,
   mergeDistributorsSchema,
 } from './distributors.validation.js';
 
@@ -34,6 +35,12 @@ export async function distributorRoutes(app: FastifyInstance) {
   app.post('/delete', {
     preHandler: [authenticate, requirePermission('distributors.delete'), validate(deleteDistributorsSchema)],
   }, distributorsController.remove as any);
+
+  // What a delete would take with it, so the confirmation can name the
+  // counts before anything happens rather than after.
+  app.post('/deletion-impact', {
+    preHandler: [authenticate, requirePermission('distributors.delete'), validate(distributorImpactSchema)],
+  }, distributorsController.impact as any);
 
   // Fold duplicates into one supplier. Separate from plain delete: this one
   // moves purchases and stock rather than refusing to touch them.

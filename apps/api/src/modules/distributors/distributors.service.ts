@@ -1,5 +1,6 @@
 import { prisma } from '../../config/database.js';
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
+import { reasonPurchasesCannotBeDeleted } from '../purchases/purchases.service.js';
 
 /** A supplier that cannot be deleted, because the books still point at it. */
 export class DistributorInUseError extends Error {}
@@ -280,6 +281,110 @@ export const distributorsService = {
         where: { id: { in: distributorIds } },
       });
       return { distributors: removed.count };
+    });
+  },
+
+  /**
+   * What deleting these suppliers would take with them.
+   *
+   * Shown before the fact, because the counts are the whole decision: a
+   * supplier is not worth much on its own, but three invoices and
+   * seventy-nine units of stock are.
+   */
+  async deletionImpact(ids: string[]) {
+    const distributors = await prisma.distributor.findMany({
+      where: { id: { in: ids } },
+      select: {
+        id: true,
+        companyName: true,
+        _count: { select: { purchases: true, products: true } },
+      },
+    });
+
+    return distributors.map((d) => ({
+      id: d.id,
+      companyName: d.companyName,
+      purchases: d._count.purchases,
+      products: d._count.products,
+    }));
+  },
+
+  /**
+   * Delete suppliers along with everything that came in through them.
+   *
+   * `purchases.distributor_id` is NOT NULL, so a supplier cannot be removed
+   * while an invoice still points at it — and an invoice cannot be removed
+   * without the units it brought in. Deleting a supplier that has traded is
+   * therefore always this: the supplier, its invoices, and its stock, or
+   * nothing.
+   *
+   * The same rules that protect a purchase from deletion apply here, from
+   * the same shared guard: a unit that has been sold or transferred, or an
+   * invoice with money against it, stops the whole thing. Coming at the
+   * books from the supplier end must not erase what the purchase end
+   * refuses to.
+   */
+  async removeWithHistory(ids: string[]) {
+    const distributors = await prisma.distributor.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, companyName: true },
+    });
+
+    const missing = ids.filter((id) => !distributors.some((d) => d.id === id));
+    if (missing.length > 0) {
+      throw new DistributorInUseError(
+        missing.length === ids.length
+          ? 'That distributor is not here to delete.'
+          : `${missing.length} of those distributors are not here to delete.`,
+      );
+    }
+
+    const distributorIds = distributors.map((d) => d.id);
+
+    const purchases = await prisma.purchase.findMany({
+      where: { distributorId: { in: distributorIds } },
+      select: {
+        id: true,
+        invoiceNumber: true,
+        amountPaid: true,
+        products: { select: { id: true, status: true } },
+      },
+    });
+
+    const blocked = await reasonPurchasesCannotBeDeleted(purchases);
+    if (blocked) throw new DistributorInUseError(blocked);
+
+    // Stock can carry a supplier's name without belonging to one of its
+    // invoices — a transfer makes units that way. Those go too, and face the
+    // same test, or a sold unit could slip out through this door.
+    const loose = await prisma.product.findMany({
+      where: {
+        distributorId: { in: distributorIds },
+        id: { notIn: purchases.flatMap((p) => p.products.map((u) => u.id)) },
+      },
+      select: { id: true, status: true, modelNumber: true },
+    });
+    if (loose.length > 0) {
+      const looseBlocked = await reasonPurchasesCannotBeDeleted([
+        { invoiceNumber: 'Stock held against this supplier', amountPaid: new Prisma.Decimal(0), products: loose },
+      ]);
+      if (looseBlocked) throw new DistributorInUseError(looseBlocked);
+    }
+
+    const purchaseIds = purchases.map((p) => p.id);
+    const productIds = [
+      ...purchases.flatMap((p) => p.products.map((u) => u.id)),
+      ...loose.map((u) => u.id),
+    ];
+
+    return prisma.$transaction(async (tx) => {
+      await tx.productAuditTrail.deleteMany({ where: { productId: { in: productIds } } });
+      await tx.purchasePayment.deleteMany({ where: { purchaseId: { in: purchaseIds } } });
+      const units = await tx.product.deleteMany({ where: { id: { in: productIds } } });
+      const invoices = await tx.purchase.deleteMany({ where: { id: { in: purchaseIds } } });
+      await tx.distributorCategory.deleteMany({ where: { distributorId: { in: distributorIds } } });
+      const removed = await tx.distributor.deleteMany({ where: { id: { in: distributorIds } } });
+      return { distributors: removed.count, purchases: invoices.count, units: units.count };
     });
   },
 

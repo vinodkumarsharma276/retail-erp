@@ -5,6 +5,58 @@ import { unbilledSeriesService } from './unbilled-series.js';
 /** A purchase that cannot go, because something of it has already moved on. */
 export class PurchaseInUseError extends Error {}
 
+/** The shape the deletion guard needs; both callers select exactly this. */
+export interface PurchaseDeletionCandidate {
+  invoiceNumber: string;
+  amountPaid: Prisma.Decimal;
+  products: Array<{ id: string; status: string }>;
+}
+
+/**
+ * Why this set of purchases cannot be deleted, or null when it can.
+ *
+ * Deleting a purchase takes its units with it, so a unit that has already
+ * moved on stops it. Shared with the distributor cascade delete, which takes
+ * a supplier's purchases down the same way: a sold unit must not become
+ * erasable just because someone came at it from the supplier instead.
+ */
+export async function reasonPurchasesCannotBeDeleted(
+  purchases: PurchaseDeletionCandidate[],
+): Promise<string | null> {
+  const productIds = purchases.flatMap((p) => p.products.map((u) => u.id));
+  const [sales, sanitized, transfers] = await Promise.all([
+    productIds.length
+      ? prisma.saleRecord.findMany({ where: { productId: { in: productIds } }, select: { productId: true } })
+      : [],
+    productIds.length
+      ? prisma.saleRecordSanitized.findMany({ where: { productId: { in: productIds } }, select: { productId: true } })
+      : [],
+    productIds.length
+      ? prisma.interShopTransfer.findMany({ where: { productId: { in: productIds } }, select: { productId: true } })
+      : [],
+  ]);
+  const spokenFor = new Set([
+    ...sales.map((r) => r.productId),
+    ...sanitized.map((r) => r.productId),
+    ...transfers.map((r) => r.productId),
+  ]);
+
+  for (const purchase of purchases) {
+    const sold = purchase.products.filter((u) => spokenFor.has(u.id));
+    if (sold.length > 0) {
+      return `${purchase.invoiceNumber} cannot be deleted: ${sold.length} of its ${purchase.products.length} units have been sold or transferred.`;
+    }
+    const gone = purchase.products.filter((u) => u.status !== 'in_stock');
+    if (gone.length > 0) {
+      return `${purchase.invoiceNumber} cannot be deleted: ${gone.length} of its units are no longer in stock.`;
+    }
+    if (Number(purchase.amountPaid) > 0) {
+      return `${purchase.invoiceNumber} cannot be deleted: it has payments recorded against it. Reverse those first.`;
+    }
+  }
+  return null;
+}
+
 export const purchasesService = {
   /**
    * List purchases.
@@ -643,44 +695,10 @@ export const purchasesService = {
       );
     }
 
+    const blocked = await reasonPurchasesCannotBeDeleted(purchases);
+    if (blocked) throw new PurchaseInUseError(blocked);
+
     const productIds = purchases.flatMap((p) => p.products.map((u) => u.id));
-    const [sales, sanitized, transfers] = await Promise.all([
-      productIds.length
-        ? prisma.saleRecord.findMany({ where: { productId: { in: productIds } }, select: { productId: true } })
-        : [],
-      productIds.length
-        ? prisma.saleRecordSanitized.findMany({ where: { productId: { in: productIds } }, select: { productId: true } })
-        : [],
-      productIds.length
-        ? prisma.interShopTransfer.findMany({ where: { productId: { in: productIds } }, select: { productId: true } })
-        : [],
-    ]);
-    const spokenFor = new Set([
-      ...sales.map((r) => r.productId),
-      ...sanitized.map((r) => r.productId),
-      ...transfers.map((r) => r.productId),
-    ]);
-
-    for (const purchase of purchases) {
-      const sold = purchase.products.filter((u) => spokenFor.has(u.id));
-      if (sold.length > 0) {
-        throw new PurchaseInUseError(
-          `${purchase.invoiceNumber} cannot be deleted: ${sold.length} of its ${purchase.products.length} units have been sold or transferred.`,
-        );
-      }
-      const gone = purchase.products.filter((u) => u.status !== 'in_stock');
-      if (gone.length > 0) {
-        throw new PurchaseInUseError(
-          `${purchase.invoiceNumber} cannot be deleted: ${gone.length} of its units are no longer in stock.`,
-        );
-      }
-      if (Number(purchase.amountPaid) > 0) {
-        throw new PurchaseInUseError(
-          `${purchase.invoiceNumber} cannot be deleted: it has payments recorded against it. Reverse those first.`,
-        );
-      }
-    }
-
     const purchaseIds = purchases.map((p) => p.id);
     return prisma.$transaction(async (tx) => {
       await tx.productAuditTrail.deleteMany({ where: { productId: { in: productIds } } });

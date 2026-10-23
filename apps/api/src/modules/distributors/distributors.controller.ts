@@ -223,13 +223,33 @@ export const distributorsController = {
     }
   },
 
-  /** Delete one distributor, or a batch of them. */
-  async remove(
+  /** What deleting these distributors would take with them. */
+  async impact(
     request: FastifyRequest<{ Body: { ids: string[] } }>,
     reply: FastifyReply,
   ) {
     try {
-      const result = await distributorsService.remove(request.body.ids);
+      const result = await distributorsService.deletionImpact(request.body.ids);
+      return sendSuccess(reply, result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to read distributors';
+      return sendError(reply, message, 400);
+    }
+  },
+
+  /**
+   * Delete one distributor, or a batch of them. With `cascade`, their
+   * invoices and the stock those brought in go too.
+   */
+  async remove(
+    request: FastifyRequest<{ Body: { ids: string[]; cascade?: boolean } }>,
+    reply: FastifyReply,
+  ) {
+    try {
+      const { ids, cascade } = request.body;
+      const result = cascade
+        ? await distributorsService.removeWithHistory(ids)
+        : await distributorsService.remove(ids);
       return sendSuccess(reply, result);
     } catch (error) {
       if (error instanceof DistributorInUseError) {

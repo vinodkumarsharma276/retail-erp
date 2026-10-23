@@ -4,7 +4,7 @@ import { useCanCheck } from '../../hooks/usePermission';
 import { Plus, Search, X, Pencil, Receipt, Trash2, Info, Merge } from 'lucide-react';
 import { PageHeader } from '../../components/PageHeader';
 import { Button } from '../../components/ui/button';
-import { ConfirmDialog } from '../../components/ConfirmDialog';
+import { DeleteDistributorsDialog } from '../../components/DeleteDistributorsDialog';
 import { MergeDistributorsDialog } from '../../components/MergeDistributorsDialog';
 import { cn } from '../../lib/utils';
 import { useDebounce } from '../../hooks/useDebounce';
@@ -13,6 +13,7 @@ import {
   useDistributorsQuery,
   useDeleteDistributorsMutation,
   useMergeDistributorsMutation,
+  useDistributorDeletionImpact,
 } from '../../hooks/useDistributors';
 import { DataTable } from '../../components/DataTable';
 import type { Column, PaginationState } from '../../components/DataTable';
@@ -42,7 +43,22 @@ export function DistributorListPage() {
   const [merging, setMerging] = useState(false);
   const deleteMut = useDeleteDistributorsMutation();
   const mergeMut = useMergeDistributorsMutation();
+  const impactMut = useDistributorDeletionImpact();
   const toast = useToast();
+
+  /**
+   * The counts come from the server, not from the list's own figures: the
+   * list knows products but not invoices, and both change under it.
+   */
+  const openDeleteDialog = () => {
+    setConfirmingDelete(true);
+    impactMut.mutate(Array.from(picked), {
+      onError: () => {
+        toast.error('Could not work out what deleting these would remove.');
+        setConfirmingDelete(false);
+      },
+    });
+  };
 
   /**
    * Stock bought from a supplier is what stops it being deleted — the
@@ -315,8 +331,7 @@ export function DistributorListPage() {
               <Button
                 variant="destructive"
                 size="sm"
-                onClick={() => setConfirmingDelete(true)}
-                disabled={pickedWithHistory.length > 0}
+                onClick={openDeleteDialog}
                 loading={deleteMut.isPending}
               >
                 <Trash2 className="mr-1 h-3.5 w-3.5" />
@@ -325,20 +340,20 @@ export function DistributorListPage() {
             )}
           </div>
 
-          {/* Why Delete is out, and what to do instead. The two actions look
-              alike from here, so the difference has to be spelled out. */}
-          {pickedWithHistory.length > 0 && (
+          {/* The two actions look alike from here, so say what separates
+              them before the user picks the destructive one. */}
+          {pickedWithHistory.length > 0 && canMerge && (
             <p className="mt-2 flex items-start gap-2 text-xs text-muted-foreground">
               <Info className="mt-px h-3.5 w-3.5 shrink-0" />
               <span>
+                Stock has been bought from{' '}
                 {pickedWithHistory.length === picked.size
-                  ? pickedWithHistory.length === 1
-                    ? 'Stock has been bought from this supplier, so it cannot be deleted.'
-                    : 'Stock has been bought from all of these, so they cannot be deleted.'
-                  : `${pickedWithHistory.length} of these has stock bought from it, so the batch cannot be deleted.`}{' '}
-                {canMerge
-                  ? 'Merge them into one instead — the purchases and stock move across first.'
-                  : 'Merging them into one would move the purchases and stock across, but you do not have permission for that.'}
+                  ? picked.size === 1
+                    ? 'this supplier'
+                    : 'all of these'
+                  : `${pickedWithHistory.length} of these`}
+                , so deleting takes their invoices and stock with them. To keep the stock
+                and only lose the duplicate name, merge instead.
               </span>
             </p>
           )}
@@ -366,33 +381,37 @@ export function DistributorListPage() {
         }
       />
 
-      <ConfirmDialog
-        isOpen={confirmingDelete}
-        title={`Delete ${picked.size} distributor${picked.size === 1 ? '' : 's'}?`}
-        message="This removes the supplier record itself. A supplier anything was ever bought from will stop this, and nothing will be deleted."
-        confirmText="Delete"
-        variant="danger"
-        loading={deleteMut.isPending}
-        onCancel={() => setConfirmingDelete(false)}
-        onConfirm={() => {
-          deleteMut.mutate(Array.from(picked), {
-            onSuccess: (result) => {
-              toast.success(
-                `Deleted ${result.distributors} distributor${result.distributors === 1 ? '' : 's'}.`,
-              );
-              setPicked(new Set());
-              setConfirmingDelete(false);
-            },
-            onError: (error) => {
-              const e = error as { response?: { data?: { error?: string; message?: string } }; message?: string };
-              toast.error(
-                e?.response?.data?.error ?? e?.response?.data?.message ?? e?.message ?? 'Could not delete.',
-              );
-              setConfirmingDelete(false);
-            },
-          });
-        }}
-      />
+      {confirmingDelete && (
+        <DeleteDistributorsDialog
+          impact={impactMut.data ?? null}
+          loading={deleteMut.isPending}
+          onCancel={() => setConfirmingDelete(false)}
+          onConfirm={(cascade) => {
+            deleteMut.mutate(
+              { ids: Array.from(picked), cascade },
+              {
+                onSuccess: (result) => {
+                  toast.success(
+                    result.purchases
+                      ? `Deleted ${result.distributors} distributor${result.distributors === 1 ? '' : 's'}, ` +
+                          `${result.purchases} invoice${result.purchases === 1 ? '' : 's'} and ` +
+                          `${result.units} unit${result.units === 1 ? '' : 's'}.`
+                      : `Deleted ${result.distributors} distributor${result.distributors === 1 ? '' : 's'}.`,
+                  );
+                  setPicked(new Set());
+                  setConfirmingDelete(false);
+                },
+                onError: (error) => {
+                  const e = error as { response?: { data?: { error?: string; message?: string } }; message?: string };
+                  toast.error(
+                    e?.response?.data?.error ?? e?.response?.data?.message ?? e?.message ?? 'Could not delete.',
+                  );
+                },
+              },
+            );
+          }}
+        />
+      )}
 
       {merging && (
         <MergeDistributorsDialog
