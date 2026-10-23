@@ -389,6 +389,9 @@ function SaleListPageInner() {
     // Invoice download — only if user has invoice permission
     ...(can('sales.invoice.download_pdf') ? [{
       key: 'actions' as keyof SaleListItem,
+      // The only way to act on a row; hiding it would strand the row.
+      alwaysVisible: true,
+      resizable: false,
       header: '',
       className: 'w-10',
       render: (row: SaleListItem) => (
@@ -559,6 +562,7 @@ function SaleListPageInner() {
 
       {/* Data table */}
       <DataTable<SaleListItem>
+        tableId="sales"
         columns={columns}
         data={sales}
         isLoading={salesQuery.isLoading}

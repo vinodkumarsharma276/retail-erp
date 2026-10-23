@@ -103,6 +103,9 @@ export function EmployeeListPage() {
     },
     {
       key: 'actions',
+      // The only way to act on a row; hiding it would strand the row.
+      alwaysVisible: true,
+      resizable: false,
       header: 'Actions',
       render: (row) => (
         <div className="flex items-center gap-2">
@@ -204,6 +207,7 @@ export function EmployeeListPage() {
 
       {/* Data table */}
       <DataTable<Employee>
+        tableId="employees"
         columns={columns}
         data={employees}
         isLoading={employeesQuery.isLoading}

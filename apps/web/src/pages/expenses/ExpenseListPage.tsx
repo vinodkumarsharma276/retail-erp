@@ -221,6 +221,9 @@ export function ExpenseListPage() {
     },
     {
       key: 'actions',
+      // The only way to act on a row; hiding it would strand the row.
+      alwaysVisible: true,
+      resizable: false,
       header: 'Actions',
       align: 'center',
       render: (row) => (
@@ -453,6 +456,7 @@ export function ExpenseListPage() {
 
       {/* Data table */}
       <DataTable<Expense>
+        tableId="expenses"
         columns={columns}
         data={expenses}
         isLoading={expensesQuery.isLoading}

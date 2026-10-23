@@ -461,6 +461,7 @@ function ProductsTab({ distributorId }: { distributorId: string }) {
       )}
 
       <DataTable<DistributorProduct>
+        tableId="distributor-products"
         columns={columns}
         data={products}
         isLoading={productsQuery.isLoading}
@@ -531,6 +532,7 @@ function PaymentsTab({ distributorId }: { distributorId: string }) {
 
   return (
     <DataTable<DistributorPayment>
+      tableId="distributor-payments"
       columns={columns}
       data={payments ?? []}
       isLoading={isLoading}
@@ -642,6 +644,7 @@ function PendingInvoicesTab({ distributorId }: { distributorId: string }) {
 
   return (
     <DataTable<Purchase>
+      tableId="distributor-purchases"
       columns={columns}
       data={pendingPurchases}
       isLoading={purchasesQuery.isLoading}

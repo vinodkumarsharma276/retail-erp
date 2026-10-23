@@ -621,6 +621,9 @@ function OverdueTab() {
       },
       {
         key: 'actions',
+        // The only way to act on a row; hiding it would strand the row.
+        alwaysVisible: true,
+        resizable: false,
         header: 'Actions',
         render: (row) => (
           <div className="flex items-center gap-2">
@@ -684,6 +687,7 @@ function OverdueTab() {
         />
       </div>
       <DataTable<OverdueInstallmentItem>
+        tableId="installments-overdue"
         columns={columns}
         data={overdueItems ?? []}
         isLoading={isLoading}
@@ -850,6 +854,9 @@ function CollectionsTab() {
       },
       {
         key: 'actions',
+        // The only way to act on a row; hiding it would strand the row.
+        alwaysVisible: true,
+        resizable: false,
         header: 'Actions',
         render: (row) => (
           <div className="flex items-center gap-2">
@@ -1001,6 +1008,7 @@ function CollectionsTab() {
         <div className="space-y-4">
           {/* Table — totals are surfaced in the TotalDueChip at the top */}
           <DataTable<CollectionItem>
+            tableId="installments-collections"
             columns={collectionColumns}
             data={collections}
             isLoading={false}
@@ -1186,6 +1194,9 @@ function PaidTab() {
       },
       {
         key: 'actions',
+        // The only way to act on a row; hiding it would strand the row.
+        alwaysVisible: true,
+        resizable: false,
         header: 'Actions',
         render: (row) => (
           <ViewSaleButton saleId={row.saleId} />
@@ -1324,6 +1335,7 @@ function PaidTab() {
           </div>
 
           <DataTable<PaidCollectionItem>
+            tableId="installments-paid"
             columns={columns}
             data={rows}
             isLoading={false}

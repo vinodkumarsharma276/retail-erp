@@ -178,6 +178,9 @@ export function CustomerListPage() {
     },
     {
       key: 'actions',
+      // The only way to act on a row; hiding it would strand the row.
+      alwaysVisible: true,
+      resizable: false,
       header: 'Actions',
       render: (row) => (
         <div className="flex items-center gap-2">
@@ -303,6 +306,7 @@ export function CustomerListPage() {
 
       {/* Data table */}
       <DataTable<Customer>
+        tableId="customers"
         columns={columns}
         data={customers}
         isLoading={customersQuery.isLoading}

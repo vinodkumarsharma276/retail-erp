@@ -482,6 +482,7 @@ export function PurchaseListPage() {
 
       {/* Data table */}
       <DataTable<Purchase>
+        tableId="purchases"
         columns={columns.filter((column) => column.key !== 'pending' || canSeePending)}
         data={purchases}
         isLoading={purchasesQuery.isLoading}
