@@ -185,6 +185,40 @@ export function useDeleteDistributorsMutation() {
   });
 }
 
+export interface MergeDistributorsResult {
+  keptName: string;
+  merged: number;
+  purchases: number;
+  products: number;
+  categories: number;
+}
+
+/**
+ * Fold duplicate suppliers into the one being kept, moving their purchases
+ * and stock across first.
+ *
+ * Purchases and products change hands, so anything that counts them is now
+ * wrong until refetched — hence the wider invalidation than a plain delete.
+ */
+export function useMergeDistributorsMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (vars: { sourceIds: string[]; targetId: string }) => {
+      const { data } = await apiClient.post<ApiResponse<MergeDistributorsResult>>(
+        '/distributors/merge',
+        vars,
+      );
+      return data.data!;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['distributors'] });
+      queryClient.invalidateQueries({ queryKey: ['purchases'] });
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+    },
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Record lumpsum payment to distributor
 // ---------------------------------------------------------------------------

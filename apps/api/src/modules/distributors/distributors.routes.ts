@@ -8,6 +8,7 @@ import {
   updateDistributorSchema,
   lumpsumPaymentSchema,
   deleteDistributorsSchema,
+  mergeDistributorsSchema,
 } from './distributors.validation.js';
 
 export async function distributorRoutes(app: FastifyInstance) {
@@ -33,6 +34,12 @@ export async function distributorRoutes(app: FastifyInstance) {
   app.post('/delete', {
     preHandler: [authenticate, requirePermission('distributors.delete'), validate(deleteDistributorsSchema)],
   }, distributorsController.remove as any);
+
+  // Fold duplicates into one supplier. Separate from plain delete: this one
+  // moves purchases and stock rather than refusing to touch them.
+  app.post('/merge', {
+    preHandler: [authenticate, requirePermission('distributors.merge'), validate(mergeDistributorsSchema)],
+  }, distributorsController.merge as any);
 
   // Get products from this distributor
   app.get('/:id/products', { preHandler: [authenticate, requirePermission('distributors.detail')] }, distributorsController.getProducts as any);

@@ -1,16 +1,18 @@
 import { useState } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { useCanCheck } from '../../hooks/usePermission';
-import { Plus, Search, X, Pencil, Receipt, Trash2, Info } from 'lucide-react';
+import { Plus, Search, X, Pencil, Receipt, Trash2, Info, Merge } from 'lucide-react';
 import { PageHeader } from '../../components/PageHeader';
 import { Button } from '../../components/ui/button';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
+import { MergeDistributorsDialog } from '../../components/MergeDistributorsDialog';
 import { cn } from '../../lib/utils';
 import { useDebounce } from '../../hooks/useDebounce';
 import { useToast } from '../../stores/toast-store';
 import {
   useDistributorsQuery,
   useDeleteDistributorsMutation,
+  useMergeDistributorsMutation,
 } from '../../hooks/useDistributors';
 import { DataTable } from '../../components/DataTable';
 import type { Column, PaginationState } from '../../components/DataTable';
@@ -31,18 +33,23 @@ export function DistributorListPage() {
   // header is showing every shop at once.
   const allShopsMode = isAllShops(useShopStore((s) => s.currentShopId));
 
-  // ------ Ticking rows off to delete several at once ------
+  // ------ Ticking rows off to act on several at once ------
   const canDelete = can('distributors.delete');
+  const canMerge = can('distributors.merge');
+  const canPick = canDelete || canMerge;
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [merging, setMerging] = useState(false);
   const deleteMut = useDeleteDistributorsMutation();
+  const mergeMut = useMergeDistributorsMutation();
   const toast = useToast();
 
-  /** Whether this supplier can be ticked off, and why not when it cannot. */
-  const blockedReason = (row: DistributorListItem) =>
-    row.totalProductsPurchased > 0
-      ? 'Stock has been bought from this distributor'
-      : null;
+  /**
+   * Stock bought from a supplier is what stops it being deleted — the
+   * purchases would be left pointing at nobody. It does not stop it being
+   * merged, which is the whole point of merging: the purchases move first.
+   */
+  const hasHistory = (row: DistributorListItem) => row.totalProductsPurchased > 0;
 
   // ------ Filters state (URL search params) ------
   const page = Number(searchParams.get('page')) || 1;
@@ -73,8 +80,9 @@ export function DistributorListPage() {
   const distributors = distributorsQuery.data?.data ?? [];
   const pagination = distributorsQuery.data?.pagination;
 
-  const nonePickable =
-    distributors.length > 0 && distributors.every((row) => blockedReason(row) !== null);
+  const pickedRows = distributors.filter((row) => picked.has(row.id));
+  /** Ticked suppliers that cannot be deleted, only merged. */
+  const pickedWithHistory = pickedRows.filter(hasHistory);
 
   // ------ Clear filters ------
   const hasFilters = !!searchText;
@@ -281,40 +289,59 @@ export function DistributorListPage() {
         </div>
       )}
 
-      {/* Why every tickbox on the page is greyed out. Without this the
-          checkboxes look broken rather than deliberately shut. */}
-      {canDelete && picked.size === 0 && nonePickable && (
-        <div className="mb-3 flex items-start gap-2 rounded-lg border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
-          <Info className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>
-            Nothing here can be deleted: stock has been bought from every supplier on
-            this page. A supplier can only go once no purchase and no product points
-            at it.
-          </span>
-        </div>
-      )}
-
       {/* What to do with the ticked ones */}
-      {canDelete && picked.size > 0 && (
-        <div className="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-primary/40 bg-primary/5 px-4 py-3">
-          <span className="text-sm font-medium">
-            {picked.size} distributor{picked.size === 1 ? '' : 's'} selected
-          </span>
-          <Button variant="outline" size="sm" onClick={() => setPicked(new Set())}>
-            Clear
-          </Button>
-          <Button
-            variant="destructive"
-            size="sm"
-            onClick={() => setConfirmingDelete(true)}
-            loading={deleteMut.isPending}
-          >
-            <Trash2 className="mr-1 h-3.5 w-3.5" />
-            Delete
-          </Button>
-          <span className="text-xs text-muted-foreground">
-            Only suppliers you have never bought from can go.
-          </span>
+      {canPick && picked.size > 0 && (
+        <div className="mb-3 rounded-lg border border-primary/40 bg-primary/5 px-4 py-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-sm font-medium">
+              {picked.size} distributor{picked.size === 1 ? '' : 's'} selected
+            </span>
+            <Button variant="outline" size="sm" onClick={() => setPicked(new Set())}>
+              Clear
+            </Button>
+            {canMerge && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setMerging(true)}
+                disabled={picked.size < 2}
+                title={picked.size < 2 ? 'Tick at least two to merge them' : undefined}
+              >
+                <Merge className="mr-1 h-3.5 w-3.5" />
+                Merge
+              </Button>
+            )}
+            {canDelete && (
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => setConfirmingDelete(true)}
+                disabled={pickedWithHistory.length > 0}
+                loading={deleteMut.isPending}
+              >
+                <Trash2 className="mr-1 h-3.5 w-3.5" />
+                Delete
+              </Button>
+            )}
+          </div>
+
+          {/* Why Delete is out, and what to do instead. The two actions look
+              alike from here, so the difference has to be spelled out. */}
+          {pickedWithHistory.length > 0 && (
+            <p className="mt-2 flex items-start gap-2 text-xs text-muted-foreground">
+              <Info className="mt-px h-3.5 w-3.5 shrink-0" />
+              <span>
+                {pickedWithHistory.length === picked.size
+                  ? pickedWithHistory.length === 1
+                    ? 'Stock has been bought from this supplier, so it cannot be deleted.'
+                    : 'Stock has been bought from all of these, so they cannot be deleted.'
+                  : `${pickedWithHistory.length} of these has stock bought from it, so the batch cannot be deleted.`}{' '}
+                {canMerge
+                  ? 'Merge them into one instead — the purchases and stock move across first.'
+                  : 'Merging them into one would move the purchases and stock across, but you do not have permission for that.'}
+              </span>
+            </p>
+          )}
         </div>
       )}
 
@@ -328,11 +355,12 @@ export function DistributorListPage() {
         emptyMessage="No distributors found matching your search."
         rowKey={(row) => row.id}
         selection={
-          canDelete
+          canPick
             ? {
+                // Every row is tickable: a supplier with history cannot be
+                // deleted, but merging it is exactly what it is here for.
                 selected: picked,
                 onChange: setPicked,
-                disabledReason: blockedReason,
               }
             : undefined
         }
@@ -365,6 +393,35 @@ export function DistributorListPage() {
           });
         }}
       />
+
+      {merging && (
+        <MergeDistributorsDialog
+          candidates={pickedRows}
+          loading={mergeMut.isPending}
+          onCancel={() => setMerging(false)}
+          onConfirm={(targetId) => {
+            mergeMut.mutate(
+              { sourceIds: pickedRows.filter((d) => d.id !== targetId).map((d) => d.id), targetId },
+              {
+                onSuccess: (result) => {
+                  toast.success(
+                    `Merged ${result.merged} distributor${result.merged === 1 ? '' : 's'} into ${result.keptName}. ` +
+                      `${result.purchases} purchase${result.purchases === 1 ? '' : 's'} and ${result.products} product${result.products === 1 ? '' : 's'} moved across.`,
+                  );
+                  setPicked(new Set());
+                  setMerging(false);
+                },
+                onError: (error) => {
+                  const e = error as { response?: { data?: { error?: string; message?: string } }; message?: string };
+                  toast.error(
+                    e?.response?.data?.error ?? e?.response?.data?.message ?? e?.message ?? 'Could not merge.',
+                  );
+                },
+              },
+            );
+          }}
+        />
+      )}
     </div>
   );
 }

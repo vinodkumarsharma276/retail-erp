@@ -72,3 +72,11 @@ export const deleteDistributorsSchema = z.object({
     .min(1, 'Choose at least one distributor')
     .max(200, 'Delete at most 200 distributors at a time'),
 });
+
+export const mergeDistributorsSchema = z.object({
+  sourceIds: z
+    .array(z.string().uuid('Distributor ID must be a valid UUID'))
+    .min(1, 'Choose at least one duplicate to merge')
+    .max(50, 'Merge at most 50 duplicates at a time'),
+  targetId: z.string().uuid('Choose which distributor to keep'),
+});

@@ -73,6 +73,7 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
     ['distributors.create', 'Create distributor'],
     ['distributors.edit', 'Edit distributor'],
     ['distributors.delete', 'Delete distributor'],
+    ['distributors.merge', 'Merge duplicate distributors'],
     ['distributors.deactivate', 'Deactivate distributor'],
     ['distributors.view_bank_details', 'See distributor bank details'],
     ['distributors.view_gst', 'See distributor GST'],
@@ -314,7 +315,7 @@ export const ROLE_ACCOUNTANT_PERMISSIONS: string[] = [
   'products.export',
   // Distributors
   'distributors.list', 'distributors.detail',
-  'distributors.create', 'distributors.edit', 'distributors.delete',
+  'distributors.create', 'distributors.edit', 'distributors.delete', 'distributors.merge',
   'distributors.view_bank_details', 'distributors.view_gst', 'distributors.view_credit_limit',
   // Purchases
   'purchases.list', 'purchases.detail', 'purchases.create', 'purchases.create_unbilled',

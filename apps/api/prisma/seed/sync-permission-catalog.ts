@@ -15,17 +15,19 @@ import { PERMISSION_GROUPS } from '@retailerp/shared-types';
 /**
  * Defaults added after roles were first seeded (2026-10-05).
  *
- * `distributors.delete` (2026-10-23) goes to admin and accountant, as the
- * owner asked: clearing duplicate suppliers out is bookkeeping, and the
- * accountant is who does it. Owner holds every permission regardless.
+ * `distributors.delete` and `distributors.merge` (2026-10-23) go to admin
+ * and accountant, as the owner asked: clearing duplicate suppliers out is
+ * bookkeeping, and the accountant is who does it. Owner holds every
+ * permission regardless.
  */
 const NEW_DEFAULTS: Record<string, string[]> = {
-  owner: ['installments.revert_payment', 'purchases.create_unbilled', 'distributors.delete'],
+  owner: ['installments.revert_payment', 'purchases.create_unbilled', 'distributors.delete', 'distributors.merge'],
   admin: [
     'roles.list',
     'installments.revert_payment',
     'purchases.create_unbilled',
     'distributors.delete',
+    'distributors.merge',
   ],
   accountant: [
     'settings.view',
@@ -33,6 +35,7 @@ const NEW_DEFAULTS: Record<string, string[]> = {
     'purchases.create_unbilled',
     'purchases.delete',
     'distributors.delete',
+    'distributors.merge',
   ],
 };
 

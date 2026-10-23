@@ -239,4 +239,22 @@ export const distributorsController = {
       return sendError(reply, message, 400);
     }
   },
+
+  /** Fold duplicate distributors into the one being kept. */
+  async merge(
+    request: FastifyRequest<{ Body: { sourceIds: string[]; targetId: string } }>,
+    reply: FastifyReply,
+  ) {
+    try {
+      const { sourceIds, targetId } = request.body;
+      const result = await distributorsService.merge(sourceIds, targetId);
+      return sendSuccess(reply, result);
+    } catch (error) {
+      if (error instanceof DistributorInUseError) {
+        return sendError(reply, error.message, 409);
+      }
+      const message = error instanceof Error ? error.message : 'Failed to merge distributors';
+      return sendError(reply, message, 400);
+    }
+  },
 };

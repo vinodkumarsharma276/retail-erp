@@ -283,6 +283,99 @@ export const distributorsService = {
     });
   },
 
+  /**
+   * Fold duplicate suppliers into one.
+   *
+   * A sheet import spells the same supplier three ways, and by the time
+   * anyone notices, each spelling owns real purchases and real stock. Those
+   * cannot be thrown away and must not be stranded, so they move onto the
+   * supplier being kept and the emptied duplicates go.
+   *
+   * What moves: every purchase, every product, and any category the kept
+   * supplier was not already marked as supplying. Nothing is recalculated —
+   * the rows only change which supplier they point at, so totals on the kept
+   * supplier come out as the sum of what went in.
+   *
+   * All or nothing: one transaction, so a half-merged supplier cannot exist.
+   */
+  async merge(sourceIds: string[], targetId: string) {
+    if (sourceIds.includes(targetId)) {
+      throw new DistributorInUseError(
+        'The supplier being kept cannot also be one of the duplicates being merged into it.',
+      );
+    }
+
+    const ids = [...sourceIds, targetId];
+    const found = await prisma.distributor.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, companyName: true },
+    });
+
+    const missing = ids.filter((id) => !found.some((d) => d.id === id));
+    if (missing.length > 0) {
+      throw new DistributorInUseError(
+        missing.includes(targetId)
+          ? 'The supplier to keep is not here.'
+          : `${missing.length} of those duplicates ${missing.length === 1 ? 'is' : 'are'} not here.`,
+      );
+    }
+
+    const target = found.find((d) => d.id === targetId)!;
+
+    return prisma.$transaction(async (tx) => {
+      const purchases = await tx.purchase.updateMany({
+        where: { distributorId: { in: sourceIds } },
+        data: { distributorId: targetId },
+      });
+      const products = await tx.product.updateMany({
+        where: { distributorId: { in: sourceIds } },
+        data: { distributorId: targetId },
+      });
+
+      // Categories are a set, not a count: the kept supplier ends up marked
+      // as supplying everything any of them did, with no duplicate rows.
+      const targetCategories = await tx.distributorCategory.findMany({
+        where: { distributorId: targetId },
+        select: { categoryId: true },
+      });
+      const alreadyThere = new Set(targetCategories.map((c) => c.categoryId));
+      const fromSources = await tx.distributorCategory.findMany({
+        where: { distributorId: { in: sourceIds } },
+        select: { id: true, categoryId: true },
+      });
+      const toMove = fromSources.filter((c) => !alreadyThere.has(c.categoryId));
+      // One category can arrive from two duplicates at once; keep the first.
+      const seen = new Set<string>();
+      const moveIds: string[] = [];
+      for (const row of toMove) {
+        if (seen.has(row.categoryId)) continue;
+        seen.add(row.categoryId);
+        moveIds.push(row.id);
+      }
+      if (moveIds.length > 0) {
+        await tx.distributorCategory.updateMany({
+          where: { id: { in: moveIds } },
+          data: { distributorId: targetId },
+        });
+      }
+      await tx.distributorCategory.deleteMany({
+        where: { distributorId: { in: sourceIds } },
+      });
+
+      const removed = await tx.distributor.deleteMany({
+        where: { id: { in: sourceIds } },
+      });
+
+      return {
+        keptName: target.companyName,
+        merged: removed.count,
+        purchases: purchases.count,
+        products: products.count,
+        categories: moveIds.length,
+      };
+    });
+  },
+
   async update(id: string, data: {
     companyName?: string;
     contactPerson?: string;
