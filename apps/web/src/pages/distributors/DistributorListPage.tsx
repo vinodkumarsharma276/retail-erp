@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { useCanCheck } from '../../hooks/usePermission';
-import { Plus, Search, X, Pencil, Receipt, Trash2, Info, Merge } from 'lucide-react';
+import { Plus, Search, X, Pencil, Receipt, Trash2, Info, Merge, FileSpreadsheet } from 'lucide-react';
 import { PageHeader } from '../../components/PageHeader';
 import { Button } from '../../components/ui/button';
 import { DeleteDistributorsDialog } from '../../components/DeleteDistributorsDialog';
@@ -245,9 +245,19 @@ export function DistributorListPage() {
         description="Suppliers you buy stock from, with outstanding payables."
         actions={
           can('distributors.create') && (
-            <Link to="/distributors/new">
-              <Button icon={<Plus className="h-3.5 w-3.5" />}>Add distributor</Button>
-            </Link>
+            <div className="flex flex-wrap gap-2">
+              <Link to="/distributors/import">
+                <Button
+                  variant="outline"
+                  icon={<FileSpreadsheet className="h-3.5 w-3.5" />}
+                >
+                  Import from Excel
+                </Button>
+              </Link>
+              <Link to="/distributors/new">
+                <Button icon={<Plus className="h-3.5 w-3.5" />}>Add distributor</Button>
+              </Link>
+            </div>
           )
         }
       />

@@ -10,6 +10,7 @@ import {
   deleteDistributorsSchema,
   distributorImpactSchema,
   mergeDistributorsSchema,
+  distributorImportSchema,
 } from './distributors.validation.js';
 
 export async function distributorRoutes(app: FastifyInstance) {
@@ -35,6 +36,18 @@ export async function distributorRoutes(app: FastifyInstance) {
   app.post('/delete', {
     preHandler: [authenticate, requirePermission('distributors.delete'), validate(deleteDistributorsSchema)],
   }, distributorsController.remove as any);
+
+  // Bulk import from a Tally creditors sheet: preview (nothing saved), then
+  // commit. A few hundred suppliers run to a fair amount of JSON.
+  app.post('/import/preview', {
+    bodyLimit: 10 * 1024 * 1024,
+    preHandler: [authenticate, requirePermission('distributors.create'), validate(distributorImportSchema)],
+  }, distributorsController.importPreview as any);
+
+  app.post('/import', {
+    bodyLimit: 10 * 1024 * 1024,
+    preHandler: [authenticate, requirePermission('distributors.create'), validate(distributorImportSchema)],
+  }, distributorsController.importCommit as any);
 
   // What a delete would take with it, so the confirmation can name the
   // counts before anything happens rather than after.

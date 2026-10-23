@@ -10,6 +10,7 @@ import { ProductDetailPage } from './pages/products/ProductDetailPage';
 import { DistributorListPage } from './pages/distributors/DistributorListPage';
 import { DistributorFormPage } from './pages/distributors/DistributorFormPage';
 import { DistributorDetailPage } from './pages/distributors/DistributorDetailPage';
+import { DistributorImportPage } from './pages/distributors/DistributorImportPage';
 import { PurchaseListPage } from './pages/purchases/PurchaseListPage';
 import { PurchaseCreatePage } from './pages/purchases/PurchaseCreatePage';
 import { PurchaseDetailPage } from './pages/purchases/PurchaseDetailPage';
@@ -100,6 +101,7 @@ function App() {
           </Route>
           <Route element={<PermissionGuard anyOf={['distributors.create']} />}>
             <Route path="/distributors/new" element={<DistributorFormPage />} />
+            <Route path="/distributors/import" element={<DistributorImportPage />} />
           </Route>
           <Route element={<PermissionGuard anyOf={['distributors.detail']} />}>
             <Route path="/distributors/:id" element={<DistributorDetailPage />} />

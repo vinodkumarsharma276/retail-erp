@@ -93,3 +93,39 @@ export const mergeDistributorsSchema = z.object({
     .max(50, 'Merge at most 50 duplicates at a time'),
   targetId: z.string().uuid('Choose which distributor to keep'),
 });
+
+/**
+ * A creditor row as the browser mapped it. The sheet is parsed client-side
+ * by `parseCreditorSheet`, so what arrives is already shaped; this only
+ * guards the boundary.
+ */
+const creditorRowSchema = z.object({
+  rowNumber: z.number().int().min(1),
+  companyName: z.string().min(1, 'Supplier name is required').max(300),
+  contactPerson: z.string().max(200),
+  phone: z.string().max(15),
+  altPhone: z.string().max(15).nullable(),
+  email: z.string().max(255).nullable(),
+  gstNumber: z.string().max(15).nullable(),
+  panNumber: z.string().max(10).nullable(),
+  addressLine1: z.string().max(255),
+  city: z.string().max(100),
+  state: z.string().max(100),
+  pincode: z.string().max(6),
+  balances: z.object({
+    closingCr: z.number(),
+    closingDr: z.number(),
+    net: z.number(),
+    group: z.string().max(200),
+  }),
+  rejected: z
+    .array(z.object({ field: z.string().max(40), value: z.string().max(200) }))
+    .default([]),
+});
+
+export const distributorImportSchema = z.object({
+  rows: z
+    .array(creditorRowSchema)
+    .min(1, 'The sheet has no suppliers in it')
+    .max(5000, 'Import at most 5000 suppliers at a time'),
+});

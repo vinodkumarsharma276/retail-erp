@@ -7,6 +7,7 @@ import type {
   DistributorListItem,
   DistributorProduct,
   DistributorPayment } from '@retailerp/shared-types';
+import type { ParsedCreditor } from '@retailerp/shared-utils';
 
 // ---------------------------------------------------------------------------
 // Query keys
@@ -190,6 +191,60 @@ export function useDeleteDistributorsMutation() {
       queryClient.invalidateQueries({ queryKey: ['distributors'] });
       queryClient.invalidateQueries({ queryKey: ['purchases'] });
       queryClient.invalidateQueries({ queryKey: ['products'] });
+    },
+  });
+}
+
+export interface DistributorImportPlanRow {
+  rowNumber: number;
+  companyName: string;
+  action: 'create' | 'fill' | 'unchanged';
+  matchedId?: string;
+  matchedName?: string;
+  matchedBy?: 'gst' | 'name';
+  fills?: string[];
+  gstNumber: string | null;
+  city: string;
+  phone: string;
+}
+
+export interface DistributorImportPreview {
+  rows: DistributorImportPlanRow[];
+  counts: { create: number; fill: number; unchanged: number };
+}
+
+/** What a creditors sheet would do. Writes nothing. */
+export function useDistributorImportPreview() {
+  return useMutation({
+    mutationFn: async (rows: ParsedCreditor[]) => {
+      const { data } = await apiClient.post<ApiResponse<DistributorImportPreview>>(
+        '/distributors/import/preview',
+        { rows },
+      );
+      return data.data!;
+    },
+  });
+}
+
+export interface DistributorImportResult {
+  created: number;
+  filled: number;
+  unchanged: number;
+}
+
+export function useDistributorImportMutation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (rows: ParsedCreditor[]) => {
+      const { data } = await apiClient.post<ApiResponse<DistributorImportResult>>(
+        '/distributors/import',
+        { rows },
+      );
+      return data.data!;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['distributors'] });
     },
   });
 }

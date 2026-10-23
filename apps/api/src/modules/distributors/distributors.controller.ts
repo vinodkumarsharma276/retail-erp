@@ -1,5 +1,7 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { distributorsService, DistributorInUseError } from './distributors.service.js';
+import { planDistributorImport, commitDistributorImport } from './distributors.import.js';
+import type { ParsedCreditor } from '@retailerp/shared-utils';
 import { sendSuccess, sendError, sendPaginated } from '../../utils/response.js';
 import { parsePagination } from '../../utils/pagination.js';
 
@@ -220,6 +222,37 @@ export const distributorsController = {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to fetch distributor payments';
       return sendError(reply, message, 500);
+    }
+  },
+
+  /** What a creditors sheet would do, without doing it. */
+  async importPreview(
+    request: FastifyRequest<{ Body: { rows: ParsedCreditor[] } }>,
+    reply: FastifyReply,
+  ) {
+    try {
+      const tenantId = request.currentUser!.tenantId;
+      const preview = await planDistributorImport(request.body.rows, tenantId);
+      return sendSuccess(reply, preview);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to read the sheet';
+      return sendError(reply, message, 400);
+    }
+  },
+
+  /** Write the sheet in. */
+  async importCommit(
+    request: FastifyRequest<{ Body: { rows: ParsedCreditor[] } }>,
+    reply: FastifyReply,
+  ) {
+    try {
+      const tenantId = request.currentUser!.tenantId;
+      const userId = request.currentUser!.userId;
+      const result = await commitDistributorImport(request.body.rows, tenantId, userId);
+      return sendSuccess(reply, result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to import suppliers';
+      return sendError(reply, message, 400);
     }
   },
 
