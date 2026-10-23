@@ -105,8 +105,32 @@ export function useTablePreferences(tableId: string | undefined) {
     [update],
   );
 
+  /**
+   * Set several widths at once.
+   *
+   * The first drag has to pin every other column at what it currently
+   * measures; doing that one `setWidth` at a time would write to storage
+   * once per column and race its own state.
+   */
+  const setWidths = useCallback(
+    (widths: Record<string, number>) =>
+      update((prev) => ({
+        ...prev,
+        widths: Object.fromEntries(
+          Object.entries({ ...prev.widths, ...widths }).map(([k, v]) => [k, Math.round(v)]),
+        ),
+      })),
+    [update],
+  );
+
+  /** Back to columns sizing themselves, without touching what is hidden. */
+  const clearWidths = useCallback(
+    () => update((prev) => ({ ...prev, widths: {} })),
+    [update],
+  );
+
   /** Put every column back and forget every drag. */
   const reset = useCallback(() => update(() => EMPTY), [update]);
 
-  return { prefs, toggleColumn, setWidth, reset };
+  return { prefs, toggleColumn, setWidth, setWidths, clearWidths, reset };
 }

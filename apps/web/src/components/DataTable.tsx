@@ -102,6 +102,8 @@ interface DataTableProps<T> {
 
 /** Narrower than this and a column is unreadable rather than compact. */
 const MIN_COLUMN_WIDTH = 60;
+/** The tickbox column, which is `w-10` and never dragged. */
+const SELECT_COLUMN_WIDTH = 40;
 
 // ---------------------------------------------------------------------------
 // Component
@@ -125,7 +127,7 @@ export function DataTable<T>({
   const keyOf = (row: T, idx: number) => (rowKey ? rowKey(row, idx) : String(idx));
 
   // ------ What this viewer wants to see, and how wide ------
-  const { prefs, toggleColumn, setWidth, reset } = useTablePreferences(tableId);
+  const { prefs, toggleColumn, setWidth, setWidths, clearWidths, reset } = useTablePreferences(tableId);
   const tableRef = useRef<HTMLTableElement>(null);
 
   const canCustomise = Boolean(tableId);
@@ -223,8 +225,29 @@ export function DataTable<T>({
    * to content and ignores them. Switching layout mid-table would jump, so
    * every column's current width is written down on the first drag and the
    * table changes over already measured.
+   *
+   * All or nothing: a column with no width of its own would be handed
+   * whatever space is left over, which is not a width anybody chose. If one
+   * turns up without (a column added to the code since, or un-hidden having
+   * never been measured) the table goes back to sizing itself, and the next
+   * drag measures the lot again.
    */
-  const anyWidthSet = Object.keys(prefs.widths).length > 0 || dragging != null;
+  const anyWidthSet =
+    visibleColumns.length > 0 && visibleColumns.every((col) => widthFor(col.key) != null);
+
+  /**
+   * The table is sized to its columns, not to the box around it.
+   *
+   * This is the whole trick: under `table-layout: fixed` at `width: 100%`,
+   * the browser shares out the difference between the widths it was given
+   * and the width it has to fill — so dragging one column quietly moves
+   * every other one. Summing them instead means the dragged edge is the
+   * only thing that moves, and the wrapper scrolls when they outgrow it.
+   */
+  const totalWidth = anyWidthSet
+    ? visibleColumns.reduce((sum, col) => sum + (widthFor(col.key) ?? 0), 0) +
+      (picking ? SELECT_COLUMN_WIDTH : 0)
+    : null;
 
   const startResize = (event: React.PointerEvent<HTMLSpanElement>, key: string) => {
     event.preventDefault();
@@ -236,14 +259,15 @@ export function DataTable<T>({
     const startX = event.clientX;
     const startWidth = th.getBoundingClientRect().width;
 
-    // Pin the others at what they measure now, so only this one moves.
-    if (Object.keys(prefs.widths).length === 0 && tableRef.current) {
+    // Pin every column at what it measures now, in one go, so the table can
+    // switch to fixed layout without anything shifting.
+    if (!anyWidthSet && tableRef.current) {
       const measured: Record<string, number> = {};
       for (const cell of tableRef.current.querySelectorAll<HTMLTableCellElement>('thead th[data-col]')) {
         const colKey = cell.dataset.col;
         if (colKey) measured[colKey] = cell.getBoundingClientRect().width;
       }
-      for (const [k, w] of Object.entries(measured)) if (k !== key) setWidth(k, w);
+      setWidths(measured);
     }
 
     // No pointer capture: the move and up listeners are on the window, which
@@ -424,7 +448,8 @@ export function DataTable<T>({
       <div className="hidden overflow-x-auto md:block">
         <table
           ref={tableRef}
-          className={cn('w-full text-sm', anyWidthSet && 'table-fixed')}
+          className={cn('text-sm', anyWidthSet ? 'table-fixed' : 'w-full')}
+          style={totalWidth != null ? { width: totalWidth } : undefined}
         >
           <thead>
             <tr className="border-b border-border bg-muted/40">
@@ -477,10 +502,12 @@ export function DataTable<T>({
                         aria-orientation="vertical"
                         aria-label={`Resize ${col.header || col.key} column`}
                         onPointerDown={(e) => startResize(e, col.key)}
-                        // Back to sizing itself to its contents.
+                        // Back to columns sizing themselves. All of them: one
+                        // column without a width would be handed the
+                        // leftovers rather than a width anybody chose.
                         onDoubleClick={(e) => {
                           e.stopPropagation();
-                          setWidth(col.key, null);
+                          clearWidths();
                         }}
                         className={cn(
                           'absolute right-0 top-0 z-10 h-full w-2 translate-x-1/2 cursor-col-resize select-none',
