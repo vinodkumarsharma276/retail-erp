@@ -14,6 +14,7 @@ import {
   useDeleteDistributorsMutation,
   useMergeDistributorsMutation,
   useDistributorDeletionImpact,
+  useAllDistributorIds,
 } from '../../hooks/useDistributors';
 import { DataTable } from '../../components/DataTable';
 import type { Column, PaginationState } from '../../components/DataTable';
@@ -39,12 +40,70 @@ export function DistributorListPage() {
   const canMerge = can('distributors.merge');
   const canPick = canDelete || canMerge;
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  /**
+   * The ticked rows themselves, kept as they are ticked.
+   *
+   * A row can only be ticked while it is on screen, so remembering it here
+   * is what lets a selection survive paging. Filtering the current page by
+   * the ticked ids instead would quietly drop everything ticked on another
+   * page — and Merge would then fold together fewer suppliers than the
+   * screen said it would.
+   */
+  const [pickedRowCache, setPickedRowCache] = useState<Map<string, DistributorListItem>>(new Map());
+  /** True once the user asks for every supplier matching, not just this page. */
+  const [allMatchingPicked, setAllMatchingPicked] = useState(false);
+  const [selectingAll, setSelectingAll] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [merging, setMerging] = useState(false);
   const deleteMut = useDeleteDistributorsMutation();
   const mergeMut = useMergeDistributorsMutation();
   const impactMut = useDistributorDeletionImpact();
+  const fetchAllIds = useAllDistributorIds();
   const toast = useToast();
+
+  const clearPicked = () => {
+    setPicked(new Set());
+    setPickedRowCache(new Map());
+    setAllMatchingPicked(false);
+  };
+
+  /** Keep the remembered rows in step with the ticked ids. */
+  const changePicked = (next: Set<string>) => {
+    setPicked(next);
+    setPickedRowCache((prev) => {
+      const kept = new Map<string, DistributorListItem>();
+      for (const id of next) {
+        const known = prev.get(id) ?? distributors.find((d) => d.id === id);
+        if (known) kept.set(id, known);
+      }
+      return kept;
+    });
+    // Un-ticking anything means this is no longer "all of them".
+    if (next.size < picked.size) setAllMatchingPicked(false);
+  };
+
+  /**
+   * Tick every supplier the current search matches, not just the page.
+   *
+   * The ids are fetched rather than inferred: the server decides what
+   * matches, and the delete that follows names each id explicitly so there
+   * is no "delete everything matching" call to get wrong.
+   */
+  const pickAllMatching = async () => {
+    setSelectingAll(true);
+    try {
+      const ids = await fetchAllIds({ search: debouncedSearch.length >= 3 ? debouncedSearch : undefined });
+      setPicked(new Set(ids));
+      setAllMatchingPicked(true);
+      // Rows for the other pages are not loaded; merge needs them, so it
+      // steps aside while the whole list is picked.
+      setPickedRowCache(new Map());
+    } catch {
+      toast.error('Could not select every distributor. Try again.');
+    } finally {
+      setSelectingAll(false);
+    }
+  };
 
   /**
    * The counts come from the server, not from the list's own figures: the
@@ -96,9 +155,17 @@ export function DistributorListPage() {
   const distributors = distributorsQuery.data?.data ?? [];
   const pagination = distributorsQuery.data?.pagination;
 
-  const pickedRows = distributors.filter((row) => picked.has(row.id));
-  /** Ticked suppliers that cannot be deleted, only merged. */
+  /** Every ticked supplier, including ones ticked on another page. */
+  const pickedRows = [...pickedRowCache.values()];
+  /** Ticked suppliers whose stock would go down with them. */
   const pickedWithHistory = pickedRows.filter(hasHistory);
+
+  const totalItems = pagination?.totalItems ?? distributors.length;
+  const everyRowOnPagePicked =
+    distributors.length > 0 && distributors.every((row) => picked.has(row.id));
+  /** Worth offering "select all" only when there is more than this page. */
+  const canOfferSelectAll =
+    everyRowOnPagePicked && !allMatchingPicked && totalItems > distributors.length;
 
   // ------ Clear filters ------
   const hasFilters = !!searchText;
@@ -242,7 +309,14 @@ export function DistributorListPage() {
     <div>
       <PageHeader
         title="Distributors"
-        description="Suppliers you buy stock from, with outstanding payables."
+        // The count is in the heading, not only at the foot of the table:
+        // after a delete the page refills with the next twenty, and without
+        // a number in sight nothing looks to have happened.
+        description={
+          distributorsQuery.isLoading
+            ? 'Suppliers you buy stock from, with outstanding payables.'
+            : `${totalItems} supplier${totalItems === 1 ? '' : 's'} you buy stock from, with outstanding payables.`
+        }
         actions={
           can('distributors.create') && (
             <div className="flex flex-wrap gap-2">
@@ -320,9 +394,11 @@ export function DistributorListPage() {
         <div className="mb-3 rounded-lg border border-primary/40 bg-primary/5 px-4 py-3">
           <div className="flex flex-wrap items-center gap-3">
             <span className="text-sm font-medium">
-              {picked.size} distributor{picked.size === 1 ? '' : 's'} selected
+              {allMatchingPicked
+                ? `All ${picked.size} distributor${picked.size === 1 ? '' : 's'} selected`
+                : `${picked.size} distributor${picked.size === 1 ? '' : 's'} selected`}
             </span>
-            <Button variant="outline" size="sm" onClick={() => setPicked(new Set())}>
+            <Button variant="outline" size="sm" onClick={clearPicked}>
               Clear
             </Button>
             {canMerge && (
@@ -330,8 +406,14 @@ export function DistributorListPage() {
                 variant="outline"
                 size="sm"
                 onClick={() => setMerging(true)}
-                disabled={picked.size < 2}
-                title={picked.size < 2 ? 'Tick at least two to merge them' : undefined}
+                disabled={picked.size < 2 || allMatchingPicked}
+                title={
+                  allMatchingPicked
+                    ? 'Merging is for a handful you have looked at, not the whole list'
+                    : picked.size < 2
+                      ? 'Tick at least two to merge them'
+                      : undefined
+                }
               >
                 <Merge className="mr-1 h-3.5 w-3.5" />
                 Merge
@@ -349,6 +431,24 @@ export function DistributorListPage() {
               </Button>
             )}
           </div>
+
+          {/* Ticking the box at the top of the table takes this page only,
+              which is not what "select all" looks like it does. */}
+          {canOfferSelectAll && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              All {distributors.length} on this page are selected.{' '}
+              <button
+                type="button"
+                onClick={() => void pickAllMatching()}
+                disabled={selectingAll}
+                className="font-medium text-primary underline-offset-4 hover:underline disabled:opacity-60"
+              >
+                {selectingAll
+                  ? 'Selecting...'
+                  : `Select all ${totalItems}${searchText ? ' matching this search' : ''}`}
+              </button>
+            </p>
+          )}
 
           {/* The two actions look alike from here, so say what separates
               them before the user picks the destructive one. */}
@@ -383,9 +483,9 @@ export function DistributorListPage() {
           canPick
             ? {
                 // Every row is tickable: a supplier with history cannot be
-                // deleted, but merging it is exactly what it is here for.
+                // deleted on its own, but merging it is what it is here for.
                 selected: picked,
-                onChange: setPicked,
+                onChange: changePicked,
               }
             : undefined
         }
@@ -408,7 +508,7 @@ export function DistributorListPage() {
                           `${result.units} unit${result.units === 1 ? '' : 's'}.`
                       : `Deleted ${result.distributors} distributor${result.distributors === 1 ? '' : 's'}.`,
                   );
-                  setPicked(new Set());
+                  clearPicked();
                   setConfirmingDelete(false);
                 },
                 onError: (error) => {
@@ -437,7 +537,7 @@ export function DistributorListPage() {
                     `Merged ${result.merged} distributor${result.merged === 1 ? '' : 's'} into ${result.keptName}. ` +
                       `${result.purchases} purchase${result.purchases === 1 ? '' : 's'} and ${result.products} product${result.products === 1 ? '' : 's'} moved across.`,
                   );
-                  setPicked(new Set());
+                  clearPicked();
                   setMerging(false);
                 },
                 onError: (error) => {

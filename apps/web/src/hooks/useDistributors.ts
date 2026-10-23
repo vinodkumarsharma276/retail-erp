@@ -1,3 +1,4 @@
+import { useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { apiClient } from '../lib/api-client';
 import type {
@@ -7,6 +8,7 @@ import type {
   DistributorListItem,
   DistributorProduct,
   DistributorPayment } from '@retailerp/shared-types';
+import { PAGINATION_MAX_PAGE_SIZE } from '@retailerp/shared-utils';
 import type { ParsedCreditor } from '@retailerp/shared-utils';
 
 // ---------------------------------------------------------------------------
@@ -193,6 +195,42 @@ export function useDeleteDistributorsMutation() {
       queryClient.invalidateQueries({ queryKey: ['products'] });
     },
   });
+}
+
+/**
+ * Every distributor id the current search matches, across all pages.
+ *
+ * Needed so "select all" can mean all of them rather than the twenty on
+ * screen. Ids only — the rows themselves would be a lot of JSON for
+ * something the user is about to delete.
+ */
+export function useAllDistributorIds() {
+  return useCallback(async (filters: Pick<DistributorFilters, 'search'>) => {
+    const ids: string[] = [];
+
+    // Paged through rather than asked for in one go: the API caps pageSize
+    // at PAGINATION_MAX_PAGE_SIZE and says nothing when it does, so a single
+    // large request comes back quietly short — and a "select all" that is
+    // quietly short is how you delete 100 of 135 and think it failed.
+    let page = 1;
+    let totalPages = 1;
+    do {
+      const params = new URLSearchParams();
+      params.set('page', String(page));
+      params.set('pageSize', String(PAGINATION_MAX_PAGE_SIZE));
+      if (filters.search) params.set('search', filters.search);
+
+      const { data } = await apiClient.get<PaginatedResponse<DistributorListItem>>(
+        `/distributors?${params.toString()}`,
+      );
+      for (const d of data.data ?? []) ids.push(d.id);
+      totalPages = data.pagination?.totalPages ?? 1;
+      page += 1;
+      // A list that keeps growing under us must not loop for ever.
+    } while (page <= totalPages && page <= 50);
+
+    return ids;
+  }, []);
 }
 
 export interface DistributorImportPlanRow {

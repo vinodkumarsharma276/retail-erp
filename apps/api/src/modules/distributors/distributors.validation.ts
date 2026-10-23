@@ -70,7 +70,7 @@ export const deleteDistributorsSchema = z.object({
   ids: z
     .array(z.string().uuid('Distributor ID must be a valid UUID'))
     .min(1, 'Choose at least one distributor')
-    .max(200, 'Delete at most 200 distributors at a time'),
+    .max(1000, 'Delete at most 1000 distributors at a time — narrow the search first'),
   /**
    * Take the supplier's invoices and the stock they brought in as well.
    * Off by default: a caller that has not said so gets the safe refusal
@@ -83,7 +83,7 @@ export const distributorImpactSchema = z.object({
   ids: z
     .array(z.string().uuid('Distributor ID must be a valid UUID'))
     .min(1, 'Choose at least one distributor')
-    .max(200, 'Ask about at most 200 distributors at a time'),
+    .max(1000, 'Ask about at most 1000 distributors at a time'),
 });
 
 export const mergeDistributorsSchema = z.object({
