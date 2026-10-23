@@ -18,8 +18,11 @@ import {
   useDistributorDetailQuery,
   useCreateDistributorMutation,
   useUpdateDistributorMutation,
+  useCheckDistributorDuplicates,
 } from '../hooks/useDistributors';
 import type { Distributor, ProductCategory } from '@retailerp/shared-types';
+import { duplicateFieldLabel, type DuplicateReport } from '@retailerp/shared-utils';
+import { Link } from 'react-router-dom';
 
 // ---------------------------------------------------------------------------
 // Form values
@@ -144,6 +147,7 @@ export function DistributorForm({
     handleSubmit,
     reset,
     setError,
+    watch,
     formState: { errors },
   } = useForm<DistributorFormValues>({
     defaultValues: { ...defaultValues, companyName: initialCompanyName ?? '' },
@@ -197,13 +201,53 @@ export function DistributorForm({
     }
   }, [existingDistributor, isEditMode, reset, rootCategories]);
 
+  // ------ Already on the books? ------
+  const checkDuplicates = useCheckDistributorDuplicates();
+  const [duplicateReport, setDuplicateReport] = useState<DuplicateReport | null>(null);
+  /** Set when the person has read the similar-name warning and meant it. */
+  const [dismissedSimilar, setDismissedSimilar] = useState(false);
+
+  const watchedIdentity = watch(['companyName', 'phone', 'gstNumber', 'panNumber']);
+  const identityKey = watchedIdentity.join('|');
+  // Change any of the four and the last answer no longer applies.
+  useEffect(() => {
+    setDuplicateReport(null);
+    setDismissedSimilar(false);
+  }, [identityKey]);
+
+  const blockedByDuplicate = (duplicateReport?.clashes.length ?? 0) > 0;
+
   const toggleCategory = (catId: string) => {
     setSelectedCategoryIds((prev) =>
       prev.includes(catId) ? prev.filter((c) => c !== catId) : [...prev, catId],
     );
   };
 
-  const onSubmit = (formData: DistributorFormValues) => {
+  const onSubmit = async (formData: DistributorFormValues) => {
+    // Look before writing. A GSTIN, PAN or phone belongs to one business,
+    // so one already on file means this is that business again and the
+    // record to change is the one that exists. A merely similar name might
+    // be, so it is said once and then the person decides.
+    if (!dismissedSimilar) {
+      try {
+        const [report] = await checkDuplicates.mutateAsync([
+          {
+            companyName: formData.companyName.trim(),
+            phone: formData.phone.trim() || null,
+            gstNumber: formData.gstNumber.trim() || null,
+            panNumber: formData.panNumber.trim() || null,
+            excludeId: distributorId,
+          },
+        ]);
+        setDuplicateReport(report ?? null);
+        if (report && (report.clashes.length > 0 || report.similar.length > 0)) return;
+      } catch {
+        // The check is a help, not a gate: if it cannot run, saving still
+        // can, and the API's own unique constraints are still there.
+        setDuplicateReport(null);
+      }
+    }
+
     const payload: Record<string, unknown> = {
       companyName: formData.companyName.trim(),
       contactPerson: formData.contactPerson.trim(),
@@ -697,6 +741,73 @@ export function DistributorForm({
           </div>
         )}
       </section>
+
+      {/* Already on the books — the hard kind */}
+      {blockedByDuplicate && duplicateReport && (
+        <div className="rounded-md border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm">
+          <p className="flex items-center gap-2 font-medium text-destructive">
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            This supplier is already on file
+          </p>
+          <ul className="mt-2 space-y-1 text-muted-foreground">
+            {duplicateReport.clashes.map((c) => (
+              <li key={`${c.field}-${c.value}`}>
+                The {duplicateFieldLabel(c.field)}{' '}
+                <code className="text-xs">{c.value}</code> already belongs to{' '}
+                <Link
+                  to={`/distributors/${c.existingId}`}
+                  className="font-medium text-foreground underline underline-offset-4"
+                >
+                  {c.existingName}
+                </Link>
+                .
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-muted-foreground">
+            A GSTIN, PAN or phone number belongs to one business. Open that record and bring it
+            up to date rather than adding a second one — or correct the number here if it was
+            typed wrong.
+          </p>
+        </div>
+      )}
+
+      {/* Might be the same supplier spelled twice — the person decides */}
+      {!blockedByDuplicate && duplicateReport && duplicateReport.similar.length > 0 && (
+        <div className="rounded-md border border-warning/40 bg-warning/10 px-4 py-3 text-sm">
+          <p className="flex items-center gap-2 font-medium">
+            <AlertCircle className="h-4 w-4 shrink-0 text-warning" />
+            A supplier with a very similar name already exists
+          </p>
+          <ul className="mt-2 space-y-1 text-muted-foreground">
+            {duplicateReport.similar.map((s) => (
+              <li key={s.existingId}>
+                <Link
+                  to={`/distributors/${s.existingId}`}
+                  className="font-medium text-foreground underline underline-offset-4"
+                >
+                  {s.existingName}
+                </Link>
+                <span className="ml-1 text-xs">({Math.round(s.score * 100)}% alike)</span>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-muted-foreground">
+            If that is the same business, open it instead. If it is genuinely a different one,
+            carry on.
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              setDismissedSimilar(true);
+              void handleSubmit(onSubmit)();
+            }}
+            className="mt-2 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-muted"
+          >
+            It is a different supplier — save anyway
+          </button>
+        </div>
+      )}
 
       {errorMessage && (
         <div className="flex items-center gap-2 rounded-md bg-destructive/10 px-4 py-3 text-sm text-destructive">

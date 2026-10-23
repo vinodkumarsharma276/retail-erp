@@ -11,6 +11,7 @@ import {
   distributorImpactSchema,
   mergeDistributorsSchema,
   distributorImportSchema,
+  checkDuplicatesSchema,
 } from './distributors.validation.js';
 
 export async function distributorRoutes(app: FastifyInstance) {
@@ -36,6 +37,13 @@ export async function distributorRoutes(app: FastifyInstance) {
   app.post('/delete', {
     preHandler: [authenticate, requirePermission('distributors.delete'), validate(deleteDistributorsSchema)],
   }, distributorsController.remove as any);
+
+  // Who among these suppliers is already on file. Read-only, and used by
+  // both the add form and the import preview before anything is written.
+  app.post('/check-duplicates', {
+    bodyLimit: 5 * 1024 * 1024,
+    preHandler: [authenticate, requirePermission('distributors.create'), validate(checkDuplicatesSchema)],
+  }, distributorsController.checkDuplicates as any);
 
   // Bulk import from a Tally creditors sheet: preview (nothing saved), then
   // commit. A few hundred suppliers run to a fair amount of JSON.

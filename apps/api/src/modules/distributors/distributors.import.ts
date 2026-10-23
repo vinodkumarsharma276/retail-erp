@@ -13,7 +13,40 @@
  */
 import { prisma } from '../../config/database.js';
 import { Prisma } from '@prisma/client';
-import { creditorNameKey, type ParsedCreditor } from '@retailerp/shared-utils';
+import {
+  creditorNameKey,
+  findDuplicateDistributors,
+  duplicateFieldLabel,
+  type ParsedCreditor,
+  type DuplicateReport,
+} from '@retailerp/shared-utils';
+
+/** A sheet that would put the same party on the books twice. */
+export class DistributorImportBlocked extends Error {}
+
+/**
+ * Which of these rows duplicate a supplier already on file, or each other.
+ *
+ * Used by the preview to show the problem and by the commit to refuse it,
+ * so the two cannot disagree about what counts as a duplicate.
+ */
+export async function checkDistributorDuplicates(
+  rows: ParsedCreditor[],
+): Promise<DuplicateReport[]> {
+  const existing = await prisma.distributor.findMany({
+    select: { id: true, companyName: true, phone: true, gstNumber: true, panNumber: true },
+  });
+  return findDuplicateDistributors(
+    rows.map((row) => ({
+      rowNumber: row.rowNumber,
+      companyName: row.companyName,
+      phone: row.phone,
+      gstNumber: row.gstNumber,
+      panNumber: row.panNumber,
+    })),
+    existing,
+  );
+}
 
 /** Fields a sheet may fill on a supplier that already exists. */
 const FILLABLE = [
@@ -41,6 +74,8 @@ export interface DistributorImportPlanRow {
 export interface DistributorImportPreview {
   rows: DistributorImportPlanRow[];
   counts: { create: number; fill: number; unchanged: number };
+  /** Only for rows that would make a new supplier. */
+  duplicates: DuplicateReport[];
 }
 
 const clean = (value: unknown) => String(value ?? '').trim();
@@ -97,6 +132,14 @@ export async function planDistributorImport(
     };
   });
 
+  // Only new suppliers can duplicate one: a matched row is an update.
+  const creating = new Set(
+    planned.filter((r) => r.action === 'create').map((r) => r.rowNumber),
+  );
+  const duplicates = (
+    await checkDistributorDuplicates(rows.filter((r) => creating.has(r.rowNumber)))
+  ).filter((report) => report.clashes.length > 0 || report.similar.length > 0);
+
   return {
     rows: planned,
     counts: {
@@ -104,6 +147,7 @@ export async function planDistributorImport(
       fill: planned.filter((r) => r.action === 'fill').length,
       unchanged: planned.filter((r) => r.action === 'unchanged').length,
     },
+    duplicates,
   };
 }
 
@@ -126,6 +170,29 @@ export async function commitDistributorImport(
   userId: string | null,
 ): Promise<DistributorImportResult> {
   const plan = await planDistributorImport(rows, tenantId);
+
+  // Only the rows that would make a *new* supplier can duplicate one. A row
+  // matching an existing supplier is an update to it, which is the point of
+  // re-importing a sheet, not a clash.
+  //
+  // The screen will not let a clashing sheet through, but the screen is not
+  // the thing that has to be right: a GSTIN on two suppliers is far easier
+  // to refuse than to unpick afterwards.
+  const creating = new Set(
+    plan.rows.filter((r) => r.action === 'create').map((r) => r.rowNumber),
+  );
+  const blocking = (
+    await checkDistributorDuplicates(rows.filter((r) => creating.has(r.rowNumber)))
+  ).filter((report) => report.clashes.length > 0);
+
+  if (blocking.length > 0) {
+    const first = blocking[0];
+    const clash = first.clashes[0];
+    throw new DistributorImportBlocked(
+      `${first.companyName} has the same ${duplicateFieldLabel(clash.field)} (${clash.value}) as ${clash.existingName}. ` +
+        `Sort that out before importing${blocking.length > 1 ? `; ${blocking.length - 1} other row(s) clash too` : ''}.`,
+    );
+  }
   const byRowNumber = new Map(rows.map((r) => [r.rowNumber, r]));
 
   const toCreate = plan.rows.filter((r) => r.action === 'create');

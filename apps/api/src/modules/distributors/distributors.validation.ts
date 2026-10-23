@@ -166,3 +166,19 @@ export const distributorImportSchema = z.object({
     .min(1, 'The sheet has no suppliers in it')
     .max(5000, 'Import at most 5000 suppliers at a time'),
 });
+
+export const checkDuplicatesSchema = z.object({
+  candidates: z
+    .array(
+      z.object({
+        rowNumber: z.number().int().min(1).optional(),
+        companyName: z.string().min(1).max(300),
+        phone: z.string().max(20).nullable().optional(),
+        gstNumber: z.string().max(20).nullable().optional(),
+        panNumber: z.string().max(20).nullable().optional(),
+        excludeId: z.string().uuid().optional(),
+      }),
+    )
+    .min(1)
+    .max(5000, 'Check at most 5000 at a time'),
+});

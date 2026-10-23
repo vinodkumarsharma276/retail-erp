@@ -5,8 +5,12 @@ import {
   DISTRIBUTOR_SORT_KEYS,
   type DistributorSortKey,
 } from './distributors.service.js';
-import { planDistributorImport, commitDistributorImport } from './distributors.import.js';
-import type { ParsedCreditor } from '@retailerp/shared-utils';
+import {
+  planDistributorImport,
+  commitDistributorImport,
+  DistributorImportBlocked,
+} from './distributors.import.js';
+import type { ParsedCreditor, CandidateDistributor } from '@retailerp/shared-utils';
 import { sendSuccess, sendError, sendPaginated } from '../../utils/response.js';
 import { parsePagination } from '../../utils/pagination.js';
 
@@ -247,6 +251,20 @@ export const distributorsController = {
     }
   },
 
+  /** Who among these suppliers the books already have. */
+  async checkDuplicates(
+    request: FastifyRequest<{ Body: { candidates: CandidateDistributor[] } }>,
+    reply: FastifyReply,
+  ) {
+    try {
+      const reports = await distributorsService.checkDuplicates(request.body.candidates);
+      return sendSuccess(reply, reports);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to check for duplicates';
+      return sendError(reply, message, 400);
+    }
+  },
+
   /** What a creditors sheet would do, without doing it. */
   async importPreview(
     request: FastifyRequest<{ Body: { rows: ParsedCreditor[] } }>,
@@ -273,6 +291,9 @@ export const distributorsController = {
       const result = await commitDistributorImport(request.body.rows, tenantId, userId);
       return sendSuccess(reply, result);
     } catch (error) {
+      if (error instanceof DistributorImportBlocked) {
+        return sendError(reply, error.message, 409);
+      }
       const message = error instanceof Error ? error.message : 'Failed to import suppliers';
       return sendError(reply, message, 400);
     }

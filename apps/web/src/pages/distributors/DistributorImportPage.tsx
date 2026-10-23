@@ -24,7 +24,7 @@ import {
   type DistributorImportPreview,
   type DistributorImportResult,
 } from '../../hooks/useDistributors';
-import { creditorSheetCoverage } from '@retailerp/shared-utils';
+import { creditorSheetCoverage, duplicateFieldLabel } from '@retailerp/shared-utils';
 
 /**
  * Bringing a Tally "Sundry Creditors" export in as suppliers.
@@ -133,7 +133,16 @@ export function DistributorImportPage() {
   const coverage = workbook ? creditorSheetCoverage(workbook.rows) : [];
   const rowsWithRejects = workbook?.rows.filter((r) => r.rejected.length > 0) ?? [];
   const withBalance = workbook?.rows.filter((r) => r.balances.net !== 0).length ?? 0;
-  const ready = Boolean(preview && workbook && workbook.missingColumns.length === 0);
+  const blockingDuplicates = (preview?.duplicates ?? []).filter((d) => d.clashes.length > 0);
+  const similarNames = (preview?.duplicates ?? []).filter(
+    (d) => d.clashes.length === 0 && d.similar.length > 0,
+  );
+
+  const ready =
+    Boolean(preview && workbook && workbook.missingColumns.length === 0) &&
+    // A tax number or phone on two businesses is not something to import
+    // and tidy up later.
+    blockingDuplicates.length === 0;
   /** Every supplier in the sheet is already here, complete. */
   const nothingToDo = preview != null && preview.counts.create === 0 && preview.counts.fill === 0;
 
@@ -314,6 +323,67 @@ export function DistributorImportPage() {
                   creditors export.
                 </p>
               </div>
+
+              {/* Same party twice — has to be sorted out first */}
+              {blockingDuplicates.length > 0 && (
+                <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-sm">
+                  <p className="flex items-center gap-2 font-medium text-destructive">
+                    <AlertTriangle className="h-4 w-4" />
+                    {blockingDuplicates.length} new supplier
+                    {blockingDuplicates.length === 1 ? '' : 's'} already on file
+                  </p>
+                  <p className="mt-1 text-muted-foreground">
+                    A GSTIN, PAN or phone number belongs to one business. These rows carry one
+                    that is already somebody else&rsquo;s, so importing them would put the same
+                    party on the books twice. Update the existing supplier instead, or correct
+                    the sheet.
+                  </p>
+                  <ul className="mt-2 space-y-1.5">
+                    {blockingDuplicates.slice(0, 10).map((d) => (
+                      <li key={d.rowNumber}>
+                        <span className="font-medium text-foreground">
+                          Row {d.rowNumber} · {d.companyName}
+                        </span>
+                        {d.clashes.map((c) => (
+                          <span key={`${c.field}-${c.value}`} className="block pl-4">
+                            same {duplicateFieldLabel(c.field)}{' '}
+                            <code className="text-xs">{c.value}</code> as{' '}
+                            <span className="font-medium text-foreground">{c.existingName}</span>
+                          </span>
+                        ))}
+                      </li>
+                    ))}
+                  </ul>
+                  {blockingDuplicates.length > 10 && (
+                    <p className="mt-1">…and {blockingDuplicates.length - 10} more.</p>
+                  )}
+                </div>
+              )}
+
+              {/* Might be the same supplier spelled twice — your call */}
+              {similarNames.length > 0 && (
+                <Notice
+                  tone="warning"
+                  title={`${similarNames.length} name${similarNames.length === 1 ? '' : 's'} close to one already on file`}
+                >
+                  <p>
+                    These may be the same supplier written twice, or two real businesses with
+                    similar names — only you can tell. They will be imported either way; merge
+                    them afterwards on the Distributors screen if they turn out to be one.
+                  </p>
+                  <ul className="mt-2 space-y-1">
+                    {similarNames.slice(0, 10).map((d) => (
+                      <li key={d.rowNumber}>
+                        Row {d.rowNumber} · <span className="font-medium">{d.companyName}</span>{' '}
+                        ≈ {d.similar.map((s) => s.existingName).join(', ')}
+                      </li>
+                    ))}
+                  </ul>
+                  {similarNames.length > 10 && (
+                    <p className="mt-1">…and {similarNames.length - 10} more.</p>
+                  )}
+                </Notice>
+              )}
 
               {/* Things worth seeing before pressing the button */}
               {workbook.gstCollisions.length > 0 && (

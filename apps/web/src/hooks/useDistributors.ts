@@ -9,7 +9,11 @@ import type {
   DistributorProduct,
   DistributorPayment } from '@retailerp/shared-types';
 import { PAGINATION_MAX_PAGE_SIZE } from '@retailerp/shared-utils';
-import type { ParsedCreditor } from '@retailerp/shared-utils';
+import type {
+  ParsedCreditor,
+  DuplicateReport,
+  CandidateDistributor,
+} from '@retailerp/shared-utils';
 
 // ---------------------------------------------------------------------------
 // Query keys
@@ -280,6 +284,25 @@ export interface DistributorImportPlanRow {
 export interface DistributorImportPreview {
   rows: DistributorImportPlanRow[];
   counts: { create: number; fill: number; unchanged: number };
+  duplicates: DuplicateReport[];
+}
+
+/**
+ * Who among these suppliers the books already have.
+ *
+ * Used by the add form; the import screen gets the same answer back with
+ * its preview, so the two cannot disagree about what counts as a duplicate.
+ */
+export function useCheckDistributorDuplicates() {
+  return useMutation({
+    mutationFn: async (candidates: CandidateDistributor[]) => {
+      const { data } = await apiClient.post<ApiResponse<DuplicateReport[]>>(
+        '/distributors/check-duplicates',
+        { candidates },
+      );
+      return data.data!;
+    },
+  });
 }
 
 /** What a creditors sheet would do. Writes nothing. */
