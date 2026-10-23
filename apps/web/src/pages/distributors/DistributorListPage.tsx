@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { useCanCheck } from '../../hooks/usePermission';
-import { Plus, Search, X, Pencil, Receipt, Trash2 } from 'lucide-react';
+import { Plus, Search, X, Pencil, Receipt, Trash2, Info } from 'lucide-react';
 import { PageHeader } from '../../components/PageHeader';
 import { Button } from '../../components/ui/button';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
@@ -38,6 +38,12 @@ export function DistributorListPage() {
   const deleteMut = useDeleteDistributorsMutation();
   const toast = useToast();
 
+  /** Whether this supplier can be ticked off, and why not when it cannot. */
+  const blockedReason = (row: DistributorListItem) =>
+    row.totalProductsPurchased > 0
+      ? 'Stock has been bought from this distributor'
+      : null;
+
   // ------ Filters state (URL search params) ------
   const page = Number(searchParams.get('page')) || 1;
   const searchText = searchParams.get('search') || '';
@@ -66,6 +72,9 @@ export function DistributorListPage() {
 
   const distributors = distributorsQuery.data?.data ?? [];
   const pagination = distributorsQuery.data?.pagination;
+
+  const nonePickable =
+    distributors.length > 0 && distributors.every((row) => blockedReason(row) !== null);
 
   // ------ Clear filters ------
   const hasFilters = !!searchText;
@@ -272,6 +281,19 @@ export function DistributorListPage() {
         </div>
       )}
 
+      {/* Why every tickbox on the page is greyed out. Without this the
+          checkboxes look broken rather than deliberately shut. */}
+      {canDelete && picked.size === 0 && nonePickable && (
+        <div className="mb-3 flex items-start gap-2 rounded-lg border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+          <Info className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>
+            Nothing here can be deleted: stock has been bought from every supplier on
+            this page. A supplier can only go once no purchase and no product points
+            at it.
+          </span>
+        </div>
+      )}
+
       {/* What to do with the ticked ones */}
       {canDelete && picked.size > 0 && (
         <div className="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-primary/40 bg-primary/5 px-4 py-3">
@@ -310,10 +332,7 @@ export function DistributorListPage() {
             ? {
                 selected: picked,
                 onChange: setPicked,
-                disabledReason: (row) =>
-                  row.totalProductsPurchased > 0
-                    ? 'Stock has been bought from this distributor'
-                    : null,
+                disabledReason: blockedReason,
               }
             : undefined
         }

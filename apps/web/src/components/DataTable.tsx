@@ -361,17 +361,19 @@ export function DataTable<T>({
                   const why = selection!.disabledReason?.(row) ?? null;
                   return (
                     <td
-                      className="w-10 px-3 py-2 align-middle"
+                      // The reason sits on the cell, not the box: a disabled
+                      // input fires no hover, so a tooltip on it never shows.
+                      className={cn('w-10 px-3 py-2 align-middle', why && 'cursor-not-allowed')}
+                      title={why ?? undefined}
                       // The row itself may open the record; ticking it must not.
                       onClick={(event) => event.stopPropagation()}
                     >
                       <input
                         type="checkbox"
                         className="h-4 w-4 disabled:cursor-not-allowed disabled:opacity-40"
-                        aria-label="Select this row"
+                        aria-label={why ? `Cannot select this row: ${why}` : 'Select this row'}
                         checked={selection!.selected.has(key)}
                         disabled={Boolean(why)}
-                        title={why ?? undefined}
                         onChange={(event) => {
                           const next = new Set(selection!.selected);
                           if (event.target.checked) next.add(key);
