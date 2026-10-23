@@ -105,6 +105,7 @@ export function EmployeeListPage() {
       key: 'actions',
       // The only way to act on a row; hiding it would strand the row.
       alwaysVisible: true,
+      exportable: false,
       resizable: false,
       header: 'Actions',
       render: (row) => (
@@ -208,6 +209,7 @@ export function EmployeeListPage() {
       {/* Data table */}
       <DataTable<Employee>
         tableId="employees"
+        exportConfig={{ title: 'Employees' }}
         columns={columns}
         data={employees}
         isLoading={employeesQuery.isLoading}

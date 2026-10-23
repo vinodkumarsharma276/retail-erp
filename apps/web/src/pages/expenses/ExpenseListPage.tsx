@@ -223,6 +223,7 @@ export function ExpenseListPage() {
       key: 'actions',
       // The only way to act on a row; hiding it would strand the row.
       alwaysVisible: true,
+      exportable: false,
       resizable: false,
       header: 'Actions',
       align: 'center',
@@ -457,6 +458,7 @@ export function ExpenseListPage() {
       {/* Data table */}
       <DataTable<Expense>
         tableId="expenses"
+        exportConfig={{ title: 'Expenses' }}
         columns={columns}
         data={expenses}
         isLoading={expensesQuery.isLoading}

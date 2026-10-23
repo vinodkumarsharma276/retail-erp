@@ -175,6 +175,7 @@ export function TransferListPage() {
       key: 'actions',
       // The only way to act on a row; hiding it would strand the row.
       alwaysVisible: true,
+      exportable: false,
       resizable: false,
       header: '',
       render: (row) => (
@@ -343,6 +344,7 @@ export function TransferListPage() {
           {/* Data table */}
           <DataTable<Transfer>
             tableId="transfers"
+            exportConfig={{ title: 'Transfers' }}
             columns={allColumns}
             data={transfers}
             isLoading={transfersQuery.isLoading}

@@ -209,6 +209,32 @@ export function useDeleteDistributorsMutation() {
  * screen. Ids only — the rows themselves would be a lot of JSON for
  * something the user is about to delete.
  */
+/** Every distributor matching the current search, across all pages. */
+export function useAllDistributors() {
+  return useCallback(async (filters: DistributorFilters) => {
+    const rows: DistributorListItem[] = [];
+    let page = 1;
+    let totalPages = 1;
+    do {
+      const params = new URLSearchParams();
+      params.set('page', String(page));
+      params.set('pageSize', String(PAGINATION_MAX_PAGE_SIZE));
+      if (filters.search) params.set('search', filters.search);
+      if (filters.sortBy) params.set('sortBy', filters.sortBy);
+      if (filters.sortDir) params.set('sortDir', filters.sortDir);
+
+      const { data } = await apiClient.get<PaginatedResponse<DistributorListItem>>(
+        `/distributors?${params.toString()}`,
+      );
+      rows.push(...(data.data ?? []));
+      totalPages = data.pagination?.totalPages ?? 1;
+      page += 1;
+    } while (page <= totalPages && page <= 50);
+
+    return rows;
+  }, []);
+}
+
 export function useAllDistributorIds() {
   return useCallback(async (filters: Pick<DistributorFilters, 'search'>) => {
     const ids: string[] = [];

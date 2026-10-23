@@ -180,6 +180,7 @@ export function CustomerListPage() {
       key: 'actions',
       // The only way to act on a row; hiding it would strand the row.
       alwaysVisible: true,
+      exportable: false,
       resizable: false,
       header: 'Actions',
       render: (row) => (
@@ -307,6 +308,7 @@ export function CustomerListPage() {
       {/* Data table */}
       <DataTable<Customer>
         tableId="customers"
+        exportConfig={{ title: 'Customers' }}
         columns={columns}
         data={customers}
         isLoading={customersQuery.isLoading}

@@ -15,6 +15,7 @@ import {
   useMergeDistributorsMutation,
   useDistributorDeletionImpact,
   useAllDistributorIds,
+  useAllDistributors,
 } from '../../hooks/useDistributors';
 import { DataTable } from '../../components/DataTable';
 import type { Column, PaginationState, SortDir } from '../../components/DataTable';
@@ -77,6 +78,7 @@ export function DistributorListPage() {
   const mergeMut = useMergeDistributorsMutation();
   const impactMut = useDistributorDeletionImpact();
   const fetchAllIds = useAllDistributorIds();
+  const fetchAllDistributors = useAllDistributors();
   const toast = useToast();
 
   const clearPicked = () => {
@@ -300,6 +302,7 @@ export function DistributorListPage() {
       key: 'actions',
       // The only way to act on a row; hiding it would strand the row.
       alwaysVisible: true,
+      exportable: false,
       resizable: false,
       header: 'Actions',
       render: (row) => (
@@ -539,6 +542,23 @@ export function DistributorListPage() {
       {/* Data table */}
       <DataTable<DistributorListItem>
         tableId="distributors"
+        exportConfig={{
+          title: 'Distributors',
+          subtitle: [
+            searchText ? `Search: ${searchText}` : null,
+            `Sorted by ${DISTRIBUTOR_SORTS.find((s) => s.key === sortBy)?.label ?? sortBy}`,
+            `${totalItems} supplier${totalItems === 1 ? '' : 's'}`,
+          ]
+            .filter(Boolean)
+            .join(' · '),
+          totalCount: totalItems,
+          fetchAll: () =>
+            fetchAllDistributors({
+              search: debouncedSearch.length >= 3 ? debouncedSearch : undefined,
+              sortBy,
+              sortDir,
+            }),
+        }}
         columns={columns}
         data={distributors}
         isLoading={distributorsQuery.isLoading}

@@ -623,6 +623,7 @@ function OverdueTab() {
         key: 'actions',
         // The only way to act on a row; hiding it would strand the row.
         alwaysVisible: true,
+        exportable: false,
         resizable: false,
         header: 'Actions',
         render: (row) => (
@@ -688,6 +689,7 @@ function OverdueTab() {
       </div>
       <DataTable<OverdueInstallmentItem>
         tableId="installments-overdue"
+        exportConfig={{ title: 'Overdue installments' }}
         columns={columns}
         data={overdueItems ?? []}
         isLoading={isLoading}
@@ -856,6 +858,7 @@ function CollectionsTab() {
         key: 'actions',
         // The only way to act on a row; hiding it would strand the row.
         alwaysVisible: true,
+        exportable: false,
         resizable: false,
         header: 'Actions',
         render: (row) => (
@@ -1009,6 +1012,7 @@ function CollectionsTab() {
           {/* Table — totals are surfaced in the TotalDueChip at the top */}
           <DataTable<CollectionItem>
             tableId="installments-collections"
+            exportConfig={{ title: 'Collections' }}
             columns={collectionColumns}
             data={collections}
             isLoading={false}
@@ -1196,6 +1200,7 @@ function PaidTab() {
         key: 'actions',
         // The only way to act on a row; hiding it would strand the row.
         alwaysVisible: true,
+        exportable: false,
         resizable: false,
         header: 'Actions',
         render: (row) => (
@@ -1336,6 +1341,7 @@ function PaidTab() {
 
           <DataTable<PaidCollectionItem>
             tableId="installments-paid"
+            exportConfig={{ title: 'Paid collections' }}
             columns={columns}
             data={rows}
             isLoading={false}

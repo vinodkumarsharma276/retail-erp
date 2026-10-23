@@ -1,7 +1,9 @@
 import { useMemo, useRef, useState } from 'react';
-import { ChevronDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ChevronsUpDown, ChevronUp } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ChevronsUpDown, ChevronUp, Download } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { ColumnPicker } from './ColumnPicker';
+import { ExportDialog } from './ExportDialog';
+import { exportCsv, exportExcel, printTable } from '../lib/table-export';
 import { useTablePreferences } from '../hooks/useTablePreferences';
 
 // ---------------------------------------------------------------------------
@@ -35,6 +37,16 @@ export interface Column<T> {
   alwaysVisible?: boolean;
   /** Stop this column being dragged wider or narrower. */
   resizable?: boolean;
+  /**
+   * The cell as plain text, for export and print.
+   *
+   * Worth setting wherever `render` returns more than words — a badge, a
+   * link, an amount in a coloured span — since otherwise the text has to be
+   * dug back out of the rendered node.
+   */
+  exportValue?: (row: T) => string | number | null | undefined;
+  /** Keep this column out of exports (row numbers, button clusters). */
+  exportable?: boolean;
 }
 
 export type SortDir = 'asc' | 'desc';
@@ -98,6 +110,20 @@ interface DataTableProps<T> {
    * did: every column, no picker, no drag handles.
    */
   tableId?: string;
+  /**
+   * Let this table be exported and printed.
+   *
+   * `fetchAll` is how the screen offers more than the page on show: without
+   * it the dialog can only honestly offer the rows it has.
+   */
+  exportConfig?: {
+    /** Used for the file name and the printed heading. */
+    title: string;
+    /** What the printed sheet says under the heading — the filters, usually. */
+    subtitle?: string;
+    totalCount?: number;
+    fetchAll?: () => Promise<T[]>;
+  };
 }
 
 /** Narrower than this and a column is unreadable rather than compact. */
@@ -121,6 +147,7 @@ export function DataTable<T>({
   selection,
   serverSort,
   tableId,
+  exportConfig,
 }: DataTableProps<T>) {
   // Only on the desktop table: a row of tickboxes is no way to work on a phone.
   const picking = Boolean(selection && rowKey);
@@ -296,26 +323,97 @@ export function DataTable<T>({
   }));
   const customised = prefs.hidden.length > 0 || Object.keys(prefs.widths).length > 0;
 
+  // ------ Getting the table out as a file or on paper ------
+  const [exporting, setExporting] = useState(false);
+  const [exportBusy, setExportBusy] = useState(false);
+
+  /** Columns worth offering: a row number or a button cluster is not data. */
+  const exportableColumns = columns.filter((col) => col.exportable !== false && col.key !== 'sno');
+
+  const runExport = async (choice: {
+    columns: string[];
+    scope: 'page' | 'all';
+    format: 'csv' | 'excel' | 'print';
+  }) => {
+    if (!exportConfig) return;
+    setExportBusy(true);
+    try {
+      const chosen = choice.columns
+        .map((key) => exportableColumns.find((c) => c.key === key))
+        .filter((c): c is Column<T> => c != null);
+
+      const rows =
+        choice.scope === 'all' && exportConfig.fetchAll
+          ? await exportConfig.fetchAll()
+          : sortedData;
+
+      const fileName = exportConfig.title.replace(/[^\w.-]+/g, '-').toLowerCase();
+      if (choice.format === 'csv') exportCsv(chosen, rows, fileName);
+      else if (choice.format === 'excel') exportExcel(chosen, rows, fileName);
+      else printTable(chosen, rows, exportConfig.title, exportConfig.subtitle);
+
+      setExporting(false);
+    } finally {
+      setExportBusy(false);
+    }
+  };
+
   /**
    * Offered above the table whether or not there are rows: a filter that
    * matches nothing must not be the thing that traps a hidden column.
    */
-  const toolbar = canCustomise ? (
-    <div className="hidden items-center justify-end border-b border-border/60 px-3 py-1.5 md:flex">
-      <ColumnPicker
-        items={columnPickerItems}
-        onToggle={toggleColumn}
-        onReset={reset}
-        customised={customised}
+  const toolbar =
+    canCustomise || exportConfig ? (
+      <div className="hidden items-center justify-end gap-2 border-b border-border/60 px-3 py-1.5 md:flex">
+        {exportConfig && (
+          <button
+            type="button"
+            onClick={() => setExporting(true)}
+            className={cn(
+              'inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium',
+              'text-muted-foreground transition-colors hover:bg-muted hover:text-foreground',
+            )}
+          >
+            <Download className="h-3.5 w-3.5" />
+            Export
+          </button>
+        )}
+        {canCustomise && (
+          <ColumnPicker
+            items={columnPickerItems}
+            onToggle={toggleColumn}
+            onReset={reset}
+            customised={customised}
+          />
+        )}
+      </div>
+    ) : null;
+
+  const exportDialog =
+    exporting && exportConfig ? (
+      <ExportDialog
+        title={exportConfig.title}
+        columns={exportableColumns.map((col) => ({
+          key: col.key,
+          label: col.header || col.key,
+          // Start from what is on screen: the usual want is this, as shown.
+          selected: col.alwaysVisible || !hidden.has(col.key),
+        }))}
+        pageCount={sortedData.length}
+        totalCount={exportConfig.totalCount}
+        canExportAll={Boolean(exportConfig.fetchAll)}
+        busy={exportBusy}
+        onCancel={() => setExporting(false)}
+        onConfirm={(choice) => void runExport(choice)}
       />
-    </div>
-  ) : null;
+    ) : null;
 
   // Skeleton rows when loading
   if (isLoading) {
     return (
       <div className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
         {toolbar}
+      {exportDialog}
         <div className="divide-y md:hidden">
           {Array.from({ length: 4 }).map((_, rowIdx) => (
             <div key={rowIdx} className="p-3">
@@ -367,6 +465,7 @@ export function DataTable<T>({
     return (
       <div className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
         {toolbar}
+      {exportDialog}
         <div className="hidden overflow-x-auto md:block">
           <table className="w-full text-sm">
             <thead>
@@ -444,6 +543,7 @@ export function DataTable<T>({
       </div>
 
       {toolbar}
+      {exportDialog}
 
       <div className="hidden overflow-x-auto md:block">
         <table

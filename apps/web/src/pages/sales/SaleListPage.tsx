@@ -391,6 +391,7 @@ function SaleListPageInner() {
       key: 'actions' as keyof SaleListItem,
       // The only way to act on a row; hiding it would strand the row.
       alwaysVisible: true,
+      exportable: false,
       resizable: false,
       header: '',
       className: 'w-10',
@@ -563,6 +564,7 @@ function SaleListPageInner() {
       {/* Data table */}
       <DataTable<SaleListItem>
         tableId="sales"
+        exportConfig={{ title: 'Sales' }}
         columns={columns}
         data={sales}
         isLoading={salesQuery.isLoading}
