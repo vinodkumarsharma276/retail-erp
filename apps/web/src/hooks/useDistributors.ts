@@ -29,6 +29,9 @@ export interface DistributorFilters {
   page?: number;
   pageSize?: number;
   search?: string;
+  /** Ordered by the server, so it holds across pages rather than within one. */
+  sortBy?: 'companyName' | 'pendingPayment' | 'totalPaymentPaid' | 'totalProductsPurchased';
+  sortDir?: 'asc' | 'desc';
 }
 
 export interface DistributorProductFilters {
@@ -49,6 +52,8 @@ export function useDistributorsQuery(filters: DistributorFilters) {
       if (filters.page) params.set('page', String(filters.page));
       if (filters.pageSize) params.set('pageSize', String(filters.pageSize));
       if (filters.search) params.set('search', filters.search);
+      if (filters.sortBy) params.set('sortBy', filters.sortBy);
+      if (filters.sortDir) params.set('sortDir', filters.sortDir);
 
       const { data } = await apiClient.get<PaginatedResponse<DistributorListItem>>(
         `/distributors?${params.toString()}`,

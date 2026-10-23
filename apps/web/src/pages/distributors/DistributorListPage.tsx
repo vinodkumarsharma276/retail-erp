@@ -17,7 +17,7 @@ import {
   useAllDistributorIds,
 } from '../../hooks/useDistributors';
 import { DataTable } from '../../components/DataTable';
-import type { Column, PaginationState } from '../../components/DataTable';
+import type { Column, PaginationState, SortDir } from '../../components/DataTable';
 import { formatINR } from '@retailerp/shared-utils';
 import type { DistributorListItem } from '@retailerp/shared-types';
 import { IncompleteDetailsBadge } from '../../components/IncompleteDetailsBadge';
@@ -25,6 +25,24 @@ import { distributorCompleteness } from '../../lib/distributor-completeness';
 import { isAllShops, useShopStore } from '../../stores/shop-store';
 
 const PAGE_SIZE = 20;
+
+export type DistributorSortKey =
+  | 'companyName'
+  | 'pendingPayment'
+  | 'totalPaymentPaid'
+  | 'totalProductsPurchased';
+
+/**
+ * The orders worth offering, and what each one is called when you are
+ * looking for it. The column headers do the same thing; this is for when
+ * the column you want to sort by is off the right-hand edge.
+ */
+const DISTRIBUTOR_SORTS: Array<{ key: DistributorSortKey; label: string; dir: SortDir }> = [
+  { key: 'companyName', label: 'Name (A–Z)', dir: 'asc' },
+  { key: 'pendingPayment', label: 'Pending — most owed first', dir: 'desc' },
+  { key: 'totalPaymentPaid', label: 'Total paid — highest first', dir: 'desc' },
+  { key: 'totalProductsPurchased', label: 'Products purchased — most first', dir: 'desc' },
+];
 
 export function DistributorListPage() {
   const navigate = useNavigate();
@@ -131,6 +149,21 @@ export function DistributorListPage() {
   const searchText = searchParams.get('search') || '';
   const debouncedSearch = useDebounce(searchText, 300);
 
+  // The order is the server's business, not the table's: it has to hold
+  // across pages, so it lives in the URL and goes with the request.
+  const sortBy = (DISTRIBUTOR_SORTS.find((s) => s.key === searchParams.get('sortBy'))?.key
+    ?? 'companyName') as DistributorSortKey;
+  const sortDir: SortDir =
+    searchParams.get('sortDir') === 'asc' || searchParams.get('sortDir') === 'desc'
+      ? (searchParams.get('sortDir') as SortDir)
+      : sortBy === 'companyName'
+        ? 'asc'
+        : 'desc';
+
+  /** Re-ordering the whole list means the page you were on is meaningless. */
+  const applySort = (key: string, dir: SortDir) =>
+    updateFilters({ sortBy: key, sortDir: dir, page: '1' });
+
   const updateFilters = (updates: Record<string, string>) => {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
@@ -150,6 +183,8 @@ export function DistributorListPage() {
     page,
     pageSize: PAGE_SIZE,
     search: debouncedSearch.length >= 3 ? debouncedSearch : undefined,
+    sortBy,
+    sortDir,
   });
 
   const distributors = distributorsQuery.data?.data ?? [];
@@ -230,7 +265,7 @@ export function DistributorListPage() {
       ),
     },
     {
-      key: 'totalProducts',
+      key: 'totalProductsPurchased',
       header: 'Products Purchased',
       align: 'right',
       sortable: true,
@@ -238,7 +273,7 @@ export function DistributorListPage() {
       render: (row) => row.totalProductsPurchased,
     },
     {
-      key: 'totalPaid',
+      key: 'totalPaymentPaid',
       header: 'Total Paid',
       align: 'right',
       sortable: true,
@@ -246,7 +281,7 @@ export function DistributorListPage() {
       render: (row) => formatINR(row.totalPaymentPaid),
     },
     {
-      key: 'pending',
+      key: 'pendingPayment',
       header: 'Pending',
       align: 'right',
       sortable: true,
@@ -371,6 +406,34 @@ export function DistributorListPage() {
           </div>
         </div>
 
+        {/* Order of the whole list, not of the page on screen */}
+        <div className="min-w-[240px]">
+          <label
+            htmlFor="distributor-sort"
+            className="block text-xs font-medium text-muted-foreground mb-1"
+          >
+            Sort by
+          </label>
+          <select
+            id="distributor-sort"
+            value={sortBy}
+            onChange={(e) => {
+              const chosen = DISTRIBUTOR_SORTS.find((s) => s.key === e.target.value);
+              if (chosen) applySort(chosen.key, chosen.dir);
+            }}
+            className={cn(
+              'w-full rounded-md border bg-field px-3 py-2 text-sm',
+              'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+            )}
+          >
+            {DISTRIBUTOR_SORTS.map((s) => (
+              <option key={s.key} value={s.key}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
         {/* Clear filters */}
         {hasFilters && (
           <button
@@ -479,6 +542,8 @@ export function DistributorListPage() {
         onPageChange={(p) => updateFilters({ page: String(p) })}
         emptyMessage="No distributors found matching your search."
         rowKey={(row) => row.id}
+        // Clicking a header reorders every distributor, not the twenty here.
+        serverSort={{ key: sortBy, dir: sortDir, onChange: applySort }}
         selection={
           canPick
             ? {

@@ -1,5 +1,10 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
-import { distributorsService, DistributorInUseError } from './distributors.service.js';
+import {
+  distributorsService,
+  DistributorInUseError,
+  DISTRIBUTOR_SORT_KEYS,
+  type DistributorSortKey,
+} from './distributors.service.js';
 import { planDistributorImport, commitDistributorImport } from './distributors.import.js';
 import type { ParsedCreditor } from '@retailerp/shared-utils';
 import { sendSuccess, sendError, sendPaginated } from '../../utils/response.js';
@@ -12,6 +17,8 @@ export const distributorsController = {
         page?: string;
         pageSize?: string;
         search?: string;
+        sortBy?: string;
+        sortDir?: string;
       };
     }>,
     reply: FastifyReply,
@@ -20,12 +27,23 @@ export const distributorsController = {
       const { page, pageSize, skip, take } = parsePagination(request.query);
       const { search } = request.query;
 
+      // An unknown sort is ignored rather than refused: a stale bookmark
+      // should still show the list, just in the default order.
+      const sortBy = DISTRIBUTOR_SORT_KEYS.includes(request.query.sortBy as DistributorSortKey)
+        ? (request.query.sortBy as DistributorSortKey)
+        : undefined;
+      const sortDir = request.query.sortDir === 'asc' || request.query.sortDir === 'desc'
+        ? request.query.sortDir
+        : undefined;
+
       const { distributors, totalItems } = await distributorsService.list({
         page,
         pageSize,
         skip,
         take,
         search,
+        sortBy,
+        sortDir,
       });
 
       return sendPaginated(reply, distributors, { page, pageSize, totalItems });

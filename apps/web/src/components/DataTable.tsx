@@ -28,7 +28,7 @@ export interface Column<T> {
   sortAccessor?: (row: T) => string | number | Date | null | undefined;
 }
 
-type SortDir = 'asc' | 'desc';
+export type SortDir = 'asc' | 'desc';
 interface SortState {
   key: string;
   dir: SortDir;
@@ -70,6 +70,19 @@ interface DataTableProps<T> {
     /** Rows that cannot be picked, with the reason, shown on hover. */
     disabledReason?: (row: T) => string | null;
   };
+  /**
+   * Hand sorting to whoever supplies the rows.
+   *
+   * Sorting in here can only ever order the page it was given, which on a
+   * paginated list is the wrong answer: "most owed first" has to consider
+   * every row, not the twenty on screen. When this is set the headers
+   * report the click instead of reordering anything themselves.
+   */
+  serverSort?: {
+    key: string | null;
+    dir: SortDir;
+    onChange: (key: string, dir: SortDir) => void;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -86,6 +99,7 @@ export function DataTable<T>({
   onRowClick,
   defaultSort,
   selection,
+  serverSort,
 }: DataTableProps<T>) {
   // Only on the desktop table: a row of tickboxes is no way to work on a phone.
   const picking = Boolean(selection && rowKey);
@@ -99,6 +113,8 @@ export function DataTable<T>({
   const [sort, setSort] = useState<SortState | null>(defaultSort ?? null);
 
   const sortedData = useMemo(() => {
+    // Already ordered by whoever fetched it.
+    if (serverSort) return data;
     if (!sort) return data;
     const col = columns.find((c) => c.key === sort.key);
     if (!col || !col.sortable) return data;
@@ -127,7 +143,7 @@ export function DataTable<T>({
       return 0;
     });
     return arr;
-  }, [data, sort, columns]);
+  }, [data, sort, columns, serverSort]);
 
   /** Rows on this page the user may actually pick. */
   const pickableKeys = useMemo(
@@ -142,12 +158,25 @@ export function DataTable<T>({
   );
 
   const toggleSort = (key: string) => {
+    if (serverSort) {
+      // A fresh column starts on the order that column is usually read in:
+      // names A to Z, amounts and counts biggest first.
+      const col = columns.find((c) => c.key === key);
+      const firstDir: SortDir = col?.align === 'right' ? 'desc' : 'asc';
+      const next: SortDir =
+        serverSort.key === key ? (serverSort.dir === 'asc' ? 'desc' : 'asc') : firstDir;
+      serverSort.onChange(key, next);
+      return;
+    }
     setSort((prev) => {
       if (!prev || prev.key !== key) return { key, dir: 'asc' };
       if (prev.dir === 'asc') return { key, dir: 'desc' };
       return null; // third click clears
     });
   };
+
+  /** What the header arrows should show. */
+  const activeSort = serverSort ? { key: serverSort.key, dir: serverSort.dir } : sort;
 
   // Skeleton rows when loading
   if (isLoading) {
@@ -308,8 +337,8 @@ export function DataTable<T>({
                 </th>
               )}
               {columns.map((col) => {
-                const isActive = sort?.key === col.key;
-                const Icon = !isActive ? ChevronsUpDown : sort?.dir === 'asc' ? ChevronUp : ChevronDown;
+                const isActive = activeSort?.key === col.key;
+                const Icon = !isActive ? ChevronsUpDown : activeSort?.dir === 'asc' ? ChevronUp : ChevronDown;
                 return (
                   <th
                     key={col.key}

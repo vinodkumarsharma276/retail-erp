@@ -5,6 +5,88 @@ import { reasonPurchasesCannotBeDeleted } from '../purchases/purchases.service.j
 /** A supplier that cannot be deleted, because the books still point at it. */
 export class DistributorInUseError extends Error {}
 
+/** Columns the supplier table has, which the database can order on directly. */
+const PLAIN_SORT_KEYS = ['companyName', 'contactPerson', 'phone', 'gstNumber'] as const;
+/** Figures summed from a supplier's purchases, which it cannot. */
+const TOTAL_SORT_KEYS = ['pendingPayment', 'totalPaymentPaid', 'totalProductsPurchased'] as const;
+
+export type PlainSortKey = (typeof PLAIN_SORT_KEYS)[number];
+export type TotalSortKey = (typeof TOTAL_SORT_KEYS)[number];
+/** What a supplier list can be ordered by. */
+export type DistributorSortKey = PlainSortKey | TotalSortKey;
+
+export type SortDirection = 'asc' | 'desc';
+
+export const DISTRIBUTOR_SORT_KEYS: DistributorSortKey[] = [
+  ...PLAIN_SORT_KEYS,
+  ...TOTAL_SORT_KEYS,
+];
+
+const isPlainSort = (key: DistributorSortKey): key is PlainSortKey =>
+  (PLAIN_SORT_KEYS as readonly string[]).includes(key);
+
+interface DistributorTotals {
+  totalProductsPurchased: number;
+  totalPaymentPaid: number;
+  pendingPayment: number;
+}
+
+/**
+ * What each supplier has bought, paid and still owes.
+ *
+ * Summed in the database rather than by reading every purchase back: the
+ * aggregate-sorted path asks for these across the whole list, not one page,
+ * and that is a lot of rows to drag over the wire to add up three numbers.
+ */
+async function distributorTotals(ids: string[]): Promise<Map<string, DistributorTotals>> {
+  const totals = new Map<string, DistributorTotals>();
+  if (ids.length === 0) return totals;
+
+  const [productCounts, purchaseSums] = await Promise.all([
+    prisma.product.groupBy({
+      by: ['distributorId'],
+      where: { distributorId: { in: ids } },
+      _count: { id: true },
+    }),
+    prisma.purchase.groupBy({
+      by: ['distributorId'],
+      where: { distributorId: { in: ids } },
+      _sum: { netAmount: true, amountPaid: true },
+    }),
+  ]);
+
+  const at = (id: string) => {
+    const existing = totals.get(id);
+    if (existing) return existing;
+    const fresh = { totalProductsPurchased: 0, totalPaymentPaid: 0, pendingPayment: 0 };
+    totals.set(id, fresh);
+    return fresh;
+  };
+
+  for (const row of productCounts) {
+    if (row.distributorId) at(row.distributorId).totalProductsPurchased = row._count.id;
+  }
+  for (const row of purchaseSums) {
+    const entry = at(row.distributorId);
+    const net = Number(row._sum.netAmount ?? 0);
+    const paid = Number(row._sum.amountPaid ?? 0);
+    entry.totalPaymentPaid = paid;
+    entry.pendingPayment = net - paid;
+  }
+
+  return totals;
+}
+
+function withTotals<T extends { id: string }>(distributor: T, totals: Map<string, DistributorTotals>) {
+  const t = totals.get(distributor.id);
+  return {
+    ...distributor,
+    totalProductsPurchased: t?.totalProductsPurchased ?? 0,
+    totalPaymentPaid: t?.totalPaymentPaid ?? 0,
+    pendingPayment: t?.pendingPayment ?? 0,
+  };
+}
+
 export const distributorsService = {
   async list(filters: {
     skip: number;
@@ -12,6 +94,8 @@ export const distributorsService = {
     page: number;
     pageSize: number;
     search?: string;
+    sortBy?: DistributorSortKey;
+    sortDir?: SortDirection;
   }) {
     const where: Prisma.DistributorWhereInput = {};
 
@@ -23,74 +107,80 @@ export const distributorsService = {
       ];
     }
 
-    const [distributors, totalItems] = await Promise.all([
-      prisma.distributor.findMany({
-        where,
+    const sortBy: DistributorSortKey = filters.sortBy ?? 'companyName';
+    // Money and counts are asked about biggest-first — "who do I owe most"
+    // — while text is looked up A to Z.
+    const sortDir: SortDirection = filters.sortDir ?? (isPlainSort(sortBy) ? 'asc' : 'desc');
+
+    const include = {
+      categories: {
         include: {
-          categories: {
-            include: {
-              category: {
-                select: { id: true, name: true, slug: true, path: true },
-              },
-            },
-          },
+          category: { select: { id: true, name: true, slug: true, path: true } },
         },
-        orderBy: { companyName: 'asc' },
-        skip: filters.skip,
-        take: filters.take,
-      }),
-      prisma.distributor.count({ where }),
-    ]);
-
-    // Compute aggregates for each distributor
-    const distributorIds = distributors.map((d) => d.id);
-
-    // Get total products purchased (products linked via purchases)
-    const productCounts = await prisma.product.groupBy({
-      by: ['distributorId'],
-      where: { distributorId: { in: distributorIds } },
-      _count: { id: true },
-    });
-
-    // Get total payment paid (sum of purchase_payments)
-    const paymentSums = await prisma.purchasePayment.groupBy({
-      by: ['purchaseId'],
-      where: {
-        purchase: { distributorId: { in: distributorIds } },
       },
-      _sum: { amount: true },
-    });
+    } satisfies Prisma.DistributorInclude;
 
-    // Map purchaseId -> distributorId for aggregation
-    const purchases = await prisma.purchase.findMany({
-      where: { distributorId: { in: distributorIds } },
-      select: { id: true, distributorId: true, netAmount: true, amountPaid: true },
-    });
+    // --- Sorting on a column the table actually has ------------------------
+    // The database can order and cut the page in one go.
+    if (isPlainSort(sortBy)) {
+      const [distributors, totalItems] = await Promise.all([
+        prisma.distributor.findMany({
+          where,
+          include,
+          // A second key keeps paging stable where the first one ties —
+          // every imported supplier has a blank phone, for instance.
+          orderBy: [{ [sortBy]: sortDir }, { companyName: 'asc' }],
+          skip: filters.skip,
+          take: filters.take,
+        }),
+        prisma.distributor.count({ where }),
+      ]);
 
-    const distributorPayments: Record<string, number> = {};
-    const distributorPending: Record<string, number> = {};
-
-    for (const purchase of purchases) {
-      const distId = purchase.distributorId;
-      distributorPayments[distId] = (distributorPayments[distId] || 0) + Number(purchase.amountPaid);
-      distributorPending[distId] = (distributorPending[distId] || 0) + (Number(purchase.netAmount) - Number(purchase.amountPaid));
+      const totals = await distributorTotals(distributors.map((d) => d.id));
+      return { distributors: distributors.map((d) => withTotals(d, totals)), totalItems };
     }
 
-    const productCountMap: Record<string, number> = {};
-    for (const pc of productCounts) {
-      if (pc.distributorId) {
-        productCountMap[pc.distributorId] = pc._count.id;
-      }
-    }
+    // --- Sorting on a figure that has to be worked out ---------------------
+    // Pending, paid and stock bought are not columns on the supplier: they
+    // are sums over its purchases. Every matching supplier therefore has to
+    // be weighed before the page can be cut, or "the ten I owe most" would
+    // only ever mean "the ten I owe most on this page", which is the whole
+    // complaint.
+    const matching = await prisma.distributor.findMany({
+      where,
+      select: { id: true, companyName: true },
+    });
 
-    const enriched = distributors.map((d) => ({
-      ...d,
-      totalProductsPurchased: productCountMap[d.id] || 0,
-      totalPaymentPaid: distributorPayments[d.id] || 0,
-      pendingPayment: distributorPending[d.id] || 0,
-    }));
+    const totals = await distributorTotals(matching.map((d) => d.id));
 
-    return { distributors: enriched, totalItems };
+    const metric = (id: string) => {
+      const t = totals.get(id);
+      if (!t) return 0;
+      if (sortBy === 'pendingPayment') return t.pendingPayment;
+      if (sortBy === 'totalPaymentPaid') return t.totalPaymentPaid;
+      return t.totalProductsPurchased;
+    };
+
+    const ordered = [...matching].sort((a, b) => {
+      const diff = metric(b.id) - metric(a.id);
+      if (diff !== 0) return sortDir === 'desc' ? diff : -diff;
+      // Suppliers with nothing against them all score zero, so without a
+      // second key the order would shuffle between pages.
+      return a.companyName.localeCompare(b.companyName);
+    });
+
+    const pageIds = ordered.slice(filters.skip, filters.skip + filters.take).map((d) => d.id);
+    const rows = await prisma.distributor.findMany({ where: { id: { in: pageIds } }, include });
+    const byId = new Map(rows.map((r) => [r.id, r]));
+
+    return {
+      // findMany returns its own order; the sorted one is the point here.
+      distributors: pageIds
+        .map((id) => byId.get(id))
+        .filter((d): d is (typeof rows)[number] => d != null)
+        .map((d) => withTotals(d, totals)),
+      totalItems: matching.length,
+    };
   },
 
   async getById(id: string) {
