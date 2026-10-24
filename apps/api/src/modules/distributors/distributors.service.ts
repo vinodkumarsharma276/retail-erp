@@ -1,10 +1,8 @@
 import { prisma } from '../../config/database.js';
 import { Prisma } from '@prisma/client';
 import { reasonPurchasesCannotBeDeleted } from '../purchases/purchases.service.js';
-import {
-  findDuplicateDistributors,
-  type CandidateDistributor,
-} from '@retailerp/shared-utils';
+import type { CandidateDistributor } from '@retailerp/shared-utils';
+import { checkCandidatesForDuplicates } from './distributors.import.js';
 
 /** A supplier that cannot be deleted, because the books still point at it. */
 export class DistributorInUseError extends Error {}
@@ -386,10 +384,7 @@ export const distributorsService = {
    * Only the four fields the check looks at are read back.
    */
   async checkDuplicates(candidates: CandidateDistributor[]) {
-    const existing = await prisma.distributor.findMany({
-      select: { id: true, companyName: true, phone: true, gstNumber: true, panNumber: true },
-    });
-    return findDuplicateDistributors(candidates, existing);
+    return checkCandidatesForDuplicates(candidates);
   },
 
   /**

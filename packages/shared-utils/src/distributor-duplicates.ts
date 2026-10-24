@@ -111,8 +111,13 @@ export interface DuplicateClash {
 export interface SimilarName {
   existingId: string;
   existingName: string;
-  /** 0 to 1. */
+  /** 0 to 1. A letter-overlap score, unless `reason` says otherwise. */
   score: number;
+  /**
+   * Set when the letters were inconclusive and a model was asked instead —
+   * a few words on why it thinks these are the same business.
+   */
+  reason?: string;
 }
 
 export interface DuplicateReport {

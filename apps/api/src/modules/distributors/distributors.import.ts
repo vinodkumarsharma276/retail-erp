@@ -19,7 +19,9 @@ import {
   duplicateFieldLabel,
   type ParsedCreditor,
   type DuplicateReport,
+  type CandidateDistributor,
 } from '@retailerp/shared-utils';
+import { adjudicateNames, uncertainPairs, adjudicatorEnabled } from './name-adjudicator.js';
 
 /** A sheet that would put the same party on the books twice. */
 export class DistributorImportBlocked extends Error {}
@@ -33,10 +35,7 @@ export class DistributorImportBlocked extends Error {}
 export async function checkDistributorDuplicates(
   rows: ParsedCreditor[],
 ): Promise<DuplicateReport[]> {
-  const existing = await prisma.distributor.findMany({
-    select: { id: true, companyName: true, phone: true, gstNumber: true, panNumber: true },
-  });
-  return findDuplicateDistributors(
+  return checkCandidatesForDuplicates(
     rows.map((row) => ({
       rowNumber: row.rowNumber,
       companyName: row.companyName,
@@ -44,8 +43,64 @@ export async function checkDistributorDuplicates(
       gstNumber: row.gstNumber,
       panNumber: row.panNumber,
     })),
-    existing,
   );
+}
+
+/**
+ * The duplicate check as both screens get it: trigrams, then a model on the
+ * pairs trigrams were unsure about.
+ *
+ * Trigram overlap settles most of it for nothing. What it cannot see is
+ * meaning — it compares letters, so a swapped word order or an abbreviation
+ * scores far lower than it deserves. Only the uncertain middle is put to a
+ * model, which on a 195-row sheet is a handful of pairs rather than 195
+ * calls, and the obvious cases stay instant, free and repeatable.
+ */
+export async function checkCandidatesForDuplicates(
+  candidates: CandidateDistributor[],
+): Promise<DuplicateReport[]> {
+  const existing = await prisma.distributor.findMany({
+    select: { id: true, companyName: true, phone: true, gstNumber: true, panNumber: true },
+  });
+
+  const reports = findDuplicateDistributors(candidates, existing);
+
+  if (!adjudicatorEnabled()) return reports;
+
+  const verdicts = await adjudicateNames(uncertainPairs(candidates, existing));
+  if (verdicts.length === 0) return reports;
+
+  // Only "same" verdicts do anything: the model is there to catch what the
+  // letters missed, never to overrule a name the letters already matched.
+  const sameByName = new Map<string, Map<string, string | undefined>>();
+  for (const v of verdicts) {
+    if (!v.same) continue;
+    const forName = sameByName.get(v.candidateName) ?? new Map();
+    forName.set(v.existingId, v.reason);
+    sameByName.set(v.candidateName, forName);
+  }
+  const byId = new Map(existing.map((e) => [e.id, e]));
+
+  return reports.map((report) => {
+    const found = sameByName.get(report.companyName);
+    if (!found) return report;
+
+    const already = new Set(report.similar.map((s) => s.existingId));
+    const added = [...found.entries()]
+      .filter(([id]) => !already.has(id) && byId.has(id))
+      .filter(([id]) => !report.clashes.some((c) => c.existingId === id))
+      .map(([id, reason]) => ({
+        existingId: id,
+        existingName: byId.get(id)!.companyName,
+        // Not a letter-overlap score; the model was asked and said yes.
+        score: 1,
+        reason,
+      }));
+
+    return added.length > 0
+      ? { ...report, similar: [...report.similar, ...added].slice(0, 5) }
+      : report;
+  });
 }
 
 /** Fields a sheet may fill on a supplier that already exists. */
