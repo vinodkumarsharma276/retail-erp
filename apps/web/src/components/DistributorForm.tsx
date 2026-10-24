@@ -21,7 +21,34 @@ import {
   useCheckDistributorDuplicates,
 } from '../hooks/useDistributors';
 import type { Distributor, ProductCategory } from '@retailerp/shared-types';
-import { duplicateFieldLabel, type DuplicateReport } from '@retailerp/shared-utils';
+import {
+  useValidationDialog,
+  issuesFromFormErrors,
+  type ValidationIssue,
+} from './ValidationDialog';
+
+/** What each field is called when it is the thing being complained about. */
+const FIELD_LABELS: Record<string, string> = {
+  companyName: 'Company name',
+  contactPerson: 'Contact person',
+  phone: 'Phone',
+  altPhone: 'Alternate phone',
+  email: 'Email',
+  gstNumber: 'GST number',
+  panNumber: 'PAN number',
+  addressLine1: 'Address line 1',
+  addressLine2: 'Address line 2',
+  city: 'City',
+  state: 'State',
+  pincode: 'PIN code',
+  bankName: 'Bank name',
+  bankAccountNumber: 'Bank account number',
+  bankIfsc: 'IFSC code',
+  bankBranch: 'Branch',
+  paymentTerms: 'Payment terms',
+  creditLimit: 'Credit limit',
+};
+import { duplicateFieldLabel } from '@retailerp/shared-utils';
 import { Link } from 'react-router-dom';
 
 // ---------------------------------------------------------------------------
@@ -203,7 +230,7 @@ export function DistributorForm({
 
   // ------ Already on the books? ------
   const checkDuplicates = useCheckDistributorDuplicates();
-  const [duplicateReport, setDuplicateReport] = useState<DuplicateReport | null>(null);
+  const validation = useValidationDialog();
   /** Set when the person has read the similar-name warning and meant it. */
   const [dismissedSimilar, setDismissedSimilar] = useState(false);
 
@@ -211,11 +238,17 @@ export function DistributorForm({
   const identityKey = watchedIdentity.join('|');
   // Change any of the four and the last answer no longer applies.
   useEffect(() => {
-    setDuplicateReport(null);
     setDismissedSimilar(false);
   }, [identityKey]);
 
-  const blockedByDuplicate = (duplicateReport?.clashes.length ?? 0) > 0;
+  /**
+   * A field this form refuses is said in front of the person too. On a form
+   * this long the message beside the field can be a screen away from the
+   * button they pressed.
+   */
+  const showFieldErrors = (formErrors: Record<string, unknown>) => {
+    validation.show(issuesFromFormErrors(formErrors, FIELD_LABELS));
+  };
 
   const toggleCategory = (catId: string) => {
     setSelectedCategoryIds((prev) =>
@@ -239,12 +272,69 @@ export function DistributorForm({
             excludeId: distributorId,
           },
         ]);
-        setDuplicateReport(report ?? null);
-        if (report && (report.clashes.length > 0 || report.similar.length > 0)) return;
+
+        const issues: ValidationIssue[] = [
+          ...(report?.clashes ?? []).map((c) => ({
+            severity: 'block' as const,
+            title: `The ${duplicateFieldLabel(c.field)} ${c.value} already belongs to ${c.existingName}`,
+            field: c.field,
+            detail: (
+              <>
+                A GSTIN, PAN or phone number belongs to one business, so this is that business
+                again. Open{' '}
+                <Link
+                  to={`/distributors/${c.existingId}`}
+                  className="font-medium text-foreground underline underline-offset-4"
+                >
+                  {c.existingName}
+                </Link>{' '}
+                and bring it up to date instead — or correct the number here if it was typed
+                wrong.
+              </>
+            ),
+          })),
+          ...((report?.similar.length ?? 0) > 0
+            ? [
+                {
+                  severity: 'warn' as const,
+                  title: 'A supplier with a very similar name already exists',
+                  field: 'companyName',
+                  detail: (
+                    <>
+                      {report!.similar.map((s) => (
+                        <span key={s.existingId} className="mr-2 inline-block">
+                          <Link
+                            to={`/distributors/${s.existingId}`}
+                            className="font-medium text-foreground underline underline-offset-4"
+                          >
+                            {s.existingName}
+                          </Link>
+                          <span className="ml-1 text-xs">({Math.round(s.score * 100)}% alike)</span>
+                        </span>
+                      ))}
+                      <span className="mt-1 block">
+                        If that is the same business, open it instead of adding a second record.
+                      </span>
+                    </>
+                  ),
+                },
+              ]
+            : []),
+        ];
+
+        const stopped = validation.show(issues, {
+          proceedLabel: 'It is a different supplier — save anyway',
+          // Only reachable when nothing is blocking, so this cannot wave a
+          // real clash through.
+          onProceed: () => {
+            setDismissedSimilar(true);
+            void handleSubmit(onSubmit, showFieldErrors)();
+          },
+        });
+        if (stopped) return;
       } catch {
         // The check is a help, not a gate: if it cannot run, saving still
         // can, and the API's own unique constraints are still there.
-        setDuplicateReport(null);
       }
     }
 
@@ -307,7 +397,7 @@ export function DistributorForm({
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
         e.preventDefault();
         if (!isSaving) {
-          handleSubmit(onSubmit)();
+          handleSubmit(onSubmit, showFieldErrors)();
         }
       }
     };
@@ -742,73 +832,6 @@ export function DistributorForm({
         )}
       </section>
 
-      {/* Already on the books — the hard kind */}
-      {blockedByDuplicate && duplicateReport && (
-        <div className="rounded-md border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm">
-          <p className="flex items-center gap-2 font-medium text-destructive">
-            <AlertCircle className="h-4 w-4 shrink-0" />
-            This supplier is already on file
-          </p>
-          <ul className="mt-2 space-y-1 text-muted-foreground">
-            {duplicateReport.clashes.map((c) => (
-              <li key={`${c.field}-${c.value}`}>
-                The {duplicateFieldLabel(c.field)}{' '}
-                <code className="text-xs">{c.value}</code> already belongs to{' '}
-                <Link
-                  to={`/distributors/${c.existingId}`}
-                  className="font-medium text-foreground underline underline-offset-4"
-                >
-                  {c.existingName}
-                </Link>
-                .
-              </li>
-            ))}
-          </ul>
-          <p className="mt-2 text-muted-foreground">
-            A GSTIN, PAN or phone number belongs to one business. Open that record and bring it
-            up to date rather than adding a second one — or correct the number here if it was
-            typed wrong.
-          </p>
-        </div>
-      )}
-
-      {/* Might be the same supplier spelled twice — the person decides */}
-      {!blockedByDuplicate && duplicateReport && duplicateReport.similar.length > 0 && (
-        <div className="rounded-md border border-warning/40 bg-warning/10 px-4 py-3 text-sm">
-          <p className="flex items-center gap-2 font-medium">
-            <AlertCircle className="h-4 w-4 shrink-0 text-warning" />
-            A supplier with a very similar name already exists
-          </p>
-          <ul className="mt-2 space-y-1 text-muted-foreground">
-            {duplicateReport.similar.map((s) => (
-              <li key={s.existingId}>
-                <Link
-                  to={`/distributors/${s.existingId}`}
-                  className="font-medium text-foreground underline underline-offset-4"
-                >
-                  {s.existingName}
-                </Link>
-                <span className="ml-1 text-xs">({Math.round(s.score * 100)}% alike)</span>
-              </li>
-            ))}
-          </ul>
-          <p className="mt-2 text-muted-foreground">
-            If that is the same business, open it instead. If it is genuinely a different one,
-            carry on.
-          </p>
-          <button
-            type="button"
-            onClick={() => {
-              setDismissedSimilar(true);
-              void handleSubmit(onSubmit)();
-            }}
-            className="mt-2 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-muted"
-          >
-            It is a different supplier — save anyway
-          </button>
-        </div>
-      )}
-
       {errorMessage && (
         <div className="flex items-center gap-2 rounded-md bg-destructive/10 px-4 py-3 text-sm text-destructive">
           <AlertCircle className="h-4 w-4 shrink-0" />
@@ -822,7 +845,8 @@ export function DistributorForm({
 
   if (isDialog) {
     return (
-      <form onSubmit={handleSubmit(onSubmit)} className="flex min-h-0 flex-1 flex-col">
+      <form onSubmit={handleSubmit(onSubmit, showFieldErrors)} className="flex min-h-0 flex-1 flex-col">
+        {validation.dialog}
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">{formSections}</div>
         <div className="flex items-center justify-end gap-2 border-t bg-card p-4">
           <button
@@ -860,9 +884,10 @@ export function DistributorForm({
 
   return (
     <form
-      onSubmit={handleSubmit(onSubmit)}
+      onSubmit={handleSubmit(onSubmit, showFieldErrors)}
       className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:gap-6"
     >
+      {validation.dialog}
       <div className="space-y-4 lg:col-span-9">{formSections}</div>
 
       <aside className="lg:col-span-3">

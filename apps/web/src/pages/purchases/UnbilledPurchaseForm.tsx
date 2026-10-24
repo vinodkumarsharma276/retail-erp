@@ -11,6 +11,7 @@ import {
   Search,
   Trash2,
 } from 'lucide-react';
+import { useValidationDialog, issuesFromFormErrors } from '../../components/ValidationDialog';
 import { cn } from '../../lib/utils';
 import { FormSection, FormGrid, Field } from '../../components/ui/form';
 import { Input } from '../../components/ui/input';
@@ -194,6 +195,12 @@ export function UnbilledPurchaseForm({
     trigger,
     formState: { errors },
   } = methods;
+
+  // A refused field is said in front of the person, not only beside the
+  // field — which on a long form is a screen away from the button.
+  const validation = useValidationDialog();
+  const showFieldErrors = (formErrors: Record<string, unknown>) =>
+    validation.show(issuesFromFormErrors(formErrors));
 
   const { fields, append, remove, replace } = useFieldArray({ control, name: 'items' });
   const watchedItems = watch('items');
@@ -429,7 +436,8 @@ export function UnbilledPurchaseForm({
       </div>
 
       <FormProvider {...methods}>
-        <form onSubmit={handleSubmit(onSubmit)}>
+        <form onSubmit={handleSubmit(onSubmit, showFieldErrors)}>
+        {validation.dialog}
           {/* Step 1 — supplier */}
           {currentStep === 0 && (
             <FormSection
@@ -1012,7 +1020,7 @@ export function UnbilledPurchaseForm({
           confirmText={createMutation.isPending ? 'Recording…' : 'Record purchase'}
           cancelText="Review again"
           loading={createMutation.isPending}
-          onConfirm={() => handleSubmit(onSubmit)()}
+          onConfirm={() => handleSubmit(onSubmit, showFieldErrors)()}
           onCancel={() => {
             if (!createMutation.isPending) setIsConfirmOpen(false);
           }}

@@ -17,6 +17,7 @@ import {
   CreditCard,
   Shield,
 } from 'lucide-react';
+import { useValidationDialog, issuesFromFormErrors } from '../../components/ValidationDialog';
 import { cn } from '../../lib/utils';
 import { useDebounce } from '../../hooks/useDebounce';
 import { CityInput } from '../../components/CityInput';
@@ -307,6 +308,12 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
     setValue,
     formState: { errors },
   } = useForm<SaleFormValues>({ defaultValues });
+
+  // A refused field is said in front of the person, not only beside the
+  // field — which on a long form is a screen away from the button.
+  const validation = useValidationDialog();
+  const showFieldErrors = (formErrors: Record<string, unknown>) =>
+    validation.show(issuesFromFormErrors(formErrors));
 
   const saleType = watch('saleType');
   const sellingPrice = Number(watch('sellingPrice')) || 0;
@@ -727,7 +734,7 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
         e.preventDefault();
         if (canSubmit && !activeMutation.isPending) {
-          handleSubmit(onSubmit)();
+          handleSubmit(onSubmit, showFieldErrors)();
         }
       }
     };
@@ -852,7 +859,8 @@ function SaleCreatePageInner({ editingSaleId }: { editingSaleId?: string }) {
         </div>
       )}
 
-      <form onSubmit={handleSubmit(onSubmit)} className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:gap-6">
+      <form onSubmit={handleSubmit(onSubmit, showFieldErrors)} className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:gap-6">
+        {validation.dialog}
         {/* === MAIN COLUMN ============================================== */}
         <div className="space-y-4 lg:col-span-8">
         {/* =============================================================== */}

@@ -11,6 +11,7 @@ import {
   X,
   ChevronDown,
 } from 'lucide-react';
+import { useValidationDialog, issuesFromFormErrors } from '../../components/ValidationDialog';
 import { cn } from '../../lib/utils';
 import { usePurchaseDetailQuery } from '../../hooks/usePurchases';
 import {
@@ -390,6 +391,12 @@ function RecordPaymentDialog({
     },
   });
 
+  // A refused field is said in front of the person, not only beside the
+  // field — which on a long form is a screen away from the button.
+  const validation = useValidationDialog();
+  const showFieldErrors = (formErrors: Record<string, unknown>) =>
+    validation.show(issuesFromFormErrors(formErrors));
+
   const onSubmit = (formData: PaymentFormValues) => {
     recordPaymentMutation.mutate(
       {
@@ -440,7 +447,8 @@ function RecordPaymentDialog({
           Pending amount: <span className="font-semibold text-red-600">{formatINR(pendingAmount)}</span>
         </p>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+        <form onSubmit={handleSubmit(onSubmit, showFieldErrors)} className="space-y-4">
+      {validation.dialog}
           {/* Amount */}
           <div>
             <label htmlFor="pay-amount" className="block text-sm font-medium mb-1.5">

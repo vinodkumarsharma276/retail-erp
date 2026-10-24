@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { Loader2, Save, ArrowLeft, AlertCircle } from 'lucide-react';
+import { useValidationDialog, issuesFromFormErrors } from '../../components/ValidationDialog';
 import { cn } from '../../lib/utils';
 import {
   useEmployeeDetailQuery,
@@ -59,6 +60,12 @@ export function EmployeeFormPage() {
     reset,
     formState: { errors },
   } = useForm<EmployeeFormValues>({ defaultValues });
+
+  // A refused field is said in front of the person, not only beside the
+  // field — which on a long form is a screen away from the button.
+  const validation = useValidationDialog();
+  const showFieldErrors = (formErrors: Record<string, unknown>) =>
+    validation.show(issuesFromFormErrors(formErrors));
 
   // Fetch available users for the dropdown
   useEffect(() => {
@@ -162,7 +169,8 @@ export function EmployeeFormPage() {
         </h1>
       </div>
 
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-8">
+      <form onSubmit={handleSubmit(onSubmit, showFieldErrors)} className="space-y-8">
+      {validation.dialog}
         {/* Section 1: User Selection */}
         <section className="rounded-lg border bg-card p-6">
           <h2 className="text-lg font-medium mb-4">User Account</h2>

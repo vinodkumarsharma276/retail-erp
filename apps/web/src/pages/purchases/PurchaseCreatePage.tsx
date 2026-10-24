@@ -14,6 +14,7 @@ import {
   Receipt,
   NotebookPen,
 } from 'lucide-react';
+import { useValidationDialog, issuesFromFormErrors } from '../../components/ValidationDialog';
 import { cn } from '../../lib/utils';
 import { FormSection, FormGrid, Field } from '../../components/ui/form';
 import { Input } from '../../components/ui/input';
@@ -161,6 +162,12 @@ function BilledPurchaseWizard({
     trigger,
     formState: { errors },
   } = methods;
+
+  // A refused field is said in front of the person, not only beside the
+  // field — which on a long form is a screen away from the button.
+  const validation = useValidationDialog();
+  const showFieldErrors = (formErrors: Record<string, unknown>) =>
+    validation.show(issuesFromFormErrors(formErrors));
 
   const { fields, append, remove } = useFieldArray({
     control,
@@ -422,7 +429,7 @@ function BilledPurchaseWizard({
         // Fall through — backend will still reject on duplicate at submit.
       }
     }
-    handleSubmit(onSubmit)();
+    handleSubmit(onSubmit, showFieldErrors)();
   };
 
   // Error message
@@ -668,7 +675,8 @@ function BilledPurchaseWizard({
       </div>
 
       <FormProvider {...methods}>
-        <form onSubmit={handleSubmit(onSubmit)}>
+        <form onSubmit={handleSubmit(onSubmit, showFieldErrors)}>
+        {validation.dialog}
           {/* Step 1: Select Distributor */}
           {currentStep === 0 && (
             <section className="rounded-lg border bg-card p-6">
