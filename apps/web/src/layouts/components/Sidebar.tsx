@@ -4,7 +4,7 @@ import {
   LayoutDashboard,
   Package,
   Truck,
-  Receipt,
+  ReceiptIndianRupee,
   Users,
   ShoppingCart,
   CalendarClock,
@@ -79,7 +79,7 @@ const navSections: NavSection[] = [
     label: 'Inventory',
     items: [
       { to: '/products', label: 'Products', icon: Package, perm: 'nav.products', feature: FeatureKey.PRODUCTS },
-      { to: '/purchases', label: 'Purchases', icon: Receipt, perm: 'nav.purchases', feature: FeatureKey.PURCHASES },
+      { to: '/purchases', label: 'Purchases', icon: ReceiptIndianRupee, perm: 'nav.purchases', feature: FeatureKey.PURCHASES },
       { to: '/distributors', label: 'Distributors', icon: Truck, perm: 'nav.distributors', feature: FeatureKey.DISTRIBUTORS },
       { to: '/transfers', label: 'Transfers', icon: ArrowRightLeft, perm: 'nav.transfers', feature: FeatureKey.TRANSFERS },
     ],

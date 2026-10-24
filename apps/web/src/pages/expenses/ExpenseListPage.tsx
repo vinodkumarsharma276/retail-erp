@@ -10,7 +10,7 @@ import {
   Pencil,
   Trash2,
   IndianRupee,
-  Receipt,
+  ReceiptIndianRupee,
   Check } from 'lucide-react';
 import { PageHeader } from '../../components/PageHeader';
 import { Button } from '../../components/ui/button';
@@ -305,7 +305,7 @@ export function ExpenseListPage() {
           <div className="rounded-lg border bg-card p-4">
             <div className="flex items-center gap-3">
               <div className="rounded-md bg-green-100 dark:bg-green-900/30 p-2">
-                <Receipt className="h-5 w-5 text-green-600 dark:text-green-400" />
+                <ReceiptIndianRupee className="h-5 w-5 text-green-600 dark:text-green-400" />
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">
@@ -320,7 +320,7 @@ export function ExpenseListPage() {
           <div className="rounded-lg border bg-card p-4">
             <div className="flex items-center gap-3">
               <div className="rounded-md bg-blue-100 dark:bg-blue-900/30 p-2">
-                <Receipt className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                <ReceiptIndianRupee className="h-5 w-5 text-blue-600 dark:text-blue-400" />
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Categories</p>

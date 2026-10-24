@@ -5,7 +5,7 @@ import {
   Package,
   Banknote,
   
-  Receipt } from 'lucide-react';
+  ReceiptIndianRupee } from 'lucide-react';
 import { cn } from '../../../lib/utils';
 import { formatINR } from '@retailerp/shared-utils';
 import type { DashboardSummary } from '../../../hooks/useDashboard';
@@ -151,7 +151,7 @@ export function SummaryCards({ data, isLoading }: SummaryCardsProps) {
             Expenses Current FY
           </span>
           <div className="rounded-lg bg-destructive-muted p-2">
-            <Receipt className="h-4 w-4 text-destructive" />
+            <ReceiptIndianRupee className="h-4 w-4 text-destructive" />
           </div>
         </div>
         <p className="font-mono text-2xl font-semibold tracking-tight">

@@ -11,7 +11,7 @@ import {
   Check,
   Search,
   ScanLine,
-  Receipt,
+  ReceiptIndianRupee,
   NotebookPen,
 } from 'lucide-react';
 import { useValidationDialog, issuesFromFormErrors } from '../../components/ValidationDialog';
@@ -1443,7 +1443,7 @@ export function PurchaseCreatePage() {
             'hover:border-primary/60 hover:bg-primary-muted/30',
           )}
         >
-          <Receipt className="h-7 w-7 text-primary" />
+          <ReceiptIndianRupee className="h-7 w-7 text-primary" />
           <h2 className="mt-3 text-lg font-medium">Against a supplier invoice</h2>
           <p className="text-caption mt-1">
             The usual way. The supplier's bill carries its own number and its tax, and the

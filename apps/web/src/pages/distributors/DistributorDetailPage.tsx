@@ -11,6 +11,7 @@ import {
   Calendar,
   Banknote,
   Plus,
+  PackagePlus,
   X,
   CheckCircle,
 } from 'lucide-react';
@@ -160,7 +161,7 @@ export function DistributorDetailPage() {
                   'cursor-not-allowed opacity-50',
                 )}
               >
-                <Plus className="h-4 w-4" />
+                <PackagePlus className="h-4 w-4" />
                 New purchase
               </button>
             ) : (
@@ -173,7 +174,7 @@ export function DistributorDetailPage() {
                   'hover:bg-muted transition-colors',
                 )}
               >
-                <Plus className="h-4 w-4" />
+                <PackagePlus className="h-4 w-4" />
                 New purchase
               </button>
             )

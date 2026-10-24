@@ -1,4 +1,4 @@
-import { ArrowDownLeft, ArrowRight, ArrowUpRight, FileStack, ListChecks, Receipt, UploadCloud } from 'lucide-react';
+import { ArrowDownLeft, ArrowRight, ArrowUpRight, FileStack, ListChecks, ReceiptIndianRupee, UploadCloud } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
@@ -467,7 +467,7 @@ export default function BankDashboardPage() {
                   ))}
                 </ul>
               ) : (
-                <EmptyState icon={<Receipt className="size-5" />} title="All clear" body="Nothing is waiting for review in this view." />
+                <EmptyState icon={<ReceiptIndianRupee className="size-5" />} title="All clear" body="Nothing is waiting for review in this view." />
               )}
               {t.pending > 0 && (
                 <Link to="/bank/review" className="mt-3 block">

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { useCanCheck } from '../../hooks/usePermission';
-import { Plus, Search, X, Pencil, Receipt, Trash2, Info, Merge, FileSpreadsheet } from 'lucide-react';
+import { Plus, Search, X, Pencil, PackagePlus, Trash2, Info, Merge, FileSpreadsheet } from 'lucide-react';
 import { PageHeader } from '../../components/PageHeader';
 import { Button } from '../../components/ui/button';
 import { DeleteDistributorsDialog } from '../../components/DeleteDistributorsDialog';
@@ -318,7 +318,7 @@ export function DistributorListPage() {
             className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
             title="New purchase from this distributor"
           >
-            <Receipt className="h-4 w-4" />
+            <PackagePlus className="h-4 w-4" />
           </button>
           )}
           {can('distributors.edit') && (

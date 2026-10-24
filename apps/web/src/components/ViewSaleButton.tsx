@@ -1,4 +1,4 @@
-import { ArrowUpRight, Receipt } from 'lucide-react';
+import { ArrowUpRight, ReceiptIndianRupee } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { cn } from '../lib/utils';
 import { usePermission } from '../hooks/usePermission';
@@ -28,7 +28,7 @@ export function ViewSaleButton({ saleId, className }: { saleId: string | undefin
         className,
       )}
     >
-      <Receipt className="h-3.5 w-3.5" />
+      <ReceiptIndianRupee className="h-3.5 w-3.5" />
       View sale
       <ArrowUpRight className="h-3.5 w-3.5 transition-transform group-hover/sale:-translate-y-px group-hover/sale:translate-x-px" />
     </button>
