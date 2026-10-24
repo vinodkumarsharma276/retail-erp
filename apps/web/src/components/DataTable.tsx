@@ -334,13 +334,14 @@ export function DataTable<T>({
    * Only while it is: once the person has dragged a column, the widths are
    * theirs and the spacer at the end takes the slack instead.
    */
-  const flexibleKey = anyWidthSet
-    ? null
-    : (visibleColumns.find((col) => col.flexible) ??
-        visibleColumns.find(
-          (col) => col.sortable && col.align !== 'right' && col.align !== 'center' && col.key !== 'sno',
-        ) ??
-        visibleColumns.find((col) => col.align !== 'right' && col.align !== 'center'))?.key ?? null;
+  const flexibleKey =
+    (
+      visibleColumns.find((col) => col.flexible) ??
+      visibleColumns.find(
+        (col) => col.sortable && col.align !== 'right' && col.align !== 'center' && col.key !== 'sno',
+      ) ??
+      visibleColumns.find((col) => col.align !== 'right' && col.align !== 'center')
+    )?.key ?? null;
 
   const columnPickerItems = columns.map((col) => ({
     key: col.key,
@@ -617,13 +618,15 @@ export function DataTable<T>({
                     key={col.key}
                     data-col={col.key}
                     style={
-                      width
-                        ? { width, minWidth: width, maxWidth: width }
-                        : // 100% in an auto-layout table does not mean "the
-                          // whole table": it means "take what nobody else
-                          // needs", which is exactly the slack.
-                          col.key === flexibleKey
-                          ? { width: '100%' }
+                      // The elastic column is never pinned, in either
+                      // layout: left to find its own width it takes
+                      // whatever the others do not use, which is what
+                      // keeps the table full without an empty column at
+                      // the end. A width dragged onto it becomes its floor.
+                      col.key === flexibleKey
+                        ? { width: anyWidthSet ? 'auto' : '100%', minWidth: width ?? undefined }
+                        : width
+                          ? { width, minWidth: width, maxWidth: width }
                           : undefined
                     }
                     className={cn(
@@ -681,11 +684,6 @@ export function DataTable<T>({
                   </th>
                 );
               })}
-              {/* Soaks up whatever is left between the dragged columns and
-                  the edge of the screen. Under fixed layout the leftover
-                  goes to columns of automatic width, so giving it one to go
-                  to is what stops it being shared across the real ones. */}
-              {anyWidthSet && <th aria-hidden className="h-9 p-0" />}
             </tr>
           </thead>
           <tbody className="stagger">
@@ -743,7 +741,6 @@ export function DataTable<T>({
                     {col.render(row, idx)}
                   </td>
                 ))}
-                {anyWidthSet && <td aria-hidden className="p-0" />}
               </tr>
             ))}
           </tbody>
