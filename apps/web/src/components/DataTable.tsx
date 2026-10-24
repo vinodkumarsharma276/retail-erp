@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useMemo, useRef, useState } from 'react';
 import { ChevronDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ChevronsUpDown, ChevronUp, Download } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { ColumnPicker } from './ColumnPicker';
@@ -124,6 +124,18 @@ interface DataTableProps<T> {
    */
   tableId?: string;
   /**
+   * Let a row open to show more underneath it.
+   *
+   * The row gains a chevron at the left and opens on click. Needs `rowKey`,
+   * since which row is open has to survive a sort or a re-render. Returning
+   * null for a row means that row does not open.
+   */
+  expandable?: {
+    render: (row: T, index: number) => React.ReactNode;
+    /** Open by default; omit for all closed. */
+    defaultOpenKey?: string;
+  };
+  /**
    * Let this table be exported and printed.
    *
    * `fetchAll` is how the screen offers more than the page on show: without
@@ -143,6 +155,8 @@ interface DataTableProps<T> {
 const MIN_COLUMN_WIDTH = 60;
 /** The tickbox column, which is `w-10` and never dragged. */
 const SELECT_COLUMN_WIDTH = 40;
+/** The chevron column on a table whose rows open. */
+const EXPANDER_COLUMN_WIDTH = 32;
 
 // ---------------------------------------------------------------------------
 // Component
@@ -161,14 +175,46 @@ export function DataTable<T>({
   serverSort,
   tableId,
   exportConfig,
+  expandable,
 }: DataTableProps<T>) {
+  /** Which row is open. One at a time: two open rows push the rest off. */
+  const [openKey, setOpenKey] = useState<string | null>(expandable?.defaultOpenKey ?? null);
   // Only on the desktop table: a row of tickboxes is no way to work on a phone.
   const picking = Boolean(selection && rowKey);
+  /** Rows open to reveal more underneath. Needs a stable key per row. */
+  const expanding = Boolean(expandable && rowKey);
   const keyOf = (row: T, idx: number) => (rowKey ? rowKey(row, idx) : String(idx));
 
   // ------ What this viewer wants to see, and how wide ------
   const { prefs, toggleColumn, setWidth, setWidths, clearWidths, reset } = useTablePreferences(tableId);
   const tableRef = useRef<HTMLTableElement>(null);
+  /**
+   * How much room the table has.
+   *
+   * Needed because `min-width` on a cell is ignored under
+   * `table-layout: fixed` — only `width` counts there — so the elastic
+   * column's width has to be worked out rather than left to the browser,
+   * or taking space off the others squeezes it to nothing and the column
+   * vanishes from the table.
+   *
+   * Measured through a callback ref rather than an effect: the scrolling
+   * box belongs to whichever branch is on screen, so it arrives after the
+   * loading skeleton goes and an effect that ran once on mount would have
+   * measured nothing.
+   */
+  const [viewportWidth, setViewportWidth] = useState(0);
+  const observerRef = useRef<ResizeObserver | null>(null);
+  const scrollRef = useCallback((node: HTMLDivElement | null) => {
+    observerRef.current?.disconnect();
+    observerRef.current = null;
+    if (!node || typeof ResizeObserver === 'undefined') return;
+    setViewportWidth(Math.round(node.getBoundingClientRect().width));
+    const observer = new ResizeObserver(([entry]) => {
+      setViewportWidth(Math.round(entry.contentRect.width));
+    });
+    observer.observe(node);
+    observerRef.current = observer;
+  }, []);
 
   const canCustomise = Boolean(tableId);
   const hidden = useMemo(() => new Set(canCustomise ? prefs.hidden : []), [canCustomise, prefs.hidden]);
@@ -311,10 +357,27 @@ export function DataTable<T>({
    * every other one. Summing them instead means the dragged edge is the
    * only thing that moves, and the wrapper scrolls when they outgrow it.
    */
-  const totalWidth = anyWidthSet
-    ? visibleColumns.reduce((sum, col) => sum + (widthFor(col.key) ?? 0), 0) +
-      (picking ? SELECT_COLUMN_WIDTH : 0)
-    : null;
+  /** Everything except the elastic column, which is what is left over. */
+  const pinnedTotal =
+    visibleColumns.reduce(
+      (sum, col) => sum + (col.key === flexibleKey ? 0 : (widthFor(col.key) ?? 0)),
+      0,
+    ) +
+    (picking ? SELECT_COLUMN_WIDTH : 0) +
+    (expanding ? EXPANDER_COLUMN_WIDTH : 0);
+
+  /**
+   * What the elastic column gets: the room left over, but never so little
+   * that it disappears. When it hits that floor the table outgrows its box
+   * and scrolls, which is the honest outcome — better than a column
+   * silently reduced to nothing.
+   */
+  const elasticWidth =
+    anyWidthSet && flexibleKey && viewportWidth > 0
+      ? Math.max(MIN_COLUMN_WIDTH, viewportWidth - pinnedTotal)
+      : null;
+
+  const totalWidth = anyWidthSet ? pinnedTotal + (elasticWidth ?? 0) : null;
 
   const startResize = (event: React.PointerEvent<HTMLSpanElement>, key: string) => {
     event.preventDefault();
@@ -591,7 +654,7 @@ export function DataTable<T>({
       {toolbar}
       {exportDialog}
 
-      <div className="hidden overflow-x-auto md:block">
+      <div ref={scrollRef} className="hidden overflow-x-auto md:block">
         <table
           ref={tableRef}
           className={cn(
@@ -616,6 +679,7 @@ export function DataTable<T>({
         >
           <thead>
             <tr className="border-b border-border bg-muted/40">
+              {expanding && <th className="h-9 w-8 px-2" aria-label="Open row" />}
               {picking && (
                 <th className="h-9 w-10 px-3 text-left align-middle">
                   <input
@@ -656,7 +720,11 @@ export function DataTable<T>({
                       // keeps the table full without an empty column at
                       // the end. A width dragged onto it becomes its floor.
                       col.key === flexibleKey
-                        ? { width: anyWidthSet ? 'auto' : '100%', minWidth: width ?? undefined }
+                        ? elasticWidth != null
+                          ? { width: elasticWidth, minWidth: elasticWidth, maxWidth: elasticWidth }
+                          : // Sizing itself: 100% here means "take what
+                            // nobody else needs", not the whole table.
+                            { width: '100%' }
                         : width
                           ? { width, minWidth: width, maxWidth: width }
                           : undefined
@@ -719,16 +787,38 @@ export function DataTable<T>({
             </tr>
           </thead>
           <tbody className="stagger">
-            {sortedData.map((row, idx) => (
+            {sortedData.map((row, idx) => {
+              const rowId = keyOf(row, idx);
+              const expandedContent = expanding ? expandable!.render(row, idx) : null;
+              const canOpen = expandedContent != null;
+              const isOpen = canOpen && openKey === rowId;
+              return (
+              <Fragment key={rowId}>
               <tr
-                key={keyOf(row, idx)}
-                onClick={onRowClick ? () => onRowClick(row, idx) : undefined}
+                onClick={
+                  canOpen
+                    ? () => setOpenKey(isOpen ? null : rowId)
+                    : onRowClick
+                      ? () => onRowClick(row, idx)
+                      : undefined
+                }
                 className={cn(
                   'border-b border-border/60 transition-colors last:border-0 hover:bg-subtle',
-                  onRowClick && 'cursor-pointer',
-                  picking && selection!.selected.has(keyOf(row, idx)) && 'bg-primary/5',
+                  (onRowClick || canOpen) && 'cursor-pointer',
+                  picking && selection!.selected.has(rowId) && 'bg-primary/5',
+                  isOpen && 'bg-subtle',
                 )}
               >
+                {expanding && (
+                  <td className="w-8 px-2 py-2 align-middle text-muted-foreground">
+                    {canOpen &&
+                      (isOpen ? (
+                        <ChevronDown className="h-4 w-4" />
+                      ) : (
+                        <ChevronRight className="h-4 w-4" />
+                      ))}
+                  </td>
+                )}
                 {picking && (() => {
                   const key = keyOf(row, idx);
                   const why = selection!.disabledReason?.(row) ?? null;
@@ -774,7 +864,19 @@ export function DataTable<T>({
                   </td>
                 ))}
               </tr>
-            ))}
+              {isOpen && (
+                <tr className="bg-muted/20">
+                  <td
+                    colSpan={visibleColumns.length + (picking ? 1 : 0) + 1}
+                    className="px-6 py-3"
+                  >
+                    {expandedContent}
+                  </td>
+                </tr>
+              )}
+              </Fragment>
+              );
+            })}
           </tbody>
         </table>
       </div>

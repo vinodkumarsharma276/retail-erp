@@ -1,4 +1,4 @@
-import { useMemo, useState, Fragment } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useCanCheck } from '../../hooks/usePermission';
 import {
@@ -6,10 +6,10 @@ import {
   
   ShoppingCart,
   ArrowRightLeft,
-  ChevronDown,
-  ChevronRight,
   Loader2 } from 'lucide-react';
 import { useDebounce } from '../../hooks/useDebounce';
+import { DataTable } from '../../components/DataTable';
+import type { Column } from '../../components/DataTable';
 import {
   useProductsQuery,
   useProductsGroupedQuery,
@@ -48,7 +48,6 @@ export function ProductListPage() {
   const canSell = ['sales.create_full_payment', 'sales.create_partial_with_promise', 'sales.create_self_finance', 'sales.create_company_finance'].some(can);
   const canTransfer = can('transfers.initiate');
   const canSeeCost = can('products.view_dp');
-  const columns = (allShopsModeFlag: boolean) => (allShopsModeFlag ? 10 : 9) - (canSeeCost ? 0 : 1);
   const [searchParams, setSearchParams] = useSearchParams();
 
   // ------ Filters state (URL search params) ------
@@ -106,9 +105,6 @@ export function ProductListPage() {
   const groups = groupedQuery.data?.data ?? [];
   const pagination = groupedQuery.data?.pagination;
 
-  // Expand state — track which group rows are expanded (lazy-loads units).
-  const [expandedKey, setExpandedKey] = useState<string | null>(null);
-
   // Serial-picker dialog state — used by the top-level Sell / Transfer
   // actions on a grouped row (the user must pick which physical unit).
   const [pickerState, setPickerState] = useState<
@@ -162,6 +158,164 @@ export function ProductListPage() {
   // ------ Group row helpers ------
   const groupKey = (g: ProductGroupRow) =>
     `${g.shopId}|${g.categoryId}|${g.brand}|${g.modelNumber}|${g.status}`;
+
+  /**
+   * The stock list on the shared table, like every other list in the app.
+   *
+   * It was hand-rolled, which is why it looked nothing like Distributors or
+   * Purchases and got none of the column picking, dragging, exporting or
+   * whole-list sorting the others have.
+   */
+  const columns: Column<ProductGroupRow>[] = [
+    ...(allShopsMode
+      ? [
+          {
+            key: 'shop',
+            header: 'Shop',
+            render: (g: ProductGroupRow) =>
+              g.shop ? (
+                <span className="inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-xs font-medium">
+                  {g.shop.code}
+                </span>
+              ) : (
+                <span className="text-muted-foreground">-</span>
+              ),
+            exportValue: (g: ProductGroupRow) => g.shop?.code ?? '',
+          },
+        ]
+      : []),
+    {
+      key: 'brand',
+      header: 'Brand',
+      sortable: true,
+      sortAccessor: (g) => g.brand,
+      className: 'font-medium',
+      render: (g) => g.brand,
+    },
+    {
+      key: 'modelNumber',
+      header: 'Model',
+      // The longest text on the row, so spare width lands where it reads.
+      flexible: true,
+      sortable: true,
+      sortAccessor: (g) => g.modelNumber,
+      render: (g) => (
+        <span className="inline-flex items-center gap-1.5">
+          {g.modelNumber}
+          <IncompleteProductBadge counts={g.needsAttention} quantity={g.quantity} />
+        </span>
+      ),
+      exportValue: (g) => g.modelNumber,
+    },
+    {
+      key: 'category',
+      header: 'Category',
+      className: 'text-muted-foreground',
+      render: (g) =>
+        g.category?.name ?? findCategoryName(categoryTree ?? [], g.categoryId) ?? '-',
+      exportValue: (g) =>
+        g.category?.name ?? findCategoryName(categoryTree ?? [], g.categoryId) ?? '',
+    },
+    {
+      key: 'quantity',
+      header: 'Quantity',
+      align: 'right',
+      sortable: true,
+      sortAccessor: (g) => g.quantity,
+      render: (g) => (
+        <span className="inline-flex items-center justify-center rounded-md bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">
+          {g.quantity}
+        </span>
+      ),
+      exportValue: (g) => g.quantity,
+    },
+    {
+      key: 'mrp',
+      header: 'MRP',
+      align: 'right',
+      sortable: true,
+      sortAccessor: (g) => Number(g.mrpMin) || 0,
+      render: (g) => priceRange(g.mrpMin, g.mrpMax),
+      exportValue: (g) => priceRange(g.mrpMin, g.mrpMax),
+    },
+    ...(canSeeCost
+      ? [
+          {
+            key: 'dp',
+            header: 'DP',
+            align: 'right' as const,
+            sortable: true,
+            sortAccessor: (g: ProductGroupRow) => Number(g.purchasePriceMin) || 0,
+            render: (g: ProductGroupRow) => priceRange(g.purchasePriceMin, g.purchasePriceMax),
+            exportValue: (g: ProductGroupRow) =>
+              priceRange(g.purchasePriceMin, g.purchasePriceMax),
+          },
+        ]
+      : []),
+    {
+      key: 'status',
+      header: 'Status',
+      render: (g) => <StatusBadge status={g.status} />,
+      exportValue: (g) => g.status,
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      // The only way to act on a row; hiding it would strand the row.
+      alwaysVisible: true,
+      exportable: false,
+      resizable: false,
+      render: (g) =>
+        g.status === ProductStatus.IN_STOCK && (canSell || canTransfer) ? (
+          <span onClick={(e) => e.stopPropagation()}>
+            <DropdownMenu>
+              <DropdownMenuIconTrigger label="Product actions" />
+              <DropdownMenuContent>
+                {canSell && (
+                  <DropdownMenuItem
+                    icon={<ShoppingCart className="h-3.5 w-3.5" />}
+                    disabled={allShopsMode}
+                    title={allShopsMode ? 'Switch to a single shop to record a sale' : undefined}
+                    onClick={() =>
+                      setPickerState({
+                        action: 'sell',
+                        brand: g.brand,
+                        modelNumber: g.modelNumber,
+                        categoryId: g.categoryId,
+                        shopId: g.shopId,
+                      })
+                    }
+                  >
+                    Sell this model
+                  </DropdownMenuItem>
+                )}
+                {canTransfer && (
+                  <DropdownMenuItem
+                    icon={<ArrowRightLeft className="h-3.5 w-3.5" />}
+                    disabled={allShopsMode}
+                    title={
+                      allShopsMode ? 'Switch to a single shop to transfer stock' : undefined
+                    }
+                    onClick={() =>
+                      setPickerState({
+                        action: 'transfer',
+                        brand: g.brand,
+                        modelNumber: g.modelNumber,
+                        categoryId: g.categoryId,
+                        shopId: g.shopId,
+                      })
+                    }
+                  >
+                    Transfer to shop
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </span>
+        ) : null,
+    },
+  ];
 
   const onSerialPick = (productId: string) => {
     if (!pickerState) return;
@@ -276,214 +430,39 @@ export function ProductListPage() {
       )}
 
       {/* Grouped products table */}
-      <div className="rounded-lg border bg-card overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-muted/50 text-muted-foreground">
-              <tr>
-                <th className="w-8 px-2 py-3"></th>
-                {allShopsMode && (
-                  <th className="px-3 py-3 text-left font-medium">Shop</th>
-                )}
-                <th className="px-3 py-3 text-left font-medium">Brand</th>
-                <th className="px-3 py-3 text-left font-medium">Model</th>
-                <th className="px-3 py-3 text-left font-medium">Category</th>
-                <th className="px-3 py-3 text-right font-medium">Quantity</th>
-                <th className="px-3 py-3 text-right font-medium">MRP</th>
-                {canSeeCost && <th className="px-3 py-3 text-right font-medium">DP</th>}
-                <th className="px-3 py-3 text-left font-medium">Status</th>
-                <th className="px-3 py-3 text-right font-medium">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {groupedQuery.isLoading ? (
-                <tr>
-                  <td colSpan={columns(allShopsMode)} className="px-3 py-12 text-center text-muted-foreground">
-                    <Loader2 className="mx-auto h-5 w-5 animate-spin" />
-                  </td>
-                </tr>
-              ) : groups.length === 0 ? (
-                <tr>
-                  <td colSpan={columns(allShopsMode)} className="px-3 py-12 text-center text-muted-foreground">
-                    No products found matching your filters.
-                  </td>
-                </tr>
-              ) : (
-                groups.map((g) => {
-                  const key = groupKey(g);
-                  const expanded = expandedKey === key;
-                  const inStock = g.status === ProductStatus.IN_STOCK;
-                  const categoryName = g.category?.name
-                    ?? findCategoryName(categoryTree ?? [], g.categoryId)
-                    ?? '-';
-                  return (
-                    <Fragment key={key}>
-                      <tr
-                        className="border-t hover:bg-muted/30 cursor-pointer"
-                        onClick={() => setExpandedKey(expanded ? null : key)}
-                      >
-                        <td className="px-2 py-3 text-muted-foreground">
-                          {expanded ? (
-                            <ChevronDown className="h-4 w-4" />
-                          ) : (
-                            <ChevronRight className="h-4 w-4" />
-                          )}
-                        </td>
-                        {allShopsMode && (
-                          <td className="px-3 py-3">
-                            {g.shop ? (
-                              <span className="inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-xs font-medium">
-                                {g.shop.code}
-                              </span>
-                            ) : (
-                              <span className="text-muted-foreground">-</span>
-                            )}
-                          </td>
-                        )}
-                        <td className="px-3 py-3 font-medium">{g.brand}</td>
-                        <td className="px-3 py-3">
-                          <span className="inline-flex items-center gap-1.5">
-                            {g.modelNumber}
-                            <IncompleteProductBadge counts={g.needsAttention} quantity={g.quantity} />
-                          </span>
-                        </td>
-                        <td className="px-3 py-3 text-muted-foreground">{categoryName}</td>
-                        <td className="px-3 py-3 text-right">
-                          <span className="inline-flex items-center justify-center rounded-md bg-primary/10 px-2 py-0.5 text-xs font-semibold text-primary">
-                            {g.quantity}
-                          </span>
-                        </td>
-                        <td className="px-3 py-3 text-right">
-                          {priceRange(g.mrpMin, g.mrpMax)}
-                        </td>
-                        {canSeeCost && (
-                          <td className="px-3 py-3 text-right">
-                            {priceRange(g.purchasePriceMin, g.purchasePriceMax)}
-                          </td>
-                        )}
-                        <td className="px-3 py-3">
-                          <StatusBadge status={g.status} />
-                        </td>
-                        {/*
-                         * Sell + Transfer used to render as two filled colour
-                         * chips on every single row, so a full page of stock
-                         * was a wall of green and blue. They now live behind a
-                         * single overflow menu — the actions are identical,
-                         * but the data is what you see first.
-                         */}
-                        <td className="px-3 py-2 text-right" onClick={(e) => e.stopPropagation()}>
-                          {inStock && (canSell || canTransfer) && (
-                            <DropdownMenu>
-                              <DropdownMenuIconTrigger label="Product actions" />
-                              <DropdownMenuContent>
-                                {canSell && (
-                                <DropdownMenuItem
-                                  icon={<ShoppingCart className="h-3.5 w-3.5" />}
-                                  disabled={allShopsMode}
-                                  title={
-                                    allShopsMode
-                                      ? 'Switch to a single shop to record a sale'
-                                      : undefined
-                                  }
-                                  onClick={() =>
-                                    setPickerState({
-                                      action: 'sell',
-                                      brand: g.brand,
-                                      modelNumber: g.modelNumber,
-                                      categoryId: g.categoryId,
-                                      shopId: g.shopId,
-                                    })
-                                  }
-                                >
-                                  Sell this model
-                                </DropdownMenuItem>
-                                )}
-                                {canTransfer && (
-                                <DropdownMenuItem
-                                  icon={<ArrowRightLeft className="h-3.5 w-3.5" />}
-                                  disabled={allShopsMode}
-                                  title={
-                                    allShopsMode
-                                      ? 'Switch to a single shop to initiate a transfer'
-                                      : undefined
-                                  }
-                                  onClick={() =>
-                                    setPickerState({
-                                      action: 'transfer',
-                                      brand: g.brand,
-                                      modelNumber: g.modelNumber,
-                                      categoryId: g.categoryId,
-                                      shopId: g.shopId,
-                                    })
-                                  }
-                                >
-                                  Transfer to shop
-                                </DropdownMenuItem>
-                                )}
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          )}
-                        </td>
-                      </tr>
-                      {expanded && (
-                        <tr className="bg-muted/20">
-                          <td colSpan={columns(allShopsMode)} className="px-6 py-3">
-                            <ExpandedGroupUnits
-                              brand={g.brand}
-                              modelNumber={g.modelNumber}
-                              categoryId={g.categoryId}
-                              status={g.status}
-                              allShopsMode={allShopsMode}
-                              shopIdFilter={g.shopId}
-                            />
-                          </td>
-                        </tr>
-                      )}
-                    </Fragment>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Pagination */}
-        {pagination && pagination.totalPages > 1 && (
-          <div className="flex items-center justify-between border-t px-4 py-3 text-sm text-muted-foreground">
-            <span>
-              Showing{' '}
-              <span className="font-medium text-foreground">
-                {(pagination.page - 1) * pagination.pageSize + 1}
-              </span>{' '}
-              to{' '}
-              <span className="font-medium text-foreground">
-                {Math.min(pagination.page * pagination.pageSize, pagination.totalItems)}
-              </span>{' '}
-              of{' '}
-              <span className="font-medium text-foreground">{pagination.totalItems}</span> groups
-            </span>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => updateFilters({ page: String(pagination.page - 1) })}
-                disabled={pagination.page <= 1}
-                className="rounded-md border px-3 py-1.5 text-sm hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Previous
-              </button>
-              <span className="px-2">
-                Page {pagination.page} / {pagination.totalPages}
-              </span>
-              <button
-                onClick={() => updateFilters({ page: String(pagination.page + 1) })}
-                disabled={pagination.page >= pagination.totalPages}
-                className="rounded-md border px-3 py-1.5 text-sm hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Next
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
+      <DataTable<ProductGroupRow>
+        tableId="products"
+        exportConfig={{ title: 'Products' }}
+        columns={columns}
+        data={groups}
+        isLoading={groupedQuery.isLoading}
+        emptyMessage="No products found matching your filters."
+        rowKey={groupKey}
+        pagination={
+          pagination
+            ? {
+                page: pagination.page,
+                totalPages: pagination.totalPages,
+                totalItems: pagination.totalItems,
+                pageSize: pagination.pageSize,
+              }
+            : undefined
+        }
+        onPageChange={(p) => updateFilters({ page: String(p) })}
+        // A model row opens to show the individual units behind it.
+        expandable={{
+          render: (g) => (
+            <ExpandedGroupUnits
+              brand={g.brand}
+              modelNumber={g.modelNumber}
+              categoryId={g.categoryId}
+              status={g.status}
+              allShopsMode={allShopsMode}
+              shopIdFilter={g.shopId}
+            />
+          ),
+        }}
+      />
 
       {/* Serial picker dialog (Sell / Transfer from a grouped row) */}
       {pickerState && (
