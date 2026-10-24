@@ -47,6 +47,19 @@ export interface Column<T> {
   exportValue?: (row: T) => string | number | null | undefined;
   /** Keep this column out of exports (row numbers, button clusters). */
   exportable?: boolean;
+  /**
+   * Give this column whatever width is left over.
+   *
+   * A table narrower than the space it has to fill has to put the slack
+   * somewhere, and left to itself the browser spreads it across every
+   * column — which strands a cluster of icons at the left of a very wide
+   * Actions cell and reads as a hole in the table. Handing it to one column
+   * that can use it, the name usually, leaves every other column snug.
+   *
+   * Unset on every column, the first sortable left-aligned one takes it,
+   * which is the name column in practice.
+   */
+  flexible?: boolean;
 }
 
 export type SortDir = 'asc' | 'desc';
@@ -314,6 +327,20 @@ export function DataTable<T>({
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
   };
+
+  /**
+   * The column that soaks up spare width while the table is sizing itself.
+   *
+   * Only while it is: once the person has dragged a column, the widths are
+   * theirs and the spacer at the end takes the slack instead.
+   */
+  const flexibleKey = anyWidthSet
+    ? null
+    : (visibleColumns.find((col) => col.flexible) ??
+        visibleColumns.find(
+          (col) => col.sortable && col.align !== 'right' && col.align !== 'center' && col.key !== 'sno',
+        ) ??
+        visibleColumns.find((col) => col.align !== 'right' && col.align !== 'center'))?.key ?? null;
 
   const columnPickerItems = columns.map((col) => ({
     key: col.key,
@@ -589,7 +616,16 @@ export function DataTable<T>({
                   <th
                     key={col.key}
                     data-col={col.key}
-                    style={width ? { width, minWidth: width, maxWidth: width } : undefined}
+                    style={
+                      width
+                        ? { width, minWidth: width, maxWidth: width }
+                        : // 100% in an auto-layout table does not mean "the
+                          // whole table": it means "take what nobody else
+                          // needs", which is exactly the slack.
+                          col.key === flexibleKey
+                          ? { width: '100%' }
+                          : undefined
+                    }
                     className={cn(
                       'group/th relative h-9 px-3 text-left align-middle text-overline',
                       // Fixed layout has to be allowed to clip, or a long
