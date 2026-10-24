@@ -548,8 +548,11 @@ export function DataTable<T>({
       <div className="hidden overflow-x-auto md:block">
         <table
           ref={tableRef}
-          className={cn('text-sm', anyWidthSet ? 'table-fixed' : 'w-full')}
-          style={totalWidth != null ? { width: totalWidth } : undefined}
+          className={cn('w-full text-sm', anyWidthSet && 'table-fixed')}
+          // Wide enough to hold the dragged columns, and never narrower than
+          // the box it sits in. The slack between the two goes to the spacer
+          // column, not shared out across the real ones.
+          style={totalWidth != null ? { minWidth: totalWidth } : undefined}
         >
           <thead>
             <tr className="border-b border-border bg-muted/40">
@@ -642,6 +645,11 @@ export function DataTable<T>({
                   </th>
                 );
               })}
+              {/* Soaks up whatever is left between the dragged columns and
+                  the edge of the screen. Under fixed layout the leftover
+                  goes to columns of automatic width, so giving it one to go
+                  to is what stops it being shared across the real ones. */}
+              {anyWidthSet && <th aria-hidden className="h-9 p-0" />}
             </tr>
           </thead>
           <tbody className="stagger">
@@ -699,6 +707,7 @@ export function DataTable<T>({
                     {col.render(row, idx)}
                   </td>
                 ))}
+                {anyWidthSet && <td aria-hidden className="p-0" />}
               </tr>
             ))}
           </tbody>
