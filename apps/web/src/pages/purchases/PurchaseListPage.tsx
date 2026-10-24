@@ -185,6 +185,8 @@ export function PurchaseListPage() {
     },
     {
       key: 'distributor',
+      // The long text on this row, so spare width lands where it reads.
+      flexible: true,
       header: 'Distributor',
       sortable: true,
       sortAccessor: (row) => row.distributor?.companyName ?? '',

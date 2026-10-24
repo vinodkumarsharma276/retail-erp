@@ -272,8 +272,35 @@ export function DataTable<T>({
    * never been measured) the table goes back to sizing itself, and the next
    * drag measures the lot again.
    */
+  /**
+   * One column is elastic: it is never given a width of its own, so it
+   * takes whatever the others do not use and the table stays full with
+   * nothing dead at the end.
+   *
+   * A column the person has dragged is a width they chose, so it stops
+   * being eligible — otherwise the elastic column could never be made
+   * narrower, since every pixel taken off it came straight back as slack.
+   * Drag them all and there is nothing left to stretch, which is fine: the
+   * table is then exactly the widths asked for.
+   */
+  const pinned = (key: string) => prefs.widths[key] != null;
+
+  const flexCandidates = [
+    ...visibleColumns.filter((col) => col.flexible),
+    ...visibleColumns.filter(
+      (col) => col.sortable && col.align !== 'right' && col.align !== 'center' && col.key !== 'sno',
+    ),
+    ...visibleColumns.filter((col) => col.align !== 'right' && col.align !== 'center'),
+  ];
+
+  const flexibleKey = flexCandidates.find((col) => !pinned(col.key))?.key ?? null;
+
   const anyWidthSet =
-    visibleColumns.length > 0 && visibleColumns.every((col) => widthFor(col.key) != null);
+    visibleColumns.length > 0 &&
+    Object.keys(prefs.widths).length > 0 &&
+    // The elastic column is deliberately left without one — it is the thing
+    // that takes up the slack — so it does not count against "all set".
+    visibleColumns.every((col) => col.key === flexibleKey || widthFor(col.key) != null);
 
   /**
    * The table is sized to its columns, not to the box around it.
@@ -300,12 +327,17 @@ export function DataTable<T>({
     const startWidth = th.getBoundingClientRect().width;
 
     // Pin every column at what it measures now, in one go, so the table can
-    // switch to fixed layout without anything shifting.
+    // switch to fixed layout without anything shifting. The elastic column
+    // is left alone unless it is the one being dragged: pinning it would
+    // leave nothing to take up the slack, and the dead space at the end of
+    // the table would be back.
     if (!anyWidthSet && tableRef.current) {
       const measured: Record<string, number> = {};
       for (const cell of tableRef.current.querySelectorAll<HTMLTableCellElement>('thead th[data-col]')) {
         const colKey = cell.dataset.col;
-        if (colKey) measured[colKey] = cell.getBoundingClientRect().width;
+        if (!colKey) continue;
+        if (colKey === flexibleKey && colKey !== key) continue;
+        measured[colKey] = cell.getBoundingClientRect().width;
       }
       setWidths(measured);
     }
@@ -328,20 +360,6 @@ export function DataTable<T>({
     window.addEventListener('pointerup', onUp);
   };
 
-  /**
-   * The column that soaks up spare width while the table is sizing itself.
-   *
-   * Only while it is: once the person has dragged a column, the widths are
-   * theirs and the spacer at the end takes the slack instead.
-   */
-  const flexibleKey =
-    (
-      visibleColumns.find((col) => col.flexible) ??
-      visibleColumns.find(
-        (col) => col.sortable && col.align !== 'right' && col.align !== 'center' && col.key !== 'sno',
-      ) ??
-      visibleColumns.find((col) => col.align !== 'right' && col.align !== 'center')
-    )?.key ?? null;
 
   const columnPickerItems = columns.map((col) => ({
     key: col.key,
@@ -576,11 +594,25 @@ export function DataTable<T>({
       <div className="hidden overflow-x-auto md:block">
         <table
           ref={tableRef}
-          className={cn('w-full text-sm', anyWidthSet && 'table-fixed')}
-          // Wide enough to hold the dragged columns, and never narrower than
-          // the box it sits in. The slack between the two goes to the spacer
-          // column, not shared out across the real ones.
-          style={totalWidth != null ? { minWidth: totalWidth } : undefined}
+          className={cn(
+            'text-sm',
+            anyWidthSet && 'table-fixed',
+            // Only stretch to fill the box while some column can absorb the
+            // slack. Once every one of them is a width the person chose,
+            // the table is the sum of those widths and ends there.
+            (!anyWidthSet || flexibleKey) && 'w-full',
+          )}
+          style={
+            totalWidth == null
+              ? undefined
+              : flexibleKey
+                ? { minWidth: totalWidth }
+                : // `table-layout: fixed` is ignored on a table whose width
+                  // is auto, and the column widths go back to being decided
+                  // by content. With nothing left to stretch, the width has
+                  // to be stated outright or none of them are honoured.
+                  { width: totalWidth }
+          }
         >
           <thead>
             <tr className="border-b border-border bg-muted/40">

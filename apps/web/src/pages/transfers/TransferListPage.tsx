@@ -129,6 +129,8 @@ export function TransferListPage() {
     },
     {
       key: 'product',
+      // The long text on this row, so spare width lands where it reads.
+      flexible: true,
       header: 'Product',
       render: (row) => (
         <span className="font-medium">

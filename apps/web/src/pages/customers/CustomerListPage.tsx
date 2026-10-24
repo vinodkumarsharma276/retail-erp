@@ -107,6 +107,8 @@ export function CustomerListPage() {
     },
     {
       key: 'name',
+      // The long text on this row, so spare width lands where it reads.
+      flexible: true,
       header: 'Name',
       render: (row) => (
         <button

@@ -178,6 +178,8 @@ export function ExpenseListPage() {
     },
     {
       key: 'description',
+      // The long text on this row, so spare width lands where it reads.
+      flexible: true,
       header: 'Description',
       render: (row) => (
         <span className="text-muted-foreground" title={row.description}>

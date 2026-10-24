@@ -223,6 +223,8 @@ export function DistributorListPage() {
     },
     {
       key: 'companyName',
+      // The long text on this row, so spare width lands where it reads.
+      flexible: true,
       header: 'Company Name',
       sortable: true,
       sortAccessor: (row) => row.companyName,
