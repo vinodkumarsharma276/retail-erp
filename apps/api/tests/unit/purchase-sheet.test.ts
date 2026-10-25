@@ -69,6 +69,85 @@ describe('splitting an IMEI cell', () => {
   });
 });
 
+/**
+ * Two faults that kept real numbers off real handsets, both found on the
+ * shop's own April-to-October sheet.
+ */
+describe('identifiers that are not plain IMEIs', () => {
+  it('keeps a serial containing a slash whole', () => {
+    // A Xiaomi tablet, written "72666/X5ZS01828" on one line of one unit.
+    // Split on the slash it became two identifiers and the line was refused.
+    expect(splitImeis('72666/X5ZS01828')).toEqual(['72666/X5ZS01828']);
+  });
+
+  it('still splits two IMEIs written either side of a slash', () => {
+    expect(splitImeis('867335084176793/867335084177510')).toEqual([
+      '867335084176793',
+      '867335084177510',
+    ]);
+  });
+
+  it('reduces an IMEI to its digits but leaves anything else alone', () => {
+    expect(splitImeis('IMEI: 867335084176793')).toEqual(['867335084176793']);
+    expect(splitImeis('BOX DAMAGED')).toEqual(['BOX DAMAGED']);
+  });
+
+  it('reads the IMEI sheet the same way, so the two sides compare equal', () => {
+    const imeiSheet = parseImeiSheet('IMEI List', [
+      ['Supplier Invoice No.', 'Supplier', 'Item', 'IMEI'],
+      ['INV-1021', 'SATYAM SALES PVT LTD', 'XIAOMI PAD 8 (8+128) GREY', '72666/X5ZS01828'],
+    ]);
+    expect(imeiSheet.byLine.get(lineKey('INV-1021', 'SATYAM SALES PVT LTD', 'XIAOMI PAD 8 (8+128) GREY')))
+      .toEqual(['72666/X5ZS01828']);
+  });
+});
+
+describe('one bill listing the same item on two lines', () => {
+  // Both lines say two units and name their own two numbers, but the IMEI
+  // sheet is keyed by invoice, supplier and item, so all four pool together
+  // and fit neither line.
+  const pooled = ['867738085585724', '867738088554727', '862554079877703', '867738080183541'];
+  const first: PurchaseSheetLine = {
+    rowNumber: 2, date: '2026-09-06', invoiceNumber: 'INV-2627-4078', voucherNumber: 'BILL-4078',
+    party: 'SATYAM SALES PVT LTD', item: 'REDMI 15C 5G 4+128 PURPLE', quantity: 2,
+    rate: 14893.27, amount: 29786.54, imeiCount: 2,
+    imeis: ['867738085585724', '867738088554727'], issues: [],
+  } as PurchaseSheetLine;
+  const second: PurchaseSheetLine = {
+    ...first, rowNumber: 3, imeis: ['862554079877703', '867738080183541'],
+  } as PurchaseSheetLine;
+
+  it('falls back to the column on each line, which keeps them apart', () => {
+    expect(imeisPerUnit(first, pooled).perUnit).toEqual([
+      ['867738085585724'],
+      ['867738088554727'],
+    ]);
+    expect(imeisPerUnit(second, pooled).perUnit).toEqual([
+      ['862554079877703'],
+      ['867738080183541'],
+    ]);
+  });
+
+  it('shares an uneven pool out by what each line claims', () => {
+    // Nine units on one line, one on another, ten numbers pooled.
+    const nine = { ...first, quantity: 9, imeiCount: 9, imeis: Array.from({ length: 9 }, (_, i) => `86773808760${1000 + i}`) } as PurchaseSheetLine;
+    const result = imeisPerUnit(nine, [...nine.imeis, '862554078717082']);
+    expect(result.issue).toBeNull();
+    expect(result.perUnit).toHaveLength(9);
+    expect(result.perUnit.flat()).toEqual(nine.imeis);
+  });
+
+  it('still refuses when neither source fits', () => {
+    const odd = { ...first, quantity: 3, imeiCount: null, imeis: ['1', '2'] } as PurchaseSheetLine;
+    expect(imeisPerUnit(odd, ['1', '2']).issue).toContain('do not divide evenly');
+  });
+
+  it('still refuses when both fit but name different numbers', () => {
+    const other = { ...first, imeis: ['111111111111111', '222222222222222'] } as PurchaseSheetLine;
+    expect(imeisPerUnit(other, ['333333333333333', '444444444444444']).issue).toContain('disagree');
+  });
+});
+
 describe('reading the sheet', () => {
   const parse = parsePurchaseSheet('Purchase Details', sheet(TV, WASHER, PHONES));
 

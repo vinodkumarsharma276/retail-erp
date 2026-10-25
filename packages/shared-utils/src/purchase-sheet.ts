@@ -142,12 +142,47 @@ export function parseAmount(value: unknown): number | null {
   return Number.isFinite(amount) ? amount : null;
 }
 
-/** IMEIs as written in one cell, separated by commas, spaces or newlines. */
+/** An IMEI is all digits, fifteen of them but allow a little either way. */
+const IMEI_PATTERN = /^\d{14,16}$/;
+
+/**
+ * One identifier as it should be stored.
+ *
+ * An IMEI is reduced to its digits, so "IMEI: 867…" and "867…" are the same
+ * number. Anything else is kept exactly as written: a tablet serial like
+ * "72666/X5ZS01828" is not a number with punctuation in it, and stripping
+ * the letters leaves something that matches nothing.
+ */
+export function normaliseIdentifier(value: unknown): string {
+  const text = cleanCell(value);
+  const digits = text.replace(/\D/g, '');
+  return IMEI_PATTERN.test(digits) ? digits : text;
+}
+
+/**
+ * IMEIs as written in one cell, separated by commas, semicolons or newlines.
+ *
+ * A slash separates two of them only when both sides are themselves IMEIs.
+ * Serial numbers contain slashes of their own, and splitting those produced
+ * two identifiers where the shop wrote one.
+ */
 export function splitImeis(value: unknown): string[] {
-  return cleanCell(value)
-    .split(/[,;/\n]+/)
-    .map((part) => part.replace(/\D/g, ''))
+  const parts = cleanCell(value)
+    .split(/[,;\n]+/)
+    .map((part) => part.trim())
     .filter(Boolean);
+
+  const out: string[] = [];
+  for (const part of parts) {
+    const pieces = part.split('/').map((piece) => piece.trim()).filter(Boolean);
+    const everyPieceIsAnImei =
+      pieces.length > 1 && pieces.every((piece) => IMEI_PATTERN.test(piece.replace(/\D/g, '')));
+    for (const piece of everyPieceIsAnImei ? pieces : [part]) {
+      const identifier = normaliseIdentifier(piece);
+      if (identifier) out.push(identifier);
+    }
+  }
+  return out;
 }
 
 // --- Result shape ------------------------------------------------------------
@@ -317,7 +352,9 @@ export function parseImeiSheet(sheetName: string, rows: unknown[][]): ImeiSheetP
 
   for (let index = headerIndex + 1; index < rows.length; index += 1) {
     const row = rows[index] ?? [];
-    const imei = at(row, 'imei').replace(/\D/g, '');
+    // Normalised the same way as the inline column, so the two sides of the
+    // same identifier compare equal rather than differing by punctuation.
+    const imei = normaliseIdentifier(at(row, 'imei'));
     const item = at(row, 'item');
     const invoiceNumber = at(row, 'invoiceNumber');
     if (!imei || !item) continue;
@@ -511,11 +548,47 @@ export function imeisPerUnit(
   fromImeiSheet: string[] = [],
 ): { perUnit: string[][]; issue: string | null } {
   const quantity = line.quantity ?? 0;
-  // The dedicated sheet is the fuller record; the inline column cross-checks it.
-  const listed = fromImeiSheet.length > 0 ? fromImeiSheet : line.imeis;
-  if (quantity <= 0 || listed.length === 0) return { perUnit: [], issue: null };
+  if (quantity <= 0 || (fromImeiSheet.length === 0 && line.imeis.length === 0)) {
+    return { perUnit: [], issue: null };
+  }
 
-  if (fromImeiSheet.length > 0 && line.imeis.length > 0) {
+  /** Whether a list can be shared out over this line's units at all. */
+  const fits = (list: string[]) => {
+    if (list.length === 0) return false;
+    if (line.imeiCount != null && line.imeiCount !== list.length) return false;
+    const each = list.length / quantity;
+    return each === 1 || each === 2;
+  };
+
+  // The dedicated sheet is the fuller record, so it is believed first. But it
+  // is keyed by invoice, supplier and item, so when one bill lists the same
+  // item on two lines every number pools under a single key and fits neither
+  // line. The line's own column keeps them apart, and is believed when it
+  // fits and the sheet does not — which is the only way those units can be
+  // told from one another.
+  const listed = fits(fromImeiSheet)
+    ? fromImeiSheet
+    : fits(line.imeis)
+      ? line.imeis
+      : null;
+
+  if (listed === null) {
+    const best = fromImeiSheet.length > 0 ? fromImeiSheet : line.imeis;
+    if (line.imeiCount != null && line.imeiCount !== best.length) {
+      return {
+        perUnit: [],
+        issue: `The line says ${line.imeiCount} IMEI numbers but ${best.length} were found.`,
+      };
+    }
+    return {
+      perUnit: [],
+      issue: `${best.length} IMEI numbers do not divide evenly among ${quantity} units.`,
+    };
+  }
+
+  // Both sources usable but naming different numbers is a contradiction
+  // nobody can resolve from the sheet alone.
+  if (fits(fromImeiSheet) && fits(line.imeis)) {
     const a = [...fromImeiSheet].sort().join(',');
     const b = [...line.imeis].sort().join(',');
     if (a !== b) {
@@ -525,20 +598,8 @@ export function imeisPerUnit(
       };
     }
   }
-  if (line.imeiCount != null && line.imeiCount !== listed.length) {
-    return {
-      perUnit: [],
-      issue: `The line says ${line.imeiCount} IMEI numbers but ${listed.length} were found.`,
-    };
-  }
 
   const each = listed.length / quantity;
-  if (each !== 1 && each !== 2) {
-    return {
-      perUnit: [],
-      issue: `${listed.length} IMEI numbers do not divide evenly among ${quantity} units.`,
-    };
-  }
 
   const perUnit: string[][] = [];
   for (let unit = 0; unit < quantity; unit += 1) {
