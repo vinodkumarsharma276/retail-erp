@@ -38,5 +38,7 @@ coverage/
 apps/mobile/.expo/
 apps/mobile/android/
 apps/mobile/ios/
-.claude/
+# Claude Code: personal settings stay local; shared skills are committed
+.claude/*
+!.claude/skills/
 apps/api/.env

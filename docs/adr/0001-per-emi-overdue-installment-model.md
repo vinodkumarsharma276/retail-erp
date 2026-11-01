@@ -1,10 +1,26 @@
 # ADR-0001: Per-EMI Overdue Installment Model (Pattern B)
 
-- **Status**: Proposed
+- **Status**: Accepted — implemented (Sep 2026), then amended by later owner rules (below)
 - **Date**: 2026-05-30
 - **Deciders**: Vinod Sharma (owner)
 - **Supersedes**: Current "redistribution" model in [apps/api/src/modules/installments/installments.rules.ts](../../apps/api/src/modules/installments/installments.rules.ts)
 - **Related docs**: [docs/installment/installment.md](../installment/installment.md)
+
+> **Amendments after implementation (commits of 2026-09-22 — the code is authoritative):**
+> - **Short payments**: a due EMI paid short now counts as paid and, by default, the shortfall is
+>   spread equally over the remaining EMIs (`Installment.plannedAmount` keeps the original,
+>   `InstallmentCarryForward` records each move and is undone on revert). The collector can
+>   instead keep the balance on the EMI with a promise. This partly reverses §2.1's "no
+>   redistribution" for short payments only; missed EMIs still stay overdue on their own.
+> - **Penalty**: replaced the 1%/month suggestion (§2.3) with a **flat ₹ per day per sale**
+>   (default ₹2, `SaleRecord.penaltyPerDay`, tenant setting `defaultPenaltyPerDay`), counted from
+>   the oldest unpaid EMI and never charging a day twice. Still opt-in at payment time.
+> - **Early-payment deduction** (new): an EMI paid in full ≥ 30 days early may earn its share of
+>   sale-time interest off the last EMI (`InstallmentRebate`). Opt-in.
+> - **Promises**: model is `InstallmentPromise`; extra statuses `replaced` and `cancelled` (neither
+>   counts as broken); register-style labels `N.k`; `GET /installments/call-list` drives a
+>   "Today's Calls" tab.
+> - **Final settlement** card that auto-waived interest was removed from the sale page.
 
 ---
 

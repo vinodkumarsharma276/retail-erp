@@ -21,7 +21,13 @@ const prisma = new PrismaClient();
 async function main() {
   console.log('Clearing business data...\n');
 
-  // Most dependent first
+  // Most dependent first. Promises reference both schedules and customers; carry-forwards,
+  // rebates, interest applications and the roll log reference schedules and installments.
+  await prisma.installmentPromise.deleteMany();
+  await prisma.installmentCarryForward.deleteMany();
+  await prisma.installmentRebate.deleteMany();
+  await prisma.installmentInterestApplication.deleteMany();
+  await prisma.installmentRollLog.deleteMany();
   await prisma.installmentPayment.deleteMany();
   await prisma.installment.deleteMany();
   await prisma.employeeCollectionAssignment.deleteMany();

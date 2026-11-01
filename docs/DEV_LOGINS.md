@@ -16,8 +16,8 @@ and the other way round.
 
 | Tenant | Local address | Live address (when hosted) | Plan | Shops | Users |
 |---|---|---|---|---|---|
-| **Vinod Electronics** | http://localhost:5174 (or http://vn.localhost:5174) | vn.retailerp.com | Enterprise — every module | 4 | 42 |
-| **Star Electronics** | http://star.localhost:5174 | star.retailerp.com | Standard — no Bank Statements, OCR, mobile app, push notifications, sale approvals or year-on-year reports | 2 | 9 |
+| **Vinod Electronics** | http://localhost:5180 (or http://vn.localhost:5180) | vn.retailerp.com | Enterprise — every module | 4 | 42 |
+| **Star Electronics** | http://star.localhost:5180 | star.retailerp.com | Standard — no Bank Statements, OCR, mobile app, push notifications, sale approvals or year-on-year reports | 2 | 9 |
 
 If the database is re-seeded, passwords go back to the seed default
 `RetailERP@2026`. To set every account in both tenants to `1234` again:
@@ -41,7 +41,7 @@ changed per role or per user. The descriptions below are the defaults.
 
 # Tenant 1 — Vinod Electronics
 
-Address: http://localhost:5174
+Address: http://localhost:5180
 
 Shop codes: **VE** Vinod Electronics · **VHA** Vinod Home Appliances ·
 **NE** Naveen Electronics · **NHE** New Harshita Electronics
@@ -119,8 +119,8 @@ The web app turns these accounts away with "Please use the mobile app".
 
 # Tenant 2 — Star Electronics (demo tenant)
 
-Address: **http://star.localhost:5174** — these logins don't work at
-http://localhost:5174.
+Address: **http://star.localhost:5180** — these logins don't work at
+http://localhost:5180.
 
 Sample data: 2 suppliers, 2 purchases (10 units), 8 customers, 5 sales
 (2 cash, 1 Bajaj Finance, 2 self-finance with some EMIs collected) and
@@ -174,7 +174,7 @@ for installment collection.
 This is where tenants are onboarded and their features switched on or off.
 
 The local database has **no** platform admin account yet. The console is a
-separate login at http://admin.localhost:5174. To create the account:
+separate login at http://admin.localhost:5180. To create the account:
 
 ```bash
 cd apps/api

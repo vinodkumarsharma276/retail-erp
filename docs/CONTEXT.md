@@ -1,14 +1,17 @@
 # RetailERP -- Full System Context Document
 
-> Last updated: 2026-04-18
-> Purpose: Comprehensive context for LLMs working on this codebase
+> Last updated: 2026-11-01 (sections 1–11 and 13–15 refreshed against the code)
+> Purpose: Comprehensive context for LLMs working on this codebase.
+> Agent rules, commands and conventions live in [AGENTS.md](../AGENTS.md) — read that first.
+> Every local login is in [DEV_LOGINS.md](./DEV_LOGINS.md).
 
 ---
 
 ## 1. What Is RetailERP?
 
-RetailERP is a full-stack web + mobile application that replaces Tally and Marg accounting software for 4 retail electronics/furniture/mobile shops in India. Each shop operates under a separate GST entity. The system handles:
+RetailERP is a full-stack web + mobile application that replaces Tally and Marg accounting software for 4 retail electronics/furniture/mobile shops in India. Each shop operates under a separate GST entity. It has since grown into a **multi-tenant SaaS**: each business is a tenant on its own subdomain with a subscription plan that switches modules on/off, managed from a separate platform-admin console. The system handles:
 
+- **Multi-tenancy (SaaS)**: tenants, plans and per-tenant feature switches; platform-admin console for onboarding
 - **Multi-shop management** with shop switching for admins
 - **Product inventory** with hierarchical categories and dynamic attributes
 - **Purchase recording** from distributors with GST tracking
@@ -18,18 +21,19 @@ RetailERP is a full-stack web + mobile application that replaces Tally and Marg 
 - **Invoice PDF generation** (standard Indian GST tax invoice)
 - **GST-inclusive pricing** with Input Tax Credit (ITC) profit calculations
 - **Inter-shop transfers** (GST entity to entity)
-- **Expenses, bank statements, reconciliation**
+- **Expenses, bank statements** (AI-assisted statement analysis/categorisation, bank API feeds), legacy reconciliation
+- **OCR**: distributor-invoice scanning into the purchase form, handwritten sale-register parsing
+- **Purchase imports** from Tally purchase registers and spreadsheets (incl. unbilled purchases)
 - **DB-driven dynamic forms** (admin can modify form fields without code deploy)
+- **Custom roles & per-user permissions**, field-level hiding of sensitive data
 - **Employee mobile app** for field installment collection
 
-### The 4 Shops
+### Tenants and shops (seed data)
 
-| Shop | Code | Use |
-|------|------|-----|
-| Vinod Electronics | VE | Electronics retail |
-| Nishant Electronics | NE | Electronics retail |
-| Vinod Home Appliances | VHA | Appliances/furniture |
-| Nishant Home Electronics | NHE | Electronics + appliances |
+| Tenant | Subdomain | Plan | Shops |
+|--------|-----------|------|-------|
+| Vinod Electronics | `vn` (default for `localhost`) | Enterprise | VE Vinod Electronics · NE Naveen Electronics · VHA Vinod Home Appliances · NHE New Harshita Electronics |
+| Star Electronics (demo) | `star` | Standard | SE Star Electronics · SM Star Mobiles |
 
 ---
 
@@ -41,6 +45,9 @@ RetailERP is a full-stack web + mobile application that replaces Tally and Marg 
 - **ORM**: Prisma 6.6 with PostgreSQL 16
 - **Validation**: Zod 3.24
 - **Auth**: JWT (access token 1hr + refresh token 7d), bcryptjs
+- **Jobs**: node-cron (installment promise resolution, bank feeds) — only when `ENABLE_SCHEDULER=true`
+- **AI**: OpenAI SDK (invoice/register OCR, bank-statement categorisation); disabled without `OPENAI_API_KEY`
+- **Tests**: Vitest (`tests/unit`, `tests/integration` against a separate `retailerp_test` DB)
 - **Language**: TypeScript (ES2022 target, ESM modules)
 
 ### Frontend Web (apps/web)
@@ -48,7 +55,8 @@ RetailERP is a full-stack web + mobile application that replaces Tally and Marg 
 - **Build**: Vite 6
 - **Styling**: TailwindCSS 4 + shadcn/ui (CSS variables, class-based dark mode)
 - **State (server)**: TanStack Query (React Query) v5
-- **State (client)**: Zustand 5 (4 stores)
+- **State (client)**: Zustand 5 (7 stores: auth, platform-auth, tenant, shop, preferences, sidebar, toast)
+- **PWA**: vite-plugin-pwa (dev server on port 5180)
 - **Forms**: react-hook-form 7
 - **Charts**: Recharts 2
 - **PDF**: @react-pdf/renderer (lazy-loaded)
@@ -59,7 +67,8 @@ RetailERP is a full-stack web + mobile application that replaces Tally and Marg 
 - **Framework**: React Native with Expo SDK 52+
 - **Routing**: Expo Router (file-based)
 - **Storage**: expo-secure-store
-- **Push**: expo-notifications (planned)
+- **Screens (implemented)**: login, collections list/detail, record payment, profile
+- **Push**: expo-notifications (planned; API has token-registration stubs)
 
 ### Shared Packages
 - **@retailerp/shared-types**: TypeScript interfaces/enums shared across all apps
@@ -82,9 +91,13 @@ retail-erp/
 ├── turbo.json                # Turborepo task pipeline
 ├── tsconfig.base.json        # Shared TypeScript config
 ├── docker-compose.yml        # PostgreSQL 16 for local dev
-├── CLAUDE.md                 # AI assistant instructions
+├── AGENTS.md                 # AI agent instructions (CLAUDE.md imports it)
+├── .claude/skills/           # Shared agent skills (committed)
 ├── docs/
-│   └── CONTEXT.md            # This file
+│   ├── CONTEXT.md            # This file
+│   ├── DEV_LOGINS.md         # Local logins per tenant/role
+│   ├── adr/                  # Architecture decisions (0001 installment model)
+│   └── *.md                  # Plans: OCR, deployment, UI, sale-form redesign
 │
 ├── apps/
 │   ├── api/                  # Fastify backend
@@ -92,17 +105,21 @@ retail-erp/
 │   │   ├── tsconfig.json
 │   │   ├── .env.example
 │   │   ├── prisma/
-│   │   │   ├── schema.prisma     # 31 models, 11 enums
-│   │   │   ├── migrations/       # 4 migrations
-│   │   │   └── seed/             # 10 seed scripts
+│   │   │   ├── schema.prisma     # 57 models, 16 enums
+│   │   │   ├── migrations/       # 28 migrations
+│   │   │   └── seed/             # index.ts + bootstrap/backfill/repair scripts
 │   │   └── src/
 │   │       ├── index.ts          # Server entry point
-│   │       ├── app.ts            # Fastify app setup, registers all 17 modules
-│   │       ├── config/           # Database connection, env config
-│   │       ├── middleware/       # 5 middleware (auth, rbac, shop-scope, validate, error-handler)
-│   │       ├── modules/          # 17 API modules (see Section 6)
-│   │       ├── utils/            # ID generator, pagination, response helpers
-│   │       └── types/            # Express.d.ts augmentation
+│   │       ├── app.ts            # Fastify setup, tenant context, registers 23 modules (feature-gated)
+│   │       ├── config/           # env config, tenant-scoped Prisma client, tenant context (AsyncLocalStorage)
+│   │       ├── jobs/             # installments + bank-feed schedulers, resolve-promises job
+│   │       ├── middleware/       # tenant-resolver, auth, platform-auth, permissions, feature-gate,
+│   │       │                     # field-access, rbac, shop-scope, validate, error-handler
+│   │       ├── modules/          # 23 API modules (see Section 6)
+│   │       ├── utils/            # ID generator, pagination, response helpers, tenant-scope
+│   │       └── types/            # Fastify request augmentation
+│   │   ├── tests/                # Vitest: unit/, integration/, helpers/
+│   │   └── scripts/              # dev scripts (set-dev-password, inspect-ledger, list-tenants)
 │   │
 │   ├── web/                  # React frontend
 │   │   ├── package.json
@@ -113,33 +130,31 @@ retail-erp/
 │   │       ├── main.tsx
 │   │       ├── App.tsx
 │   │       ├── index.css         # CSS variables (light + dark theme)
-│   │       ├── routes/           # ProtectedRoute, RoleGuard
+│   │       ├── PlatformApp.tsx   # Platform-admin SPA (admin.<host>)
+│   │       ├── routes/           # ProtectedRoute, PermissionGuard, RoleGuard, PlatformProtectedRoute
 │   │       ├── layouts/          # DashboardLayout, AuthLayout, Sidebar, Header
-│   │       ├── pages/            # 13 page directories (see Section 7)
-│   │       ├── components/       # 17 reusable components (see Section 8)
-│   │       ├── hooks/            # 15 custom hooks
-│   │       ├── stores/           # 4 Zustand stores
-│   │       └── lib/              # api-client, query-client, invoice-utils, utils
+│   │       ├── pages/            # 15 page directories incl. platform, preferences (see Section 10)
+│   │       ├── components/       # reusable components + ui/ (shadcn-style primitives)
+│   │       ├── hooks/            # 23 hooks (one TanStack Query file per domain + usePermission/useFeature)
+│   │       ├── stores/           # 7 Zustand stores
+│   │       └── lib/              # api-client, platform-api-client, host, query-client, importers, invoice-utils
 │   │
 │   └── mobile/               # React Native (Expo) -- employee collection app
 │       ├── app/              # Expo Router file-based routes
-│       ├── components/       # CollectionCard, PaymentForm, LoadingScreen
-│       ├── hooks/            # useAuth, useCollections
-│       └── lib/              # api-client, storage
+│       └── src/              # components, hooks, lib (api-client, storage), stores
 │
 ├── packages/
 │   ├── shared-types/         # TypeScript interfaces + enums
 │   │   └── src/
 │   │       ├── index.ts      # Re-exports all type modules
 │   │       ├── enums.ts
-│   │       ├── shop.types.ts
-│   │       ├── user.types.ts
-│   │       ├── product.types.ts
-│   │       ├── sale.types.ts
+│   │       ├── features.ts           # FeatureKey catalog (plan/tenant switches)
+│   │       ├── permissions.ts        # Permission catalog + default role grants
+│   │       ├── access.ts             # effectivePermissions(): the rulebook used by API and UI
+│   │       ├── platform.types.ts
 │   │       ├── installment.types.ts
 │   │       ├── customer.types.ts
 │   │       ├── distributor.types.ts
-│   │       ├── purchase.types.ts
 │   │       ├── form.types.ts
 │   │       └── api-response.types.ts
 │   │
@@ -147,9 +162,13 @@ retail-erp/
 │       └── src/
 │           ├── index.ts
 │           ├── emi-calculator.ts   # EMI calculation (simple interest)
+│           ├── installment-rules.ts # Shared installment/penalty rules
 │           ├── validators.ts       # Phone, GST, PAN, Aadhaar
+│           ├── gstin.ts            # GSTIN parsing/validation
 │           ├── formatters.ts       # INR currency, Indian date format
-│           └── constants.ts        # Interest rates, installment months
+│           ├── constants.ts        # Interest rates, installment months
+│           └── purchase-sheet.ts, tally-purchase-register.ts, creditor-sheet.ts,
+│               distributor-duplicates.ts  # Import parsers and supplier de-duplication
 │
 ├── infra/
 │   └── azure/
@@ -190,7 +209,7 @@ npm run db:migrate
 # 6. Seed the database
 npm run db:seed
 
-# 7. Start development servers (API on :3001, Web on :5173)
+# 7. Start development servers (API on :3001, Web on :5180)
 npm run dev
 ```
 
@@ -205,6 +224,7 @@ npm run build            # Build all apps
 npm run typecheck        # TypeScript check all
 npm run db:studio        # Open Prisma Studio (DB GUI)
 npm run db:seed          # Re-seed database
+npm test                 # API tests (Vitest; integration tests need Postgres)
 ```
 
 ### Environment Variables (apps/api/.env)
@@ -212,28 +232,53 @@ npm run db:seed          # Re-seed database
 DATABASE_URL=postgresql://retailerp:retailerp@localhost:5432/retailerp
 JWT_SECRET=your-secret-key-change-in-production
 JWT_REFRESH_SECRET=your-refresh-secret-change-in-production
-JWT_EXPIRES_IN=1h
-JWT_REFRESH_EXPIRES_IN=7d
 API_PORT=3001
 API_HOST=0.0.0.0
-CORS_ORIGIN=http://localhost:5173
+CORS_ORIGIN=http://localhost:5180
+# Optional — OCR and statement AI are disabled without a key
+OCR_PROVIDER=openai
+OPENAI_API_KEY=
+OCR_INVOICE_MODEL=gpt-4o-mini
+OCR_REGISTER_MODEL=gpt-4o
+OCR_MAX_FILE_MB=15
+OCR_MAX_PDF_PAGES=8
+# Optional — bank API feeds and background jobs
+BANK_FEED_SECRET_KEY=
+BANK_FEED_CRON=30 6 * * *
+ENABLE_SCHEDULER=false
 ```
+Also read by the API: `STATEMENTS_AI_MODEL` (default `gpt-4.1-mini`), `STATEMENTS_MAX_FILE_MB`,
+`SCHEDULER_CRON` (default `0 1 * * *`), `SCHEDULER_TZ` (default `Asia/Kolkata`).
 
 ### Default Login Credentials
-- **Password**: `RetailERP@2026` (all users)
-- **Username pattern**: `{shopcode}_{role}{n}`
-  - Shop codes: `ve`, `ne`, `vha`, `nhe`
+See [DEV_LOGINS.md](./DEV_LOGINS.md) for every account.
+- **Password**: seed default `RetailERP@2026`; `npx tsx scripts/set-dev-password.ts` (in `apps/api`) sets all to `1234`
+- **Username pattern**: `{shopcode}_{role}{n}` plus owners `vinod_owner`, `nishant_owner`
+  - Shop codes: `ve`, `ne`, `vha`, `nhe` (Star tenant: `se`, `sm`)
   - Roles: `admin1`, `admin2`, `acc1`, `acc2`, `acc3`, `staff1`, `staff2`, `emp1`, `emp2`, `emp3`
-- **Example**: `ve_admin1` / `RetailERP@2026` (Vinod Electronics admin)
+- **Tenant by address**: Vinod Electronics at http://localhost:5180, Star Electronics at
+  http://star.localhost:5180, platform admin at http://admin.localhost:5180
 
 ---
 
-## 5. Database Schema (31 Models)
+## 5. Database Schema (57 Models, 16 Enums)
 
-### Enums (11)
+> The tables below cover the original core. Added since: SaaS (`Tenant`, `Plan`, `PlanFeature`,
+> `TenantFeature`, `PlatformUser`, `PlatformRefreshToken`, `PlatformAuditLog`), access control
+> (`Role`, `Permission`, `RolePermission`, `UserPermission`), installments (`InstallmentInterestApplication`,
+> `InstallmentRollLog` (legacy), `InstallmentCarryForward`, `InstallmentRebate`, `InstallmentPromise`),
+> bank-statement analysis (`BankStatement`, `StatementTransaction`, `StatementFile`, `StatementRule`,
+> `StatementSettings`, `BankFeedConnection`, `BankFeedRun`) and purchase imports (`PurchaseImportBatch`,
+> `ImportItemClassification`, `PurchaseInvoiceSeries`). Every tenant-owned model has a `tenantId`
+> column, which `config/database.ts` uses to scope all Prisma queries automatically.
+> New enums: `CustomerType`, `SaleApprovalStatus`, `UserPermissionEffect`, `TenantStatus`,
+> `InstallmentPromiseStatus` (pending, kept, partially_kept, broken, replaced, cancelled).
+> `schema.prisma` is the source of truth.
+
+### Enums (core)
 | Enum | Values |
 |------|--------|
-| UserRole | admin, accountant, others, employee |
+| UserRole | owner, admin, accountant, others, employee |
 | ProductStatus | in_stock, sold, transferred, returned, damaged |
 | SaleType | full_payment, partial_with_promise, self_finance, company_finance |
 | PaymentMode | cash, credit_card, debit_card, upi, bank_transfer, cheque |
@@ -323,22 +368,31 @@ Product 1--* InterShopTransfer
 
 ---
 
-## 6. API Modules (17)
+## 6. API Modules (23)
 
 Each module follows the pattern: `routes.ts` -> `controller.ts` -> `service.ts` + `validation.ts`
 
-All endpoints prefixed with `/api/v1`. Data is shop-scoped via JWT + `X-Shop-Id` header.
+All endpoints prefixed with `/api/v1`. The tenant comes from the host/`X-Tenant-Slug`; data is
+shop-scoped via JWT + `X-Shop-Id` header. Every route is guarded by
+`requirePermission('<module>.<action>')`, and most modules are registered behind a tenant
+feature switch (`registerGated` in `app.ts` — 403 when the tenant's plan has it off).
+
+Modules: auth, shops, users, categories, products, distributors, purchases, customers, sales,
+installments, **promises**, transfers, expenses, bank (legacy), **bank-statements**, dashboard,
+forms, employees, notifications, **roles**, **ocr**, **lookup**, **platform**. The tables below
+are a summary; the `*.routes.ts` files are authoritative.
 
 ### Auth (`/api/v1/auth`)
 | Method | Path | Description | Auth |
 |--------|------|-------------|------|
-| GET | /shops | List all shops (login dropdown) | Public |
-| POST | /login | Login with username + password + shopId | Public |
+| GET | /shops | List the tenant's shops | Public |
+| POST | /login | Login with username + password (tenant from host); returns effective permissions | Public |
 | POST | /refresh | Refresh access token | Refresh token |
 | POST | /logout | Revoke refresh token | Yes |
 | GET | /me | Current user + shops | Yes |
-| POST | /change-password | Change own password | Yes |
-| POST | /switch-shop | Switch active shop (new token) | Admin/Accountant |
+| GET/PUT | /preferences | Per-user preferences (tables, theme) | Yes |
+| PUT | /change-password | Change own password | Yes |
+| POST | /switch-shop | Switch active shop (new token) | Owner/Admin/Accountant |
 
 ### Shops (`/api/v1/shops`)
 | Method | Path | Description |
@@ -421,11 +475,35 @@ All endpoints prefixed with `/api/v1`. Data is shop-scoped via JWT + `X-Shop-Id`
 | GET | /collections/today | Today's collections |
 | GET | /collections/date/:date | Collections for specific date |
 | GET | /collections/range | Collections for date range (?dateFrom, ?dateTo) |
+| GET | /call-list | Today's calls: due today, promises due, broken promises, overdue not covered by a later promise |
+| GET | /collections/paid-range | Payments actually received in a date range |
 | GET | /search | Search schedules by ledger#/sale#/phone/name |
 | GET | /:scheduleId | Schedule detail + all installments + payments |
 | GET | /:scheduleId/timeline | Timeline visualization data |
-| PUT | /:installmentId/pay | Record payment (3 scenarios) |
-| PUT | /:installmentId/reschedule | Reschedule to new date |
+| GET | /:scheduleId/roll-log | Legacy redistribution history |
+| GET | /:installmentId/payment-preview | Server-computed penalty / early-payment deduction for the payment dialog |
+| POST | /:installmentId/pay | Record payment (oldest-first allocation, optional promise, penalty/deduction opt-ins) |
+| POST | /payments/:paymentId/revert, /move, /correct | Undo, re-target or correct a payment |
+| PATCH | /schedules/:scheduleId/penalty-per-day | Change the sale's late-penalty rate |
+| GET/POST | /schedules/:scheduleId/settlement-quote, /final-settlement | Early closure |
+| GET | /schedules/:scheduleId/interest-accrual | Late-penalty accrual (sale-level) |
+| POST | /:installmentId/apply-interest, /interest-applications/:id/rollback | Manual penalty and its undo |
+
+### Promises (`/api/v1/promises`)
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | / | Create a promise covering one or more EMIs (replaces a pending one on the same EMIs) |
+| GET | / | List promises (by schedule / customer / status) |
+| DELETE | /:id | Cancel a promise entered by mistake (`cancelled`, not held against the customer) |
+
+### Newer modules (summary)
+| Prefix | Purpose |
+|--------|---------|
+| `/roles` | Custom roles, role permissions, per-user grants/denies (writes need `rbac.custom_roles` feature) |
+| `/bank-statements` | Statement analysis ported from LedgerLens: parse PDF/Excel/CSV/image statements, auto-categorise (user rules → built-in rules → AI), review queue, analytics, Excel/CSV export, bank API feeds. Engine in `engine/` uses raw SQL (tenant-filtered by hand) |
+| `/ocr` | Distributor-invoice → purchase-form pre-fill; handwritten register page → parsed preview (OpenAI) |
+| `/lookup` | Lightweight lookups used by forms (always on) |
+| `/platform` | Platform-admin console: tenants, plans, feature overrides, onboarding (separate login, no tenant context) |
 
 ### Transfers (`/api/v1/transfers`)
 | Method | Path | Description |
@@ -488,17 +566,32 @@ All endpoints prefixed with `/api/v1`. Data is shop-scoped via JWT + `X-Shop-Id`
 
 ## 7. RBAC (Role-Based Access Control)
 
-### Roles
+### Roles (defaults — editable per tenant in Settings → Roles & Users)
 | Role | Web Access | Mobile Access | Description |
 |------|-----------|---------------|-------------|
-| **Admin** | Full | Yes* | Full access, dashboard, settings, user management |
-| **Accountant** | Most (no dashboard/settings) | Yes* | Sales, purchases, installments, expenses |
-| **Others** | Limited | No | Products, customers, sales (sanitized only), NO installments ever |
+| **Owner** | Full (within the tenant's plan) | — | Every permission; all shops |
+| **Admin** | Full | Yes* | Full access, dashboard, settings, user management; can switch shops |
+| **Accountant** | Most (no dashboard, users or transfers) | Yes* | Sales, purchases, installments, expenses; can switch shops |
+| **Others** | Limited, own shop | No | Products, customers, sales (sanitized only), no cost prices, NO installments ever |
 | **Employee** | None (blocked) | Yes | Installment collection only |
 
+### Permissions model
+- Roles and permissions are DB rows (`Role`, `Permission`, `RolePermission`, `UserPermission`),
+  seeded from the catalog in `packages/shared-types/src/permissions.ts`.
+- **Effective permissions** = role grants + user grants − user denies − permissions of features
+  the tenant has off − permissions whose prerequisites are missing. Computed by
+  `effectivePermissions()` in `packages/shared-types/src/access.ts` — the same code runs in the
+  API (`middleware/permissions.ts`, `requirePermission`) and in the browser (`usePermission`,
+  `PermissionGuard`), so the UI never offers what the API refuses. Login returns the list.
+- `middleware/field-access.ts` strips sensitive fields (cost, Aadhaar, bank details) unless permitted.
+- New permissions reach existing tenants via `prisma/seed/sync-permission-catalog.ts`.
+
 ### Critical Data Isolation
-- **"Others" role NEVER sees installment data**. The sidebar hides the link, routes are server-guarded, and the sales API returns data from `sale_records_sanitized` (all sales appear as full cash payment).
-- **Decision is server-side**: The service layer decides which table to query based on `userRole`. Frontend cannot override.
+- **Tenants**: every Prisma query on a model with `tenantId` is auto-filtered and every create
+  auto-stamped (`config/database.ts` + `config/tenant-context.ts`); cross-tenant writes throw.
+  Raw SQL and background jobs must scope by tenant themselves.
+- **Sanitized viewers NEVER see installment data**. Users without `sales.view_real` get data from `sale_records_sanitized` (all sales appear as full cash payment) and lose every installment permission.
+- **Decision is server-side**: the API decides from effective permissions. Frontend cannot override.
 - **Employee role cannot access web app**: JWT contains `isMobileOnly: true`. Web app shows "Please use the mobile app" message.
 
 ### Shop Scoping
@@ -539,10 +632,29 @@ EMI = Math.round(Total Payable / numInstallments)
 ```
 All EMIs are equal amounts. Interest rates: 1%, 1.5%, 2%, 2.5%, 3% per month.
 
-### Installment Payment Scenarios
-1. **Full Payment** -- pay the full remaining amount, optionally with a different payment date
-2. **Reschedule** -- move installment to a new date (original marked as rescheduled)
-3. **Partial + Reschedule** -- pay partial amount, remainder rescheduled to new date (creates new installment record)
+### Installment Collection Rules (current)
+Based on [ADR-0001](./adr/0001-per-emi-overdue-installment-model.md), amended by later owner
+rules. The old reschedule / sub-row / redistribution model is legacy
+([installment/installment.md](./installment/installment.md)).
+1. **Fixed schedule** — EMIs are generated once at sale time (`plannedAmount` keeps the original).
+2. **Oldest-first allocation** — a payment clears the oldest EMI still owing, then the next; the
+   collector may pick a specific EMI first. Surplus beyond everything owed → `creditBalance`.
+3. **Short payment** — by default the EMI counts as paid and the shortfall is spread equally over
+   the remaining EMIs (whole rupees; recorded in `InstallmentCarryForward` with a reason, undone on
+   revert). Alternatively keep it on the EMI with a promise date.
+4. **Promises** — `InstallmentPromise` covers 1..N EMIs, labelled register-style `N.k` (k-th promise
+   on EMI N). Statuses: pending, kept, partially_kept, broken, replaced (new date given before the
+   old one), cancelled (shop mistake). Promises never hide a customer from the daily call list;
+   promised customers are snoozed only until their date. `resolve-promises.job.ts` settles them.
+5. **Late penalty** — flat ₹ per day **per sale** (default ₹2, `SaleRecord.penaltyPerDay`, tenant
+   default `defaultPenaltyPerDay`), counted from the day after the oldest unpaid EMI's due date,
+   never charging a day twice. Shown to the collector, applied only when ticked.
+6. **Early-payment deduction** — EMI paid in full ≥ 30 days early can earn that EMI's share of
+   sale-time interest off the last installment (`InstallmentRebate`). Opt-in; file charge never refunded.
+7. **Corrections** — revert / move / correct a payment (`installments.revert_payment` permission);
+   all derived effects are undone exactly.
+Engine: `modules/installments/installments.{engine,allocator,derivations}.ts`; shared rules in
+`packages/shared-utils/src/installment-rules.ts`.
 
 ### Dual Sale Recording
 Every sale creates TWO records in a single transaction:
@@ -563,24 +675,35 @@ Physical office register number (format: 2 capital letters + digits, e.g., VE001
 ## 9. Seed Data
 
 ### Execution Order (apps/api/prisma/seed/index.ts)
-1. `shops.seed.ts` -- 4 shops (VE, NE, VHA, NHE)
-2. `users.seed.ts` -- 10 users per shop (2 admin, 3 accountant, 2 others, 3 employee)
-3. `categories.seed.ts` -- 29 categories in hierarchy (TV > LED/OLED/QLED, Mobile > Smartphone/Feature Phone, AC > Window/Split/Tower, etc.) with brand dropdowns and HSN codes
-4. `finance-companies.seed.ts` -- 3 NBFCs (Bajaj Finance, HDB, Home Credit)
-5. `distributors.seed.ts` -- 5 distributors (Samsung, LG, Xiaomi, Godrej, Whirlpool)
-6. `products.seed.ts` -- 100+ products distributed across shops and categories
-7. `customers.seed.ts` -- 7 customers + 2 guarantors
-8. `sales.seed.ts` -- 10 sales spanning Nov 2025 - Apr 2026 (all 4 types)
-9. `installments.seed.ts` -- 47 installments with payment history, partial payments, rescheduling
-10. `form-definitions.seed.ts` -- 3 form definitions (product, customer, distributor)
+0. Bootstrap tenant `vn` (Vinod Electronics) on the `enterprise` plan with every feature on
+1. `shops.seed.ts` -- 4 shops (VE Vinod Electronics, NE Naveen Electronics, VHA Vinod Home Appliances, NHE New Harshita Electronics)
+2. `roles-permissions.seed.ts` -- system roles + permission catalog
+3. `users.seed.ts` -- 2 owners + 10 users per shop (2 admin, 3 accountant, 2 others, 3 employee)
+4. `categories.seed.ts` -- category hierarchy with brand dropdowns and HSN codes
+5. `finance-companies.seed.ts` -- 3 NBFCs (Bajaj Finance, HDB, Home Credit)
+6. `distributors.seed.ts`, `purchases.seed.ts` (creates the products)
+7. `form-definitions.seed.ts`
+
+**Customers and sales are not seeded** (since 2026-11-01 — the shops enter real ones), and
+neither is anything built on them. `customers.seed.ts`, `sales.seed.ts`,
+`installments.seed.ts`, `promises.seed.ts`, `interest-applications.seed.ts` and
+`rolling-overdue-scenarios.seed.ts` are kept in the repo; to re-enable, call them from
+`index.ts` in that order (each needs the previous one's output).
+
+Run by hand (not part of `index.ts`): `star-electronics.seed.ts` (demo tenant, refuses to run
+twice), `bootstrap-platform-admin.ts`, `sync-permission-catalog.ts`, and assorted one-off
+`backfill-*` / `repair-*` scripts. Destructive scripts (`clear`, `clear-all`, `reset`) are
+protected by `_guard.ts` (blocked in production or against non-local databases).
 
 ### Seed Credentials
-- **Password**: `RetailERP@2026` (all users)
-- **Username pattern**: `{shopcode}_{role}{n}` (e.g., `ve_admin1`, `ne_acc1`)
+- **Password**: `RetailERP@2026` (all users); see [DEV_LOGINS.md](./DEV_LOGINS.md)
+- **Username pattern**: `{shopcode}_{role}{n}` (e.g., `ve_admin1`, `ne_acc1`), owners `vinod_owner`, `nishant_owner`
 
 ### Running Seeds
 ```bash
-npm run db:seed    # Runs all seeds in order (idempotent -- checks for existing records)
+npm run db:seed    # Runs index.ts (adds seed purchases/products — don't run it on a database holding real data)
+npm run db:clear   # Deletes business data (sales, customers, installments, promises, products…), keeps shops/users/config
+npm run db:reset   # prisma migrate reset --force (drops DB, re-applies migrations; then run db:seed)
 ```
 
 ---
@@ -591,14 +714,16 @@ npm run db:seed    # Runs all seeds in order (idempotent -- checks for existing 
 | Layer | Tool | Purpose |
 |-------|------|---------|
 | Server state | TanStack Query | All API calls, caching, refetching |
-| Auth state | Zustand (auth-store) | User, tokens, login/logout |
+| Auth state | Zustand (auth-store, platform-auth-store) | User, tokens, effective permissions; separate platform-admin session |
+| Tenant state | Zustand (tenant-store) | Tenant resolved from the host, enabled features |
 | Shop state | Zustand (shop-store) | Current shop context |
-| UI state | Zustand (toast-store, sidebar-store) | Toasts, mobile sidebar |
+| UI state | Zustand (toast-store, sidebar-store, preferences-store) | Toasts, mobile sidebar, per-user table/column preferences |
 | Form state | react-hook-form | Ephemeral per-page form data |
 
 ### API Layer
-- `lib/api-client.ts` -- Axios instance with Authorization header + X-Shop-Id header
-- Request interceptor: attaches JWT + shop ID
+- `lib/api-client.ts` -- Axios instance with Authorization, `X-Shop-Id` and `X-Tenant-Slug` headers (`lib/host.ts` derives the tenant from the subdomain)
+- `lib/platform-api-client.ts` -- separate client for the platform-admin console
+- Request interceptor: attaches JWT + shop ID + tenant slug
 - Response interceptor: on 401, attempts token refresh; on failure, redirects to login
 - Each domain has its own hook file (e.g., `hooks/useSales.ts`) wrapping TanStack Query
 
@@ -613,39 +738,46 @@ npm run db:seed    # Runs all seeds in order (idempotent -- checks for existing 
 | DataTable | Reusable paginated table with sorting |
 | DynamicForm | Renders form from DB form_definitions |
 | CategoryCascader | Hierarchical category picker |
-| RecordPaymentDialog | 3-tab dialog for installment payments (full/reschedule/partial) |
+| RecordPaymentDialog | Installment payment: single amount, where-it-goes breakdown, spread vs keep shortfall, penalty/deduction checkboxes, optional promise |
+| PromiseDialog | Create a promise over one or more EMIs (`N.k` label preview) |
 | PaymentTimeline | Visual installment payment history |
 | InvoicePDF | Indian GST tax invoice PDF generation |
 | StatusBadge | 30+ status variants with dark mode support |
 | PaymentSplitSection | Multi-mode payment (up to 3 splits) |
 
-### Pages (13 sections)
+### Pages (15 sections)
 | Section | Pages | Key Features |
 |---------|-------|--------------|
-| auth | LoginPage | Shop selector -> credentials, mobile-only user blocking |
+| auth | LoginPage | Tenant from host -> credentials, mobile-only user blocking |
 | dashboard | DashboardPage | Summary cards, sales chart, top products, YoY, overdue |
 | products | List, Add, Detail | Category cascader, dynamic attributes, audit timeline |
 | distributors | List, Form, Detail | Tabs (products/payments/pending), lumpsum FIFO payment |
-| purchases | List, Create, Detail | 5-step wizard, GST slabs, multi-serial, duplicate validation |
+| purchases | List, Create, Detail, Import | 5-step wizard, GST slabs, multi-serial, duplicate validation, invoice OCR, Tally/sheet import, unbilled purchases |
 | customers | List, Form, Detail | Phone search, auto customer code |
-| sales | List, Create, Detail | 4 sale types, GST-inclusive, multi-mode payment, invoice PDF, profit breakdown |
-| installments | List, Detail | Search by ledger#, date range collections, overdue tracking, payment recording |
+| sales | List, Create, Detail, RegisterScan | 4 sale types, GST-inclusive, multi-mode payment, invoice PDF, profit breakdown, register-page OCR |
+| installments | List (incl. Today's Calls tab), Detail | Daily call list, search by ledger#, date range collections, overdue tracking, payments, promises |
 | transfers | List, Create, Detail | Product movement between shops |
 | expenses | List, Form | Category-based expense tracking |
-| bank | BankPage | CSV upload, reconciliation panel |
+| bank | Dashboard, Upload, Review, Transactions, Statements, Rules | Bank-statement analysis: upload, AI categorisation, review queue, rules, analytics |
 | employees | List, Form | Admin-only employee management |
-| settings | Settings, FormBuilder, CategoryManager | Dynamic form editing, category tree with HSN codes |
+| settings | Settings, FormBuilder, CategoryManager, RolesUsers | Dynamic form editing, category tree with HSN codes, roles & per-user permissions |
+| preferences | Preferences | Per-user preferences (theme, tables) |
+| platform | Login, TenantList, TenantDetail, TenantOnboard, PlanManager | Platform-admin console (admin.<host>, `PlatformApp.tsx`) |
 
 ---
 
 ## 11. Database Migrations
 
-| # | Name | Date | Description |
-|---|------|------|-------------|
-| 1 | init | 2026-04-16 | Full initial schema (31 models, 11 enums) |
-| 2 | add_purchase_gst_to_sales | 2026-04-17 | purchasePrice + purchaseGstAmount on sale_records |
-| 3 | add_payment_breakdown | 2026-04-17 | paymentBreakdown JSON on sale_records |
-| 4 | add_hsn_code_to_categories | 2026-04-17 | hsnCode on product_categories |
+28 migrations in `apps/api/prisma/migrations/` (first: `init`, 2026-04-16). Latest:
+
+| Name | Description |
+|------|-------------|
+| 20260922133155_planned_amount_and_carry_forward | `Installment.plannedAmount`, `InstallmentCarryForward` |
+| 20261004105718_add_bank_statement_analysis | Bank-statement analysis tables |
+| 20261005133338_bank_accounts_link_and_statement_files | Statement files, bank-account links |
+| 20261005191207_bank_api_feeds | Bank API feed connections/runs |
+| 20261017162614_add_purchase_import_tracking | Purchase import batches / classification |
+| 20261018200653_purchases_without_a_bill | Unbilled purchases |
 
 ### Running Migrations
 ```bash
@@ -665,28 +797,29 @@ npx prisma generate             # Regenerate Prisma client after schema changes
 2. **deploy-api** (main only) -- Zip deploy to Azure App Service, run migrations
 3. **deploy-web** (main only) -- Deploy dist/ to Azure Static Web Apps
 
-### Azure Resources (~$26/month)
+### Azure Resources (~$26/month, as originally provisioned)
 - App Service B1 (API)
 - PostgreSQL Flexible Server B1ms
 - Static Web Apps (free tier)
 - Blob Storage (hot tier, for uploads)
 
+Wildcard tenant subdomains (`*.retailerp.com`) need a different setup — see
+[DEPLOYMENT_PLAN.md](./DEPLOYMENT_PLAN.md) (recommended: single App Service + Postgres B1ms + Cloudflare).
+
 ---
 
-## 13. Git History (Recent Commits on develop)
+## 13. Git History & Workflow
 
-```
-7c68e87 Major update: HSN codes, payment breakdown, installment search, profit fixes
-0ebe781 Add invoice PDF, fix EMI, Net Profit %, GST auto-select from purchase
-027c80a GST-inclusive pricing, ITC profit tracking, form reorder, discount %
-7020d01 Revamp sale form: auto-discount, GST dropdown, 50% down payment default
-9c21fbe Fix: Purchase totals showing 0 + missing totalAmount in API payload
-9a194e7 Theme: Modern ERP design + full dark mode (24 files)
-a0bd089 Revamp purchase form: GST%, remove payment fields, multi-serial support
-a44b97b Fix: Page refresh preserves current route instead of redirecting
-```
+Use `git log` for history (≈160 commits since 2026-04-16). Milestones: scaffolding and core
+modules (Apr 2026) → SaaS multi-tenancy, plans and platform admin → Pattern B installments,
+promises and call list (Sep 2026) → permission-per-route RBAC (Oct 2026) → bank-statement
+analysis, purchase imports and table preferences (Oct 2026).
 
-**Branch strategy**: `develop` for active work, `main` for deployments (triggers CI/CD).
+**Branch strategy**: feature branches (e.g. `feature/bank-statement-analyzer`) and `develop`
+for active work; `main` deploys (triggers CI/CD).
+
+**Commit style**: one plain-English sentence describing the user-visible effect
+("Pay a supplier in cash and cheque at once"), with a body explaining why.
 
 ---
 
@@ -694,7 +827,7 @@ a44b97b Fix: Page refresh preserves current route instead of redirecting
 
 ### API Pattern
 Every module: `routes.ts` -> `controller.ts` -> `service.ts` + `validation.ts`
-- Routes register endpoints with middleware chains
+- Routes register endpoints with middleware chains: `authenticate, shopScope, requirePermission('<module>.<action>'), validate(schema)`
 - Controllers handle request/response, call services
 - Services contain business logic, Prisma queries
 - Validation uses Zod schemas
@@ -742,9 +875,9 @@ CSS variables in `index.css` (`:root` for light, `.dark` for dark). Toggle via `
 
 After `npm run dev`:
 - **API**: http://localhost:3001 (Fastify, auto-reload via tsx)
-- **Web**: http://localhost:5173 (Vite HMR)
-- **Login**: Select shop -> enter credentials -> redirected to dashboard (admin) or products (others)
-- **Seeded data**: 4 shops, 40 users, 100+ products, 10 sales, 47 installments with payment history
+- **Web**: http://localhost:5180 (Vite HMR; tenant from host — `star.localhost:5180`, `admin.localhost:5180`)
+- **Login**: enter credentials at the tenant's address -> redirected to dashboard (admin) or products (others)
+- **Seeded data**: tenant `vn` with 4 shops, 42 users, distributors, purchases and products — no customers or sales (add the Star demo tenant, which does include sample sales, with `star-electronics.seed.ts`)
 
 ### Common Issues
 - **Page refresh logs out**: Fixed. Uses localStorage (not sessionStorage) + `/auth/me` hydration.

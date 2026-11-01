@@ -1,5 +1,12 @@
 # RetailERP -- Comprehensive Implementation Plan
 
+> **Status: historical (April 2026).** This was the original build plan. The product has since
+> grown into a multi-tenant SaaS (tenants, plans, feature switches, platform admin), DB-driven
+> roles/permissions replaced the static RBAC matrix below, and the installment model was
+> replaced (see `docs/adr/0001-per-emi-overdue-installment-model.md`). For the current system
+> read [AGENTS.md](AGENTS.md) and [docs/CONTEXT.md](docs/CONTEXT.md); `apps/api/prisma/schema.prisma`
+> is the source of truth for the schema.
+
 ## 1. COMPLETE DATABASE SCHEMA
 
 ### Enums

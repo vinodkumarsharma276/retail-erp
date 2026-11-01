@@ -1,6 +1,7 @@
 # Add Sale Form — Redesign Plan
 
 > Created: 2026-04-25  
+> Status: Partially implemented — `SaleCreatePage.tsx` has sticky summary elements, but the component split below (`pages/sales/components/*`) has not been done  
 > Scope: `apps/web/src/pages/sales/SaleCreatePage.tsx`  
 > Goal: Eliminate wasted right-side space, reduce vertical scrolling, match ERP/POS conventions.
 

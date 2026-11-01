@@ -6,12 +6,6 @@ import { seedCategories } from './categories.seed';
 import { seedFinanceCompanies } from './finance-companies.seed';
 import { seedDistributors } from './distributors.seed';
 import { seedPurchases } from './purchases.seed';
-import { seedCustomers } from './customers.seed';
-import { seedSales } from './sales.seed';
-import { seedInstallments } from './installments.seed';
-import { seedPromises } from './promises.seed';
-import { seedInterestApplications } from './interest-applications.seed';
-import { seedRollingOverdueScenarios } from './rolling-overdue-scenarios.seed';
 import { seedFormDefinitions } from './form-definitions.seed';
 import { ALL_FEATURE_KEYS, FeatureKey } from '@retailerp/shared-types';
 
@@ -102,27 +96,15 @@ async function main() {
   const distributors = await seedDistributors(prisma, categories);
   console.log(`  Distributors: ${distributors.length}`);
 
-  const customers = await seedCustomers(prisma, shops, users);
-  console.log(`  Customers: ${customers.length}`);
-
   const { purchases, products } = await seedPurchases(prisma, shops, categories, distributors);
   console.log(`  Purchases: ${purchases.length}`);
   console.log(`  Products: ${products.length}`);
 
-  const sales = await seedSales(prisma, shops, products, customers, users, financeCompanies);
-  console.log(`  Sales: ${sales.length}`);
-
-  const installmentSchedules = await seedInstallments(prisma, sales);
-  console.log(`  Installment schedules processed: ${installmentSchedules.length}`);
-
-  const promises = await seedPromises(prisma);
-  console.log(`  Promises: ${promises.length}`);
-
-  const interestApplications = await seedInterestApplications(prisma);
-  console.log(`  Interest applications: ${interestApplications.length}`);
-
-  const scenarios = await seedRollingOverdueScenarios(prisma);
-  console.log(`  Rolling-overdue scenario schedules: ${scenarios.scheduleIds.length}`);
+  // Customers, sales and everything built on them (installment schedules, promises,
+  // interest applications, rolling-overdue scenarios) are no longer seeded: the shops
+  // enter real customers and sales. The scripts are kept — customers.seed.ts,
+  // sales.seed.ts, installments.seed.ts, promises.seed.ts, interest-applications.seed.ts,
+  // rolling-overdue-scenarios.seed.ts — and must be called in that order if re-enabled.
 
   const forms = await seedFormDefinitions(prisma, tenant.id);
   console.log(`  Form definitions: ${forms.length}`);

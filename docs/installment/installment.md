@@ -4,11 +4,11 @@ This document contains legacy reference material for the original redistribution
 
 The current implementation direction is **ADR-0001: Per-EMI Overdue Installment Model (Pattern B)**. Read [docs/adr/0001-per-emi-overdue-installment-model.md](../adr/0001-per-emi-overdue-installment-model.md) and [docs/adr/0001-implementation-plan.md](../adr/0001-implementation-plan.md) before modifying installment-related code.
 
-Pattern B invariants:
-- Each EMI remains an independent obligation.
-- Missed EMIs are not redistributed into future EMIs.
+Pattern B invariants (as amended — see the ADR's amendments section):
+- Each EMI remains an independent obligation; missed EMIs stay overdue and are not pushed into future EMIs.
+- Exception: a due EMI paid *short* is, by default, marked paid and the shortfall spread over the remaining EMIs (`InstallmentCarryForward`), or kept on the EMI with a promise.
 - Promises are first-class records and never suppress due/overdue call lists.
-- Penalty is suggested at the tenant-configured monthly rate (default 1%) but applied only when the employee explicitly chooses it.
+- Late penalty is a flat ₹/day per sale (default ₹2, tenant/sale configurable), applied only when the collector explicitly chooses it.
 - Every promise, payment, interest application, and reliability query is tenant-scoped.
 
 The sections below are retained only for understanding legacy data and roll-log history.

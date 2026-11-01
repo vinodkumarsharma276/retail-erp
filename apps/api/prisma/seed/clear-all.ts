@@ -13,6 +13,11 @@ async function main() {
   console.log('Clearing ALL data (full wipe)...\n');
 
   // Business data (see clear.ts)
+  await prisma.installmentPromise.deleteMany();
+  await prisma.installmentCarryForward.deleteMany();
+  await prisma.installmentRebate.deleteMany();
+  await prisma.installmentInterestApplication.deleteMany();
+  await prisma.installmentRollLog.deleteMany();
   await prisma.installmentPayment.deleteMany();
   await prisma.installment.deleteMany();
   await prisma.employeeCollectionAssignment.deleteMany();

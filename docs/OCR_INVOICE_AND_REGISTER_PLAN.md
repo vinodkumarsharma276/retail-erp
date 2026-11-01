@@ -1,8 +1,8 @@
 # Plan — Invoice Scanning for Purchases & Register-Entry Image Parsing
 
-> Status: Proposed (ready for implementation)
+> Status: Implemented — `apps/api/src/modules/ocr/`, `PurchaseCreatePage` scan, `sales/RegisterScanPage.tsx` (feature `ocr.invoice`)
 > Owner: Engineering
-> Last updated: 2026-04-25
+> Last updated: 2026-11-01
 > Scope: Two related capabilities
 > 1. Auto-fill the **Add Purchase** form from a photo or PDF of a distributor invoice.
 > 2. Extract structured-ish data from a **handwritten sale register** photo and present it for review (no auto-fill yet).

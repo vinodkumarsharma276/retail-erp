@@ -67,7 +67,7 @@ async function registerGated(
 function isAllowedDevOrigin(origin: string) {
   try {
     const url = new URL(origin);
-    const isWebDevPort = url.port === '5173' || url.port === '5174' || url.port === '4173';
+    const isWebDevPort = url.port === '5173' || url.port === '5180' || url.port === '4173';
     const isLocalhost =
       url.hostname === 'localhost' ||
       url.hostname.endsWith('.localhost') ||

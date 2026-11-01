@@ -1,7 +1,7 @@
 # RetailERP — UI Improvement Plan
 
 > Created: 2026-04-25  
-> Status: Draft  
+> Status: Partially implemented — shadcn-style primitives exist in `apps/web/src/components/ui/` (button, input, select, card, tabs, …) and an `InstallPrompt` component; remaining phases open  
 > Priority: High — directly affects daily usability for shop staff on phones and desktops
 
 ---

@@ -2,6 +2,9 @@
 
 Companion to [0001-per-emi-overdue-installment-model.md](./0001-per-emi-overdue-installment-model.md).
 
+> **Status: executed (Sep 2026).** Kept as a record. Later rule changes (short-payment spread,
+> flat ₹/day per-sale penalty, early-payment deduction) are listed in the ADR's amendments.
+
 ## Execution Rules
 
 - Phases 1–4 ship together: schema, engine, API, and seed data are mutually dependent.
