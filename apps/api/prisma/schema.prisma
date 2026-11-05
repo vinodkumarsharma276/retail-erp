@@ -788,11 +788,13 @@ model Distributor {
   createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz()
   updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
-  creator    User?                 @relation("DistributorCreator", fields: [createdBy], references: [id])
-  tenant     Tenant                @relation(fields: [tenantId], references: [id])
-  categories DistributorCategory[]
-  purchases  Purchase[]
-  products   Product[]
+  creator               User?                  @relation("DistributorCreator", fields: [createdBy], references: [id])
+  tenant                Tenant                 @relation(fields: [tenantId], references: [id])
+  categories            DistributorCategory[]
+  purchases             Purchase[]
+  products              Product[]
+  /// Bank statement rows paying this supplier.
+  statementTransactions StatementTransaction[]
 
   @@index([tenantId])
   @@index([companyName])
@@ -873,21 +875,25 @@ model PurchasePayment {
   tenantId String @map("tenant_id")
   /// Owning tenant (matches the purchase's tenantId).
 
-  purchaseId      String      @map("purchase_id")
-  amount          Decimal     @db.Decimal(12, 2)
-  paymentMode     PaymentMode @map("payment_mode")
-  paymentDate     DateTime    @map("payment_date") @db.Date
-  referenceNumber String?     @map("reference_number") @db.VarChar(100)
-  notes           String?     @db.Text
-  createdBy       String?     @map("created_by")
-  createdAt       DateTime    @default(now()) @map("created_at") @db.Timestamptz()
+  purchaseId             String      @map("purchase_id")
+  amount                 Decimal     @db.Decimal(12, 2)
+  paymentMode            PaymentMode @map("payment_mode")
+  paymentDate            DateTime    @map("payment_date") @db.Date
+  referenceNumber        String?     @map("reference_number") @db.VarChar(100)
+  notes                  String?     @db.Text
+  createdBy              String?     @map("created_by")
+  createdAt              DateTime    @default(now()) @map("created_at") @db.Timestamptz()
+  /// The bank statement row this payment was recorded from, if any.
+  statementTransactionId String?     @map("statement_transaction_id")
 
-  tenant   Tenant   @relation(fields: [tenantId], references: [id])
-  purchase Purchase @relation(fields: [purchaseId], references: [id])
-  creator  User?    @relation("PurchasePaymentCreator", fields: [createdBy], references: [id])
+  tenant               Tenant                @relation(fields: [tenantId], references: [id])
+  purchase             Purchase              @relation(fields: [purchaseId], references: [id])
+  creator              User?                 @relation("PurchasePaymentCreator", fields: [createdBy], references: [id])
+  statementTransaction StatementTransaction? @relation(fields: [statementTransactionId], references: [id], onDelete: SetNull)
 
   @@index([tenantId])
   @@index([purchaseId])
+  @@index([statementTransactionId])
   @@map("purchase_payments")
 }
 
@@ -1607,46 +1613,54 @@ model BankStatement {
 }
 
 model StatementTransaction {
-  id             String    @id @default(uuid())
-  tenantId       String    @map("tenant_id")
-  statementId    String    @map("statement_id")
-  shopId         String    @map("shop_id")
-  bank           String    @db.VarChar(80)
-  date           DateTime  @db.Date
-  description    String
+  id                String    @id @default(uuid())
+  tenantId          String    @map("tenant_id")
+  statementId       String    @map("statement_id")
+  shopId            String    @map("shop_id")
+  bank              String    @db.VarChar(80)
+  date              DateTime  @db.Date
+  description       String
   /// Signed: negative = money out.
-  amount         Decimal   @db.Decimal(16, 2)
+  amount            Decimal   @db.Decimal(16, 2)
   /// debit | credit
-  direction      String    @db.VarChar(6)
-  balance        Decimal?  @db.Decimal(16, 2)
-  reference      String?   @db.VarChar(100)
-  counterparty   String?   @db.VarChar(120)
-  channel        String    @default("Other") @db.VarChar(20)
-  category       String    @default("Uncategorized") @db.VarChar(60)
+  direction         String    @db.VarChar(6)
+  balance           Decimal?  @db.Decimal(16, 2)
+  reference         String?   @db.VarChar(100)
+  counterparty      String?   @db.VarChar(120)
+  channel           String    @default("Other") @db.VarChar(20)
+  category          String    @default("Uncategorized") @db.VarChar(60)
   /// rule | user-rule | ai | user | none
-  categorySource String    @default("none") @map("category_source") @db.VarChar(10)
-  confidence     Float?    @db.Real
-  aiNote         String?   @map("ai_note")
-  flagged        Boolean   @default(false)
-  flagReasons    Json      @default("[]") @map("flag_reasons")
+  categorySource    String    @default("none") @map("category_source") @db.VarChar(10)
+  confidence        Float?    @db.Real
+  aiNote            String?   @map("ai_note")
+  flagged           Boolean   @default(false)
+  flagReasons       Json      @default("[]") @map("flag_reasons")
   /// pending | verified | suspicious (null = never needed review)
-  reviewStatus   String?   @map("review_status") @db.VarChar(12)
-  reviewerNote   String?   @map("reviewer_note")
-  reviewedAt     DateTime? @map("reviewed_at") @db.Timestamptz()
-  reviewedBy     String?   @map("reviewed_by") @db.VarChar(120)
+  reviewStatus      String?   @map("review_status") @db.VarChar(12)
+  reviewerNote      String?   @map("reviewer_note")
+  reviewedAt        DateTime? @map("reviewed_at") @db.Timestamptz()
+  reviewedBy        String?   @map("reviewed_by") @db.VarChar(120)
   /// date|amount|normalised narration — used for duplicate detection.
-  fingerprint    String
-  rowIndex       Int       @default(0) @map("row_index")
+  fingerprint       String
+  rowIndex          Int       @default(0) @map("row_index")
+  /// Supplier this money went to: matched from the narration at import, or chosen by a person.
+  distributorId     String?   @map("distributor_id")
+  /// How the supplier was found: match (name in narration) | ai | user.
+  distributorSource String?   @map("distributor_source") @db.VarChar(10)
 
-  tenant    Tenant        @relation(fields: [tenantId], references: [id])
-  shop      Shop          @relation(fields: [shopId], references: [id])
-  statement BankStatement @relation(fields: [statementId], references: [id], onDelete: Cascade)
+  tenant           Tenant            @relation(fields: [tenantId], references: [id])
+  shop             Shop              @relation(fields: [shopId], references: [id])
+  statement        BankStatement     @relation(fields: [statementId], references: [id], onDelete: Cascade)
+  distributor      Distributor?      @relation(fields: [distributorId], references: [id], onDelete: SetNull)
+  /// Supplier payments recorded from this bank row (one per invoice it settled).
+  purchasePayments PurchasePayment[]
 
   @@index([tenantId, shopId, date])
   @@index([statementId])
   @@index([flagged, reviewStatus])
   @@index([category])
   @@index([fingerprint])
+  @@index([distributorId])
   @@map("statement_transactions")
 }
 

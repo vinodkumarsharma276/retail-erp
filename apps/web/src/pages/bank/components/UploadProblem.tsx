@@ -17,14 +17,19 @@ export interface UploadProblem {
     | 'choose_account'
     | 'account_mismatch'
     | 'account_other_shop'
+    | 'choose_shop'
     | 'overlap';
   error: string;
   shopId?: string;
   shopName?: string;
   last4?: string | null;
+  /** Full number when the statement prints it unmasked — pre-fills "register this account". */
+  accountNumber?: string | null;
   detectedBank?: string | null;
   detectedIfsc?: string | null;
   accounts?: { id: string; bank_name: string; last4: string }[];
+  /** choose_shop: the shops this user can file the statement under. */
+  shops?: { id: string; name: string }[];
   otherShopId?: string;
   otherShopName?: string;
   canSwitch?: boolean;
@@ -69,7 +74,7 @@ function AddAccountForm({ problem, onAdded }: { problem: UploadProblem; onAdded:
   const qc = useQueryClient();
   const toast = useToast();
   const [bankName, setBank] = useState(problem.detectedBank ?? '');
-  const [accountNumber, setNumber] = useState('');
+  const [accountNumber, setNumber] = useState(problem.accountNumber ?? '');
   const [ifscCode, setIfsc] = useState(problem.detectedIfsc ?? '');
   const digits = accountNumber.replace(/[\s-]/g, '');
   const endsRight = !problem.last4 || digits.endsWith(problem.last4);
@@ -144,9 +149,37 @@ export function UploadProblemPanel({
   onRemove: () => void;
 }) {
   const [picked, setPicked] = useState(problem.accounts?.[0]?.id ?? '');
+  const [pickedShop, setPickedShop] = useState('');
   const [adding, setAdding] = useState(false);
 
   switch (problem.code) {
+    case 'choose_shop': {
+      const shops = problem.shops ?? [];
+      return (
+        <Panel tone="warning" icon={<Store className="size-5" />} title="Which shop is this statement for?">
+          <p>{problem.error}</p>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <Select value={pickedShop} onChange={(e) => setPickedShop(e.target.value)} className="w-64" aria-label="Shop">
+              <option value="" disabled>
+                Choose shop…
+              </option>
+              {shops.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </Select>
+            <Button variant="primary" onClick={() => onRetry({ shopId: pickedShop, bankAccountId: '' })} disabled={!pickedShop} loading={busy}>
+              Import into this shop
+            </Button>
+            <Button variant="ghost" onClick={onRemove}>
+              Remove this file
+            </Button>
+          </div>
+        </Panel>
+      );
+    }
+
     case 'overlap': {
       const all = !problem.fresh;
       return (
@@ -234,7 +267,7 @@ export function UploadProblemPanel({
           <p>
             {problem.error} Each shop's accounts are saved once; after that, every statement from the account is matched automatically.
           </p>
-          {canAddAccount ? <AddAccountForm problem={problem} onAdded={(id) => onRetry({ bankAccountId: id })} /> : <NoPermissionNote />}
+          {canAddAccount ? <AddAccountForm problem={problem} onAdded={(id) => onRetry({ bankAccountId: id, shopId: problem.shopId })} /> : <NoPermissionNote />}
         </Panel>
       );
 
@@ -256,7 +289,7 @@ export function UploadProblemPanel({
                   </option>
                 ))}
               </Select>
-              <Button variant="primary" onClick={() => onRetry({ bankAccountId: picked })} disabled={!picked} loading={busy}>
+              <Button variant="primary" onClick={() => onRetry({ bankAccountId: picked, shopId: problem.shopId })} disabled={!picked} loading={busy}>
                 Import to this account
               </Button>
               {canAddAccount && !adding && (
@@ -266,7 +299,7 @@ export function UploadProblemPanel({
               )}
             </div>
           )}
-          {canAddAccount && (adding || !accounts.length) && <AddAccountForm problem={problem} onAdded={(id) => onRetry({ bankAccountId: id })} />}
+          {canAddAccount && (adding || !accounts.length) && <AddAccountForm problem={problem} onAdded={(id) => onRetry({ bankAccountId: id, shopId: problem.shopId })} />}
           {!canAddAccount && !accounts.length && <NoPermissionNote />}
         </Panel>
       );

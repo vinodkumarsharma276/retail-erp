@@ -6,6 +6,7 @@ import { date } from '../lib/format';
 import { useInvalidateData, useMeta, useUpdateTx } from '../lib/queries';
 import { useCanCheck } from '../../../hooks/usePermission';
 import { Amount, CategoryLabel, FlagChips, ReviewBadge, SourceBadge } from './domain';
+import { SupplierPaymentCard } from './SupplierPaymentCard';
 import { Button, Drawer, Field, Input, Select, useToast } from './ui';
 
 /** Suggest a reusable rule pattern from a narration: the counterparty, else the longest alphabetic chunk. */
@@ -145,6 +146,8 @@ export function TransactionDrawer({ tx, onClose }: { tx: Transaction | null; onC
             Currently <CategoryLabel category={t.category} group={t.group} className="!text-xs" />
           </div>
         </div>
+
+        <SupplierPaymentCard key={t.id} t={t} onChange={setCurrent} />
 
         <div className="space-y-3 rounded-xl border border-border p-4">
           <div className="text-[13px] font-medium text-foreground/80">Review</div>

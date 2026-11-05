@@ -41,7 +41,7 @@ export const exportSchema = filterSchema.extend({
 });
 
 export const uploadFieldsSchema = z.object({
-  shopId: z.string().uuid(),
+  shopId: z.string().uuid().optional(),
   bank: z.string().trim().max(80).optional(),
   password: z.string().max(200).optional(),
   bankAccountId: z.string().uuid().optional(),
@@ -57,8 +57,18 @@ export const txPatchSchema = z.object({
   category: z.enum(CATEGORY_NAMES as [string, ...string[]]).optional(),
   review_status: z.enum(['pending', 'verified', 'suspicious']).nullable().optional(),
   reviewer_note: z.string().max(1000).nullable().optional(),
+  /** Supplier the money went to; null = "not a supplier payment". */
+  distributor_id: z.string().uuid().nullable().optional(),
 });
 export type TxPatch = z.infer<typeof txPatchSchema>;
+
+/** Record a bank withdrawal as a payment to a supplier (settles that shop's oldest unpaid bills first). */
+export const supplierPaymentSchema = z.object({
+  distributorId: z.string().uuid().optional(),
+  paymentMode: z.enum(['cash', 'credit_card', 'debit_card', 'upi', 'bank_transfer', 'cheque']).optional(),
+  referenceNumber: z.string().trim().max(100).nullable().optional(),
+  notes: z.string().trim().max(500).nullable().optional(),
+});
 
 export const bulkPatchSchema = txPatchSchema.extend({
   ids: z.array(z.string().uuid()).min(1).max(5000),

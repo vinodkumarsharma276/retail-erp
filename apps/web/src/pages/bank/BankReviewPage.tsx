@@ -5,6 +5,7 @@ import { useSearchParams } from 'react-router-dom';
 import { Amount, CategoryLabel, FlagChips, REASON_LABEL, ReviewBadge, SourceBadge } from './components/domain';
 import { PageHeader } from './components/BankLayout';
 import { CategorySelect, TransactionDrawer } from './components/TransactionDrawer';
+import { SupplierPaymentCard } from './components/SupplierPaymentCard';
 import { Button, Card, EmptyState, Input, Kbd, Segmented, Select, Spinner, useToast } from './components/ui';
 import type { ReviewStatus, Transaction } from './lib/api';
 import { count, date, pct } from './lib/format';
@@ -282,6 +283,12 @@ export default function BankReviewPage() {
                   {current.reviewed_by && <div className="mt-1.5 text-xs text-muted-foreground">Last reviewed by {current.reviewed_by}</div>}
                 </div>
               </div>
+
+              {current.direction === 'debit' && (
+                <div className="mt-5">
+                  <SupplierPaymentCard key={current.id} t={current} onChange={() => {}} />
+                </div>
+              )}
 
               <div className="mt-6 flex flex-wrap items-center gap-2 border-t border-border pt-5">
                 {canEdit && tab !== 'verified' && (

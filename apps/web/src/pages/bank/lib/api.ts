@@ -65,6 +65,22 @@ export interface Transaction {
   reviewed_at: string | null;
   reviewed_by: string | null;
   file_name: string;
+  /** Supplier this withdrawal paid: matched from the narration, suggested by AI, or chosen by a person. */
+  distributor_id: string | null;
+  distributor_source: 'match' | 'ai' | 'user' | null;
+  distributor_name: string | null;
+  /** Set once a supplier payment has been recorded from this row. */
+  supplier_paid_amount: number | null;
+  supplier_paid_at: string | null;
+}
+export type SupplierPaymentMode = 'cash' | 'credit_card' | 'debit_card' | 'upi' | 'bank_transfer' | 'cheque';
+export interface SupplierPaymentResult {
+  totalDistributed: number;
+  invoicesPaidFull: number;
+  invoicesPaidPartial: number;
+  /** Money beyond the shop's unpaid bills for this supplier — not recorded. */
+  remainingAmount: number;
+  transaction: Transaction;
 }
 export interface TxPage {
   rows: Transaction[];
@@ -263,8 +279,10 @@ export const api = {
     request<TxPage>('get', '/transactions', { params: { ...f } }),
   transaction: (id: string) => request<Transaction>('get', `/transactions/${id}`),
   facets: () => request<{ banks: string[]; channels: string[] }>('get', '/transactions/facets'),
-  updateTx: (id: string, patch: Partial<Pick<Transaction, 'category' | 'review_status' | 'reviewer_note'>>) =>
+  updateTx: (id: string, patch: Partial<Pick<Transaction, 'category' | 'review_status' | 'reviewer_note' | 'distributor_id'>>) =>
     request<Transaction>('patch', `/transactions/${id}`, { body: patch }),
+  recordSupplierPayment: (id: string, body: { distributorId?: string; paymentMode?: SupplierPaymentMode; referenceNumber?: string | null; notes?: string | null }) =>
+    request<SupplierPaymentResult>('post', `/transactions/${id}/supplier-payment`, { body }),
   bulkUpdate: (ids: string[], patch: Partial<Pick<Transaction, 'category' | 'review_status'>>) =>
     request<{ updated: number }>('post', '/transactions/bulk', { body: { ids, ...patch } }),
   statements: (shopIds?: string[]) => request<Statement[]>('get', '/statements', { params: { shopIds } }),

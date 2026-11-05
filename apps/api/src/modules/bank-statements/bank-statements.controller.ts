@@ -16,6 +16,7 @@ import {
   ruleSchema,
   settingsSchema,
   statementPatchSchema,
+  supplierPaymentSchema,
   txPatchSchema,
   uploadFieldsSchema,
 } from './bank-statements.validation.js';
@@ -129,6 +130,14 @@ export const bankStatementsController = {
     const rows = await service.patchTransactions(scopeOf(req), ids, patch, await reviewerName(req));
     return sendSuccess(reply, { updated: rows.length });
   }),
+
+  recordSupplierPayment: handle(async (req, reply) =>
+    sendSuccess(
+      reply,
+      await service.recordSupplierPayment(scopeOf(req), req.params.id, supplierPaymentSchema.parse(req.body ?? {}), req.currentUser!.userId),
+      201,
+    ),
+  ),
 
   // ---------------------------------------------------------------- analytics & export
   analytics: handle(async (req, reply) => sendSuccess(reply, await service.getAnalytics(scopeOf(req), filterSchema.parse(req.query)))),

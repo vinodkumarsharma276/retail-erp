@@ -10,6 +10,7 @@ import {
   ListChecks,
   Loader2,
   RotateCcw,
+  ScanSearch,
   Trash2,
   UploadCloud,
 } from 'lucide-react';
@@ -33,6 +34,7 @@ type Status = 'ready' | 'uploading' | 'processing' | 'done' | 'error' | 'needs-p
 interface Item {
   id: string;
   file: File;
+  /** '' = find the shop from the statement's account number ("All Shops" mode only). */
   shopId: string;
   /** Registered account picked by hand; '' = detect from the statement. */
   bankAccountId: string;
@@ -55,10 +57,7 @@ export default function BankUploadPage() {
   const accounts = useQuery({ queryKey: ['bank-accounts'], queryFn: api.accounts });
   const canAddAccount = useCanCheck()('bank.reconcile');
   const headerShopId = useShopStore((s) => s.currentShopId);
-  // Default to the shop chosen in the header; in "All Shops" mode, the last shop used here.
-  const [shopId, setShopIdState] = useState<string | null>(() =>
-    headerShopId && !isAllShops(headerShopId) ? headerShopId : readLocal<string | null>('bank.uploadShop', null),
-  );
+  const [pickedShop, setPickedShop] = useState<string>(() => readLocal<string | null>('bank.uploadShop', null) ?? '');
   const [items, setItems] = useState<Item[]>([]);
   const [dragging, setDragging] = useState(false);
   const [running, setRunning] = useState(false);
@@ -68,18 +67,21 @@ export default function BankUploadPage() {
   const accept = useMemo(() => (meta?.supportedExtensions ?? ['.pdf', '.xlsx', '.xls', '.csv', '.png', '.jpg', '.jpeg']).join(','), [meta]);
   const shops = useMemo(() => meta?.shops ?? [], [meta]);
 
-  // Only shops in the current header scope can receive uploads.
+  // A shop chosen in the header is where statements go — no need to ask again. Only in
+  // "All Shops" mode is the shop a choice, and by default it's read off each statement.
+  const allMode = isAllShops(headerShopId) && shops.length > 1;
+  const fixedShop = allMode ? null : (shops.find((s) => s.id === headerShopId) ?? shops[0] ?? null);
+  const shopId = allMode ? (shops.some((s) => s.id === pickedShop) ? pickedShop : '') : (fixedShop?.id ?? '');
+  const canAdd = !!meta && (allMode || !!fixedShop);
+
+  // Re-point not-yet-processed files when the target shop changes.
   useEffect(() => {
-    if (!meta) return;
-    if (shopId && shops.some((s) => s.id === shopId)) return;
-    setShopIdState(shops.length === 1 ? shops[0].id : null);
-  }, [meta, shops, shopId]);
+    setItems((prev) => prev.map((it) => (it.status === 'ready' && it.shopId !== shopId ? { ...it, shopId, bankAccountId: '' } : it)));
+  }, [shopId]);
 
   const setShopId = (id: string) => {
-    setShopIdState(id);
+    setPickedShop(id);
     writeLocal('bank.uploadShop', id);
-    // Re-point any not-yet-processed files to the newly chosen shop.
-    setItems((prev) => prev.map((it) => (it.status === 'ready' ? { ...it, shopId: id, bankAccountId: '' } : it)));
   };
 
   const addFiles = useCallback(
@@ -96,7 +98,7 @@ export default function BankUploadPage() {
           .map<Item>((file) => ({
             id: crypto.randomUUID(),
             file,
-            shopId: shopId ?? '',
+            shopId,
             bankAccountId: '',
             password: '',
             status: 'ready',
@@ -114,7 +116,7 @@ export default function BankUploadPage() {
     patch(it.id, { status: 'uploading', progress: 0, error: undefined, problem: undefined });
     const form = new FormData();
     // Fields go before the file: the API reads them from the multipart stream ahead of the file part.
-    form.append('shopId', it.shopId);
+    if (it.shopId) form.append('shopId', it.shopId);
     if (it.bankAccountId) form.append('bankAccountId', it.bankAccountId);
     if (it.duplicates) form.append('duplicates', it.duplicates);
     if (it.password) form.append('password', it.password);
@@ -141,10 +143,6 @@ export default function BankUploadPage() {
   const runAll = async (subset?: Item[]) => {
     const queue = (subset ?? items).filter((i) => i.status === 'ready' || i.status === 'error' || i.status === 'needs-password');
     if (!queue.length) return;
-    if (queue.some((q) => !q.shopId)) {
-      toast('Choose a shop for every file first', 'critical');
-      return;
-    }
     setRunning(true);
     let next = 0;
     // Two at a time keeps AI calls and the UI responsive.
@@ -175,35 +173,55 @@ export default function BankUploadPage() {
         filters={false}
       />
       <div className="mx-auto max-w-5xl space-y-5">
-        {/* ---------------------------------------------------------------- step 1: shop */}
-        <section>
-          <h2 className="mb-2 flex items-center gap-2 text-[13px] font-semibold tracking-wide text-muted-foreground uppercase">
-            <span className="grid size-5 place-items-center rounded-full bg-foreground text-[11px] text-card">1</span> Which shop are these statements for?
-          </h2>
-          <div role="radiogroup" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {shops.map((s, i) => (
+        {/* ---------------------------------------------------------------- step 1: shop (All Shops mode only) */}
+        {allMode && (
+          <section>
+            <h2 className="mb-2 flex items-center gap-2 text-[13px] font-semibold tracking-wide text-muted-foreground uppercase">
+              <span className="grid size-5 place-items-center rounded-full bg-foreground text-[11px] text-card">1</span> Which shop are these statements for?
+            </h2>
+            <div role="radiogroup" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <button
-                key={s.id}
                 role="radio"
-                aria-checked={shopId === s.id}
-                onClick={() => setShopId(s.id)}
+                aria-checked={shopId === ''}
+                onClick={() => setShopId('')}
                 className={clsx(
                   'flex items-center gap-3 rounded-xl border bg-card p-3.5 text-left shadow-xs transition-all cursor-pointer',
-                  shopId === s.id ? 'border-primary ring-2 ring-primary/25' : 'border-border hover:border-border-strong',
+                  shopId === '' ? 'border-primary ring-2 ring-primary/25' : 'border-border hover:border-border-strong',
                 )}
               >
-                <ShopAvatar name={s.name} index={i} size={34} />
-                <span className="min-w-0 flex-1 text-[13.5px] leading-snug font-medium">{s.name}</span>
-                <span className={clsx('size-4 shrink-0 rounded-full border-2', shopId === s.id ? 'border-primary bg-primary shadow-[inset_0_0_0_2px_hsl(var(--card))]' : 'border-border-strong')} />
+                <span className="grid size-[34px] shrink-0 place-items-center rounded-lg bg-primary-muted text-primary">
+                  <ScanSearch className="size-[18px]" />
+                </span>
+                <span className="min-w-0 flex-1 leading-snug">
+                  <span className="block text-[13.5px] font-medium">Detect from statement</span>
+                  <span className="block text-xs text-muted-foreground">Matched by account number</span>
+                </span>
+                <span className={clsx('size-4 shrink-0 rounded-full border-2', shopId === '' ? 'border-primary bg-primary shadow-[inset_0_0_0_2px_hsl(var(--card))]' : 'border-border-strong')} />
               </button>
-            ))}
-          </div>
-        </section>
+              {shops.map((s, i) => (
+                <button
+                  key={s.id}
+                  role="radio"
+                  aria-checked={shopId === s.id}
+                  onClick={() => setShopId(s.id)}
+                  className={clsx(
+                    'flex items-center gap-3 rounded-xl border bg-card p-3.5 text-left shadow-xs transition-all cursor-pointer',
+                    shopId === s.id ? 'border-primary ring-2 ring-primary/25' : 'border-border hover:border-border-strong',
+                  )}
+                >
+                  <ShopAvatar name={s.name} index={i} size={34} />
+                  <span className="min-w-0 flex-1 text-[13.5px] leading-snug font-medium">{s.name}</span>
+                  <span className={clsx('size-4 shrink-0 rounded-full border-2', shopId === s.id ? 'border-primary bg-primary shadow-[inset_0_0_0_2px_hsl(var(--card))]' : 'border-border-strong')} />
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
 
         {/* ---------------------------------------------------------------- step 2: files */}
         <section>
           <h2 className="mb-2 flex items-center gap-2 text-[13px] font-semibold tracking-wide text-muted-foreground uppercase">
-            <span className="grid size-5 place-items-center rounded-full bg-foreground text-[11px] text-card">2</span> Add statement files
+            {allMode && <span className="grid size-5 place-items-center rounded-full bg-foreground text-[11px] text-card">2</span>} Add statement files
           </h2>
           <div
             onDragOver={(e) => {
@@ -215,7 +233,7 @@ export default function BankUploadPage() {
             className={clsx(
               'flex flex-col items-center justify-center rounded-2xl border-2 border-dashed px-6 py-10 text-center transition-colors',
               dragging ? 'border-primary bg-primary-muted' : 'border-border-strong bg-card',
-              !shopId && 'opacity-60',
+              !canAdd && 'opacity-60',
             )}
           >
             <div className="grid size-12 place-items-center rounded-xl bg-primary-muted text-primary">
@@ -224,14 +242,13 @@ export default function BankUploadPage() {
             <p className="mt-3 text-[15px] font-semibold">Drop statements here</p>
             <p className="mt-1 text-sm text-muted-foreground">Multiple files and banks at once · PDF, XLSX, XLS, CSV, PNG, JPG · up to {meta?.maxFileMb ?? 30} MB each</p>
             <div className="mt-4 flex flex-wrap justify-center gap-2">
-              <Button variant="primary" icon={<FileText className="size-4" />} onClick={() => fileInput.current?.click()} disabled={!shopId}>
+              <Button variant="primary" icon={<FileText className="size-4" />} onClick={() => fileInput.current?.click()} disabled={!canAdd}>
                 Browse files…
               </Button>
-              <Button icon={<FolderOpen className="size-4" />} onClick={() => folderInput.current?.click()} disabled={!shopId}>
+              <Button icon={<FolderOpen className="size-4" />} onClick={() => folderInput.current?.click()} disabled={!canAdd}>
                 Choose a folder…
               </Button>
             </div>
-            {!shopId && <p className="mt-3 text-xs font-medium text-warning">Pick a shop above first.</p>}
             <input
               ref={fileInput}
               type="file"
@@ -308,36 +325,38 @@ export default function BankUploadPage() {
                     </div>
                     {editable && (
                       <div className="mt-2.5 flex flex-wrap items-center gap-2 sm:pl-12">
-                        <Select
-                          value={it.shopId || ''}
-                          onChange={(e) => patch(it.id, { shopId: e.target.value, bankAccountId: '' })}
-                          className="w-full sm:w-52"
-                          aria-label="Shop"
-                        >
-                          <option value="" disabled>
-                            Choose shop…
-                          </option>
-                          {shops.map((s) => (
-                            <option key={s.id} value={s.id}>
-                              {s.name}
-                            </option>
-                          ))}
-                        </Select>
-                        <Select
-                          value={it.bankAccountId}
-                          onChange={(e) => patch(it.id, { bankAccountId: e.target.value })}
-                          className="w-full sm:w-56"
-                          aria-label="Bank account"
-                        >
-                          <option value="">Account: detect from statement</option>
-                          {(accounts.data ?? [])
-                            .filter((a) => a.shop_id === it.shopId)
-                            .map((a) => (
-                              <option key={a.id} value={a.id}>
-                                {a.bank_name} ••{a.account_number.slice(-4)}
+                        {allMode && (
+                          <Select
+                            value={it.shopId || ''}
+                            onChange={(e) => patch(it.id, { shopId: e.target.value, bankAccountId: '' })}
+                            className="w-full sm:w-52"
+                            aria-label="Shop"
+                          >
+                            <option value="">Shop: detect from statement</option>
+                            {shops.map((s) => (
+                              <option key={s.id} value={s.id}>
+                                {s.name}
                               </option>
                             ))}
-                        </Select>
+                          </Select>
+                        )}
+                        {it.shopId && (
+                          <Select
+                            value={it.bankAccountId}
+                            onChange={(e) => patch(it.id, { bankAccountId: e.target.value })}
+                            className="w-full sm:w-56"
+                            aria-label="Bank account"
+                          >
+                            <option value="">Account: detect from statement</option>
+                            {(accounts.data ?? [])
+                              .filter((a) => a.shop_id === it.shopId)
+                              .map((a) => (
+                                <option key={a.id} value={a.id}>
+                                  {a.bank_name} ••{a.account_number.slice(-4)}
+                                </option>
+                              ))}
+                          </Select>
+                        )}
                         {extOf(it.file.name) === 'pdf' && (
                           <div className="relative w-full sm:w-56">
                             <KeyRound className="pointer-events-none absolute top-2.5 left-2.5 size-4 text-muted-foreground" />

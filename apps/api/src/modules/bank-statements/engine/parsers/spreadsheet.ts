@@ -122,7 +122,8 @@ export function parseSpreadsheet(buf: Buffer, fileName: string, fallbackOrder: '
     if (sheetRows.some((r) => !r.fixed) && m.amount !== undefined && m.drcr === undefined) {
       warnings.push(`Sheet "${sheetName}": single amount column without Dr/Cr — direction inferred from balance.`);
     }
-    resolveSignsFromBalance(sheetRows, null);
+    const corrected = resolveSignsFromBalance(sheetRows, null);
+    if (corrected) warnings.push(`Sheet "${sheetName}": ${corrected} transaction${corrected === 1 ? '' : 's'} had their withdrawal/deposit side corrected from the running balance.`);
     rows.push(...sheetRows.map(({ fixed: _f, magnitude: _m, ...rest }) => rest));
   }
 

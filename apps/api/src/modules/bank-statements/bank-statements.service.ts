@@ -7,14 +7,16 @@ import { CATEGORIES, GROUPS, groupOf } from './engine/categorize/categories.js';
 import { enrichTransactions } from './engine/categorize/engine.js';
 import { recomputeFlags } from './engine/categorize/flags.js';
 import { descriptionKey } from './engine/categorize/merchant.js';
+import { applySupplierMatches, SUPPLIER_CATEGORY } from './engine/categorize/suppliers.js';
 import { compileUserRules } from './engine/categorize/rules.js';
 import { parseStatement, PdfPasswordError, SUPPORTED_EXT, UnsupportedError } from './engine/parsers/index.js';
 import type { RawTransaction } from './engine/types.js';
 import type { Filters, TxPatch } from './bank-statements.validation.js';
 import type { z } from 'zod';
-import type { accountSchema, listSchema, ruleSchema, statementPatchSchema } from './bank-statements.validation.js';
+import type { accountSchema, listSchema, ruleSchema, statementPatchSchema, supplierPaymentSchema } from './bank-statements.validation.js';
 import { getTenantFeatureSnapshot } from '../../middleware/feature-gate.js';
 import { FeatureKey } from '@retailerp/shared-types';
+import { distributorsService } from '../distributors/distributors.service.js';
 
 export class HttpError extends Error {
   constructor(
@@ -69,8 +71,14 @@ function buildWhere(f: Filters, scope: Scope, startIndex = 1) {
 
 const TX_COLUMNS = `t.id, t.statement_id, t.shop_id, sh.name AS shop_name, t.bank, t.date, t.description, t.amount, t.direction,
   t.balance, t.reference, t.counterparty, t.channel, t.category, t.category_source, t.confidence, t.ai_note, t.flagged,
-  t.flag_reasons, t.review_status, t.reviewer_note, t.reviewed_at, t.reviewed_by, s.file_name`;
-const TX_FROM = `FROM statement_transactions t JOIN shops sh ON sh.id = t.shop_id JOIN bank_statements s ON s.id = t.statement_id`;
+  t.flag_reasons, t.review_status, t.reviewer_note, t.reviewed_at, t.reviewed_by, s.file_name,
+  t.distributor_id, t.distributor_source, d.company_name AS distributor_name,
+  sp.amount AS supplier_paid_amount, sp.recorded_at AS supplier_paid_at`;
+// sp: supplier payments already recorded from this bank row (one row per invoice settled).
+const TX_FROM = `FROM statement_transactions t JOIN shops sh ON sh.id = t.shop_id JOIN bank_statements s ON s.id = t.statement_id
+  LEFT JOIN distributors d ON d.id = t.distributor_id
+  LEFT JOIN LATERAL (SELECT sum(pp.amount) AS amount, min(pp.created_at) AS recorded_at
+                       FROM purchase_payments pp WHERE pp.statement_transaction_id = t.id) sp ON true`;
 
 const SORTS: Record<string, string> = {
   date: 't.date',
@@ -149,26 +157,49 @@ function last4Of(hint: string | null | undefined) {
   return d.length >= 4 ? d.slice(-4) : null;
 }
 
+const digitsOf = (n: string) => n.replace(/\D/g, '');
+
 /**
- * Find the registered account a statement belongs to by the last 4 digits of the
- * account number. If several accounts share those digits, the detected bank decides.
+ * Accounts in `rows` that a statement's number points at: an exact match on the full
+ * number when the statement prints it, else the last four digits (the detected bank
+ * breaking ties).
  */
-async function matchAccount(tenantId: string, last4: string, detectedBank: string | null): Promise<AccountRow | null> {
+function accountsMatching(rows: AccountRow[], c: { accountNumber: string | null; last4: string | null; detectedBank: string | null }) {
+  if (c.accountNumber) {
+    const exact = rows.filter((a) => digitsOf(a.account_number) === c.accountNumber);
+    if (exact.length) return exact;
+  }
+  if (!c.last4) return [];
+  const byLast4 = rows.filter((a) => digitsOf(a.account_number).endsWith(c.last4!));
+  if (byLast4.length <= 1) return byLast4;
+  const byBank = byLast4.filter((a) => c.detectedBank && a.bank_name.toLowerCase() === c.detectedBank.toLowerCase());
+  return byBank.length === 1 ? byBank : byLast4;
+}
+
+/** Find the registered account (among `shopIds`) a statement belongs to; null when none or ambiguous. */
+async function matchAccount(
+  tenantId: string,
+  shopIds: string[] | null,
+  c: { accountNumber: string | null; last4: string | null; detectedBank: string | null },
+): Promise<AccountRow | null> {
+  if (!c.last4) return null;
   const { rows } = await query<AccountRow>(
     `SELECT a.id, a.shop_id, sh.name AS shop_name, a.bank_name, a.account_number
        FROM bank_accounts a JOIN shops sh ON sh.id = a.shop_id
-      WHERE a.tenant_id = $1 AND a.is_active AND right(a.account_number, 4) = $2`,
-    [tenantId, last4],
+      WHERE a.tenant_id = $1 AND a.is_active AND right(regexp_replace(a.account_number, '[^0-9]', '', 'g'), 4) = $2
+        AND ($3::text[] IS NULL OR a.shop_id = ANY($3::text[]))`,
+    [tenantId, c.last4, shopIds],
   );
-  if (rows.length <= 1) return rows[0] ?? null;
-  const byBank = rows.filter((r) => detectedBank && r.bank_name.toLowerCase() === detectedBank.toLowerCase());
-  return byBank.length === 1 ? byBank[0] : null;
+  const hits = accountsMatching(rows, c);
+  return hits.length === 1 ? hits[0] : null;
 }
 
 interface AccountContext {
   shopId: string;
   shopName: string;
   bankAccountId?: string;
+  /** Full number when the statement prints it unmasked. */
+  accountNumber: string | null;
   last4: string | null;
   detectedBank: string | null;
   detectedIfsc: string | null;
@@ -196,6 +227,7 @@ async function resolveAccount(scope: Scope, c: AccountContext): Promise<AccountR
     shopId: c.shopId,
     shopName: c.shopName,
     last4: c.last4,
+    accountNumber: c.accountNumber,
     detectedBank: c.detectedBank,
     detectedIfsc: c.detectedIfsc,
     accounts: shopAccounts.map((a) => ({ id: a.id, bank_name: a.bank_name, last4: a.account_number.slice(-4) })),
@@ -206,7 +238,7 @@ async function resolveAccount(scope: Scope, c: AccountContext): Promise<AccountR
   if (c.bankAccountId) {
     const chosen = shopAccounts.find((a) => a.id === c.bankAccountId);
     if (!chosen) throw new HttpError(422, `That account isn't registered for ${c.shopName}.`, details('account_mismatch'));
-    if (c.last4 && chosen.account_number.slice(-4) !== c.last4) {
+    if (c.last4 && !digitsOf(chosen.account_number).endsWith(c.last4)) {
       throw new HttpError(
         422,
         `This statement is for ${label}, but you chose ${chosen.bank_name} ••${chosen.account_number.slice(-4)}. Pick the matching account.`,
@@ -227,15 +259,13 @@ async function resolveAccount(scope: Scope, c: AccountContext): Promise<AccountR
     throw new HttpError(422, `This statement doesn't show an account number. Choose which ${c.shopName} account it belongs to.`, details('account_number_missing'));
   }
 
-  const inShop = shopAccounts.filter((a) => a.account_number.endsWith(c.last4!));
+  const inShop = accountsMatching(shopAccounts, c);
   if (inShop.length === 1) return inShop[0];
   if (inShop.length > 1) {
-    const byBank = inShop.filter((a) => c.detectedBank && a.bank_name.toLowerCase() === c.detectedBank.toLowerCase());
-    if (byBank.length === 1) return byBank[0];
     throw new HttpError(422, `More than one ${c.shopName} account ends in ••${c.last4}. Choose the right one.`, details('choose_account'));
   }
 
-  const elsewhere = await matchAccount(scope.tenantId, c.last4, c.detectedBank);
+  const elsewhere = await matchAccount(scope.tenantId, null, c);
   if (elsewhere) {
     throw new HttpError(
       422,
@@ -372,7 +402,8 @@ export async function deleteAccount(scope: Scope, id: string) {
 export interface UploadInput {
   buffer: Buffer;
   fileName: string;
-  shopId: string;
+  /** Omitted in "All Shops" mode: the shop is found from the statement's account number. */
+  shopId?: string;
   bank?: string;
   password?: string;
   uploadedById: string;
@@ -386,6 +417,39 @@ export interface UploadInput {
 function last4FromFileName(fileName: string) {
   const m = /[Xx*]{2,}(\d{4,6})/.exec(fileName);
   return m ? m[1].slice(-4) : null;
+}
+
+/**
+ * The shop a statement uploaded without one (header set to "All Shops") belongs to: the shop
+ * whose registered account matches the statement's account number, among the shops this
+ * user may write to. Refuses with `choose_shop` when no account — or more than one — matches.
+ */
+async function shopForStatement(
+  scope: Scope,
+  c: { accountNumber: string | null; last4: string | null; detectedBank: string | null; detectedIfsc: string | null; bankAccountId?: string },
+): Promise<string> {
+  if (scope.shopIds.length === 1) return scope.shopIds[0];
+  if (c.bankAccountId) {
+    const { rows } = await query<{ shop_id: string }>(
+      'SELECT shop_id FROM bank_accounts WHERE id = $1 AND tenant_id = $2 AND shop_id = ANY($3::text[])',
+      [c.bankAccountId, scope.tenantId, scope.shopIds],
+    );
+    if (rows[0]) return rows[0].shop_id;
+  }
+  const hit = await matchAccount(scope.tenantId, scope.shopIds, c);
+  if (hit) return hit.shop_id;
+  const { rows: shops } = await query<{ id: string; name: string }>(
+    'SELECT id, name FROM shops WHERE tenant_id = $1 AND id = ANY($2::text[]) ORDER BY name',
+    [scope.tenantId, scope.shopIds],
+  );
+  const label = `${c.detectedBank ?? 'This account'}${c.last4 ? ` ••${c.last4}` : ''}`;
+  throw new HttpError(
+    422,
+    c.last4
+      ? `${label} isn't registered to any of your shops yet. Choose which shop this statement belongs to.`
+      : `This statement doesn't show an account number. Choose which shop it belongs to.`,
+    { code: 'choose_shop', shops, last4: c.last4, accountNumber: c.accountNumber, detectedBank: c.detectedBank, detectedIfsc: c.detectedIfsc },
+  );
 }
 
 /** Same day, amount and running balance (or narration when there's no balance) = same transaction. */
@@ -477,17 +541,15 @@ export async function storeStatement(tenantId: string, s: StoreInput) {
     return id;
   });
 
+  await applySupplierMatches(tenantId, statementId);
   await recomputeFlags(tenantId, s.shopId);
   return { statementId, aiUsed: enriched.aiUsed };
 }
 
 export async function uploadStatement(scope: Scope, input: UploadInput) {
-  assertShop(scope, input.shopId);
   const { tenantId } = scope;
-  const { buffer, fileName, shopId } = input;
-
-  const shop = await query<{ name: string }>('SELECT name FROM shops WHERE id = $1 AND tenant_id = $2', [shopId, tenantId]);
-  if (!shop.rowCount) throw new HttpError(400, 'Unknown shop.');
+  const { buffer, fileName } = input;
+  if (input.shopId) assertShop(scope, input.shopId);
 
   // The same file can't be imported twice, whichever shop it was filed under.
   const hash = createHash('sha256').update(buffer).digest('hex');
@@ -511,17 +573,20 @@ export async function uploadStatement(scope: Scope, input: UploadInput) {
   if (!parsed.transactions.length) throw new HttpError(422, 'No transactions were found in this file.');
 
   const warnings = [...parsed.warnings];
-  const shopName = shop.rows[0].name;
-
-  // ---- Every statement must belong to a registered account of the chosen shop.
-  const account = await resolveAccount(scope, {
-    shopId,
-    shopName,
-    bankAccountId: input.bankAccountId,
+  const detected = {
+    accountNumber: parsed.accountNumber ?? null,
     last4: last4Of(parsed.accountHint) ?? last4FromFileName(fileName),
     detectedBank: input.bank || parsed.bank,
     detectedIfsc: parsed.ifsc ?? null,
-  });
+  };
+  const shopId = input.shopId ?? (await shopForStatement(scope, { ...detected, bankAccountId: input.bankAccountId }));
+
+  const shop = await query<{ name: string }>('SELECT name FROM shops WHERE id = $1 AND tenant_id = $2', [shopId, tenantId]);
+  if (!shop.rowCount) throw new HttpError(400, 'Unknown shop.');
+  const shopName = shop.rows[0].name;
+
+  // ---- Every statement must belong to a registered account of the chosen shop.
+  const account = await resolveAccount(scope, { shopId, shopName, bankAccountId: input.bankAccountId, ...detected });
 
   // ---- Overlap: stop and ask when some (or all) transactions were imported before.
   const overlap = await findOverlap(tenantId, account, parsed.transactions);
@@ -683,6 +748,7 @@ export async function recategorizeStatement(scope: Scope, id: string) {
       [JSON.stringify(updates)],
     );
   }
+  await applySupplierMatches(scope.tenantId, id);
   await recomputeFlags(scope.tenantId, shopId);
   return { updated: rows.length, aiUsed: enriched.aiUsed, aiError: enriched.aiError ?? null };
 }
@@ -760,6 +826,15 @@ export async function patchTransactions(scope: Scope, ids: string[], body: TxPat
     params.push(body.reviewer_note);
     sets.push(`reviewer_note = $${params.length}`);
   }
+  if (body.distributor_id !== undefined) {
+    if (body.distributor_id) {
+      const known = await query('SELECT 1 FROM distributors WHERE id = $1 AND tenant_id = $2', [body.distributor_id, scope.tenantId]);
+      if (!known.rowCount) throw new HttpError(400, 'Unknown supplier.');
+    }
+    // A person's choice — including "no supplier" — is never overwritten by re-matching.
+    params.push(body.distributor_id);
+    sets.push(`distributor_id = $${params.length}`, `distributor_source = 'user'`);
+  }
   if (!sets.length) throw new HttpError(400, 'Nothing to update.');
   const { rows } = await query<{ shop_id: string }>(
     `UPDATE statement_transactions SET ${sets.join(', ')}
@@ -769,6 +844,83 @@ export async function patchTransactions(scope: Scope, ids: string[], body: TxPat
   // A category change can resolve (or create) flags.
   if (body.category) await reflag(scope.tenantId, rows.map((r) => r.shop_id));
   return rows;
+}
+
+/** Bank channel → how the supplier was paid. */
+function paymentModeFor(channel: string) {
+  if (channel === 'Cheque') return 'cheque';
+  if (channel === 'UPI') return 'upi';
+  if (channel === 'ATM/Cash') return 'cash';
+  if (channel === 'Card') return 'debit_card';
+  return 'bank_transfer';
+}
+
+/**
+ * Record a withdrawal as a payment to a supplier: the amount settles that shop's oldest unpaid
+ * bills first (the same rule as paying from the supplier page), and every payment row it creates
+ * points back at the bank row, so the same withdrawal can't be recorded twice.
+ */
+export async function recordSupplierPayment(
+  scope: Scope,
+  id: string,
+  body: z.infer<typeof supplierPaymentSchema>,
+  userId: string,
+) {
+  const { rows } = await query<{ id: string; shop_id: string; shop_name: string; date: string; amount: number; direction: string;
+    reference: string | null; distributor_id: string | null; channel: string }>(
+    `SELECT t.id, t.shop_id, sh.name AS shop_name, t.date, t.amount, t.direction, t.reference, t.distributor_id, t.channel
+       FROM statement_transactions t JOIN shops sh ON sh.id = t.shop_id
+      WHERE t.id = $1 AND t.tenant_id = $2 AND t.shop_id = ANY($3::text[])`,
+    [id, scope.tenantId, scope.shopIds],
+  );
+  const tx = rows[0];
+  if (!tx) throw new HttpError(404, 'Transaction not found.');
+  if (tx.direction !== 'debit') throw new HttpError(400, 'Only money paid out can be recorded as a supplier payment.');
+  const distributorId = body.distributorId ?? tx.distributor_id;
+  if (!distributorId) throw new HttpError(400, 'Choose the supplier this money was paid to.');
+
+  const recorded = await query('SELECT 1 FROM purchase_payments WHERE statement_transaction_id = $1 AND tenant_id = $2 LIMIT 1', [id, scope.tenantId]);
+  if (recorded.rowCount) throw new HttpError(409, 'A supplier payment is already recorded for this bank entry.');
+  const reference = (body.referenceNumber ?? tx.reference ?? '').trim() || null;
+  if (reference) {
+    // The same payment typed in by hand (or recorded from an earlier copy of this statement).
+    const same = await query(
+      `SELECT 1 FROM purchase_payments pp JOIN purchases p ON p.id = pp.purchase_id
+        WHERE pp.tenant_id = $1 AND p.distributor_id = $2 AND pp.reference_number = $3 AND pp.payment_date = $4::date LIMIT 1`,
+      [scope.tenantId, distributorId, reference, tx.date],
+    );
+    if (same.rowCount) throw new HttpError(409, `A payment with reference ${reference} on this date is already recorded for this supplier.`);
+  }
+
+  let result;
+  try {
+    result = await distributorsService.recordLumpsumPayment(
+      distributorId,
+      {
+        tenders: [{ amount: Math.abs(tx.amount), paymentMode: body.paymentMode ?? paymentModeFor(tx.channel), referenceNumber: reference, notes: body.notes ?? null }],
+        paymentDate: tx.date,
+        notes: body.notes ?? undefined,
+      },
+      userId,
+      { shopId: tx.shop_id, statementTransactionId: tx.id },
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message === 'Distributor not found') throw new HttpError(404, 'Supplier not found.');
+    if (message === 'No pending invoices found for this distributor') {
+      throw new HttpError(422, `This supplier has no unpaid bills at ${tx.shop_name}, so there is nothing for the payment to settle.`);
+    }
+    throw err;
+  }
+
+  await query(
+    `UPDATE statement_transactions SET distributor_id = $1, distributor_source = 'user',
+            category = $2, category_source = 'user', confidence = 1
+      WHERE id = $3 AND tenant_id = $4`,
+    [distributorId, SUPPLIER_CATEGORY, id, scope.tenantId],
+  );
+  await reflag(scope.tenantId, [tx.shop_id]);
+  return { ...result, transaction: await getTransaction(scope, id) };
 }
 
 // ---------------------------------------------------------------- analytics
@@ -951,6 +1103,8 @@ export async function exportTransactions(scope: Scope, f: Filters, format: 'xlsx
     Bank: r.bank,
     Description: r.description,
     Counterparty: r.counterparty ?? '',
+    Supplier: r.distributor_name ?? '',
+    'Supplier payment recorded': r.supplier_paid_amount != null ? r.supplier_paid_amount : '',
     Channel: r.channel,
     'Money in': r.direction === 'credit' ? r.amount : null,
     'Money out': r.direction === 'debit' ? -r.amount : null,

@@ -18,6 +18,8 @@ export interface ParseResult {
   method: ParseMethod;
   bank: string | null;
   accountHint: string | null;
+  /** Full account number when the statement prints it unmasked; otherwise only `accountHint` is known. */
+  accountNumber?: string | null;
   /** The account's own IFSC when the statement prints one next to an "IFSC" label. */
   ifsc?: string | null;
   currency: string | null;

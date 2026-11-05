@@ -1,5 +1,6 @@
 import { Bot, Download, FileStack, Landmark, MoreHorizontal, Pencil, Trash2, UploadCloud } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
 import { METHOD_LABEL } from './components/domain';
@@ -12,12 +13,16 @@ import { useScope } from './lib/store';
 import { useCanCheck } from '../../hooks/usePermission';
 import { useEscapeKey } from '../../hooks/useEscapeKey';
 
+const MENU_WIDTH = 240;
+
 function Menu({ s, onDelete, onEdit }: { s: Statement; onDelete: () => void; onEdit: () => void }) {
   const can = useCanCheck();
   const canChange = can('bank.upload_statement');
   const canDelete = can('bank.delete_statement');
   const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const ref = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const toast = useToast();
   const invalidate = useInvalidateData();
   const { data: meta } = useMeta();
@@ -31,19 +36,50 @@ function Menu({ s, onDelete, onEdit }: { s: Statement; onDelete: () => void; onE
   });
   useEffect(() => {
     if (!open) return;
-    const h = (e: MouseEvent) => ref.current && !ref.current.contains(e.target as Node) && setOpen(false);
+    const h = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (!ref.current?.contains(t) && !menuRef.current?.contains(t)) setOpen(false);
+    };
+    const close = () => setOpen(false);
     document.addEventListener('mousedown', h);
-    return () => document.removeEventListener('mousedown', h);
+    // The menu sits at fixed screen coordinates; close it rather than leave it floating.
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('resize', close);
+    return () => {
+      document.removeEventListener('mousedown', h);
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('resize', close);
+    };
+  }, [open]);
+  // Rendered in a portal so the table's scroll container can't clip it; opens upward when
+  // there isn't room below the button.
+  useLayoutEffect(() => {
+    if (!open || !ref.current) {
+      setPos(null);
+      return;
+    }
+    const r = ref.current.getBoundingClientRect();
+    const h = menuRef.current?.offsetHeight ?? 0;
+    const below = r.bottom + 4 + h <= window.innerHeight - 8;
+    setPos({
+      top: below ? r.bottom + 4 : Math.max(8, r.top - 4 - h),
+      left: Math.min(Math.max(8, r.right - MENU_WIDTH), window.innerWidth - MENU_WIDTH - 8),
+    });
   }, [open]);
   useEscapeKey(open, () => setOpen(false));
   if (!canChange && !canDelete && !s.has_file) return null;
   return (
     <div className="relative" ref={ref}>
-      <Button variant="ghost" size="sm" onClick={() => setOpen(!open)} aria-label="Statement actions" loading={recat.isPending}>
+      <Button variant="ghost" size="sm" onClick={() => setOpen(!open)} aria-label="Statement actions" aria-expanded={open} loading={recat.isPending}>
         {!recat.isPending && <MoreHorizontal className="size-4" />}
       </Button>
-      {open && (
-        <div className="absolute right-0 z-30 mt-1 w-60 rounded-xl border border-border bg-card p-1.5 shadow-lg">
+      {open && createPortal(
+        <div
+          ref={menuRef}
+          role="menu"
+          className="fixed z-[60] rounded-xl border border-border bg-card p-1.5 shadow-lg"
+          style={{ width: MENU_WIDTH, top: pos?.top ?? 0, left: pos?.left ?? 0, visibility: pos ? 'visible' : 'hidden' }}
+        >
           {s.has_file && (
             <button
               className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[13px] hover:bg-subtle cursor-pointer"
@@ -67,7 +103,8 @@ function Menu({ s, onDelete, onEdit }: { s: Statement; onDelete: () => void; onE
           {canDelete && <button className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[13px] text-destructive hover:bg-destructive-muted cursor-pointer" onClick={() => { setOpen(false); onDelete(); }}>
             <Trash2 className="size-4" /> Delete statement
           </button>}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { ArrowDown, ArrowUp, CheckCircle2, ChevronLeft, ChevronRight, Download, Flag, Search, ShieldAlert, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, CheckCircle2, ChevronLeft, ChevronRight, Download, Flag, Search, ShieldAlert, Truck, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Amount, CategoryLabel, FlagChips, ReviewBadge } from './components/domain';
@@ -275,6 +275,13 @@ export default function BankTransactionsPage() {
                         {r.flagged && r.review_status === 'pending' && <Flag className="size-3.5 shrink-0 text-warning" aria-label="Flagged" />}
                         <span className="truncate font-medium">{r.counterparty ?? '—'}</span>
                         <Badge className="shrink-0">{r.channel}</Badge>
+                        {r.distributor_name && (
+                          <Badge tone={r.supplier_paid_amount != null ? 'good' : 'accent'} className="max-w-48 shrink truncate" icon={<Truck className="size-3" />}>
+                            <span className="truncate" title={r.supplier_paid_amount != null ? `Payment recorded to ${r.distributor_name}` : `Paid to ${r.distributor_name}?`}>
+                              {r.distributor_name}
+                            </span>
+                          </Badge>
+                        )}
                       </div>
                       <div className="truncate text-xs text-muted-foreground" title={r.description}>
                         {r.description}

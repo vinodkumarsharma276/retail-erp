@@ -2,17 +2,26 @@ import type { Line } from './pdf.js';
 import type { RawTransaction } from '../types.js';
 import { DATE_TOKEN, detectDateOrder, parseAmount, parseDate, round2, type DateOrder, type ParsedAmount } from './normalize.js';
 
-type ColKey = 'date' | 'desc' | 'ref' | 'debit' | 'credit' | 'amount' | 'balance' | 'drcr';
+type ColKey = 'date' | 'desc' | 'ref' | 'type' | 'debit' | 'credit' | 'amount' | 'balance' | 'drcr';
 
-const HEADER_WORDS: [ColKey, RegExp][] = [
+/**
+ * Column header words. `weak` entries (a bare "Dr" / "Cr") only name a column when no
+ * explicit header does: Federal Bank prints a "DR/CR" balance-marker column whose "DR"
+ * would otherwise be read as the Withdrawals column, turning every withdrawal into a deposit.
+ */
+const HEADER_WORDS: [ColKey, RegExp, { weak?: boolean }?][] = [
   ['date', /^(txn\.?\s*|tran\.?\s*|transaction\s*|value\s*|posting\s*)?date$/i],
   ['desc', /^(narration|description|particulars|details|transaction details|remarks|transaction remarks|transaction description)$/i],
-  ['ref', /^(chq\.?\s*\/?\s*ref\.?\s*no\.?|ref\.?\s*no\.?|cheque\s*no\.?|chq\.?\s*no\.?|reference(\s*no\.?)?|ref)$/i],
-  ['debit', /^(withdrawal(s)?(\s*amt\.?)?(\s*\(?(dr|inr|rs\.?)\)?)?|debit(s)?(\s*amount)?(\s*\(?(inr|rs\.?)\)?)?|dr\.?|paid out|money out)$/i],
-  ['credit', /^(deposit(s)?(\s*amt\.?)?(\s*\(?(cr|inr|rs\.?)\)?)?|credit(s)?(\s*amount)?(\s*\(?(inr|rs\.?)\)?)?|cr\.?|paid in|money in)$/i],
+  ['ref', /^(chq\.?\s*\/?\s*ref\.?\s*no\.?|ref\.?\s*no\.?|cheque\s*no\.?|chq\.?\s*no\.?|reference(\s*no\.?)?|ref|(tran|txn|transaction)\.?\s*id)$/i],
+  // A transaction-type code column (Federal Bank: TFR / CLG / CASH / FT). Kept out of the narration.
+  ['type', /^(tran|txn|transaction)\.?\s*type$/i],
+  ['debit', /^(withdrawal(s)?(\s*amt\.?)?(\s*\(?(dr|inr|rs\.?)\)?)?|debit(s)?(\s*amount)?(\s*\(?(inr|rs\.?)\)?)?|paid out|money out)$/i],
+  ['credit', /^(deposit(s)?(\s*amt\.?)?(\s*\(?(cr|inr|rs\.?)\)?)?|credit(s)?(\s*amount)?(\s*\(?(inr|rs\.?)\)?)?|paid in|money in)$/i],
   ['amount', /^(amount|transaction amount|amt)(\s*\(?(inr|rs\.?|₹)\)?)?$/i],
   ['balance', /^((closing|running|available)\s*)?balance(\s*\(?(inr|rs\.?|₹)\)?)?$/i],
   ['drcr', /^(dr\s*\/\s*cr|cr\s*\/\s*dr|type)$/i],
+  ['debit', /^dr\.?$/i, { weak: true }],
+  ['credit', /^cr\.?$/i, { weak: true }],
 ];
 
 const SKIP_LINE =
@@ -21,40 +30,84 @@ const OPENING = /opening balance|balance b\/f|brought forward/i;
 
 type Cols = Partial<Record<ColKey, number>>; // x-centre of each column
 
-/** Header cells can wrap ("Closing" / "Balance"); join cells from the next line that overlap horizontally. */
-function headerCells(line: Line, next?: Line) {
+/**
+ * Page headers and footers ("The Federal Bank Ltd. Corporate Office: … Page 3 of 18"): the same
+ * text, digits aside, among the first or last few lines of most pages. Left in, they'd be read as
+ * the next line of whichever narration ends the page. Short or reference-like lines never count,
+ * so a narration continuation that happens to recur ("/…@ybl/Payment f/…") is kept.
+ */
+function boilerplateLines(lines: Line[]): Set<Line> {
+  const byPage = new Map<number, Line[]>();
+  for (const l of lines) {
+    const list = byPage.get(l.page);
+    if (list) list.push(l);
+    else byPage.set(l.page, [l]);
+  }
+  if (byPage.size < 3) return new Set();
+  const key = (l: Line) => l.text.replace(/\d+/g, '#').replace(/\s+/g, ' ').trim().toLowerCase();
+  const pagesOf = new Map<string, Set<number>>();
+  const edgeLines: Line[] = [];
+  for (const [page, list] of byPage) {
+    const sorted = [...list].sort((a, b) => b.y - a.y);
+    for (const l of new Set([...sorted.slice(0, 3), ...sorted.slice(-3)])) {
+      if (l.text.includes('@') || key(l).replace(/[^a-z]/g, '').length < 12 || DATE_TOKEN.test(l.text.slice(0, 24))) continue;
+      const k = key(l);
+      if (!pagesOf.has(k)) pagesOf.set(k, new Set());
+      pagesOf.get(k)!.add(page);
+      edgeLines.push(l);
+    }
+  }
+  const min = Math.max(3, Math.ceil(byPage.size * 0.6));
+  return new Set(edgeLines.filter((l) => (pagesOf.get(key(l))?.size ?? 0) >= min));
+}
+
+/** Header cells can wrap ("Closing" / "Balance"); join cells from the following lines that overlap horizontally. */
+function headerCells(line: Line, ...more: Line[]) {
   const cells = line.items.map((i) => ({ ...i }));
-  if (!next) return cells;
-  for (const it of next.items) {
-    const over = cells.find((c) => it.x < c.x + c.w + 2 && c.x < it.x + it.w + 2);
-    if (over) {
-      over.str = `${over.str} ${it.str}`;
-      const right = Math.max(over.x + over.w, it.x + it.w);
-      over.x = Math.min(over.x, it.x);
-      over.w = right - over.x;
-    } else cells.push({ ...it });
+  for (const next of more) {
+    for (const it of next.items) {
+      const over = cells.find((c) => it.x < c.x + c.w + 2 && c.x < it.x + it.w + 2);
+      if (over) {
+        over.str = `${over.str} ${it.str}`;
+        const right = Math.max(over.x + over.w, it.x + it.w);
+        over.x = Math.min(over.x, it.x);
+        over.w = right - over.x;
+      } else cells.push({ ...it });
+    }
   }
   return cells;
 }
 
-/** Detect a table header, optionally wrapped onto the following line. */
-function detectHeader(line: Line, next?: Line): { cols: Cols; consumedNext: boolean } | null {
-  const single = classifyCells(line.items);
-  const canWrap = next && next.page === line.page && Math.abs(line.y - next.y) <= 14 && !DATE_TOKEN.test(next.text);
-  const merged = canWrap ? classifyCells(headerCells(line, next)) : null;
+/** Detect a table header, optionally wrapped onto the following one or two lines. */
+function detectHeader(line: Line, next?: Line, next2?: Line): { cols: Cols; consumed: number } | null {
+  const close = (a: Line, b?: Line): b is Line => !!b && b.page === a.page && Math.abs(a.y - b.y) <= 14 && !DATE_TOKEN.test(b.text);
   const count = (c: Cols | null) => (c ? Object.keys(c).length : 0);
-  if (merged && count(merged) > count(single)) return { cols: merged, consumedNext: true };
-  return single ? { cols: single, consumedNext: false } : null;
+  let best: { cols: Cols; consumed: number } | null = null;
+  const single = classifyCells(line.items);
+  if (single) best = { cols: single, consumed: 0 };
+  if (close(line, next)) {
+    const two = classifyCells(headerCells(line, next));
+    if (two && count(two) > count(best?.cols ?? null)) best = { cols: two, consumed: 1 };
+    if (close(next, next2)) {
+      const three = classifyCells(headerCells(line, next, next2));
+      if (three && count(three) > count(best?.cols ?? null)) best = { cols: three, consumed: 2 };
+    }
+  }
+  return best;
 }
 
 function classifyCells(cells: { str: string; x: number; w: number }[]): Cols | null {
   const cols: Cols = {};
-  for (const it of cells) {
-    const s = it.str.replace(/\s+/g, ' ').trim();
-    for (const [key, re] of HEADER_WORDS) {
-      if (re.test(s) && cols[key] === undefined) {
-        cols[key] = it.x + it.w / 2;
-        break;
+  // Explicit names first; a bare "Dr"/"Cr" only fills a column nothing else named.
+  for (const pass of [false, true]) {
+    for (const it of cells) {
+      const s = it.str.replace(/\s+/g, ' ').trim();
+      for (const [key, re, opt] of HEADER_WORDS) {
+        if (!!opt?.weak !== pass) continue;
+        if (re.test(s)) {
+          if (cols[key] === undefined) cols[key] = it.x + it.w / 2;
+          break;
+        }
       }
     }
   }
@@ -73,6 +126,8 @@ interface Draft {
   dateRaw: string;
   desc: string[];
   ref: string | null;
+  /** Transaction-type code from its own column (TFR, CLG, CASH…), appended after the narration. */
+  typeCode: string | null;
   debit: number | null;
   credit: number | null;
   amount: ParsedAmount | null;
@@ -99,6 +154,7 @@ export function parseLines(lines: Line[], opts: { fallbackOrder?: DateOrder } = 
   );
   let header: Cols | null = null;
   let sawHeader = false;
+  const boilerplate = boilerplateLines(lines);
   let openingBalance: number | null = null;
   const drafts: Draft[] = [];
   let current: Draft | null = null;
@@ -121,12 +177,16 @@ export function parseLines(lines: Line[], opts: { fallbackOrder?: DateOrder } = 
 
   for (let li = 0; li < lines.length; li++) {
     const line = lines[li];
-    const h = detectHeader(line, lines[li + 1]);
+    const h = detectHeader(line, lines[li + 1], lines[li + 2]);
     if (h) {
       header = h.cols;
       sawHeader = true;
       current = null;
-      if (h.consumedNext) li++;
+      li += h.consumed;
+      continue;
+    }
+    if (boilerplate.has(line)) {
+      current = null;
       continue;
     }
 
@@ -148,7 +208,7 @@ export function parseLines(lines: Line[], opts: { fallbackOrder?: DateOrder } = 
     const startsWithDate = !!dateMatch && text.indexOf(dateMatch[0]) <= 3 && !!parseDate(dateMatch[0], dateOrder);
 
     if (startsWithDate) {
-      const draft: Draft = { dateRaw: dateMatch![0], desc: [], ref: null, debit: null, credit: null, amount: null, balance: null, drcrHint: null };
+      const draft: Draft = { dateRaw: dateMatch![0], desc: [], ref: null, typeCode: null, debit: null, credit: null, amount: null, balance: null, drcrHint: null };
       current = draft;
       drafts.push(draft);
       const unassigned: ParsedAmount[] = [];
@@ -185,8 +245,9 @@ export function parseLines(lines: Line[], opts: { fallbackOrder?: DateOrder } = 
           draft.drcrHint = s.slice(0, 2).toLowerCase() as 'cr' | 'dr';
           continue;
         }
-        const col = nearestCol(cx, ['desc', 'ref', 'date']);
+        const col = nearestCol(cx, ['desc', 'ref', 'type', 'date']);
         if (col === 'ref' && /\d/.test(s) && s.length <= 30) draft.ref = s;
+        else if (col === 'type' && s.length <= 12 && !draft.typeCode) draft.typeCode = s;
         else draft.desc.push(s);
       }
       draft.desc = [draft.desc.join(' ')];
@@ -249,7 +310,10 @@ export function parseLines(lines: Line[], opts: { fallbackOrder?: DateOrder } = 
       else if (d.amount.negative) sign = -1;
     }
     if (magnitude == null || magnitude === 0) continue;
-    const description = joinDesc(d.desc).replace(/\s+/g, ' ').trim() || '(no description)';
+    // The type code goes after a separator, so it still tells the channel (CLG = cheque) without
+    // running into the payee's name.
+    const narration = joinDesc(d.desc).replace(/\s+/g, ' ').trim();
+    const description = (d.typeCode ? `${narration} / ${d.typeCode}` : narration).trim() || '(no description)';
     rows.push({
       date,
       description,
@@ -261,7 +325,8 @@ export function parseLines(lines: Line[], opts: { fallbackOrder?: DateOrder } = 
     });
   }
 
-  resolveSignsFromBalance(rows, openingBalance);
+  const corrected = resolveSignsFromBalance(rows, openingBalance);
+  if (corrected) warnings.push(`${corrected} transaction${corrected === 1 ? '' : 's'} had their withdrawal/deposit side corrected from the running balance.`);
   if (!sawHeader && rows.length) warnings.push('No column header detected; amounts were inferred from line positions.');
   return {
     rows: rows.map(({ fixed: _f, magnitude: _m, ...r }) => r as RawTransaction),
@@ -271,29 +336,44 @@ export function parseLines(lines: Line[], opts: { fallbackOrder?: DateOrder } = 
 }
 
 /**
- * Where the sign isn't known from a column, derive it from the running balance.
- * Handles statements listed newest-first by testing both orders.
+ * Derive each row's direction from the running balance: money in when the balance rose by the
+ * row's amount, out when it fell. Rows without a known sign always take it from the balance.
+ * Rows whose sign came from a column are checked too, and corrected when the balance chain is
+ * trustworthy (most rows step by exactly their amount) and says the opposite — so a misread
+ * Withdrawals/Deposits column can't silently flip money in and out. Handles statements listed
+ * newest-first by testing both orders. Returns how many column-derived signs were corrected.
  */
-export function resolveSignsFromBalance(rows: SignRow[], opening: number | null) {
-  if (!rows.some((r) => !r.fixed)) return;
-  const score = (order: SignRow[]) => {
-    let hits = 0;
+export function resolveSignsFromBalance(rows: SignRow[], opening: number | null): number {
+  const steps = (order: SignRow[]) => {
+    let hits = 0, checked = 0;
     for (let i = 1; i < order.length; i++) {
       const a = order[i - 1].balance;
       const b = order[i].balance;
-      if (a != null && b != null && Math.abs(Math.abs(round2(b - a)) - order[i].magnitude) < 0.011) hits++;
+      if (a == null || b == null) continue;
+      checked++;
+      if (Math.abs(Math.abs(round2(b - a)) - order[i].magnitude) < 0.011) hits++;
     }
-    return hits;
+    return { hits, checked };
   };
   const reversed = [...rows].reverse();
-  const isReversed = score(reversed) > score(rows);
+  const fwd = steps(rows);
+  const rev = steps(reversed);
+  const isReversed = rev.hits > fwd.hits;
   const seq = isReversed ? reversed : rows;
+  const chain = isReversed ? rev : fwd;
+  const trustBalance = chain.checked >= 3 && chain.hits / chain.checked >= 0.8;
+  if (!trustBalance && !rows.some((r) => !r.fixed)) return 0;
+  let corrected = 0;
   for (let i = 0; i < seq.length; i++) {
     const r = seq[i];
-    if (r.fixed || r.balance == null) continue;
+    if (r.balance == null || (r.fixed && !trustBalance)) continue;
     const prev = i > 0 ? seq[i - 1].balance : isReversed ? null : opening;
     if (prev == null) continue;
     const delta = round2(r.balance - prev);
-    if (Math.abs(Math.abs(delta) - r.magnitude) < 0.011) r.amount = delta > 0 ? r.magnitude : -r.magnitude;
+    if (Math.abs(Math.abs(delta) - r.magnitude) >= 0.011 || delta === 0) continue;
+    const signed = delta > 0 ? r.magnitude : -r.magnitude;
+    if (r.fixed && Math.sign(r.amount) !== Math.sign(signed)) corrected++;
+    r.amount = signed;
   }
+  return corrected;
 }

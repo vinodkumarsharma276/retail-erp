@@ -80,11 +80,23 @@ export function detectIfsc(text: string): string | null {
   return m ? m[1].toUpperCase() : null;
 }
 
+const ACCOUNT_LABEL = /(?:A\/?c(?:count)?\.?\s*(?:No|Number|#)?\.?\s*[:,\-]*\s*)([X*\d][X*\d\s-]{5,22}\d)/i;
+
 export function detectAccountHint(text: string): string | null {
-  const m = text
-    .slice(0, 4000)
-    .match(/(?:A\/?c(?:count)?\.?\s*(?:No|Number|#)?\.?\s*[:,\-]*\s*)([X*\d][X*\d\s-]{5,22}\d)/i);
+  const m = text.slice(0, 4000).match(ACCOUNT_LABEL);
   if (!m) return null;
   const digits = m[1].replace(/[^\dX*]/gi, '');
   return digits.length >= 4 ? `••${digits.slice(-4)}` : null;
+}
+
+/**
+ * The full account number when the statement prints it unmasked next to an account label
+ * ("Account Number : 13400200029970"). Masked numbers ("1340XXXXXX9970") return null —
+ * only `detectAccountHint`'s last four digits are known then.
+ */
+export function detectAccountNumber(text: string): string | null {
+  const m = text.slice(0, 4000).match(ACCOUNT_LABEL);
+  if (!m || /[X*]/i.test(m[1])) return null;
+  const digits = m[1].replace(/\D/g, '');
+  return digits.length >= 9 && digits.length <= 18 ? digits : null;
 }

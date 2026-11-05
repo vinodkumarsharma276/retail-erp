@@ -106,7 +106,7 @@ retail-erp/
 │   │   ├── .env.example
 │   │   ├── prisma/
 │   │   │   ├── schema.prisma     # 57 models, 16 enums
-│   │   │   ├── migrations/       # 28 migrations
+│   │   │   ├── migrations/       # 29 migrations
 │   │   │   └── seed/             # index.ts + bootstrap/backfill/repair scripts
 │   │   └── src/
 │   │       ├── index.ts          # Server entry point
@@ -500,7 +500,7 @@ are a summary; the `*.routes.ts` files are authoritative.
 | Prefix | Purpose |
 |--------|---------|
 | `/roles` | Custom roles, role permissions, per-user grants/denies (writes need `rbac.custom_roles` feature) |
-| `/bank-statements` | Statement analysis ported from LedgerLens: parse PDF/Excel/CSV/image statements, auto-categorise (user rules → built-in rules → AI), review queue, analytics, Excel/CSV export, bank API feeds. Engine in `engine/` uses raw SQL (tenant-filtered by hand) |
+| `/bank-statements` | Statement analysis ported from LedgerLens: parse PDF/Excel/CSV/image statements (pdf.js / SheetJS first, AI only when the running balances don't reconcile; the balance decides money in vs out), auto-categorise (user rules → built-in rules → AI), suggest the supplier a withdrawal paid (name in narration → trigrams → AI for borderline names) and record it as a supplier payment in one click (`POST /transactions/:id/supplier-payment`, settles that shop's oldest bills, linked via `purchase_payments.statement_transaction_id`), review queue, analytics, Excel/CSV export, bank API feeds. With the header on "All Shops", uploads find their shop from the statement's account number. Engine in `engine/` uses raw SQL (tenant-filtered by hand) |
 | `/ocr` | Distributor-invoice → purchase-form pre-fill; handwritten register page → parsed preview (OpenAI) |
 | `/lookup` | Lightweight lookups used by forms (always on) |
 | `/platform` | Platform-admin console: tenants, plans, feature overrides, onboarding (separate login, no tenant context) |
@@ -768,7 +768,7 @@ npm run db:reset   # prisma migrate reset --force (drops DB, re-applies migratio
 
 ## 11. Database Migrations
 
-28 migrations in `apps/api/prisma/migrations/` (first: `init`, 2026-04-16). Latest:
+29 migrations in `apps/api/prisma/migrations/` (first: `init`, 2026-04-16). Latest:
 
 | Name | Description |
 |------|-------------|
@@ -778,6 +778,7 @@ npm run db:reset   # prisma migrate reset --force (drops DB, re-applies migratio
 | 20261005191207_bank_api_feeds | Bank API feed connections/runs |
 | 20261017162614_add_purchase_import_tracking | Purchase import batches / classification |
 | 20261018200653_purchases_without_a_bill | Unbilled purchases |
+| 20261101204405_bank_rows_pay_suppliers | Supplier on bank rows; supplier payments linked to the bank row |
 
 ### Running Migrations
 ```bash

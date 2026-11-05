@@ -782,6 +782,11 @@ export const distributorsService = {
       notes?: string;
     },
     userId: string,
+    /**
+     * `shopId`: settle only that shop's bills (money paid from a shop's bank account).
+     * `statementTransactionId`: the bank row this payment was recorded from.
+     */
+    options: { shopId?: string; statementTransactionId?: string } = {},
   ) {
     // Verify distributor exists
     const distributor = await prisma.distributor.findUnique({
@@ -796,6 +801,7 @@ export const distributorsService = {
       where: {
         distributorId,
         paymentStatus: { not: 'paid' },
+        ...(options.shopId ? { shopId: options.shopId } : {}),
       },
       orderBy: { invoiceDate: 'asc' },
     });
@@ -858,6 +864,7 @@ export const distributorsService = {
             referenceNumber: row.referenceNumber,
             notes: row.notes,
             createdBy: userId,
+            statementTransactionId: options.statementTransactionId ?? null,
           },
         });
       }

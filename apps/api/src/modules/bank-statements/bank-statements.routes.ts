@@ -57,6 +57,12 @@ export async function bankStatementRoutes(app: FastifyInstance) {
   app.get('/transactions/:id', can('bank.view'), c.getTransaction as any);
   app.patch('/transactions/:id', can('bank.reconcile'), c.updateTransaction as any);
   app.post('/transactions/bulk', can('bank.reconcile'), c.bulkUpdate as any);
+  // Recording a withdrawal as a supplier payment writes to the supplier's books.
+  app.post(
+    '/transactions/:id/supplier-payment',
+    { preHandler: [...base, featureGate(FeatureKey.PURCHASES), requirePermission('bank.view'), requirePermission('purchases.record_payment')] },
+    c.recordSupplierPayment as any,
+  );
 
   app.get('/rules', can('bank.view'), c.listRules as any);
   app.post('/rules', can('bank.reconcile'), c.createRule as any);
