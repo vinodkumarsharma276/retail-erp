@@ -1,10 +1,11 @@
 import clsx from 'clsx';
-import { ArrowDown, ArrowUp, CheckCircle2, ChevronLeft, ChevronRight, Download, Flag, Search, ShieldAlert, Truck, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, CheckCircle2, ChevronLeft, ChevronRight, Download, Flag, Search, ShieldAlert, Trash2, Truck, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Amount, CategoryLabel, FlagChips, ReviewBadge } from './components/domain';
 import { PageHeader } from './components/BankLayout';
 import { CategorySelect, TransactionDrawer } from './components/TransactionDrawer';
+import { DeleteTransactionsDialog } from './components/DeleteTransactionsDialog';
 import { Badge, Button, Card, EmptyState, Input, Segmented, Select, Spinner, useToast } from './components/ui';
 import { downloadExport, type api, type Transaction, type TxFilters } from './lib/api';
 import { count, date, money } from './lib/format';
@@ -27,6 +28,7 @@ export default function BankTransactionsPage() {
   const [sp, setSp] = useSearchParams();
   const scope = useScope();
   const canEdit = useCanCheck()('bank.reconcile');
+  const canDelete = useCanCheck()('bank.delete_statement');
   const { data: meta } = useMeta();
   const { data: facets } = useFacets();
   const toast = useToast();
@@ -71,6 +73,7 @@ export default function BankTransactionsPage() {
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [openTx, setOpenTx] = useState<Transaction | null>(null);
+  const [deleting, setDeleting] = useState<string[] | null>(null);
   useEffect(() => setSelected(new Set()), [data?.page, sp]);
 
   const rows = data?.rows ?? [];
@@ -205,18 +208,27 @@ export default function BankTransactionsPage() {
         )}
 
         {/* ---------------------------------------------------------------- bulk bar */}
-        {canEdit && selected.size > 0 && (
+        {(canEdit || canDelete) && selected.size > 0 && (
           <Card className="sticky top-2 z-20 flex flex-wrap items-center gap-2 border-primary/40 px-4 py-2.5">
             <span className="text-[13px] font-medium">{selected.size} selected</span>
-            <div className="w-64">
-              <CategorySelectBulk onPick={(category) => runBulk({ category }, `Category set to ${category}`)} />
-            </div>
-            <Button size="sm" variant="good" icon={<CheckCircle2 className="size-4" />} onClick={() => runBulk({ review_status: 'verified' }, 'Verified')}>
-              Verify
-            </Button>
-            <Button size="sm" variant="danger" icon={<ShieldAlert className="size-4" />} onClick={() => runBulk({ review_status: 'suspicious' }, 'Marked suspicious')}>
-              Suspicious
-            </Button>
+            {canEdit && (
+              <>
+                <div className="w-64">
+                  <CategorySelectBulk onPick={(category) => runBulk({ category }, `Category set to ${category}`)} />
+                </div>
+                <Button size="sm" variant="good" icon={<CheckCircle2 className="size-4" />} onClick={() => runBulk({ review_status: 'verified' }, 'Verified')}>
+                  Verify
+                </Button>
+                <Button size="sm" variant="danger" icon={<ShieldAlert className="size-4" />} onClick={() => runBulk({ review_status: 'suspicious' }, 'Marked suspicious')}>
+                  Suspicious
+                </Button>
+              </>
+            )}
+            {canDelete && (
+              <Button size="sm" variant="danger" icon={<Trash2 className="size-4" />} onClick={() => setDeleting([...selected])}>
+                Delete
+              </Button>
+            )}
             <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>
               Clear
             </Button>
@@ -330,6 +342,14 @@ export default function BankTransactionsPage() {
         </Card>
       </div>
       <TransactionDrawer tx={openTx} onClose={() => setOpenTx(null)} />
+      <DeleteTransactionsDialog
+        target={deleting ? { kind: 'rows', ids: deleting } : null}
+        onCancel={() => setDeleting(null)}
+        onDeleted={() => {
+          setDeleting(null);
+          setSelected(new Set());
+        }}
+      />
     </div>
   );
 }

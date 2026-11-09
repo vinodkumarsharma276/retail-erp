@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { distributorsController } from './distributors.controller.js';
 import { authenticate } from '../../middleware/auth.js';
 import { requirePermission } from '../../middleware/permissions.js';
+import { shopScope } from '../../middleware/shop-scope.js';
 import { validate } from '../../middleware/validate.js';
 import {
   createDistributorSchema,
@@ -72,11 +73,20 @@ export async function distributorRoutes(app: FastifyInstance) {
   // Get products from this distributor
   app.get('/:id/products', { preHandler: [authenticate, requirePermission('distributors.detail')] }, distributorsController.getProducts as any);
 
-  // Record lumpsum payment for this distributor
+  // Record lumpsum payment for this distributor. Shop-scoped so money beyond the open bills can be
+  // kept as an advance for the shop in the header.
   app.post('/:id/payments', {
-    preHandler: [authenticate, requirePermission('purchases.record_payment'), validate(lumpsumPaymentSchema)],
+    preHandler: [authenticate, shopScope, requirePermission('purchases.record_payment'), validate(lumpsumPaymentSchema)],
   }, distributorsController.recordLumpsumPayment as any);
 
   // Get payment history for this distributor
   app.get('/:id/payments', { preHandler: [authenticate, requirePermission('distributors.detail')] }, distributorsController.getPayments as any);
+
+  // Clear the chosen suppliers' accounts in every shop the user can access: payments and advances
+  // deleted, bills marked settled, so Total paid and Pending both go to 0. Owner-only by default.
+  const clearing = {
+    preHandler: [authenticate, requirePermission('distributors.clear_payments'), validate(distributorImpactSchema)],
+  };
+  app.post('/clear-payments/preview', clearing, distributorsController.clearPaymentsImpactMany as any);
+  app.post('/clear-payments', clearing, distributorsController.clearPaymentsMany as any);
 }

@@ -31,6 +31,7 @@ const statusMeta: Record<string, { tone: BadgeTone; label: string }> = {
   defaulted: { tone: 'danger', label: 'Defaulted' },
   pending: { tone: 'warning', label: 'Pending' },
   partial: { tone: 'warning', label: 'Partial' },
+  settled: { tone: 'neutral', label: 'Settled' },
   received: { tone: 'success', label: 'Received' },
 
   // --- Sale types ---

@@ -31,6 +31,7 @@ import { rolesRoutes } from './modules/roles/roles.routes.js';
 import { ocrRoutes } from './modules/ocr/ocr.routes.js';
 import { lookupRoutes } from './modules/lookup/lookup.routes.js';
 import { platformRoutes } from './modules/platform/platform.routes.js';
+import { customerSearchRoutes } from './modules/customer-search/customer-search.routes.js';
 import { registerInstallmentScheduler } from './jobs/installments-scheduler.js';
 import { registerBankFeedScheduler } from './jobs/bank-feeds-scheduler.js';
 import { featureGate } from './middleware/feature-gate.js';
@@ -146,6 +147,7 @@ export async function buildApp() {
   await registerGated(app, distributorRoutes, '/api/v1/distributors', FeatureKey.DISTRIBUTORS);
   await registerGated(app, purchaseRoutes, '/api/v1/purchases', FeatureKey.PURCHASES);
   await registerGated(app, customerRoutes, '/api/v1/customers', FeatureKey.CUSTOMERS);
+  await registerGated(app, customerSearchRoutes, '/api/v1/customer-search', FeatureKey.CUSTOMER_SEARCH);
   await registerGated(app, saleRoutes, '/api/v1/sales', FeatureKey.SALES);
   await registerGated(app, installmentRoutes, '/api/v1/installments', FeatureKey.INSTALLMENTS);
   await registerGated(app, promisesRoutes, '/api/v1/promises', FeatureKey.INSTALLMENTS);

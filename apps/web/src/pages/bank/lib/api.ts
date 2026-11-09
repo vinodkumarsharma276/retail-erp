@@ -72,15 +72,31 @@ export interface Transaction {
   /** Set once a supplier payment has been recorded from this row. */
   supplier_paid_amount: number | null;
   supplier_paid_at: string | null;
+  /** The part of it kept as an advance (no bill to settle yet). */
+  supplier_advance_amount: number | null;
 }
 export type SupplierPaymentMode = 'cash' | 'credit_card' | 'debit_card' | 'upi' | 'bank_transfer' | 'cheque';
 export interface SupplierPaymentResult {
   totalDistributed: number;
   invoicesPaidFull: number;
   invoicesPaidPartial: number;
-  /** Money beyond the shop's unpaid bills for this supplier — not recorded. */
+  /** Kept as an advance against the supplier's next bills at this shop. */
+  advanceAmount: number;
   remainingAmount: number;
   transaction: Transaction;
+}
+/** 422 body when the withdrawal is more than the shop owes this supplier. */
+export interface AdvanceNeeded {
+  code: 'advance_needed';
+  error: string;
+  /** Unpaid bills at this shop. */
+  due: number;
+  bills: number;
+  /** What would be kept as an advance. */
+  advance: number;
+  amount: number;
+  supplier: string;
+  shopName: string;
 }
 export interface TxPage {
   rows: Transaction[];
@@ -262,6 +278,30 @@ function toApiError(err: unknown): ApiError {
 
 const BASE = '/bank-statements';
 
+/** A supplier payment (or advance) recorded from bank rows that are about to be deleted. */
+export interface LinkedSupplierPayment {
+  distributor_id: string;
+  supplier: string;
+  shop_name: string;
+  /** Everything recorded: payments on bills + advances. */
+  amount: number;
+  /** Of that, advance money not yet used on a bill. */
+  advance: number;
+  bills: number;
+}
+
+export interface DeleteImpact {
+  transactions: number;
+  supplierPayments: LinkedSupplierPayment[];
+}
+
+export interface UndoneSupplierPayments {
+  payments: number;
+  advances: number;
+  bills: number;
+  amount: number;
+}
+
 /** Calls the retail-erp API (auth, tenant and X-Shop-Id headers come from apiClient) and unwraps `{ success, data }`. */
 async function request<T>(method: 'get' | 'post' | 'patch' | 'put' | 'delete', path: string, opts: { params?: Record<string, unknown>; body?: unknown } = {}): Promise<T> {
   try {
@@ -281,14 +321,20 @@ export const api = {
   facets: () => request<{ banks: string[]; channels: string[] }>('get', '/transactions/facets'),
   updateTx: (id: string, patch: Partial<Pick<Transaction, 'category' | 'review_status' | 'reviewer_note' | 'distributor_id'>>) =>
     request<Transaction>('patch', `/transactions/${id}`, { body: patch }),
-  recordSupplierPayment: (id: string, body: { distributorId?: string; paymentMode?: SupplierPaymentMode; referenceNumber?: string | null; notes?: string | null }) =>
-    request<SupplierPaymentResult>('post', `/transactions/${id}/supplier-payment`, { body }),
+  recordSupplierPayment: (
+    id: string,
+    body: { distributorId?: string; paymentMode?: SupplierPaymentMode; referenceNumber?: string | null; notes?: string | null; asAdvance?: boolean },
+  ) => request<SupplierPaymentResult>('post', `/transactions/${id}/supplier-payment`, { body }),
   bulkUpdate: (ids: string[], patch: Partial<Pick<Transaction, 'category' | 'review_status'>>) =>
     request<{ updated: number }>('post', '/transactions/bulk', { body: { ids, ...patch } }),
   statements: (shopIds?: string[]) => request<Statement[]>('get', '/statements', { params: { shopIds } }),
   updateStatement: (id: string, patch: { bank?: string; shopId?: string }) =>
     request<Statement>('patch', `/statements/${id}`, { body: patch }),
-  deleteStatement: (id: string) => request<void>('delete', `/statements/${id}`),
+  deleteStatement: (id: string) => request<{ deleted: true; supplierPayments: UndoneSupplierPayments }>('delete', `/statements/${id}`),
+  statementDeleteImpact: (id: string) => request<DeleteImpact>('get', `/statements/${id}/delete-impact`),
+  transactionsDeleteImpact: (ids: string[]) => request<DeleteImpact>('post', '/transactions/delete-impact', { body: { ids } }),
+  deleteTransactions: (ids: string[]) =>
+    request<{ deleted: number; statementsRemoved: number; supplierPayments: UndoneSupplierPayments }>('post', '/transactions/delete', { body: { ids } }),
   recategorize: (id: string) =>
     request<{ updated: number; aiUsed: boolean; aiError: string | null }>('post', `/statements/${id}/recategorize`),
   rules: () => request<Rule[]>('get', '/rules'),
@@ -349,15 +395,16 @@ export function downloadStatementFile(s: Pick<Statement, 'id' | 'file_name'>) {
   return downloadFrom(`/statements/${s.id}/file`, undefined, s.file_name);
 }
 
-/** Upload one statement with progress. Text fields must precede the file in the form. */
+/** Upload one statement with progress. Text fields must precede the file in the form. `shopId` targets that shop for this request. */
 export async function uploadStatement(
   form: FormData,
   onProgress: (fraction: number) => void,
   signal?: AbortSignal,
+  shopId?: string,
 ): Promise<{ statement: Statement; aiUsed: boolean }> {
   try {
     const res = await apiClient.post(`${BASE}/statements/upload`, form, {
-      headers: { 'Content-Type': 'multipart/form-data' },
+      headers: { 'Content-Type': 'multipart/form-data', ...(shopId ? { 'X-Shop-Id': shopId } : {}) },
       onUploadProgress: (e) => e.total && onProgress(e.loaded / e.total),
       signal,
       // Parsing + AI can take a while on large or scanned statements.

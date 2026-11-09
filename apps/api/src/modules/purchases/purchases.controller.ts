@@ -444,6 +444,9 @@ export const purchasesController = {
       if (message === 'Purchase not found') {
         return sendError(reply, message, 404);
       }
+      if (message.startsWith('This bill was settled')) {
+        return sendError(reply, message, 409);
+      }
       return sendError(reply, message, 500);
     }
   },

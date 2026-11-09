@@ -36,7 +36,7 @@ const REASONS = {
   round: { code: 'round_figure', label: 'Large round-figure transfer', severity: 'low' },
 } satisfies Record<string, FlagReason>;
 
-export function computeFlags(rows: FlagRow[], s: Settings): Map<string, FlagReason[]> {
+export function computeFlags(rows: FlagRow[], s: Settings, imported: Map<string, FlagReason> = new Map()): Map<string, FlagReason[]> {
   const out = new Map<string, FlagReason[]>();
 
   // Stats per category+direction for outlier detection.
@@ -83,7 +83,9 @@ export function computeFlags(rows: FlagRow[], s: Settings): Map<string, FlagReas
   for (const r of rows) {
     const reasons: FlagReason[] = [];
     const abs = Math.abs(r.amount);
-    if (dupes.has(r.id)) reasons.push(REASONS.duplicate);
+    const earlier = imported.get(r.id);
+    if (earlier) reasons.push(earlier);
+    else if (dupes.has(r.id)) reasons.push(REASONS.duplicate);
     if (r.category === UNCATEGORIZED) reasons.push(REASONS.uncategorized);
     else if (r.category_source !== 'user' && r.category_source !== 'user-rule' && (r.confidence ?? 1) < s.minAiConfidence) reasons.push(REASONS.lowConfidence);
     if (r.ai_note?.startsWith('⚠')) reasons.push({ ...REASONS.aiSuspicious, label: r.ai_note.replace(/^⚠\s*/, '') });
@@ -113,18 +115,54 @@ export function computeFlags(rows: FlagRow[], s: Settings): Map<string, FlagReas
   return out;
 }
 
-/** Recompute flags for every transaction of a shop and persist only what changed. */
-export async function recomputeFlags(tenantId: string, shopId: string) {
-  const settings = await getSettings(tenantId);
-  const { rows } = await query<FlagRow>(
-    `SELECT t.id, t.statement_id, t.date, t.description, t.amount, t.direction, t.counterparty, t.channel, t.category,
-            t.category_source, t.confidence, t.ai_note, t.flagged, t.flag_reasons, t.review_status,
-            row_number() OVER (ORDER BY s.uploaded_at, t.statement_id, t.row_index) AS seq
+/**
+ * Rows of a shop that repeat a transaction imported *earlier* for the same bank account (or from
+ * the same file) — in any shop, so a statement filed under the wrong shop is still caught. Same
+ * day and amount, and the same running balance (or narration when either side has none). The
+ * earliest copy is never flagged; each later copy names where the earlier one lives.
+ */
+async function earlierCopies(tenantId: string, shopId: string): Promise<Map<string, FlagReason>> {
+  const { rows } = await query<{ id: string; file_name: string; shop_id: string; shop_name: string }>(
+    `SELECT t.id, o.file_name, o.shop_id, o.shop_name
        FROM statement_transactions t JOIN bank_statements s ON s.id = t.statement_id
+       CROSS JOIN LATERAL (
+         SELECT os.file_name, os.shop_id, osh.name AS shop_name
+           FROM statement_transactions x JOIN bank_statements os ON os.id = x.statement_id JOIN shops osh ON osh.id = os.shop_id
+          WHERE x.tenant_id = t.tenant_id AND x.date = t.date AND x.amount = t.amount AND x.statement_id <> t.statement_id
+            AND (os.bank_account_id = s.bank_account_id OR os.file_hash = s.file_hash)
+            AND (CASE WHEN x.balance IS NOT NULL AND t.balance IS NOT NULL THEN x.balance = t.balance ELSE x.fingerprint = t.fingerprint END)
+            AND (os.uploaded_at, os.id) < (s.uploaded_at, s.id)
+          ORDER BY os.uploaded_at LIMIT 1
+       ) o
       WHERE t.tenant_id = $1 AND t.shop_id = $2`,
     [tenantId, shopId],
   );
-  const flags = computeFlags(rows, settings);
+  return new Map(
+    rows.map((r) => [
+      r.id,
+      {
+        ...REASONS.duplicate,
+        label: r.shop_id === shopId ? `Possible duplicate: already in "${r.file_name}"` : `Possible duplicate: already in "${r.file_name}" (${r.shop_name})`,
+      },
+    ]),
+  );
+}
+
+/** Recompute flags for every transaction of a shop and persist only what changed. */
+export async function recomputeFlags(tenantId: string, shopId: string) {
+  const settings = await getSettings(tenantId);
+  const [{ rows }, imported] = await Promise.all([
+    query<FlagRow>(
+      `SELECT t.id, t.statement_id, t.date, t.description, t.amount, t.direction, t.counterparty, t.channel, t.category,
+              t.category_source, t.confidence, t.ai_note, t.flagged, t.flag_reasons, t.review_status,
+              row_number() OVER (ORDER BY s.uploaded_at, t.statement_id, t.row_index) AS seq
+         FROM statement_transactions t JOIN bank_statements s ON s.id = t.statement_id
+        WHERE t.tenant_id = $1 AND t.shop_id = $2`,
+      [tenantId, shopId],
+    ),
+    earlierCopies(tenantId, shopId),
+  ]);
+  const flags = computeFlags(rows, settings, imported);
 
   const changes: { id: string; flagged: boolean; reasons: unknown; status: string | null }[] = [];
   for (const r of rows) {

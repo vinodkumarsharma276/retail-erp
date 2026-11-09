@@ -154,6 +154,52 @@ export function useDistributorPaymentsQuery(id: string | undefined) {
 }
 
 // ---------------------------------------------------------------------------
+// Clear a supplier's payments (owner)
+// ---------------------------------------------------------------------------
+/** What "Clear payments" would do to the chosen suppliers, across every shop the user can access. */
+export interface ClearPaymentsPreview {
+  suppliers: Array<{ supplier: string; paid: number; pending: number; bills: number }>;
+  /** "Total paid" that goes to ₹0: paid on bills + unused advances. */
+  paid: number;
+  /** "Pending" that goes to ₹0: what the open bills still owe. */
+  pending: number;
+  /** Bills marked settled. */
+  bills: number;
+  payments: number;
+  advances: number;
+}
+
+export function useClearPaymentsPreviewQuery(ids: string[], enabled: boolean) {
+  return useQuery({
+    queryKey: ['distributors', 'clear-payments', ids],
+    queryFn: async () => {
+      const { data } = await apiClient.post<ApiResponse<ClearPaymentsPreview>>('/distributors/clear-payments/preview', { ids });
+      return data.data!;
+    },
+    enabled: enabled && ids.length > 0,
+    staleTime: 0,
+    gcTime: 0,
+  });
+}
+
+export function useClearPaymentsMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (ids: string[]) => {
+      const { data } = await apiClient.post<ApiResponse<{ suppliers: number; paid: number; pending: number }>>(
+        '/distributors/clear-payments',
+        { ids },
+      );
+      return data.data!;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['distributors'] });
+      queryClient.invalidateQueries({ queryKey: ['purchases'] });
+      queryClient.invalidateQueries({ queryKey: ['bank-transactions'] });
+    },
+  });
+}
+// ---------------------------------------------------------------------------
 // Create distributor
 // ---------------------------------------------------------------------------
 export function useCreateDistributorMutation() {
@@ -428,6 +474,9 @@ export interface LumpsumPaymentResult {
   totalDistributed: number;
   invoicesPaidFull: number;
   invoicesPaidPartial: number;
+  /** Kept as an advance for the header shop, used up by the supplier's next bills there. */
+  advanceAmount: number;
+  /** Neither used on a bill nor kept (only when "All Shops" is selected). */
   remainingAmount: number;
 }
 

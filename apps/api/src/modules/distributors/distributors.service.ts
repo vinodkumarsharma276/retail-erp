@@ -3,9 +3,23 @@ import { Prisma } from '@prisma/client';
 import { reasonPurchasesCannotBeDeleted } from '../purchases/purchases.service.js';
 import type { CandidateDistributor } from '@retailerp/shared-utils';
 import { checkCandidatesForDuplicates } from './distributors.import.js';
+import { advanceBalances, undoSupplierPayments } from './supplier-advances.js';
 
 /** A supplier that cannot be deleted, because the books still point at it. */
 export class DistributorInUseError extends Error {}
+
+/** Money paid to a supplier is in the books: deleting the supplier would lose it. */
+async function refuseIfAdvancesPaid(distributorIds: string[]) {
+  const paid = await prisma.supplierAdvance.findFirst({
+    where: { distributorId: { in: distributorIds } },
+    select: { amount: true, distributor: { select: { companyName: true } } },
+  });
+  if (paid) {
+    throw new DistributorInUseError(
+      `${paid.distributor.companyName} cannot be deleted: an advance payment of ₹${Number(paid.amount).toLocaleString('en-IN')} is recorded against it. Merge it into the right supplier instead.`,
+    );
+  }
+}
 
 /** Columns the supplier table has, which the database can order on directly. */
 const PLAIN_SORT_KEYS = ['companyName', 'contactPerson', 'phone', 'gstNumber'] as const;
@@ -29,8 +43,12 @@ const isPlainSort = (key: DistributorSortKey): key is PlainSortKey =>
 
 interface DistributorTotals {
   totalProductsPurchased: number;
+  /** Paid on bills, plus advances not yet used. */
   totalPaymentPaid: number;
+  /** Bills minus everything paid; below zero when an advance is waiting for the next bill. */
   pendingPayment: number;
+  /** Paid in advance and not yet used against a bill. */
+  advanceBalance: number;
 }
 
 /**
@@ -44,7 +62,7 @@ async function distributorTotals(ids: string[]): Promise<Map<string, Distributor
   const totals = new Map<string, DistributorTotals>();
   if (ids.length === 0) return totals;
 
-  const [productCounts, purchaseSums] = await Promise.all([
+  const [productCounts, purchaseSums, advances] = await Promise.all([
     prisma.product.groupBy({
       by: ['distributorId'],
       where: { distributorId: { in: ids } },
@@ -52,15 +70,17 @@ async function distributorTotals(ids: string[]): Promise<Map<string, Distributor
     }),
     prisma.purchase.groupBy({
       by: ['distributorId'],
-      where: { distributorId: { in: ids } },
+      // Settled bills (cleared by the owner) owe nothing and had nothing paid.
+      where: { distributorId: { in: ids }, paymentStatus: { not: 'settled' } },
       _sum: { netAmount: true, amountPaid: true },
     }),
+    advanceBalances(prisma, { distributorIds: ids }),
   ]);
 
   const at = (id: string) => {
     const existing = totals.get(id);
     if (existing) return existing;
-    const fresh = { totalProductsPurchased: 0, totalPaymentPaid: 0, pendingPayment: 0 };
+    const fresh = { totalProductsPurchased: 0, totalPaymentPaid: 0, pendingPayment: 0, advanceBalance: 0 };
     totals.set(id, fresh);
     return fresh;
   };
@@ -75,6 +95,12 @@ async function distributorTotals(ids: string[]): Promise<Map<string, Distributor
     entry.totalPaymentPaid = paid;
     entry.pendingPayment = net - paid;
   }
+  for (const [distributorId, advance] of advances) {
+    const entry = at(distributorId);
+    entry.advanceBalance = advance;
+    entry.totalPaymentPaid += advance;
+    entry.pendingPayment -= advance;
+  }
 
   return totals;
 }
@@ -86,6 +112,7 @@ function withTotals<T extends { id: string }>(distributor: T, totals: Map<string
     totalProductsPurchased: t?.totalProductsPurchased ?? 0,
     totalPaymentPaid: t?.totalPaymentPaid ?? 0,
     pendingPayment: t?.pendingPayment ?? 0,
+    advanceBalance: t?.advanceBalance ?? 0,
   };
 }
 
@@ -201,8 +228,22 @@ export const distributorsService = {
         },
       },
     });
+    if (!distributor) return distributor;
 
-    return distributor;
+    // Advances waiting for this supplier's next bills, per shop.
+    const open = await prisma.supplierAdvance.groupBy({
+      by: ['shopId'],
+      where: { distributorId: id, remaining: { gt: 0 } },
+      _sum: { remaining: true },
+    });
+    const shops = open.length
+      ? await prisma.shop.findMany({ where: { id: { in: open.map((a) => a.shopId) } }, select: { id: true, name: true, code: true } })
+      : [];
+    const advances = open.map((a) => ({
+      shop: shops.find((s) => s.id === a.shopId) ?? { id: a.shopId, name: '', code: '' },
+      remaining: Number(a._sum.remaining ?? 0),
+    }));
+    return { ...distributor, advances, advanceBalance: advances.reduce((s, a) => s + a.remaining, 0) };
   },
 
   async create(data: {
@@ -363,6 +404,7 @@ export const distributorsService = {
         );
       }
     }
+    await refuseIfAdvancesPaid(distributors.map((d) => d.id));
 
     const distributorIds = distributors.map((d) => d.id);
     return prisma.$transaction(async (tx) => {
@@ -456,6 +498,7 @@ export const distributorsService = {
 
     const blocked = await reasonPurchasesCannotBeDeleted(purchases);
     if (blocked) throw new DistributorInUseError(blocked);
+    await refuseIfAdvancesPaid(distributorIds);
 
     // Stock can carry a supplier's name without belonging to one of its
     // invoices — a transfer makes units that way. Those go too, and face the
@@ -536,6 +579,11 @@ export const distributorsService = {
         data: { distributorId: targetId },
       });
       const products = await tx.product.updateMany({
+        where: { distributorId: { in: sourceIds } },
+        data: { distributorId: targetId },
+      });
+      // Money paid in advance to a duplicate was paid to the supplier being kept.
+      await tx.supplierAdvance.updateMany({
         where: { distributorId: { in: sourceIds } },
         data: { distributorId: targetId },
       });
@@ -785,8 +833,11 @@ export const distributorsService = {
     /**
      * `shopId`: settle only that shop's bills (money paid from a shop's bank account).
      * `statementTransactionId`: the bank row this payment was recorded from.
+     * `advanceShopId`: keep whatever the open bills don't take as an advance for that shop,
+     *   used up by its next bills from this supplier. Without it there must be bills to pay,
+     *   and any excess is reported back unrecorded.
      */
-    options: { shopId?: string; statementTransactionId?: string } = {},
+    options: { shopId?: string; statementTransactionId?: string; advanceShopId?: string } = {},
   ) {
     // Verify distributor exists
     const distributor = await prisma.distributor.findUnique({
@@ -800,13 +851,13 @@ export const distributorsService = {
     const pendingPurchases = await prisma.purchase.findMany({
       where: {
         distributorId,
-        paymentStatus: { not: 'paid' },
+        paymentStatus: { notIn: ['paid', 'settled'] },
         ...(options.shopId ? { shopId: options.shopId } : {}),
       },
       orderBy: { invoiceDate: 'asc' },
     });
 
-    if (pendingPurchases.length === 0) {
+    if (pendingPurchases.length === 0 && !options.advanceShopId) {
       throw new Error('No pending invoices found for this distributor');
     }
 
@@ -824,6 +875,8 @@ export const distributorsService = {
 
     let totalDistributed = 0;
     let unallocated = 0;
+    /** What each tender has left once the bills are paid — kept as advances when allowed. */
+    const leftovers: Array<{ amount: number; paymentMode: string; referenceNumber: string | null; notes: string | null }> = [];
 
     for (const tender of data.tenders) {
       let left = tender.amount;
@@ -846,7 +899,16 @@ export const distributorsService = {
         left -= payAmount;
       }
       // More money than there are invoices to put it against.
-      unallocated += left;
+      left = Math.round(left * 100) / 100;
+      if (left > 0) {
+        unallocated += left;
+        leftovers.push({
+          amount: left,
+          paymentMode: tender.paymentMode,
+          referenceNumber: tender.referenceNumber ?? null,
+          notes: tender.notes ?? data.notes ?? null,
+        });
+      }
     }
 
     const result = await prisma.$transaction(async (tx) => {
@@ -889,17 +951,150 @@ export const distributorsService = {
         });
       }
 
+      // Money beyond the open bills is kept, not dropped, when the caller said which shop holds it.
+      let advanceAmount = 0;
+      if (options.advanceShopId) {
+        for (const part of leftovers) {
+          await tx.supplierAdvance.create({
+            data: {
+              tenantId: distributor.tenantId,
+              shopId: options.advanceShopId,
+              distributorId,
+              amount: part.amount,
+              remaining: part.amount,
+              paymentMode: part.paymentMode as any,
+              paymentDate: new Date(data.paymentDate),
+              referenceNumber: part.referenceNumber,
+              notes: part.notes,
+              statementTransactionId: options.statementTransactionId ?? null,
+              createdBy: userId,
+            },
+          });
+          advanceAmount += part.amount;
+        }
+      }
+
       return {
         totalDistributed,
         invoicesPaidFull,
         invoicesPaidPartial,
-        remainingAmount: unallocated,
+        /** Kept as an advance against this supplier's next bills. */
+        advanceAmount: Math.round(advanceAmount * 100) / 100,
+        /** Neither used on a bill nor kept — only when no shop was given to hold an advance. */
+        remainingAmount: options.advanceShopId ? 0 : Math.round(unallocated * 100) / 100,
       };
     });
 
     return result;
   },
 
+  /**
+   * What clearing a supplier's payments in these shops would do, per shop: "Total paid" drops by
+   * what was paid on bills plus unused advances, and "Pending" by what the open bills still owe.
+   */
+  async clearPaymentsImpact(distributorId: string, shopIds: string[]) {
+    const distributor = await prisma.distributor.findUnique({ where: { id: distributorId }, select: { companyName: true } });
+    if (!distributor) return null;
+    const open = { distributorId, shopId: { in: shopIds }, paymentStatus: { not: 'settled' } };
+    const [bills, advances, payments, shops] = await Promise.all([
+      prisma.purchase.groupBy({ by: ['shopId'], where: open, _sum: { amountPaid: true, netAmount: true }, _count: true }),
+      prisma.supplierAdvance.groupBy({
+        by: ['shopId'],
+        where: { distributorId, shopId: { in: shopIds } },
+        _sum: { remaining: true },
+        _count: true,
+      }),
+      prisma.purchasePayment.count({ where: { purchase: { distributorId, shopId: { in: shopIds } }, supplierAdvanceId: null } }),
+      prisma.shop.findMany({ where: { id: { in: shopIds } }, select: { id: true, name: true } }),
+    ]);
+    const round = (n: number) => Math.round(n * 100) / 100;
+    const perShop = shops
+      .map((s) => {
+        const b = bills.find((x) => x.shopId === s.id);
+        const a = advances.find((x) => x.shopId === s.id);
+        const paidOnBills = Number(b?._sum.amountPaid ?? 0);
+        const advance = Number(a?._sum.remaining ?? 0);
+        return {
+          shopId: s.id,
+          shopName: s.name,
+          bills: b?._count ?? 0,
+          advances: a?._count ?? 0,
+          paid: round(paidOnBills + advance),
+          advance,
+          pending: round(Math.max(0, Number(b?._sum.netAmount ?? 0) - paidOnBills)),
+        };
+      })
+      .filter((s) => s.bills > 0 || s.advances > 0);
+    return {
+      supplier: distributor.companyName,
+      payments,
+      advances: perShop.reduce((n, s) => n + s.advances, 0),
+      bills: perShop.reduce((n, s) => n + s.bills, 0),
+      paid: round(perShop.reduce((n, s) => n + s.paid, 0)),
+      pending: round(perShop.reduce((n, s) => n + s.pending, 0)),
+      shops: perShop,
+    };
+  },
+
+  /** The same, for several suppliers at once (the list page's selection). */
+  async clearPaymentsImpactMany(ids: string[], shopIds: string[]) {
+    const each = (await Promise.all(ids.map((id) => this.clearPaymentsImpact(id, shopIds)))).filter((x) => x !== null);
+    const sum = (k: 'paid' | 'pending' | 'bills' | 'payments' | 'advances') => each.reduce((n, x) => n + x[k], 0);
+    return {
+      suppliers: each.map((x) => ({ supplier: x.supplier, paid: x.paid, pending: x.pending, bills: x.bills })),
+      paid: Math.round(sum('paid') * 100) / 100,
+      pending: Math.round(sum('pending') * 100) / 100,
+      bills: sum('bills'),
+      payments: sum('payments'),
+      advances: sum('advances'),
+    };
+  },
+
+  /**
+   * Close a supplier's account in these shops, as the owner decided: every payment and advance
+   * is deleted and every bill is marked settled, so both "Total paid" and "Pending" go to ₹0. The
+   * bills and the stock they brought in stay. Bank rows the payments came from stay, and can be
+   * recorded as payments again. New bills from the supplier start a fresh balance. Owner-only.
+   */
+  async clearPayments(distributorId: string, shopIds: string[], userId: string) {
+    const before = await this.clearPaymentsImpact(distributorId, shopIds);
+    if (!before) return null;
+    await prisma.$transaction(async (tx) => {
+      await undoSupplierPayments(tx, {
+        payments: { purchase: { distributorId, shopId: { in: shopIds } } },
+        advances: { distributorId, shopId: { in: shopIds } },
+      });
+      // Also covers paid amounts from before payments were itemised (no payment row behind them).
+      await tx.purchase.updateMany({
+        where: { distributorId, shopId: { in: shopIds } },
+        data: { amountPaid: 0, paymentStatus: 'settled' },
+      });
+      await tx.auditLog.create({
+        data: {
+          userId,
+          shopId: shopIds.length === 1 ? shopIds[0] : null,
+          entityType: 'distributor',
+          entityId: distributorId,
+          action: 'clear_payments',
+          oldValues: { ...before, shopIds },
+        },
+      });
+    });
+    return before;
+  },
+
+  async clearPaymentsMany(ids: string[], shopIds: string[], userId: string) {
+    const done = [];
+    for (const id of ids) {
+      const r = await this.clearPayments(id, shopIds, userId);
+      if (r) done.push(r);
+    }
+    return {
+      suppliers: done.length,
+      paid: Math.round(done.reduce((n, x) => n + x.paid, 0) * 100) / 100,
+      pending: Math.round(done.reduce((n, x) => n + x.pending, 0) * 100) / 100,
+    };
+  },
   async getPayments(distributorId: string) {
     // Verify distributor exists
     const distributor = await prisma.distributor.findUnique({
@@ -932,6 +1127,8 @@ export const distributorsService = {
     const payments = purchases.flatMap((purchase) =>
       purchase.payments.map((payment) => ({
         ...payment,
+        /** Part of an advance, used up by this bill — the money itself is the advance row below. */
+        fromAdvance: payment.supplierAdvanceId != null,
         purchase: {
           id: purchase.id,
           invoiceNumber: purchase.invoiceNumber,
@@ -942,9 +1139,33 @@ export const distributorsService = {
       })),
     );
 
-    // Sort by payment date descending
-    payments.sort((a, b) => new Date(b.paymentDate).getTime() - new Date(a.paymentDate).getTime());
+    // Advances: money paid before (or beyond) the bills, with how much is still unused.
+    const advances = await prisma.supplierAdvance.findMany({
+      where: { distributorId },
+      include: {
+        creator: { select: { id: true, username: true, fullName: true } },
+        shop: { select: { id: true, name: true, code: true } },
+      },
+    });
+    const advanceRows = advances.map((a) => ({
+      id: a.id,
+      amount: a.amount,
+      paymentMode: a.paymentMode,
+      paymentDate: a.paymentDate,
+      referenceNumber: a.referenceNumber,
+      notes: a.notes,
+      createdAt: a.createdAt,
+      creator: a.creator,
+      isAdvance: true,
+      advanceRemaining: Number(a.remaining),
+      shop: a.shop,
+      purchase: null,
+    }));
 
-    return payments;
+    // Sort by payment date descending
+    const all = [...payments, ...advanceRows];
+    all.sort((a, b) => new Date(b.paymentDate).getTime() - new Date(a.paymentDate).getTime());
+
+    return all;
   },
 };

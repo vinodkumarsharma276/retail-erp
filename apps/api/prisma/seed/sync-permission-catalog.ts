@@ -18,16 +18,23 @@ import { PERMISSION_GROUPS } from '@retailerp/shared-types';
  * `distributors.delete` and `distributors.merge` (2026-10-23) go to admin
  * and accountant, as the owner asked: clearing duplicate suppliers out is
  * bookkeeping, and the accountant is who does it. Owner holds every
- * permission regardless.
+ * permission regardless. `distributors.clear_payments` (2026-11) is owner-only.
+ *
+ * Customer Searching (2026-11): everyone but the field employee can search and
+ * add entries; accountant also edits and exports; import and delete are owner/admin.
  */
+const CUSTOMER_SEARCH_BASE = ['nav.customer_search', 'customer_search.list', 'customer_search.detail', 'customer_search.create'];
+const CUSTOMER_SEARCH_ALL = [...CUSTOMER_SEARCH_BASE, 'customer_search.edit', 'customer_search.delete', 'customer_search.import', 'customer_search.export'];
+
 const NEW_DEFAULTS: Record<string, string[]> = {
-  owner: ['installments.revert_payment', 'purchases.create_unbilled', 'distributors.delete', 'distributors.merge'],
+  owner: ['installments.revert_payment', 'purchases.create_unbilled', 'distributors.delete', 'distributors.merge', 'distributors.clear_payments', ...CUSTOMER_SEARCH_ALL],
   admin: [
     'roles.list',
     'installments.revert_payment',
     'purchases.create_unbilled',
     'distributors.delete',
     'distributors.merge',
+    ...CUSTOMER_SEARCH_ALL,
   ],
   accountant: [
     'settings.view',
@@ -36,7 +43,11 @@ const NEW_DEFAULTS: Record<string, string[]> = {
     'purchases.delete',
     'distributors.delete',
     'distributors.merge',
+    ...CUSTOMER_SEARCH_BASE,
+    'customer_search.edit',
+    'customer_search.export',
   ],
+  others: [...CUSTOMER_SEARCH_BASE],
 };
 
 const prisma = new PrismaClient();

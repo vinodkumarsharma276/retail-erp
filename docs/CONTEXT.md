@@ -106,7 +106,7 @@ retail-erp/
 │   │   ├── .env.example
 │   │   ├── prisma/
 │   │   │   ├── schema.prisma     # 57 models, 16 enums
-│   │   │   ├── migrations/       # 29 migrations
+│   │   │   ├── migrations/       # 30 migrations
 │   │   │   └── seed/             # index.ts + bootstrap/backfill/repair scripts
 │   │   └── src/
 │   │       ├── index.ts          # Server entry point
@@ -368,7 +368,7 @@ Product 1--* InterShopTransfer
 
 ---
 
-## 6. API Modules (23)
+## 6. API Modules (24)
 
 Each module follows the pattern: `routes.ts` -> `controller.ts` -> `service.ts` + `validation.ts`
 
@@ -377,7 +377,8 @@ shop-scoped via JWT + `X-Shop-Id` header. Every route is guarded by
 `requirePermission('<module>.<action>')`, and most modules are registered behind a tenant
 feature switch (`registerGated` in `app.ts` — 403 when the tenant's plan has it off).
 
-Modules: auth, shops, users, categories, products, distributors, purchases, customers, sales,
+Modules: auth, shops, users, categories, products, distributors, purchases, customers,
+**customer-search**, sales,
 installments, **promises**, transfers, expenses, bank (legacy), **bank-statements**, dashboard,
 forms, employees, notifications, **roles**, **ocr**, **lookup**, **platform**. The tables below
 are a summary; the `*.routes.ts` files are authoritative.
@@ -436,7 +437,8 @@ are a summary; the `*.routes.ts` files are authoritative.
 | POST | / | Create (with duplicate GST/PAN/bank validation) |
 | GET | /:id | Detail with aggregates |
 | PUT | /:id | Update |
-| POST | /:id/lumpsum-payment | Record lumpsum payment (FIFO across pending invoices) |
+| POST | /:id/payments | Record lumpsum payment (FIFO across pending invoices; any excess kept as an advance for the header shop) |
+| POST | /clear-payments/preview, /clear-payments | `{ ids }`: preview / clear the chosen suppliers in every shop the user can access — payments and advances deleted, bills marked `settled` (nothing paid, nothing owed), so Total paid and Pending both go to 0. Permission `distributors.clear_payments` (owner-only by default) |
 
 ### Purchases (`/api/v1/purchases`)
 | Method | Path | Description |
@@ -455,6 +457,76 @@ are a summary; the `*.routes.ts` files are authoritative.
 | POST | / | Create (auto customer_code) |
 | GET | /:id | Detail + purchase history |
 | PUT | /:id | Update |
+
+### Customer Searching (`/api/v1/customer-search`)
+The shops' account register, moved off a Google Sheet (`Account Number | CUSTOMER_NAME |
+Address | Mobile | CO | CO_Mobile | AREA | Purchase_Date | Product | Brand | Model | Shop`, the
+sheet's `ID` column is the **Account Number**). One `CustomerSearchEntry` per item bought, in
+the shop its Shop says. Search is tenant-wide. Every entry is filed under a `Customer` matched on
+**name + mobile** (relatives share phones), and the co-applicant (CO) is a Customer marked
+`isGuarantor`. Feature `customer_search` (Enterprise); permissions `customer_search.*` need
+`customers.list` (writes also `customers.create` + `customers.view_phone`) but **not**
+`sales.view_real` — staff see the co-applicant by the owner's decision. The two buttons map to
+`customer_search.create` ("Customer Searching: New entry") and `customer_search.import`
+("Customer Searching: Import the sheet").
+
+**Account numbers** are read as the register writes them — `BD-1`, `CI2-421` (sub-series),
+`BD-406A`, `BN.596`, `MJ12` — and the next number keeps the series' separator (`BD-264` → `BD-265`).
+They are **not unique**: the real sheet reuses ~3,700 numbers for different people. A reused
+number is allowed — the form warns first (409 with `usedBy` + next free number; "Save anyway"
+sends `allowDuplicate`) — and every entry sharing it is flagged.
+
+**Needs review.** The sheet is imported as it is; nothing but an unknown Shop stops a row. Each
+entry carries `issues` (codes in `REGISTER_ISSUES`, shared-utils): `duplicate_account`,
+`missing_account`, `odd_account`, `missing_name`, `missing_mobile`, `invalid_mobile`,
+`missing_date`, `invalid_date`, `future_date`, `co_incomplete`, `no_product_type`. Unusable sheet
+values (a 9-digit mobile, an unreadable date) are kept in `rawValues`. `refreshIssues`
+(`customer-search.issues.ts`) recomputes an entry and every entry sharing its number on each
+create / edit / delete / import. The search page has a **Needs review** tab with a problem
+dropdown (`GET /review-summary`). Rows with no usable mobile get a customer of their own (phone
+''); rows with no name get none.
+
+**Shops.** The Shop column (name or code) decides each row's shop; blank → the import's default
+shop (pre-selected as the shop the file names most often). Changing a row's Shop and re-importing
+**moves** the entry; changing Shop on Edit entry does the same. Its customer and co-applicant move
+too unless they still have another entry or a sale in the old shop (`moveCustomersWithEntry`);
+real sales never move. CSV files are read as plain text in the browser so day-first dates
+(`1/3/2021`) aren't turned into US month-first ones.
+
+**Product type** (`categoryId` → `ProductCategory`): entries made in the app must pick a **leaf**
+of the tenant's type tree (API checks it). The sheet only names top-level types, so import
+matches its Product text against top-level types (exact / plural / lookalike), then a same-named
+sub-type ("LED TV" → TV › LED TV), and offers the rest as new top-level types that are created
+only when the importer confirms (`categories.create` needed). Each decision is kept in
+`CustomerSearchProductMapping` and reused by later ranges; unmatched text stays in `product`
+with no type (filter "No product type"). The type filter matches a type and every type below it
+(`path` prefix). **Export** has a `Product Type` column (full path, `›`-separated) plus
+`Type Level 1…N`, N = deepest type in that export; shallower types leave the extra levels blank,
+so a deeper tree just adds columns; then Shop, Customer Code and Needs review. Re-importing an
+export reads `Type Level 1` (or the path when blank) as Product.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | / | Search (account number, name, mobile, co-applicant, area, product type) + filters incl. `categoryId` (subtree, or `none`) and `issue` (`any` or a code); tenant-wide |
+| GET | /review-summary | Entries needing review, in all and per problem |
+| GET | /prefixes, /next-number?prefix= | Series in use and the next free number (BD-264 → BD-265, MJ009 → MJ010) |
+| GET | /customer-matches?mobile=&name= | Customers already on a mobile, for the form's autofill / "did you mean" |
+| GET | /by-customer/:customerId | Items a customer bought and entries they are co-applicant on |
+| POST, PATCH | /, /:id | Create / edit an entry (shop selectable; a reused account number needs `allowDuplicate`) |
+| DELETE | /:id | Delete an entry (`customer_search.delete`, owner/admin by default); its customer and co-applicant stay |
+| POST | /import/preview, /import | Sheet import, a range of records at a time: preview classifies rows (new / already imported / moves shop / can't import) with their review problems, groups name variants on one mobile (edit distance, AI for borderline pairs — names only) and matches Product text to types; commit applies the choices, creates/links customers, moves changed-shop rows |
+| GET | /import/batches, /export | Past import ranges; Excel export |
+
+**Cutover from the Google Sheet** (one time):
+1. Add a `Shop` column (shop name or code per row), then download as .xlsx or .csv. The `ID`
+   heading is read as Account Number.
+2. Customer Searching → Import: pick records 1–1000 (and the shop for rows with a blank Shop),
+   check, confirm the product types (and which new ones to create), decide the name groups,
+   import. Repeat with the suggested next range; a range can be re-run safely. Work through the
+   **Needs review** tab afterwards.
+3. When every range is in, set the sheet to view-only and have staff use **New entry** instead.
+4. After deploying, run `npx tsx prisma/seed/sync-permission-catalog.ts` and
+   `npx tsx prisma/seed/backfill-customer-search-issues.ts` (in `apps/api`).
 
 ### Sales (`/api/v1/sales`)
 | Method | Path | Description | Notes |
@@ -500,7 +572,7 @@ are a summary; the `*.routes.ts` files are authoritative.
 | Prefix | Purpose |
 |--------|---------|
 | `/roles` | Custom roles, role permissions, per-user grants/denies (writes need `rbac.custom_roles` feature) |
-| `/bank-statements` | Statement analysis ported from LedgerLens: parse PDF/Excel/CSV/image statements (pdf.js / SheetJS first, AI only when the running balances don't reconcile; the balance decides money in vs out), auto-categorise (user rules → built-in rules → AI), suggest the supplier a withdrawal paid (name in narration → trigrams → AI for borderline names) and record it as a supplier payment in one click (`POST /transactions/:id/supplier-payment`, settles that shop's oldest bills, linked via `purchase_payments.statement_transaction_id`), review queue, analytics, Excel/CSV export, bank API feeds. With the header on "All Shops", uploads find their shop from the statement's account number. Engine in `engine/` uses raw SQL (tenant-filtered by hand) |
+| `/bank-statements` | Statement analysis ported from LedgerLens: parse PDF/Excel/CSV/image statements (pdf.js / SheetJS first, AI only when the running balances don't reconcile; the balance decides money in vs out), auto-categorise (user rules → built-in rules → AI), suggest the supplier a withdrawal paid (name in narration → trigrams → AI for borderline names) and record it as a supplier payment in one click (`POST /transactions/:id/supplier-payment`, settles that shop's oldest bills, linked via `purchase_payments.statement_transaction_id`; money beyond the open bills is kept, after confirmation, as a `SupplierAdvance` that the shop's next bills from that supplier use up automatically — see `modules/distributors/supplier-advances.ts`). Deleting bank rows (`POST /transactions/delete`, preview via `/transactions/delete-impact`) or a whole statement takes back the supplier payments/advances recorded from them (bills reopen; needs `purchases.record_payment` too), review queue, analytics, Excel/CSV export, bank API feeds. With the header on "All Shops", uploads find their shop from the statement's account number. Engine in `engine/` uses raw SQL (tenant-filtered by hand) |
 | `/ocr` | Distributor-invoice → purchase-form pre-fill; handwritten register page → parsed preview (OpenAI) |
 | `/lookup` | Lightweight lookups used by forms (always on) |
 | `/platform` | Platform-admin console: tenants, plans, feature overrides, onboarding (separate login, no tenant context) |
@@ -735,7 +807,7 @@ npm run db:reset   # prisma migrate reset --force (drops DB, re-applies migratio
 ### Key Components
 | Component | Purpose |
 |-----------|---------|
-| DataTable | Reusable paginated table with sorting |
+| DataTable | Reusable paginated table with sorting, column picker and drag-to-resize; columns always fit the table's width (saved widths act as proportions) |
 | DynamicForm | Renders form from DB form_definitions |
 | CategoryCascader | Hierarchical category picker |
 | RecordPaymentDialog | Installment payment: single amount, where-it-goes breakdown, spread vs keep shortfall, penalty/deduction checkboxes, optional promise |
@@ -745,7 +817,7 @@ npm run db:reset   # prisma migrate reset --force (drops DB, re-applies migratio
 | StatusBadge | 30+ status variants with dark mode support |
 | PaymentSplitSection | Multi-mode payment (up to 3 splits) |
 
-### Pages (15 sections)
+### Pages (16 sections)
 | Section | Pages | Key Features |
 |---------|-------|--------------|
 | auth | LoginPage | Tenant from host -> credentials, mobile-only user blocking |
@@ -753,7 +825,8 @@ npm run db:reset   # prisma migrate reset --force (drops DB, re-applies migratio
 | products | List, Add, Detail | Category cascader, dynamic attributes, audit timeline |
 | distributors | List, Form, Detail | Tabs (products/payments/pending), lumpsum FIFO payment |
 | purchases | List, Create, Detail, Import | 5-step wizard, GST slabs, multi-serial, duplicate validation, invoice OCR, Tally/sheet import, unbilled purchases |
-| customers | List, Form, Detail | Phone search, auto customer code |
+| customers | List, Form, Detail | Phone search, auto customer code, "Items bought" from the account register |
+| customer-search | Search, Form, Detail, Import | "Customer Searching" (Revenue menu): search-first account register, series prefix → next number, mobile autofill, product type from the category tree (leaf), ranged sheet import with name-variant and product-type resolution |
 | sales | List, Create, Detail, RegisterScan | 4 sale types, GST-inclusive, multi-mode payment, invoice PDF, profit breakdown, register-page OCR |
 | installments | List (incl. Today's Calls tab), Detail | Daily call list, search by ledger#, date range collections, overdue tracking, payments, promises |
 | transfers | List, Create, Detail | Product movement between shops |
@@ -768,7 +841,7 @@ npm run db:reset   # prisma migrate reset --force (drops DB, re-applies migratio
 
 ## 11. Database Migrations
 
-29 migrations in `apps/api/prisma/migrations/` (first: `init`, 2026-04-16). Latest:
+30 migrations in `apps/api/prisma/migrations/` (first: `init`, 2026-04-16). Latest:
 
 | Name | Description |
 |------|-------------|
@@ -779,6 +852,7 @@ npm run db:reset   # prisma migrate reset --force (drops DB, re-applies migratio
 | 20261017162614_add_purchase_import_tracking | Purchase import batches / classification |
 | 20261018200653_purchases_without_a_bill | Unbilled purchases |
 | 20261101204405_bank_rows_pay_suppliers | Supplier on bank rows; supplier payments linked to the bank row |
+| 20261105152137_supplier_advances | `supplier_advances`: money paid to a supplier before (or beyond) its bills, per shop; used up automatically by that shop's next bills |
 
 ### Running Migrations
 ```bash

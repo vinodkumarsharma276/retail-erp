@@ -13,6 +13,7 @@ import {
 import type { ParsedCreditor, CandidateDistributor } from '@retailerp/shared-utils';
 import { sendSuccess, sendError, sendPaginated } from '../../utils/response.js';
 import { parsePagination } from '../../utils/pagination.js';
+import { prisma } from '../../config/database.js';
 
 export const distributorsController = {
   async list(
@@ -217,10 +218,13 @@ export const distributorsController = {
   ) {
     try {
       const userId = request.currentUser!.userId;
+      // A single shop in the header holds any excess as an advance; "All Shops" can't say which.
+      const sf = request.shopFilter;
       const result = await distributorsService.recordLumpsumPayment(
         request.params.id,
         request.body,
         userId,
+        { advanceShopId: sf && !sf.allShops ? sf.shopId : undefined },
       );
       return sendSuccess(reply, result);
     } catch (error) {
@@ -233,6 +237,29 @@ export const distributorsController = {
       }
       return sendError(reply, message, 500);
     }
+  },
+
+  /**
+   * The shops a clear-payments request covers: every shop the user can access, whatever the header
+   * shows — the suppliers' totals on screen are across all shops, and clearing has to bring them to 0.
+   */
+  async clearScope(request: FastifyRequest): Promise<string[]> {
+    const { userId } = request.currentUser!;
+    const shops = await prisma.userShop.findMany({
+      where: { userId, shop: { isActive: true } },
+      select: { shopId: true },
+    });
+    return shops.map((s) => s.shopId);
+  },
+
+  async clearPaymentsImpactMany(request: FastifyRequest<{ Body: { ids: string[] } }>, reply: FastifyReply) {
+    const shops = await distributorsController.clearScope(request);
+    return sendSuccess(reply, await distributorsService.clearPaymentsImpactMany(request.body.ids, shops));
+  },
+
+  async clearPaymentsMany(request: FastifyRequest<{ Body: { ids: string[] } }>, reply: FastifyReply) {
+    const shops = await distributorsController.clearScope(request);
+    return sendSuccess(reply, await distributorsService.clearPaymentsMany(request.body.ids, shops, request.currentUser!.userId));
   },
 
   async getPayments(

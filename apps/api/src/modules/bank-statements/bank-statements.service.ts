@@ -17,6 +17,8 @@ import type { accountSchema, listSchema, ruleSchema, statementPatchSchema, suppl
 import { getTenantFeatureSnapshot } from '../../middleware/feature-gate.js';
 import { FeatureKey } from '@retailerp/shared-types';
 import { distributorsService } from '../distributors/distributors.service.js';
+import { undoSupplierPayments } from '../distributors/supplier-advances.js';
+import { prisma } from '../../config/database.js';
 
 export class HttpError extends Error {
   constructor(
@@ -25,6 +27,13 @@ export class HttpError extends Error {
     public details?: Record<string, unknown>,
   ) {
     super(message);
+  }
+}
+
+/** The statement's account is registered to another shop. `account` stays on the server. */
+class OtherShopError extends HttpError {
+  constructor(message: string, details: Record<string, unknown>, public account: AccountRow) {
+    super(422, message, details);
   }
 }
 
@@ -73,12 +82,19 @@ const TX_COLUMNS = `t.id, t.statement_id, t.shop_id, sh.name AS shop_name, t.ban
   t.balance, t.reference, t.counterparty, t.channel, t.category, t.category_source, t.confidence, t.ai_note, t.flagged,
   t.flag_reasons, t.review_status, t.reviewer_note, t.reviewed_at, t.reviewed_by, s.file_name,
   t.distributor_id, t.distributor_source, d.company_name AS distributor_name,
-  sp.amount AS supplier_paid_amount, sp.recorded_at AS supplier_paid_at`;
-// sp: supplier payments already recorded from this bank row (one row per invoice settled).
+  sp.amount AS supplier_paid_amount, sp.recorded_at AS supplier_paid_at, sp.advance AS supplier_advance_amount`;
+// sp: what was recorded from this bank row — payments on bills, plus anything kept as an advance
+// (an advance later used on a bill isn't counted twice).
 const TX_FROM = `FROM statement_transactions t JOIN shops sh ON sh.id = t.shop_id JOIN bank_statements s ON s.id = t.statement_id
   LEFT JOIN distributors d ON d.id = t.distributor_id
-  LEFT JOIN LATERAL (SELECT sum(pp.amount) AS amount, min(pp.created_at) AS recorded_at
-                       FROM purchase_payments pp WHERE pp.statement_transaction_id = t.id) sp ON true`;
+  LEFT JOIN LATERAL (
+    SELECT NULLIF(COALESCE(p.amount, 0) + COALESCE(a.amount, 0), 0) AS amount, LEAST(p.recorded_at, a.recorded_at) AS recorded_at,
+           a.amount AS advance
+      FROM (SELECT sum(pp.amount) AS amount, min(pp.created_at) AS recorded_at FROM purchase_payments pp
+             WHERE pp.statement_transaction_id = t.id AND pp.supplier_advance_id IS NULL) p,
+           (SELECT sum(sa.amount) AS amount, min(sa.created_at) AS recorded_at FROM supplier_advances sa
+             WHERE sa.statement_transaction_id = t.id) a
+  ) sp ON true`;
 
 const SORTS: Record<string, string> = {
   date: 't.date',
@@ -203,6 +219,10 @@ interface AccountContext {
   last4: string | null;
   detectedBank: string | null;
   detectedIfsc: string | null;
+  /** The person saw the "looks like another shop's statement" warning and chose to import here anyway. */
+  allowOtherShop?: boolean;
+  /** Shops the person can switch the upload to (beyond the current header scope). */
+  switchableShopIds?: string[];
 }
 
 /**
@@ -212,7 +232,7 @@ interface AccountContext {
  *   account_number_missing — no number in the statement; the user must pick the account
  *   choose_account         — several of the shop's accounts end in the same digits
  *   account_not_registered — the number isn't registered anywhere; add it
- *   account_other_shop     — the number belongs to another shop
+ *   account_other_shop     — the number belongs to another shop (a warning: `allowOtherShop` imports here anyway)
  *   account_mismatch       — the hand-picked account doesn't match the printed number
  */
 async function resolveAccount(scope: Scope, c: AccountContext): Promise<AccountRow> {
@@ -267,14 +287,16 @@ async function resolveAccount(scope: Scope, c: AccountContext): Promise<AccountR
 
   const elsewhere = await matchAccount(scope.tenantId, null, c);
   if (elsewhere) {
-    throw new HttpError(
-      422,
-      `This statement is for ${elsewhere.bank_name} ••${c.last4}, which is registered to ${elsewhere.shop_name}, not ${c.shopName}.`,
+    // A warning, not a dead end: the person may import here anyway (statements can also be moved later).
+    if (c.allowOtherShop) return elsewhere;
+    throw new OtherShopError(
+      `This looks like a ${elsewhere.shop_name} statement: ${elsewhere.bank_name} ••${c.last4} is registered to ${elsewhere.shop_name}, and you're uploading it to ${c.shopName}.`,
       details('account_other_shop', {
         otherShopId: elsewhere.shop_id,
         otherShopName: elsewhere.shop_name,
-        canSwitch: scope.shopIds.includes(elsewhere.shop_id),
+        canSwitch: scope.shopIds.includes(elsewhere.shop_id) || !!c.switchableShopIds?.includes(elsewhere.shop_id),
       }),
+      elsewhere,
     );
   }
   throw new HttpError(
@@ -284,24 +306,45 @@ async function resolveAccount(scope: Scope, c: AccountContext): Promise<AccountR
   );
 }
 
+/** An earlier import that already holds some of a statement's transactions. */
+export interface OverlapStatement {
+  id: string;
+  file_name: string;
+  shop_name: string;
+  period_start: string | null;
+  period_end: string | null;
+  tx_count: number;
+  uploaded_at: string;
+  uploaded_by: string | null;
+  /** Byte-for-byte the same file, whatever it's called now. */
+  same_file: boolean;
+}
+
+/** How many repeated rows the upload screen lists before import. */
+const OVERLAP_SAMPLE = 200;
+
 /**
- * Transactions in `rows` that were already imported for the same account
- * (same day, amount and running balance). Each existing row matches at most once.
+ * Transactions in `rows` that were already imported for the same account in any shop — or
+ * from the very same file under any name — matched by day, amount and running balance (or
+ * narration when there's no balance). Each existing row matches at most once, so a statement
+ * with two genuinely identical payments still counts both.
  */
-export async function findOverlap(tenantId: string, account: AccountRow, rows: RawTransaction[]) {
+export async function findOverlap(tenantId: string, account: AccountRow, rows: RawTransaction[], fileHash?: string) {
   const dupIndexes = new Set<number>();
-  if (!rows.length) return { dupIndexes, from: null, to: null, statements: [] };
+  const none = { dupIndexes, from: null as string | null, to: null as string | null, statements: [] as OverlapStatement[], samples: [] as OverlapSample[] };
+  if (!rows.length) return none;
   const dates = rows.map((r) => r.date).sort();
   const { rows: existing } = await query<{ date: string; amount: number; balance: number | null; description: string; statement_id: string }>(
     `SELECT t.date, t.amount, t.balance, t.description, t.statement_id
        FROM statement_transactions t JOIN bank_statements s ON s.id = t.statement_id
       WHERE t.tenant_id = $1 AND t.date BETWEEN $2::date AND $3::date
         AND (s.bank_account_id = $4
+             OR s.file_hash = $7
              OR (s.bank_account_id IS NULL AND s.shop_id = $5
                  AND right(regexp_replace(COALESCE(s.account_hint, ''), '[^0-9]', '', 'g'), 4) = $6))`,
-    [tenantId, dates[0], dates[dates.length - 1], account.id, account.shop_id, account.account_number.slice(-4)],
+    [tenantId, dates[0], dates[dates.length - 1], account.id, account.shop_id, account.account_number.slice(-4), fileHash ?? null],
   );
-  if (!existing.length) return { dupIndexes, from: null, to: null, statements: [] };
+  if (!existing.length) return none;
 
   const pool = new Map<string, string[]>();
   for (const e of existing) {
@@ -310,32 +353,71 @@ export async function findOverlap(tenantId: string, account: AccountRow, rows: R
     if (list) list.push(e.statement_id);
     else pool.set(k, [e.statement_id]);
   }
-  const hit = new Set<string>();
-  const dupDates: string[] = [];
+  const matchedIn = new Map<number, string>();
   rows.forEach((r, i) => {
     const list = pool.get(txKey(r));
     if (list?.length) {
-      hit.add(list.pop()!);
+      matchedIn.set(i, list.pop()!);
       dupIndexes.add(i);
-      dupDates.push(r.date);
     }
   });
-  if (!dupIndexes.size) return { dupIndexes, from: null, to: null, statements: [] };
-  dupDates.sort();
-  const { rows: statements } = await query(
-    `SELECT s.file_name, s.period_start, s.period_end, s.tx_count, s.uploaded_at, u.full_name AS uploaded_by
-       FROM bank_statements s LEFT JOIN users u ON u.id = s.uploaded_by_id
-      WHERE s.id = ANY($1::text[]) ORDER BY s.uploaded_at`,
-    [[...hit]],
+  if (!dupIndexes.size) return none;
+  const dupDates = [...dupIndexes].map((i) => rows[i].date).sort();
+  const { rows: statements } = await query<OverlapStatement>(
+    `SELECT s.id, s.file_name, sh.name AS shop_name, s.period_start, s.period_end, s.tx_count, s.uploaded_at,
+            u.full_name AS uploaded_by, (s.file_hash = $3) AS same_file
+       FROM bank_statements s JOIN shops sh ON sh.id = s.shop_id LEFT JOIN users u ON u.id = s.uploaded_by_id
+      WHERE s.id = ANY($1::text[]) AND s.tenant_id = $2 ORDER BY s.uploaded_at`,
+    [[...new Set(matchedIn.values())], tenantId, fileHash ?? null],
   );
-  return { dupIndexes, from: dupDates[0], to: dupDates[dupDates.length - 1], statements };
+  const byId = new Map(statements.map((s) => [s.id, s]));
+  const samples = [...matchedIn.entries()].slice(0, OVERLAP_SAMPLE).map(([i, statementId]) => ({
+    date: rows[i].date,
+    description: rows[i].description.slice(0, 160),
+    amount: rows[i].amount,
+    balance: rows[i].balance,
+    file_name: byId.get(statementId)?.file_name ?? '',
+    shop_name: byId.get(statementId)?.shop_name ?? '',
+  }));
+  return { dupIndexes, from: dupDates[0], to: dupDates[dupDates.length - 1], statements, samples };
 }
 
-function overlapMessage(account: AccountRow, total: number, dups: number) {
+/** One repeated transaction, as listed on the upload screen before import. */
+export interface OverlapSample {
+  date: string;
+  description: string;
+  amount: number;
+  balance: number | null;
+  /** Where it was imported before. */
+  file_name: string;
+  shop_name: string;
+}
+
+type Overlap = Awaited<ReturnType<typeof findOverlap>>;
+
+function overlapMessage(account: AccountRow, total: number, dups: number, overlap: Overlap) {
   const acct = `${account.bank_name} ••${account.account_number.slice(-4)}`;
+  const same = overlap.statements.find((s) => s.same_file);
+  if (same && dups === total) {
+    return `This is the same file as "${same.file_name}", already imported for ${same.shop_name}. All ${total} transactions are already in the books, so there is nothing new to import.`;
+  }
   return dups === total
     ? `All ${total} transactions in this statement are already imported for ${acct}. There is nothing new in this file.`
     : `${dups} of ${total} transactions in this statement are already imported for ${acct}. Choose whether to import only the ${total - dups} new ones.`;
+}
+
+/** The 409 body that lets the upload screen show which transactions repeat, before anything is imported. */
+function overlapDetails(account: AccountRow, total: number, overlap: Overlap) {
+  return {
+    total,
+    duplicates: overlap.dupIndexes.size,
+    fresh: total - overlap.dupIndexes.size,
+    from: overlap.from,
+    to: overlap.to,
+    account: { bank: account.bank_name, last4: account.account_number.slice(-4) },
+    statements: overlap.statements.map(({ id: _id, ...s }) => s),
+    samples: overlap.samples,
+  };
 }
 
 export async function listAccounts(scope: Scope) {
@@ -411,6 +493,10 @@ export interface UploadInput {
   bankAccountId?: string;
   /** What to do when some transactions are already imported: skip them or import everything. */
   duplicates?: 'skip' | 'keep';
+  /** Import into `shopId` even though the statement's account is registered to another shop. */
+  allowOtherShop?: boolean;
+  /** Shops the uploader may switch to, so the "belongs to another shop" warning can offer the switch. */
+  switchableShopIds?: string[];
 }
 
 /** "ACC_STATEMENT_XXXXX3909_…" → "3909": many banks put the masked number in the file name. */
@@ -551,16 +637,10 @@ export async function uploadStatement(scope: Scope, input: UploadInput) {
   const { buffer, fileName } = input;
   if (input.shopId) assertShop(scope, input.shopId);
 
-  // The same file can't be imported twice, whichever shop it was filed under.
+  // An identical file (renamed or not) is caught per transaction below, once we know whose
+  // statement it is — so the person hears "this is Vinod Home Appliances' statement, already
+  // imported there", not a bare "already uploaded".
   const hash = createHash('sha256').update(buffer).digest('hex');
-  const dup = await query<{ file_name: string; shop_name: string }>(
-    `SELECT s.file_name, sh.name AS shop_name FROM bank_statements s JOIN shops sh ON sh.id = s.shop_id
-      WHERE s.tenant_id = $1 AND s.file_hash = $2`,
-    [tenantId, hash],
-  );
-  if (dup.rowCount) {
-    throw new HttpError(409, `This file was already uploaded for ${dup.rows[0].shop_name} as "${dup.rows[0].file_name}".`);
-  }
 
   let parsed;
   try {
@@ -585,24 +665,41 @@ export async function uploadStatement(scope: Scope, input: UploadInput) {
   if (!shop.rowCount) throw new HttpError(400, 'Unknown shop.');
   const shopName = shop.rows[0].name;
 
-  // ---- Every statement must belong to a registered account of the chosen shop.
-  const account = await resolveAccount(scope, { shopId, shopName, bankAccountId: input.bankAccountId, ...detected });
+  // ---- Every statement must belong to a registered account of the chosen shop — or the person
+  // was warned it looks like another shop's and chose to import it here anyway.
+  let account: AccountRow;
+  try {
+    account = await resolveAccount(scope, {
+      shopId, shopName, bankAccountId: input.bankAccountId, allowOtherShop: input.allowOtherShop, switchableShopIds: input.switchableShopIds, ...detected,
+    });
+  } catch (err) {
+    if (err instanceof OtherShopError) {
+      // Say up front whether that shop already has these transactions.
+      const there = await findOverlap(tenantId, err.account, parsed.transactions, hash);
+      if (there.dupIndexes.size) {
+        err.details = { ...err.details, alreadyImported: overlapDetails(err.account, parsed.transactions.length, there) };
+        err.message += there.dupIndexes.size === parsed.transactions.length
+          ? ` All ${parsed.transactions.length} of its transactions are already imported there.`
+          : ` ${there.dupIndexes.size} of its ${parsed.transactions.length} transactions are already imported there.`;
+      }
+    }
+    throw err;
+  }
+  if (account.shop_id !== shopId) {
+    warnings.push(`${account.bank_name} ••${account.account_number.slice(-4)} is registered to ${account.shop_name}; imported into ${shopName} on purpose.`);
+  }
 
   // ---- Overlap: stop and ask when some (or all) transactions were imported before.
-  const overlap = await findOverlap(tenantId, account, parsed.transactions);
+  const overlap = await findOverlap(tenantId, account, parsed.transactions, hash);
   let rawRows = parsed.transactions;
   if (overlap.dupIndexes.size) {
     const fresh = rawRows.length - overlap.dupIndexes.size;
-    if (!input.duplicates || (input.duplicates === 'skip' && fresh === 0)) {
-      throw new HttpError(409, overlapMessage(account, rawRows.length, overlap.dupIndexes.size), {
+    // The same file can't be stored twice in one shop; nothing of it would be new anyway.
+    const sameFileHere = await query('SELECT 1 FROM bank_statements WHERE tenant_id = $1 AND shop_id = $2 AND file_hash = $3', [tenantId, shopId, hash]);
+    if (!input.duplicates || (input.duplicates === 'skip' && fresh === 0) || (input.duplicates === 'keep' && sameFileHere.rowCount)) {
+      throw new HttpError(409, overlapMessage(account, rawRows.length, overlap.dupIndexes.size, overlap), {
         code: 'overlap',
-        total: rawRows.length,
-        duplicates: overlap.dupIndexes.size,
-        fresh,
-        from: overlap.from,
-        to: overlap.to,
-        account: { bank: account.bank_name, last4: account.account_number.slice(-4) },
-        statements: overlap.statements,
+        ...overlapDetails(account, rawRows.length, overlap),
       });
     }
     if (input.duplicates === 'skip') {
@@ -695,7 +792,7 @@ export async function updateStatement(scope: Scope, id: string, body: z.infer<ty
       await query('UPDATE statement_transactions SET shop_id = $2 WHERE statement_id = $1', [id, body.shopId], db);
     }
   });
-  if (body.shopId && body.shopId !== before) await reflag(scope.tenantId, [before, body.shopId]);
+  if (body.shopId && body.shopId !== before) await reflag(scope.tenantId, [before, body.shopId, ...(await relatedShops(scope.tenantId, id))]);
   return getStatement(scope, id);
 }
 
@@ -711,10 +808,128 @@ export async function getStatementFile(scope: Scope, id: string) {
   return { body: Buffer.from(rows[0].content), contentType: rows[0].mime_type, fileName: rows[0].file_name };
 }
 
-export async function deleteStatement(scope: Scope, id: string) {
+/** Other shops holding statements of the same account or file — their "duplicate" flags point at this one. */
+async function relatedShops(tenantId: string, statementId: string) {
+  const { rows } = await query<{ shop_id: string }>(
+    `SELECT DISTINCT o.shop_id FROM bank_statements s JOIN bank_statements o
+         ON o.tenant_id = s.tenant_id AND o.id <> s.id AND (o.bank_account_id = s.bank_account_id OR o.file_hash = s.file_hash)
+      WHERE s.id = $1 AND s.tenant_id = $2`,
+    [statementId, tenantId],
+  );
+  return rows.map((r) => r.shop_id);
+}
+
+export async function deleteStatement(scope: Scope, id: string, opts: { canUndoPayments: boolean }) {
   const shopId = await statementShop(scope, id);
-  await query('DELETE FROM bank_statements WHERE id = $1', [id]);
-  await recomputeFlags(scope.tenantId, shopId);
+  const related = await relatedShops(scope.tenantId, id);
+  const { rows } = await query<{ id: string }>('SELECT id FROM statement_transactions WHERE statement_id = $1 AND tenant_id = $2', [
+    id,
+    scope.tenantId,
+  ]);
+  const ids = rows.map((r) => r.id);
+  await guardPaymentUndo(scope, ids, opts);
+  const undone = await prisma.$transaction(async (db) => {
+    const result = await undoSupplierPayments(db, bankRowPayments(ids));
+    await query('DELETE FROM bank_statements WHERE id = $1 AND tenant_id = $2', [id, scope.tenantId], db);
+    return result;
+  });
+  await reflag(scope.tenantId, [shopId, ...related]);
+  return { supplierPayments: undone };
+}
+
+// ---------------------------------------------------------------- deleting transactions
+
+/** The supplier payments and advances recorded from these bank rows. */
+function bankRowPayments(ids: string[]) {
+  return { payments: { statementTransactionId: { in: ids } }, advances: { statementTransactionId: { in: ids } } };
+}
+
+/** Per supplier: what was recorded from these bank rows (payments on bills + advances). */
+async function linkedSupplierPayments(tenantId: string, ids: string[]) {
+  if (!ids.length) return [];
+  const { rows } = await query<{ distributor_id: string; supplier: string; shop_name: string; amount: number; advance: number; bills: number }>(
+    `SELECT x.distributor_id, d.company_name AS supplier, sh.name AS shop_name, sum(x.amount) AS amount,
+            sum(x.advance) AS advance, count(DISTINCT x.purchase_id) AS bills
+       FROM (SELECT pp.amount, 0 AS advance, p.distributor_id, p.shop_id, pp.purchase_id
+               FROM purchase_payments pp JOIN purchases p ON p.id = pp.purchase_id
+              WHERE pp.tenant_id = $1 AND pp.statement_transaction_id = ANY($2::text[]) AND pp.supplier_advance_id IS NULL
+             UNION ALL
+             SELECT sa.amount, sa.remaining, sa.distributor_id, sa.shop_id, NULL
+               FROM supplier_advances sa WHERE sa.tenant_id = $1 AND sa.statement_transaction_id = ANY($2::text[])) x
+       JOIN distributors d ON d.id = x.distributor_id JOIN shops sh ON sh.id = x.shop_id
+      GROUP BY x.distributor_id, d.company_name, sh.name ORDER BY d.company_name`,
+    [tenantId, ids],
+  );
+  return rows;
+}
+
+/** Undoing supplier payments writes to the suppliers' books, which needs the payment permission. */
+async function guardPaymentUndo(scope: Scope, ids: string[], opts: { canUndoPayments: boolean }) {
+  if (opts.canUndoPayments || !ids.length) return;
+  if ((await linkedSupplierPayments(scope.tenantId, ids)).length) {
+    throw new HttpError(403, 'Some of these bank entries were recorded as supplier payments, and you are not allowed to remove supplier payments.');
+  }
+}
+
+/** Bank rows within scope, by id. */
+async function scopedRows(scope: Scope, ids: string[]) {
+  const { rows } = await query<{ id: string; statement_id: string; shop_id: string }>(
+    'SELECT id, statement_id, shop_id FROM statement_transactions WHERE id = ANY($1::text[]) AND tenant_id = $2 AND shop_id = ANY($3::text[])',
+    [ids, scope.tenantId, scope.shopIds],
+  );
+  return rows;
+}
+
+/** What deleting these bank rows (or a whole statement) would also take back from suppliers. */
+export async function deleteImpact(scope: Scope, target: { ids?: string[]; statementId?: string }) {
+  let ids: string[];
+  if (target.statementId) {
+    await statementShop(scope, target.statementId);
+    const { rows } = await query<{ id: string }>('SELECT id FROM statement_transactions WHERE statement_id = $1 AND tenant_id = $2', [
+      target.statementId,
+      scope.tenantId,
+    ]);
+    ids = rows.map((r) => r.id);
+  } else {
+    ids = (await scopedRows(scope, target.ids ?? [])).map((r) => r.id);
+  }
+  return { transactions: ids.length, supplierPayments: await linkedSupplierPayments(scope.tenantId, ids) };
+}
+
+/**
+ * Delete bank rows — a line the parser got wrong, a page read twice. The statement's count and
+ * period follow, a statement left with no rows goes too, and any supplier payment recorded from
+ * a deleted row is taken back off the supplier's books (the bills it paid are unpaid again).
+ */
+export async function deleteTransactions(scope: Scope, ids: string[], opts: { canUndoPayments: boolean }) {
+  const rows = await scopedRows(scope, ids);
+  if (!rows.length) throw new HttpError(404, 'Transaction not found.');
+  const found = rows.map((r) => r.id);
+  await guardPaymentUndo(scope, found, opts);
+  const statementIds = [...new Set(rows.map((r) => r.statement_id))];
+  const related = (await Promise.all(statementIds.map((id) => relatedShops(scope.tenantId, id)))).flat();
+
+  const result = await prisma.$transaction(async (db) => {
+    const undone = await undoSupplierPayments(db, bankRowPayments(found));
+    await query('DELETE FROM statement_transactions WHERE id = ANY($1::text[]) AND tenant_id = $2', [found, scope.tenantId], db);
+    await query(
+      `UPDATE bank_statements s SET tx_count = c.n, period_start = c.first, period_end = c.last
+         FROM (SELECT s2.id, count(t.id)::int AS n, min(t.date) AS first, max(t.date) AS last
+                 FROM bank_statements s2 LEFT JOIN statement_transactions t ON t.statement_id = s2.id
+                WHERE s2.id = ANY($1::text[]) GROUP BY s2.id) c
+        WHERE s.id = c.id AND s.tenant_id = $2`,
+      [statementIds, scope.tenantId],
+      db,
+    );
+    const emptied = await query<{ id: string }>(
+      'DELETE FROM bank_statements WHERE id = ANY($1::text[]) AND tenant_id = $2 AND tx_count = 0 RETURNING id',
+      [statementIds, scope.tenantId],
+      db,
+    );
+    return { undone, statementsRemoved: emptied.rowCount };
+  });
+  await reflag(scope.tenantId, [...rows.map((r) => r.shop_id), ...related]);
+  return { deleted: found.length, statementsRemoved: result.statementsRemoved, supplierPayments: result.undone };
 }
 
 /** Re-run rules + AI for everything in a statement that a person hasn't categorized by hand. */
@@ -741,7 +956,7 @@ export async function recategorizeStatement(scope: Scope, id: string) {
   if (updates.length) {
     await query(
       `UPDATE statement_transactions t SET category = u.category, category_source = u.source, confidence = u.confidence,
-              ai_note = u.note, counterparty = COALESCE(u.counterparty, t.counterparty), channel = u.channel
+              ai_note = u.note, counterparty = u.counterparty, channel = u.channel
          FROM jsonb_to_recordset($1::jsonb) AS u(id text, category text, source text, confidence real, note text,
               counterparty text, channel text)
         WHERE t.id = u.id`,
@@ -859,6 +1074,10 @@ function paymentModeFor(channel: string) {
  * Record a withdrawal as a payment to a supplier: the amount settles that shop's oldest unpaid
  * bills first (the same rule as paying from the supplier page), and every payment row it creates
  * points back at the bank row, so the same withdrawal can't be recorded twice.
+ *
+ * Paid before the bill arrived (or more than the open bills): with `asAdvance` the rest is kept as
+ * an advance for that shop, which its next bills from the supplier use up automatically. Without
+ * it the person is asked first (422 `advance_needed`), since it may be the wrong supplier.
  */
 export async function recordSupplierPayment(
   scope: Scope,
@@ -879,17 +1098,47 @@ export async function recordSupplierPayment(
   const distributorId = body.distributorId ?? tx.distributor_id;
   if (!distributorId) throw new HttpError(400, 'Choose the supplier this money was paid to.');
 
-  const recorded = await query('SELECT 1 FROM purchase_payments WHERE statement_transaction_id = $1 AND tenant_id = $2 LIMIT 1', [id, scope.tenantId]);
+  const recorded = await query(
+    `SELECT 1 FROM purchase_payments WHERE statement_transaction_id = $1 AND tenant_id = $2
+     UNION ALL SELECT 1 FROM supplier_advances WHERE statement_transaction_id = $1 AND tenant_id = $2 LIMIT 1`,
+    [id, scope.tenantId],
+  );
   if (recorded.rowCount) throw new HttpError(409, 'A supplier payment is already recorded for this bank entry.');
   const reference = (body.referenceNumber ?? tx.reference ?? '').trim() || null;
   if (reference) {
     // The same payment typed in by hand (or recorded from an earlier copy of this statement).
     const same = await query(
       `SELECT 1 FROM purchase_payments pp JOIN purchases p ON p.id = pp.purchase_id
-        WHERE pp.tenant_id = $1 AND p.distributor_id = $2 AND pp.reference_number = $3 AND pp.payment_date = $4::date LIMIT 1`,
+        WHERE pp.tenant_id = $1 AND p.distributor_id = $2 AND pp.reference_number = $3 AND pp.payment_date = $4::date
+          AND pp.supplier_advance_id IS NULL
+       UNION ALL
+       SELECT 1 FROM supplier_advances sa
+        WHERE sa.tenant_id = $1 AND sa.distributor_id = $2 AND sa.reference_number = $3 AND sa.payment_date = $4::date LIMIT 1`,
       [scope.tenantId, distributorId, reference, tx.date],
     );
     if (same.rowCount) throw new HttpError(409, `A payment with reference ${reference} on this date is already recorded for this supplier.`);
+  }
+
+  const amount = Math.abs(tx.amount);
+  const { rows: dueRows } = await query<{ due: number; bills: number; name: string }>(
+    `SELECT COALESCE(sum(p.net_amount - p.amount_paid), 0) AS due, count(p.id) AS bills, d.company_name AS name
+       FROM distributors d LEFT JOIN purchases p
+         ON p.distributor_id = d.id AND p.tenant_id = d.tenant_id AND p.shop_id = $3 AND p.payment_status NOT IN ('paid', 'settled')
+      WHERE d.id = $1 AND d.tenant_id = $2 GROUP BY d.company_name`,
+    [distributorId, scope.tenantId, tx.shop_id],
+  );
+  if (!dueRows[0]) throw new HttpError(404, 'Supplier not found.');
+  const due = Math.round(dueRows[0].due * 100) / 100;
+  const extra = Math.round((amount - Math.max(0, due)) * 100) / 100;
+  const inr = (n: number) => `₹${n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  if (extra > 0 && !body.asAdvance) {
+    throw new HttpError(
+      422,
+      due > 0
+        ? `${dueRows[0].name}'s unpaid bills at ${tx.shop_name} come to ${inr(due)}. Record the other ${inr(extra)} as an advance for their next bills?`
+        : `${dueRows[0].name} has no unpaid bills at ${tx.shop_name}. Record this ${inr(amount)} as an advance payment, to be adjusted against their next bills?`,
+      { code: 'advance_needed', due: Math.max(0, due), bills: dueRows[0].bills, advance: extra, amount, supplier: dueRows[0].name, shopName: tx.shop_name },
+    );
   }
 
   let result;
@@ -897,19 +1146,16 @@ export async function recordSupplierPayment(
     result = await distributorsService.recordLumpsumPayment(
       distributorId,
       {
-        tenders: [{ amount: Math.abs(tx.amount), paymentMode: body.paymentMode ?? paymentModeFor(tx.channel), referenceNumber: reference, notes: body.notes ?? null }],
+        tenders: [{ amount, paymentMode: body.paymentMode ?? paymentModeFor(tx.channel), referenceNumber: reference, notes: body.notes ?? null }],
         paymentDate: tx.date,
         notes: body.notes ?? undefined,
       },
       userId,
-      { shopId: tx.shop_id, statementTransactionId: tx.id },
+      { shopId: tx.shop_id, statementTransactionId: tx.id, advanceShopId: body.asAdvance ? tx.shop_id : undefined },
     );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     if (message === 'Distributor not found') throw new HttpError(404, 'Supplier not found.');
-    if (message === 'No pending invoices found for this distributor') {
-      throw new HttpError(422, `This supplier has no unpaid bills at ${tx.shop_name}, so there is nothing for the payment to settle.`);
-    }
     throw err;
   }
 

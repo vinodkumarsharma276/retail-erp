@@ -9,6 +9,11 @@ interface EmptyStateProps {
     label: string;
     onClick: () => void;
   };
+  /** Shown beside `action`, styled as the lesser of the two. */
+  secondaryAction?: {
+    label: string;
+    onClick: () => void;
+  };
   className?: string;
 }
 
@@ -17,6 +22,7 @@ export function EmptyState({
   title,
   description,
   action,
+  secondaryAction,
   className,
 }: EmptyStateProps) {
   return (
@@ -35,13 +41,25 @@ export function EmptyState({
           {description}
         </p>
       )}
-      {action && (
-        <button
-          onClick={action.onClick}
-          className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
-        >
-          {action.label}
-        </button>
+      {(action || secondaryAction) && (
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          {action && (
+            <button
+              onClick={action.onClick}
+              className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
+            >
+              {action.label}
+            </button>
+          )}
+          {secondaryAction && (
+            <button
+              onClick={secondaryAction.onClick}
+              className="rounded-md bg-secondary px-4 py-2 text-sm font-medium text-secondary-foreground hover:bg-muted transition-colors"
+            >
+              {secondaryAction.label}
+            </button>
+          )}
+        </div>
       )}
     </div>
   );

@@ -1,4 +1,4 @@
-import { CheckCircle2, RotateCcw, ShieldAlert, Wand2 } from 'lucide-react';
+import { CheckCircle2, RotateCcw, ShieldAlert, Trash2, Wand2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { api, type Transaction } from '../lib/api';
@@ -7,6 +7,7 @@ import { useInvalidateData, useMeta, useUpdateTx } from '../lib/queries';
 import { useCanCheck } from '../../../hooks/usePermission';
 import { Amount, CategoryLabel, FlagChips, ReviewBadge, SourceBadge } from './domain';
 import { SupplierPaymentCard } from './SupplierPaymentCard';
+import { DeleteTransactionsDialog } from './DeleteTransactionsDialog';
 import { Button, Drawer, Field, Input, Select, useToast } from './ui';
 
 /** Suggest a reusable rule pattern from a narration: the counterparty, else the longest alphabetic chunk. */
@@ -43,6 +44,8 @@ export function CategorySelect({ value, onChange, disabled, placeholder }: { val
 
 export function TransactionDrawer({ tx, onClose }: { tx: Transaction | null; onClose: () => void }) {
   const canEdit = useCanCheck()('bank.reconcile');
+  const canDelete = useCanCheck()('bank.delete_statement');
+  const [deleting, setDeleting] = useState(false);
   const toast = useToast();
   const update = useUpdateTx();
   const invalidate = useInvalidateData();
@@ -202,7 +205,26 @@ export function TransactionDrawer({ tx, onClose }: { tx: Transaction | null; onC
             </Button>
           </div>
         </div>}
+
+        {canDelete && (
+          <div className="flex items-center justify-between gap-3 rounded-xl border border-destructive/30 p-4">
+            <p className="text-xs text-muted-foreground">
+              Read wrongly or twice? Delete this entry{t.supplier_paid_amount ? ' — its supplier payment is undone too' : ''}.
+            </p>
+            <Button variant="danger" icon={<Trash2 className="size-4" />} onClick={() => setDeleting(true)}>
+              Delete
+            </Button>
+          </div>
+        )}
       </div>
+      <DeleteTransactionsDialog
+        target={deleting ? { kind: 'rows', ids: [t.id] } : null}
+        onCancel={() => setDeleting(false)}
+        onDeleted={() => {
+          setDeleting(false);
+          onClose();
+        }}
+      />
     </Drawer>
   );
 }

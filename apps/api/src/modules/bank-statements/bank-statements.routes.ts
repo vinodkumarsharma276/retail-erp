@@ -33,6 +33,7 @@ export async function bankStatementRoutes(app: FastifyInstance) {
   app.patch('/statements/:id', can('bank.upload_statement'), c.updateStatement as any);
   app.post('/statements/:id/recategorize', can('bank.upload_statement'), c.recategorize as any);
   app.delete('/statements/:id', can('bank.delete_statement'), c.deleteStatement as any);
+  app.get('/statements/:id/delete-impact', can('bank.delete_statement'), c.statementDeleteImpact as any);
   // Original file (only exists if the tenant kept files when it was uploaded).
   app.get('/statements/:id/file', can('bank.view'), c.downloadFile as any);
 
@@ -57,6 +58,9 @@ export async function bankStatementRoutes(app: FastifyInstance) {
   app.get('/transactions/:id', can('bank.view'), c.getTransaction as any);
   app.patch('/transactions/:id', can('bank.reconcile'), c.updateTransaction as any);
   app.post('/transactions/bulk', can('bank.reconcile'), c.bulkUpdate as any);
+  // Deleting rows also takes back supplier payments recorded from them (checked in the service).
+  app.post('/transactions/delete-impact', can('bank.delete_statement'), c.transactionsDeleteImpact as any);
+  app.post('/transactions/delete', can('bank.delete_statement'), c.deleteTransactions as any);
   // Recording a withdrawal as a supplier payment writes to the supplier's books.
   app.post(
     '/transactions/:id/supplier-payment',

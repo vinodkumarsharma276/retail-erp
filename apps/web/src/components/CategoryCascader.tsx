@@ -24,6 +24,11 @@ interface CategoryCascaderProps {
    * bought of it, not that one needs creating.
    */
   allowCreate?: boolean;
+  /**
+   * Filter-bar layout: fixed-width levels with small labels, laid out inline
+   * with the caller's other filters (the caller's row must be a flex row).
+   */
+  compact?: boolean;
 }
 
 /**
@@ -36,6 +41,7 @@ export function CategoryCascader({
   required = false,
   allowNonLeaf = false,
   allowCreate = false,
+  compact = false,
 }: CategoryCascaderProps) {
   const { data: tree, isLoading } = useCategoryTreeQuery();
   const [adding, setAdding] = useState(false);
@@ -109,7 +115,10 @@ export function CategoryCascader({
       const options = getLevelOptions(level);
       const node = options.find((c) => c.id === categoryId);
 
-      if (node?.isLeaf || (allowNonLeaf && !node?.children?.length)) {
+      if (compact && allowNonLeaf && !categoryId) {
+        // "Any" at a lower level keeps the level above as the filter.
+        onCategorySelect(level > 0 ? selections[level - 1] : undefined);
+      } else if (node?.isLeaf || (allowNonLeaf && !node?.children?.length)) {
         onCategorySelect(categoryId);
       } else if (allowNonLeaf) {
         onCategorySelect(categoryId);
@@ -118,7 +127,7 @@ export function CategoryCascader({
         onCategorySelect(undefined);
       }
     },
-    [selections, getLevelOptions, allowNonLeaf, onCategorySelect],
+    [selections, getLevelOptions, allowNonLeaf, compact, onCategorySelect],
   );
 
   /** Show the new type as chosen, under whatever it was filed beneath. */
@@ -175,7 +184,8 @@ export function CategoryCascader({
   const levelLabels = ['Category', 'Subcategory', 'Type', 'Variant'];
 
   return (
-    <div className="flex flex-wrap items-end gap-3">
+    // Compact: no wrapper box, so each level sits inline among the caller's other filters.
+    <div className={compact ? 'contents' : 'flex flex-wrap items-end gap-3'}>
       {levels.map((level) => {
         const options = getLevelOptions(level);
         if (options.length === 0) return null;
@@ -183,17 +193,21 @@ export function CategoryCascader({
         const levelLabel = levelLabels[level] ?? `Level ${level + 1}`;
 
         return (
-          <div key={level} className="min-w-[180px] flex-1">
+          <div key={level} className={compact ? 'w-36' : 'min-w-[180px] flex-1'}>
             {/* The cascader owns its own labels — each level has a distinct
                 name (Category / Subcategory / Type). Callers must not add an
                 outer "Category" label on top, or it renders twice. */}
-            <Label required={required && level === 0}>{levelLabel}</Label>
+            {compact ? (
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">{levelLabel}</label>
+            ) : (
+              <Label required={required && level === 0}>{levelLabel}</Label>
+            )}
             <Select
               value={selections[level] ?? ''}
               onChange={(e) => handleChange(level, e.target.value)}
               aria-label={levelLabel}
             >
-              <option value="">Select {levelLabel.toLowerCase()}…</option>
+              <option value="">{compact ? 'Any' : `Select ${levelLabel.toLowerCase()}…`}</option>
               {options.map((cat) => (
                 <option key={cat.id} value={cat.id}>
                   {cat.name}

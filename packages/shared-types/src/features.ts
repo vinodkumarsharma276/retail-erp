@@ -31,6 +31,8 @@ export const FeatureKey = {
   OCR_INVOICE_PARSING: 'ocr.invoice',
   PUSH_NOTIFICATIONS: 'notifications.push',
   MOBILE_APP: 'mobile_app',
+  /** Customer Searching: the account register moved off the Google Sheet. */
+  CUSTOMER_SEARCH: 'customer_search',
 
   // ── Workflow toggles ──────────────────────────────────────────────────
   SALE_APPROVAL_WORKFLOW: 'sales.approval_workflow',
@@ -85,6 +87,7 @@ export const FEATURE_METADATA: Record<
   [FeatureKey.OCR_INVOICE_PARSING]: { label: 'OCR invoice parsing', category: FEATURE_CATEGORIES.MODULES },
   [FeatureKey.PUSH_NOTIFICATIONS]: { label: 'Push notifications', category: FEATURE_CATEGORIES.MODULES },
   [FeatureKey.MOBILE_APP]: { label: 'Mobile app for employees', category: FEATURE_CATEGORIES.MODULES },
+  [FeatureKey.CUSTOMER_SEARCH]: { label: 'Customer Searching (account register)', category: FEATURE_CATEGORIES.MODULES },
 
   [FeatureKey.SALE_APPROVAL_WORKFLOW]: { label: 'Sale approval workflow', category: FEATURE_CATEGORIES.WORKFLOWS },
   [FeatureKey.MULTI_SHOP]: { label: 'Multiple shops', category: FEATURE_CATEGORIES.WORKFLOWS },

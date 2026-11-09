@@ -113,7 +113,8 @@ apiClient.interceptors.request.use((config) => {
   }
 
   const shopId = localStorage.getItem('currentShopId');
-  if (shopId) {
+  // A request may target one specific shop (e.g. "import this statement into the shop it belongs to").
+  if (shopId && !config.headers['X-Shop-Id']) {
     config.headers['X-Shop-Id'] = shopId;
   }
 

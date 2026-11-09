@@ -86,6 +86,10 @@ export function PurchaseDetailPage() {
     );
   }
 
+  // A settled bill (supplier's payments cleared by the owner) owes nothing.
+  const pendingOnBill =
+    purchase.paymentStatus === 'settled' ? 0 : (Number(purchase.netAmount) || 0) - (Number(purchase.amountPaid) || 0);
+
   return (
     <div>
       {/* Header */}
@@ -191,8 +195,8 @@ export function PurchaseDetailPage() {
           <InfoRow label="Amount Paid" value={formatINR(purchase.amountPaid)} />
           <InfoRow
             label="Pending"
-            value={formatINR((Number(purchase.netAmount) || 0) - (Number(purchase.amountPaid) || 0))}
-            highlight={(Number(purchase.netAmount) || 0) - (Number(purchase.amountPaid) || 0) > 0}
+            value={formatINR(pendingOnBill)}
+            highlight={pendingOnBill > 0}
           />
           {purchase.notes && (
             <div className="sm:col-span-2 lg:col-span-4">
@@ -280,7 +284,7 @@ export function PurchaseDetailPage() {
       <div className="rounded-lg border bg-card p-6">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-medium">Payment History</h2>
-          {canRecordPayment && purchase.paymentStatus !== 'paid' && (
+          {canRecordPayment && purchase.paymentStatus !== 'paid' && purchase.paymentStatus !== 'settled' && (
             <button
               onClick={() => setShowPaymentDialog(true)}
               className={cn(
@@ -353,7 +357,7 @@ export function PurchaseDetailPage() {
       {showPaymentDialog && (
         <RecordPaymentDialog
           purchaseId={id!}
-          pendingAmount={(Number(purchase.netAmount) || 0) - (Number(purchase.amountPaid) || 0)}
+          pendingAmount={pendingOnBill}
           onClose={() => setShowPaymentDialog(false)}
         />
       )}

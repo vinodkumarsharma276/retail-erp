@@ -26,9 +26,15 @@ export async function loadUsablePermissions(userId: string, tenantId: string | u
  *
  * Both caches are invalidated when permissions change. Role mutations clear
  * every userCache entry (cheap; the user list is small in this product).
+ *
+ * Entries also expire after CACHE_TTL_MS. Invalidation only reaches this
+ * process, so without expiry a change made elsewhere — the permission-catalog
+ * sync script, or another API instance — would never be seen until restart.
  */
-const roleCache = new Map<string, Set<string>>();
-const userCache = new Map<string, Set<string>>();
+const CACHE_TTL_MS = 60_000;
+const roleCache = new Map<string, { perms: Set<string>; at: number }>();
+const userCache = new Map<string, { perms: Set<string>; at: number }>();
+const fresh = (entry: { at: number } | undefined) => !!entry && Date.now() - entry.at < CACHE_TTL_MS;
 
 /**
  * Invalidate cached permissions.
@@ -61,13 +67,13 @@ export function invalidatePermissionCache(target?: { roleId?: string; userId?: s
  */
 export async function loadPermissionsForRole(roleId: string): Promise<Set<string>> {
   const hit = roleCache.get(roleId);
-  if (hit) return hit;
+  if (fresh(hit)) return hit!.perms;
   const rows = await prisma.rolePermission.findMany({
     where: { roleId },
     select: { permission: { select: { key: true } } },
   });
   const set = new Set(rows.map((r) => r.permission.key));
-  roleCache.set(roleId, set);
+  roleCache.set(roleId, { perms: set, at: Date.now() });
   return set;
 }
 
@@ -80,7 +86,7 @@ export async function loadPermissionsForRole(roleId: string): Promise<Set<string
  */
 export async function loadEffectivePermissionsForUser(userId: string): Promise<Set<string>> {
   const hit = userCache.get(userId);
-  if (hit) return hit;
+  if (fresh(hit)) return hit!.perms;
 
   const user = await prisma.user.findUnique({
     where: { id: userId },
@@ -107,7 +113,7 @@ export async function loadEffectivePermissionsForUser(userId: string): Promise<S
     if (override.effect === 'deny') set.delete(override.permission.key);
   }
 
-  userCache.set(userId, set);
+  userCache.set(userId, { perms: set, at: Date.now() });
   return set;
 }
 

@@ -6,6 +6,7 @@ import { useMutation } from '@tanstack/react-query';
 import { METHOD_LABEL } from './components/domain';
 import { PageHeader, ShopAvatar } from './components/BankLayout';
 import { Badge, Button, Card, ConfirmDialog, EmptyState, Input, Select, Skeleton, useToast } from './components/ui';
+import { DeleteTransactionsDialog } from './components/DeleteTransactionsDialog';
 import { api, downloadStatementFile, type Statement } from './lib/api';
 import { compactMoney, count, date, fileSize, pct, relativeTime } from './lib/format';
 import { useInvalidateData, useMeta, useStatements } from './lib/queries';
@@ -121,15 +122,6 @@ export default function BankStatementsPage() {
   const [bank, setBank] = useState('');
   const [shop, setShop] = useState('');
 
-  const del = useMutation({
-    mutationFn: (id: string) => api.deleteStatement(id),
-    onSuccess: () => {
-      toast('Statement deleted', 'good');
-      setToDelete(null);
-      invalidate();
-    },
-    onError: (e: Error) => toast(e.message, 'critical'),
-  });
   const save = useMutation({
     mutationFn: () => api.updateStatement(editing!.id, { bank, shopId: shop }),
     onSuccess: () => {
@@ -282,19 +274,10 @@ export default function BankStatementsPage() {
         </Card>
       </div>
 
-      <ConfirmDialog
-        open={!!toDelete}
-        title="Delete this statement?"
-        body={
-          <>
-            <b>{toDelete?.file_name}</b> and its {count(toDelete?.tx_count ?? 0)} transactions — including any review notes — will be permanently removed. You can upload the file again afterwards.
-          </>
-        }
-        confirmLabel="Delete"
-        danger
-        loading={del.isPending}
-        onConfirm={() => toDelete && del.mutate(toDelete.id)}
+      <DeleteTransactionsDialog
+        target={toDelete ? { kind: 'statement', id: toDelete.id, fileName: toDelete.file_name } : null}
         onCancel={() => setToDelete(null)}
+        onDeleted={() => setToDelete(null)}
       />
 
       {editing && (

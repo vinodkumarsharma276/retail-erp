@@ -216,8 +216,12 @@ model Tenant {
   purchaseImportBatches           PurchaseImportBatch[]
   importItemClassifications       ImportItemClassification[]
 
-  platformAuditLogs     PlatformAuditLog[]
-  purchaseInvoiceSeries PurchaseInvoiceSeries[]
+  platformAuditLogs      PlatformAuditLog[]
+  purchaseInvoiceSeries  PurchaseInvoiceSeries[]
+  supplierAdvances       SupplierAdvance[]
+  customerSearchEntries  CustomerSearchEntry[]
+  customerSearchImports  CustomerSearchImportBatch[]
+  customerSearchMappings CustomerSearchProductMapping[]
 
   @@index([planId])
   @@index([status])
@@ -404,6 +408,9 @@ model Shop {
   auditLogs             AuditLog[]
   collectionAssigns     EmployeeCollectionAssignment[]
   purchaseImportBatches PurchaseImportBatch[]
+  supplierAdvances      SupplierAdvance[]
+  customerSearchEntries CustomerSearchEntry[]
+  customerSearchImports CustomerSearchImportBatch[]
 
   @@unique([tenantId, code])
   @@unique([tenantId, gstNumber])
@@ -437,21 +444,23 @@ model User {
   updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
   // Relations
-  tenant                Tenant                           @relation(fields: [tenantId], references: [id])
-  customRole            Role?                            @relation(fields: [roleId], references: [id])
+  tenant                Tenant                @relation(fields: [tenantId], references: [id])
+  customRole            Role?                 @relation(fields: [roleId], references: [id])
   userShops             UserShop[]
   refreshTokens         RefreshToken[]
-  permissionOverrides   UserPermission[]                 @relation("UserPermissionOwner")
-  permissionsAuthored   UserPermission[]                 @relation("UserPermissionCreator")
-  createdProducts       Product[]                        @relation("ProductCreator")
-  createdSales          SaleRecord[]                     @relation("SaleCreator")
-  approvedSales         SaleRecord[]                     @relation("SaleApprover")
-  createdSalesSanitized SaleRecordSanitized[]            @relation("SanitizedSaleCreator")
-  createdPurchases      Purchase[]                       @relation("PurchaseCreator")
-  createdCustomers      Customer[]                       @relation("CustomerCreator")
-  createdDistributors   Distributor[]                    @relation("DistributorCreator")
-  createdExpenses       Expense[]                        @relation("ExpenseCreator")
-  purchasePaymentsBy    PurchasePayment[]                @relation("PurchasePaymentCreator")
+  permissionOverrides   UserPermission[]      @relation("UserPermissionOwner")
+  permissionsAuthored   UserPermission[]      @relation("UserPermissionCreator")
+  createdProducts       Product[]             @relation("ProductCreator")
+  createdSales          SaleRecord[]          @relation("SaleCreator")
+  approvedSales         SaleRecord[]          @relation("SaleApprover")
+  createdSalesSanitized SaleRecordSanitized[] @relation("SanitizedSaleCreator")
+  createdPurchases      Purchase[]            @relation("PurchaseCreator")
+  createdCustomers      Customer[]            @relation("CustomerCreator")
+  createdDistributors   Distributor[]         @relation("DistributorCreator")
+  createdExpenses       Expense[]             @relation("ExpenseCreator")
+  purchasePaymentsBy    PurchasePayment[]     @relation("PurchasePaymentCreator")
+  supplierAdvancesBy    SupplierAdvance[]     @relation("SupplierAdvanceCreator")
+
   installmentPayments   InstallmentPayment[]             @relation("InstallmentCollector")
   installmentRollEvents InstallmentRollLog[]             @relation("RollLogActor")
   interestApplied       InstallmentInterestApplication[] @relation("InterestAppliedBy")
@@ -467,6 +476,8 @@ model User {
   notificationTokens    NotificationToken[]
   bankReconciled        BankTransaction[]                @relation("Reconciler")
   purchaseImportBatches PurchaseImportBatch[]            @relation("PurchaseImportBatchCreator")
+  customerSearchEntries CustomerSearchEntry[]            @relation("CustomerSearchEntryCreator")
+  customerSearchImports CustomerSearchImportBatch[]      @relation("CustomerSearchImportCreator")
 
   @@unique([tenantId, username])
   @@index([tenantId])
@@ -642,6 +653,8 @@ model ProductCategory {
   distributorCategories     DistributorCategory[]
   importItemClassifications ImportItemClassification[]
   purchaseInvoiceSeries     PurchaseInvoiceSeries[]
+  customerSearchEntries     CustomerSearchEntry[]
+  customerSearchMappings    CustomerSearchProductMapping[]
 
   @@unique([slug, parentId])
   @@index([tenantId])
@@ -795,6 +808,7 @@ model Distributor {
   products              Product[]
   /// Bank statement rows paying this supplier.
   statementTransactions StatementTransaction[]
+  supplierAdvances      SupplierAdvance[]
 
   @@index([tenantId])
   @@index([companyName])
@@ -885,16 +899,54 @@ model PurchasePayment {
   createdAt              DateTime    @default(now()) @map("created_at") @db.Timestamptz()
   /// The bank statement row this payment was recorded from, if any.
   statementTransactionId String?     @map("statement_transaction_id")
+  /// Set when this payment is (part of) an advance being used up by this bill.
+  supplierAdvanceId      String?     @map("supplier_advance_id")
 
   tenant               Tenant                @relation(fields: [tenantId], references: [id])
   purchase             Purchase              @relation(fields: [purchaseId], references: [id])
   creator              User?                 @relation("PurchasePaymentCreator", fields: [createdBy], references: [id])
   statementTransaction StatementTransaction? @relation(fields: [statementTransactionId], references: [id], onDelete: SetNull)
+  supplierAdvance      SupplierAdvance?      @relation(fields: [supplierAdvanceId], references: [id])
 
   @@index([tenantId])
   @@index([purchaseId])
   @@index([statementTransactionId])
+  @@index([supplierAdvanceId])
   @@map("purchase_payments")
+}
+
+/// Money paid to a supplier before there was a bill for it (or more than the bills came to).
+/// Held per shop, because each shop keeps its own books: that shop's next bills from the
+/// supplier use it up automatically, oldest advance first, each use becoming a PurchasePayment.
+model SupplierAdvance {
+  id                     String      @id @default(uuid())
+  tenantId               String      @map("tenant_id")
+  shopId                 String      @map("shop_id")
+  distributorId          String      @map("distributor_id")
+  /// What was paid in advance.
+  amount                 Decimal     @db.Decimal(12, 2)
+  /// What hasn't been used against a bill yet.
+  remaining              Decimal     @db.Decimal(12, 2)
+  paymentMode            PaymentMode @map("payment_mode")
+  paymentDate            DateTime    @map("payment_date") @db.Date
+  referenceNumber        String?     @map("reference_number") @db.VarChar(100)
+  notes                  String?     @db.Text
+  /// The bank statement row it was recorded from, if any.
+  statementTransactionId String?     @map("statement_transaction_id")
+  createdBy              String?     @map("created_by")
+  createdAt              DateTime    @default(now()) @map("created_at") @db.Timestamptz()
+
+  tenant               Tenant                @relation(fields: [tenantId], references: [id])
+  shop                 Shop                  @relation(fields: [shopId], references: [id])
+  distributor          Distributor           @relation(fields: [distributorId], references: [id])
+  creator              User?                 @relation("SupplierAdvanceCreator", fields: [createdBy], references: [id])
+  statementTransaction StatementTransaction? @relation(fields: [statementTransactionId], references: [id], onDelete: SetNull)
+  uses                 PurchasePayment[]
+
+  @@index([tenantId])
+  @@index([shopId, distributorId])
+  @@index([statementTransactionId])
+  @@map("supplier_advances")
 }
 
 // ============================================================================
@@ -947,6 +999,8 @@ model Customer {
   salesAsGuarantor    SaleRecord[]          @relation("SaleGuarantor")
   salesSanitized      SaleRecordSanitized[]
   installmentPromises InstallmentPromise[]
+  registerEntries     CustomerSearchEntry[] @relation("CustomerSearchEntryCustomer")
+  registerCoEntries   CustomerSearchEntry[] @relation("CustomerSearchEntryCoCustomer")
 
   @@unique([tenantId, customerCode])
   @@index([tenantId])
@@ -1654,6 +1708,7 @@ model StatementTransaction {
   distributor      Distributor?      @relation(fields: [distributorId], references: [id], onDelete: SetNull)
   /// Supplier payments recorded from this bank row (one per invoice it settled).
   purchasePayments PurchasePayment[]
+  supplierAdvances SupplierAdvance[]
 
   @@index([tenantId, shopId, date])
   @@index([statementId])
@@ -2066,4 +2121,145 @@ model PurchaseInvoiceSeries {
   @@unique([tenantId, prefix])
   @@index([tenantId])
   @@map("purchase_invoice_series")
+}
+
+// ============================================================================
+// CUSTOMER SEARCHING — the account register moved off the Google Sheet
+// ============================================================================
+
+/// One item a customer bought, as the shop's account register records it:
+/// the Account Number, who bought, their co-applicant (guarantor) and what.
+/// Copied once from the Google Sheet the shops used to keep, then entered
+/// here directly. Only the minimum of the sale for now; more of the sale
+/// will be added later.
+model CustomerSearchEntry {
+  id       String @id @default(uuid())
+  tenantId String @map("tenant_id")
+  /// Shop the customer was filed under when the entry was made.
+  shopId   String @map("shop_id")
+
+  /// Register number as written, upper-case, spaces dropped (BD-1, CI2-421,
+  /// MJ12). Not unique: the sheet reuses numbers for different people, so a
+  /// repeat is allowed and flagged `duplicate_account`. '' when there is none.
+  accountNumber String @map("account_number") @db.VarChar(30)
+  /// Series in front of the number ("BD", "CI2"); drives "next number" suggestions.
+  prefix        String @db.VarChar(10)
+  /// The number within the series. Null when the account number isn't a
+  /// series shape; such numbers never seed a suggestion.
+  seriesNo      Int?   @map("series_no")
+
+  /// Null only when the entry has no customer name to file it under.
+  customerId   String? @map("customer_id")
+  /// Name, mobile, address and area as written on the entry. Mobile is the
+  /// normalised 10 digits, or '' when there is no valid one.
+  customerName String  @map("customer_name") @db.VarChar(200)
+  mobile       String  @db.VarChar(15)
+  address      String? @db.VarChar(500)
+  area         String? @db.VarChar(100)
+
+  /// Co-applicant, who stands guarantor. Linked to a Customer when both a
+  /// name and a valid mobile are known.
+  coCustomerId String? @map("co_customer_id")
+  coName       String? @map("co_name") @db.VarChar(200)
+  coMobile     String? @map("co_mobile") @db.VarChar(15)
+
+  purchaseDate DateTime? @map("purchase_date") @db.Date
+  /// Product type from the tenant's category tree. A leaf for entries made in
+  /// the app; a top-level type for ones imported from the sheet (all it knew).
+  categoryId   String?   @map("category_id")
+  /// The product as written (the sheet's free text); shown when no type is set.
+  product      String?   @db.VarChar(200)
+  brand        String?   @db.VarChar(100)
+  model        String?   @db.VarChar(200)
+
+  /// What needs a person's attention (REGISTER_ISSUES codes): listed under
+  /// "Needs review". Recomputed whenever the entry, or one sharing its
+  /// account number, changes.
+  issues    String[] @default([])
+  /// Values from the sheet that couldn't be used as-is (a 9-digit mobile, an
+  /// unreadable date), kept so the person fixing the entry can see them.
+  rawValues Json?    @map("raw_values")
+
+  /// `import` (from the sheet) or `app` (entered here).
+  source         String   @default("app") @db.VarChar(10)
+  importBatchId  String?  @map("import_batch_id")
+  /// Row of the sheet the entry came from, for tracing an import back.
+  sheetRowNumber Int?     @map("sheet_row_number")
+  createdBy      String?  @map("created_by")
+  updatedBy      String?  @map("updated_by")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  tenant      Tenant                     @relation(fields: [tenantId], references: [id])
+  shop        Shop                       @relation(fields: [shopId], references: [id])
+  customer    Customer?                  @relation("CustomerSearchEntryCustomer", fields: [customerId], references: [id])
+  coCustomer  Customer?                  @relation("CustomerSearchEntryCoCustomer", fields: [coCustomerId], references: [id])
+  importBatch CustomerSearchImportBatch? @relation(fields: [importBatchId], references: [id])
+  creator     User?                      @relation("CustomerSearchEntryCreator", fields: [createdBy], references: [id])
+  category    ProductCategory?           @relation(fields: [categoryId], references: [id])
+
+  @@index([tenantId])
+  @@index([tenantId, accountNumber])
+  @@index([tenantId, prefix])
+  @@index([issues], type: Gin)
+  @@index([categoryId])
+  @@index([customerId])
+  @@index([coCustomerId])
+  @@index([mobile])
+  @@index([shopId])
+  @@map("customer_search_entries")
+}
+
+/// One run of the sheet import: a range of rows from one file.
+model CustomerSearchImportBatch {
+  id       String @id @default(uuid())
+  tenantId String @map("tenant_id")
+  /// Shop used for rows whose Shop column is blank.
+  shopId   String @map("shop_id")
+
+  fileName         String   @map("file_name") @db.VarChar(255)
+  rowFrom          Int      @map("row_from")
+  rowTo            Int      @map("row_to")
+  inserted         Int      @default(0)
+  skipped          Int      @default(0)
+  invalid          Int      @default(0)
+  customersCreated Int      @default(0) @map("customers_created")
+  customersLinked  Int      @default(0) @map("customers_linked")
+  /// Entries already in the register that this batch moved to another shop.
+  moved            Int      @default(0)
+  /// Entries imported with something to review.
+  flagged          Int      @default(0)
+  /// How name variants on a shared mobile were resolved, kept for the record.
+  nameDecisions    Json?    @map("name_decisions")
+  createdBy        String?  @map("created_by")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  tenant  Tenant                @relation(fields: [tenantId], references: [id])
+  shop    Shop                  @relation(fields: [shopId], references: [id])
+  creator User?                 @relation("CustomerSearchImportCreator", fields: [createdBy], references: [id])
+  entries CustomerSearchEntry[]
+
+  @@index([tenantId])
+  @@map("customer_search_import_batches")
+}
+
+/// What the sheet's free-text Product ("TV", "Fridge") was decided to mean,
+/// so later import batches don't ask again. A null category means "leave blank".
+model CustomerSearchProductMapping {
+  id       String @id @default(uuid())
+  tenantId String @map("tenant_id")
+
+  /// The text as compared: lower-case, single spaces.
+  textKey    String   @map("text_key") @db.VarChar(200)
+  categoryId String?  @map("category_id")
+  createdBy  String?  @map("created_by")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
+
+  tenant   Tenant           @relation(fields: [tenantId], references: [id])
+  category ProductCategory? @relation(fields: [categoryId], references: [id])
+
+  @@unique([tenantId, textKey])
+  @@index([tenantId])
+  @@map("customer_search_product_mappings")
 }

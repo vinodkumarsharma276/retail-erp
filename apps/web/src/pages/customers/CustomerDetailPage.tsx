@@ -6,6 +6,7 @@ import { StatusBadge } from '../../components/StatusBadge';
 import { CustomerReliabilityCard } from '../../components/CustomerReliabilityCard';
 import { formatINR, formatDateIN, formatPhone } from '@retailerp/shared-utils';
 import { usePermission, useCanCheck } from '../../hooks/usePermission';
+import { CustomerRegisterSection } from '../customer-search/CustomerRegisterSection';
 
 export function CustomerDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -198,6 +199,8 @@ export function CustomerDetailPage() {
               </div>
             </div>
           )}
+
+          {can('customer_search.list') && <CustomerRegisterSection customerId={id!} />}
         </div>
 
         {/* Right: Sales History (40%) */}

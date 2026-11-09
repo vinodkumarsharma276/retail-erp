@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { useCanCheck } from '../../hooks/usePermission';
-import { Plus, Search, X, Pencil, PackagePlus, Trash2, Info, Merge, FileSpreadsheet } from 'lucide-react';
+import { Plus, Search, X, Pencil, PackagePlus, Trash2, Info, Merge, FileSpreadsheet, Eraser } from 'lucide-react';
 import { PageHeader } from '../../components/PageHeader';
 import { Button } from '../../components/ui/button';
 import { DeleteDistributorsDialog } from '../../components/DeleteDistributorsDialog';
 import { MergeDistributorsDialog } from '../../components/MergeDistributorsDialog';
+import { ClearPaymentsDialog } from './ClearPaymentsDialog';
 import { cn } from '../../lib/utils';
 import { useDebounce } from '../../hooks/useDebounce';
 import { useToast } from '../../stores/toast-store';
@@ -57,7 +58,9 @@ export function DistributorListPage() {
   // ------ Ticking rows off to act on several at once ------
   const canDelete = can('distributors.delete');
   const canMerge = can('distributors.merge');
-  const canPick = canDelete || canMerge;
+  const canClearPayments = can('distributors.clear_payments');
+  const canPick = canDelete || canMerge || canClearPayments;
+  const [clearingPayments, setClearingPayments] = useState(false);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   /**
    * The ticked rows themselves, kept as they are ticked.
@@ -223,8 +226,6 @@ export function DistributorListPage() {
     },
     {
       key: 'companyName',
-      // The long text on this row, so spare width lands where it reads.
-      flexible: true,
       header: 'Company Name',
       sortable: true,
       sortAccessor: (row) => row.companyName,
@@ -294,9 +295,11 @@ export function DistributorListPage() {
         <span
           className={cn(
             row.pendingPayment > 0 && 'text-red-600 font-medium',
+            row.pendingPayment < 0 && 'text-green-700 dark:text-green-400 font-medium',
           )}
+          title={row.pendingPayment < 0 ? 'Paid in advance; adjusted against their next bills' : undefined}
         >
-          {formatINR(row.pendingPayment)}
+          {row.pendingPayment < 0 ? `Advance ${formatINR(-row.pendingPayment)}` : formatINR(row.pendingPayment)}
         </span>
       ),
     },
@@ -470,7 +473,7 @@ export function DistributorListPage() {
                 : `${picked.size} distributor${picked.size === 1 ? '' : 's'} selected`}
             </span>
             <Button variant="outline" size="sm" onClick={clearPicked}>
-              Clear
+              Clear selection
             </Button>
             {canMerge && (
               <Button
@@ -488,6 +491,18 @@ export function DistributorListPage() {
               >
                 <Merge className="mr-1 h-3.5 w-3.5" />
                 Merge
+              </Button>
+            )}
+            {canClearPayments && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="border-destructive/40 text-destructive hover:bg-destructive/10"
+                onClick={() => setClearingPayments(true)}
+                title="Delete every payment and advance and mark every bill settled, in all shops: Total paid and Pending go to ₹0"
+              >
+                <Eraser className="mr-1 h-3.5 w-3.5" />
+                Clear payments
               </Button>
             )}
             {canDelete && (
@@ -611,6 +626,15 @@ export function DistributorListPage() {
               },
             );
           }}
+        />
+      )}
+
+      {canClearPayments && (
+        <ClearPaymentsDialog
+          ids={[...picked]}
+          open={clearingPayments}
+          onClose={() => setClearingPayments(false)}
+          onDone={clearPicked}
         />
       )}
 

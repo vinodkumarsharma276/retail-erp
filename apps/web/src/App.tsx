@@ -18,6 +18,10 @@ import { PurchaseImportPage } from './pages/purchases/PurchaseImportPage';
 import { CustomerListPage } from './pages/customers/CustomerListPage';
 import { CustomerFormPage } from './pages/customers/CustomerFormPage';
 import { CustomerDetailPage } from './pages/customers/CustomerDetailPage';
+import { CustomerSearchPage } from './pages/customer-search/CustomerSearchPage';
+import { CustomerSearchFormPage } from './pages/customer-search/CustomerSearchFormPage';
+import { CustomerSearchDetailPage } from './pages/customer-search/CustomerSearchDetailPage';
+import { CustomerSearchImportPage } from './pages/customer-search/CustomerSearchImportPage';
 import { SaleListPage } from './pages/sales/SaleListPage';
 import { SaleCreatePage } from './pages/sales/SaleCreatePage';
 import { SaleDetailPage } from './pages/sales/SaleDetailPage';
@@ -132,6 +136,22 @@ function App() {
           </Route>
           <Route element={<PermissionGuard anyOf={['customers.edit']} />}>
             <Route path="/customers/:id/edit" element={<CustomerFormPage />} />
+          </Route>
+
+          <Route element={<PermissionGuard anyOf={['customer_search.list']} />}>
+            <Route path="/customer-search" element={<CustomerSearchPage />} />
+          </Route>
+          <Route element={<PermissionGuard anyOf={['customer_search.create']} />}>
+            <Route path="/customer-search/new" element={<CustomerSearchFormPage />} />
+          </Route>
+          <Route element={<PermissionGuard anyOf={['customer_search.import']} />}>
+            <Route path="/customer-search/import" element={<CustomerSearchImportPage />} />
+          </Route>
+          <Route element={<PermissionGuard anyOf={['customer_search.detail']} />}>
+            <Route path="/customer-search/:id" element={<CustomerSearchDetailPage />} />
+          </Route>
+          <Route element={<PermissionGuard anyOf={['customer_search.edit']} />}>
+            <Route path="/customer-search/:id/edit" element={<CustomerSearchFormPage />} />
           </Route>
 
           <Route element={<PermissionGuard anyOf={['sales.list']} />}>

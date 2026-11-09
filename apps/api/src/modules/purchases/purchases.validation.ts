@@ -98,7 +98,7 @@ export const purchaseListQuerySchema = z.object({
   distributorId: z.string().uuid().optional(),
   dateFrom: z.string().optional(),
   dateTo: z.string().optional(),
-  paymentStatus: z.enum(['pending', 'partial', 'paid']).optional(),
+  paymentStatus: z.enum(['pending', 'partial', 'paid', 'settled']).optional(),
   search: z.string().optional(),
 });
 

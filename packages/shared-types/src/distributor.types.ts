@@ -28,5 +28,8 @@ export interface Distributor {
 export interface DistributorListItem extends Distributor {
   totalProductsPurchased: number;
   totalPaymentPaid: number;
+  /** Bills minus payments; below zero when an advance is waiting for the next bill. */
   pendingPayment: number;
+  /** Paid in advance and not yet used against a bill. */
+  advanceBalance?: number;
 }

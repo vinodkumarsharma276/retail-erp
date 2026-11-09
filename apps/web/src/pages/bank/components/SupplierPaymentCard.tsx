@@ -1,11 +1,11 @@
-import { CheckCircle2, HandCoins, Search, Truck, X } from 'lucide-react';
+import { CheckCircle2, HandCoins, Search, Truck, Wallet, X } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useDistributorsQuery } from '../../../hooks/useDistributors';
 import { useDebounce } from '../../../hooks/useDebounce';
 import { useCanCheck } from '../../../hooks/usePermission';
-import { api, type SupplierPaymentMode, type Transaction } from '../lib/api';
+import { api, type AdvanceNeeded, type ApiError, type SupplierPaymentMode, type Transaction } from '../lib/api';
 import { date, money } from '../lib/format';
 import { useInvalidateData, useUpdateTx } from '../lib/queries';
 import { Badge, Button, Field, Input, Select, useToast } from './ui';
@@ -78,23 +78,29 @@ export function SupplierPaymentCard({ t, onChange }: { t: Transaction; onChange:
   const [picking, setPicking] = useState(false);
   const [mode, setMode] = useState<SupplierPaymentMode>(() => modeFor(t.channel));
   const [reference, setReference] = useState(t.reference ?? '');
+  /** Set when the server says the payment is more than this shop owes the supplier. */
+  const [advanceAsk, setAdvanceAsk] = useState<AdvanceNeeded | null>(null);
 
   const record = useMutation({
-    mutationFn: () => api.recordSupplierPayment(t.id, { paymentMode: mode, referenceNumber: reference.trim() || null }),
+    mutationFn: (asAdvance: boolean) => api.recordSupplierPayment(t.id, { paymentMode: mode, referenceNumber: reference.trim() || null, asAdvance }),
     onSuccess: (r) => {
+      setAdvanceAsk(null);
       onChange(r.transaction);
       invalidate();
       qc.invalidateQueries({ queryKey: ['distributors'] });
       qc.invalidateQueries({ queryKey: ['purchases'] });
       const bills = r.invoicesPaidFull + r.invoicesPaidPartial;
-      toast(
-        r.remainingAmount > 0
-          ? `Recorded ${money(r.totalDistributed)} against ${bills} bill${bills === 1 ? '' : 's'}; ${money(r.remainingAmount)} was more than the unpaid bills and was not recorded`
-          : `Recorded ${money(r.totalDistributed)} against ${bills} bill${bills === 1 ? '' : 's'}`,
-        r.remainingAmount > 0 ? 'neutral' : 'good',
-      );
+      const parts = [
+        bills ? `${money(r.totalDistributed)} against ${bills} bill${bills === 1 ? '' : 's'}` : '',
+        r.advanceAmount ? `${money(r.advanceAmount)} as an advance` : '',
+      ].filter(Boolean);
+      toast(`Recorded ${parts.join(' and ')}`, 'good');
     },
-    onError: (e: Error) => toast(e.message, 'critical'),
+    onError: (e: Error) => {
+      const body = (e as ApiError).body as AdvanceNeeded | null | undefined;
+      if (body?.code === 'advance_needed') setAdvanceAsk(body);
+      else toast(e.message, 'critical');
+    },
   });
 
   const choose = (distributorId: string | null) =>
@@ -104,6 +110,7 @@ export function SupplierPaymentCard({ t, onChange }: { t: Transaction; onChange:
         onSuccess: (next) => {
           onChange(next);
           setPicking(false);
+          setAdvanceAsk(null);
           toast(distributorId ? `Supplier set to ${next.distributor_name}` : 'Marked as not a supplier payment', 'good');
         },
         onError: (e: Error) => toast(e.message, 'critical'),
@@ -132,6 +139,11 @@ export function SupplierPaymentCard({ t, onChange }: { t: Transaction; onChange:
               'a supplier'
             )}
             {t.supplier_paid_at ? ` on ${date(t.supplier_paid_at)}` : ''}.
+            {t.supplier_advance_amount ? (
+              <div className="mt-0.5 text-foreground/80">
+                {money(t.supplier_advance_amount)} of it is held as an advance and will be adjusted against their next bills at {t.shop_name}.
+              </div>
+            ) : null}
           </div>
         </div>
       ) : picking ? (
@@ -170,10 +182,31 @@ export function SupplierPaymentCard({ t, onChange }: { t: Transaction; onChange:
                   <Input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="Cheque / UTR no." maxLength={100} />
                 </Field>
               </div>
-              <Button variant="primary" className="w-full" icon={<HandCoins className="size-4" />} onClick={() => record.mutate()} loading={record.isPending}>
-                Record {money(Math.abs(t.amount))} as payment to {t.distributor_name}
-              </Button>
-              <p className="text-xs text-muted-foreground">Settles {t.shop_name}&apos;s oldest unpaid bills from this supplier first, dated {date(t.date)}.</p>
+              {advanceAsk ? (
+                <div className="space-y-2 rounded-lg border border-warning/50 bg-warning-muted p-3 text-[13px]">
+                  <div className="flex items-start gap-2">
+                    <Wallet className="mt-0.5 size-4 shrink-0 text-warning" />
+                    <p>{advanceAsk.error}</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button variant="primary" icon={<HandCoins className="size-4" />} onClick={() => record.mutate(true)} loading={record.isPending}>
+                      {advanceAsk.due > 0
+                        ? `Pay ${money(advanceAsk.due)} of bills, keep ${money(advanceAsk.advance)} as advance`
+                        : `Record ${money(advanceAsk.advance)} as advance`}
+                    </Button>
+                    <Button variant="ghost" onClick={() => setAdvanceAsk(null)} disabled={record.isPending}>
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <Button variant="primary" className="w-full" icon={<HandCoins className="size-4" />} onClick={() => record.mutate(false)} loading={record.isPending}>
+                  Record {money(Math.abs(t.amount))} as payment to {t.distributor_name}
+                </Button>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Settles {t.shop_name}&apos;s oldest unpaid bills from this supplier first, dated {date(t.date)}. Anything beyond them can be kept as an advance, adjusted automatically against their next bills.
+              </p>
             </>
           )}
         </>

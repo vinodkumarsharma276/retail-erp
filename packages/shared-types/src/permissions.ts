@@ -33,6 +33,7 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
     ['nav.customers', 'Show Customers menu item'],
     ['nav.sales', 'Show Sales menu item'],
     ['nav.installments', 'Show Installments menu item'],
+    ['nav.customer_search', 'Show Customer Searching menu item'],
     ['nav.transfers', 'Show Transfers menu item'],
     ['nav.expenses', 'Show Expenses menu item'],
     ['nav.bank', 'Show Bank menu item'],
@@ -78,6 +79,7 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
     ['distributors.view_bank_details', 'See distributor bank details'],
     ['distributors.view_gst', 'See distributor GST'],
     ['distributors.view_credit_limit', 'See distributor credit limit'],
+    ['distributors.clear_payments', 'Clear all recorded payments and advances of a distributor'],
   ]),
 
   g('purchases', 'Purchases', [
@@ -137,6 +139,16 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
     // start with approvalStatus = 'pending'; users WITH this permission can
     // approve them and have their own sales auto-approved on creation.
     ['sales.approve', 'Approve pending sales'],
+  ]),
+
+  g('customer_search', 'Customer Searching', [
+    ['customer_search.list', 'Customer Searching: Open (search the account register)'],
+    ['customer_search.detail', 'Customer Searching: Open an entry'],
+    ['customer_search.create', 'Customer Searching: New entry'],
+    ['customer_search.edit', 'Customer Searching: Edit an entry'],
+    ['customer_search.delete', 'Customer Searching: Delete an entry'],
+    ['customer_search.import', 'Customer Searching: Import the sheet'],
+    ['customer_search.export', 'Customer Searching: Export'],
   ]),
 
   g('installments', 'Installments', [
@@ -301,6 +313,8 @@ export const ROLE_ADMIN_PERMISSIONS: string[] = ALL_PERMISSION_KEYS.filter((k) =
   // Per-user permission overrides are Owner-only. Otherwise an Admin could
   // bootstrap themselves around any policy by editing their own overrides.
   if (k === 'users.edit_permissions') return false;
+  // Wiping a supplier's payment history is Owner-only (2026-11).
+  if (k === 'distributors.clear_payments') return false;
   return true;
 });
 
@@ -324,6 +338,9 @@ export const ROLE_ACCOUNTANT_PERMISSIONS: string[] = [
   // Customers
   'customers.list', 'customers.detail', 'customers.create', 'customers.edit',
   'customers.view_phone', 'customers.view_guarantor_chain', 'customers.view_purchase_history',
+  // Customer Searching (no import — that's a one-off for owner/admin)
+  'nav.customer_search', 'customer_search.list', 'customer_search.detail',
+  'customer_search.create', 'customer_search.edit', 'customer_search.export',
   // Sales
   'sales.list', 'sales.detail', 'sales.view_real',
   'sales.invoice.view', 'sales.invoice.download_pdf',
@@ -358,6 +375,8 @@ export const ROLE_OTHERS_PERMISSIONS: string[] = [
   // Customers (basic)
   'customers.list', 'customers.detail', 'customers.create',
   'customers.view_phone',
+  // Customer Searching — full view including the co-applicant (owner, 2026-11).
+  'nav.customer_search', 'customer_search.list', 'customer_search.detail', 'customer_search.create',
   // Sales — sanitized only
   'sales.list', 'sales.detail', 'sales.view_sanitized',
   'sales.invoice.view',

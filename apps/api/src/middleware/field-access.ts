@@ -24,6 +24,7 @@ const RULES: FieldRule[] = [
   { prefix: '/api/v1/customers', permission: 'customers.view_aadhaar', fields: ['aadhaarNumber'] },
   { prefix: '/api/v1/customers', permission: 'customers.view_phone', fields: ['phone', 'altPhone'] },
   { prefix: '/api/v1/customers', permission: 'customers.view_guarantor_chain', fields: ['guarantor', 'guarantorId', 'guaranteedCustomers', 'isGuarantor'] },
+  { prefix: '/api/v1/customer-search', permission: 'customers.view_phone', fields: ['mobile', 'coMobile', 'phone', 'rawValues'] },
   { prefix: '/api/v1/distributors', permission: 'distributors.view_bank_details', fields: ['bankName', 'bankAccountNumber', 'bankIfsc', 'bankBranch'] },
   { prefix: '/api/v1/distributors', permission: 'distributors.view_gst', fields: ['gstNumber', 'panNumber'] },
   { prefix: '/api/v1/distributors', permission: 'distributors.view_credit_limit', fields: ['creditLimit'] },

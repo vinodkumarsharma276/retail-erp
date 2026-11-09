@@ -4,6 +4,8 @@ export enum PurchasePaymentStatus {
   PENDING = 'pending',
   PARTIAL = 'partial',
   PAID = 'paid',
+  /** Closed by the owner's "Clear payments": nothing paid, nothing owed. */
+  SETTLED = 'settled',
 }
 
 export interface Purchase {
@@ -214,13 +216,20 @@ export interface DistributorPayment {
   referenceNumber?: string;
   invoiceNumber?: string;
   createdAt: string;
+  /** An advance: money paid before (or beyond) the bills, used up by the supplier's next bills. */
+  isAdvance?: boolean;
+  /** For an advance, how much is still unused. */
+  advanceRemaining?: number;
+  /** A payment on a bill that came out of an earlier advance (the money is the advance row). */
+  fromAdvance?: boolean;
+  shop?: { id: string; name: string; code: string };
   purchase?: {
     id: string;
     invoiceNumber: string;
     invoiceDate: string;
     netAmount: number;
     shop?: { id: string; name: string; code: string };
-  };
+  } | null;
 }
 
 export interface PendingInvoice {

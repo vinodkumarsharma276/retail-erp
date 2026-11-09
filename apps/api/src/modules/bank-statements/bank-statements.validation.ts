@@ -46,6 +46,7 @@ export const uploadFieldsSchema = z.object({
   password: z.string().max(200).optional(),
   bankAccountId: z.string().uuid().optional(),
   duplicates: z.enum(['skip', 'keep']).optional(),
+  allowOtherShop: z.enum(['true', 'false']).transform((v) => v === 'true').optional(),
 });
 
 export const statementPatchSchema = z.object({
@@ -68,9 +69,15 @@ export const supplierPaymentSchema = z.object({
   paymentMode: z.enum(['cash', 'credit_card', 'debit_card', 'upi', 'bank_transfer', 'cheque']).optional(),
   referenceNumber: z.string().trim().max(100).nullable().optional(),
   notes: z.string().trim().max(500).nullable().optional(),
+  /** Keep whatever the shop's unpaid bills don't take as an advance for the supplier's next bills. */
+  asAdvance: z.boolean().optional(),
 });
 
 export const bulkPatchSchema = txPatchSchema.extend({
+  ids: z.array(z.string().uuid()).min(1).max(5000),
+});
+
+export const txIdsSchema = z.object({
   ids: z.array(z.string().uuid()).min(1).max(5000),
 });
 

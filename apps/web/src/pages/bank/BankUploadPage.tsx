@@ -40,6 +40,8 @@ interface Item {
   bankAccountId: string;
   password: string;
   duplicates?: 'skip' | 'keep';
+  /** Import into this shop even though the statement's account belongs to another shop. */
+  allowOtherShop?: boolean;
   status: Status;
   progress: number;
   error?: string;
@@ -76,7 +78,7 @@ export default function BankUploadPage() {
 
   // Re-point not-yet-processed files when the target shop changes.
   useEffect(() => {
-    setItems((prev) => prev.map((it) => (it.status === 'ready' && it.shopId !== shopId ? { ...it, shopId, bankAccountId: '' } : it)));
+    setItems((prev) => prev.map((it) => (it.status === 'ready' && it.shopId !== shopId ? { ...it, shopId, bankAccountId: '', allowOtherShop: false } : it)));
   }, [shopId]);
 
   const setShopId = (id: string) => {
@@ -119,10 +121,13 @@ export default function BankUploadPage() {
     if (it.shopId) form.append('shopId', it.shopId);
     if (it.bankAccountId) form.append('bankAccountId', it.bankAccountId);
     if (it.duplicates) form.append('duplicates', it.duplicates);
+    if (it.allowOtherShop) form.append('allowOtherShop', 'true');
     if (it.password) form.append('password', it.password);
     form.append('file', it.file, it.file.name);
     try {
-      const res = await uploadStatement(form, (f) => patch(it.id, { progress: f, status: f >= 1 ? 'processing' : 'uploading' }));
+      // A file retargeted to another shop ("Import into …") is sent to that shop; in All Shops mode it already is.
+      const target = !allMode && it.shopId && it.shopId !== shopId ? it.shopId : undefined;
+      const res = await uploadStatement(form, (f) => patch(it.id, { progress: f, status: f >= 1 ? 'processing' : 'uploading' }), undefined, target);
       patch(it.id, { status: 'done', result: res.statement });
     } catch (e) {
       const err = e as ApiError;
@@ -328,7 +333,7 @@ export default function BankUploadPage() {
                         {allMode && (
                           <Select
                             value={it.shopId || ''}
-                            onChange={(e) => patch(it.id, { shopId: e.target.value, bankAccountId: '' })}
+                            onChange={(e) => patch(it.id, { shopId: e.target.value, bankAccountId: '', allowOtherShop: false })}
                             className="w-full sm:w-52"
                             aria-label="Shop"
                           >

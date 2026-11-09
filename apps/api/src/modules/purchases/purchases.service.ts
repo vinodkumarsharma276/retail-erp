@@ -1,5 +1,6 @@
 import { prisma } from '../../config/database.js';
 import type { Prisma } from '@prisma/client';
+import { applySupplierAdvances } from '../distributors/supplier-advances.js';
 import { unbilledSeriesService } from './unbilled-series.js';
 
 /** A purchase that cannot go, because something of it has already moved on. */
@@ -437,6 +438,9 @@ export const purchasesService = {
         });
       }
 
+      // Money already paid to this supplier in advance pays this bill first.
+      await applySupplierAdvances(tx, shopId, data.distributorId);
+
       return { purchase, products };
     });
 
@@ -641,6 +645,9 @@ export const purchasesService = {
         skipDuplicates: true,
       });
 
+      // Money already paid to this supplier in advance pays this purchase first.
+      await applySupplierAdvances(tx, shopId, data.distributorId);
+
       return purchase;
     });
 
@@ -756,9 +763,11 @@ export const purchasesService = {
       const newNetAmount = totalAmount - discountAmount + gstAmount;
       updateData.netAmount = newNetAmount;
 
-      // Recalculate payment status based on new netAmount
+      // Recalculate payment status based on new netAmount (a settled bill stays settled)
       const amountPaid = Number(existing.amountPaid);
-      if (amountPaid >= newNetAmount) {
+      if (existing.paymentStatus === 'settled') {
+        // nothing paid, nothing owed
+      } else if (amountPaid >= newNetAmount) {
         updateData.paymentStatus = 'paid';
       } else if (amountPaid > 0) {
         updateData.paymentStatus = 'partial';
@@ -767,17 +776,23 @@ export const purchasesService = {
       }
     }
 
-    const updated = await prisma.purchase.update({
-      where: { id },
-      data: updateData as any,
-      include: {
-        distributor: {
-          select: { id: true, companyName: true, contactPerson: true },
+    const updated = await prisma.$transaction(async (tx) => {
+      await tx.purchase.update({ where: { id }, data: updateData as any });
+      // A bill that now owes more is paid from any advance waiting for this supplier.
+      if (updateData.paymentStatus && updateData.paymentStatus !== 'paid') {
+        await applySupplierAdvances(tx, existing.shopId, existing.distributorId);
+      }
+      return tx.purchase.findUniqueOrThrow({
+        where: { id },
+        include: {
+          distributor: {
+            select: { id: true, companyName: true, contactPerson: true },
+          },
+          creator: {
+            select: { id: true, username: true, fullName: true },
+          },
         },
-        creator: {
-          select: { id: true, username: true, fullName: true },
-        },
-      },
+      });
     });
 
     return updated;
@@ -793,6 +808,9 @@ export const purchasesService = {
     const purchase = await prisma.purchase.findUnique({ where: { id: purchaseId } });
     if (!purchase) {
       throw new Error('Purchase not found');
+    }
+    if (purchase.paymentStatus === 'settled') {
+      throw new Error('This bill was settled when the supplier\'s payments were cleared; nothing is owed on it.');
     }
 
     const result = await prisma.$transaction(async (tx) => {

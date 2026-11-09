@@ -6,6 +6,7 @@ import {
   Truck,
   ReceiptIndianRupee,
   Users,
+  UserSearch,
   ShoppingCart,
   CalendarClock,
   ArrowRightLeft,
@@ -91,6 +92,7 @@ const navSections: NavSection[] = [
       { to: '/sales', label: 'Sales', icon: ShoppingCart, perm: 'nav.sales', feature: FeatureKey.SALES },
       { to: '/installments', label: 'Installments', icon: CalendarClock, perm: 'nav.installments', feature: FeatureKey.INSTALLMENTS },
       { to: '/customers', label: 'Customers', icon: Users, perm: 'nav.customers', feature: FeatureKey.CUSTOMERS },
+      { to: '/customer-search', label: 'Customer Searching', icon: UserSearch, perm: 'nav.customer_search', feature: FeatureKey.CUSTOMER_SEARCH },
     ],
   },
   {

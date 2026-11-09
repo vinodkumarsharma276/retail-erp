@@ -261,8 +261,6 @@ function SaleListPageInner() {
     },
     {
       key: 'customer',
-      // The long text on this row, so spare width lands where it reads.
-      flexible: true,
       header: 'Customer',
       sortable: true,
       sortAccessor: (row) => {

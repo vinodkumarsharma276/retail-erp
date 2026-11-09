@@ -37,6 +37,7 @@ const MODULE_FEATURE: Record<string, string> = {
   expenses: FeatureKey.EXPENSES,
   bank: FeatureKey.BANK_RECONCILIATION,
   employees: FeatureKey.MOBILE_APP,
+  customer_search: FeatureKey.CUSTOMER_SEARCH,
 };
 
 /** Individual permissions tied to a feature (checked as well as their module's). */
@@ -52,6 +53,7 @@ const KEY_FEATURE: Record<string, string> = {
   'nav.expenses': FeatureKey.EXPENSES,
   'nav.bank': FeatureKey.BANK_RECONCILIATION,
   'nav.employees': FeatureKey.MOBILE_APP,
+  'nav.customer_search': FeatureKey.CUSTOMER_SEARCH,
   'shop.switch': FeatureKey.MULTI_SHOP,
   'shop.view_all': FeatureKey.ALL_SHOPS_VIEW,
   'shops.view_all': FeatureKey.ALL_SHOPS_VIEW,
@@ -107,6 +109,7 @@ const EXTRA_REQUIRES: Record<string, string[]> = {
   'purchases.create': ['distributors.list'],
   'purchases.create_unbilled': ['distributors.list'],
   'purchases.edit': ['distributors.list'],
+  'distributors.clear_payments': ['distributors.detail'],
   'sales.create_full_payment': ['customers.list', 'products.list'],
   'sales.create_partial_with_promise': ['customers.list', 'products.list'],
   'sales.create_company_finance': ['customers.list', 'products.list'],
@@ -125,6 +128,14 @@ const EXTRA_REQUIRES: Record<string, string[]> = {
   'customers.view_guarantor_chain': ['sales.view_real'],
   'dashboard.overdue_table': ['installments.list'],
   'dashboard.view_profit': ['sales.view_real'],
+  // Customer Searching files every entry under a Customer (matched on name +
+  // mobile), so it needs the customer list, and writing needs to create
+  // customers and see the mobiles it matches on. It deliberately does NOT
+  // need `sales.view_real`: staff see the co-applicant too (owner, 2026-11).
+  'customer_search.list': ['customers.list'],
+  'customer_search.create': ['customers.create', 'customers.view_phone'],
+  'customer_search.edit': ['customers.create', 'customers.view_phone'],
+  'customer_search.import': ['customers.create', 'customers.view_phone'],
 };
 
 /**

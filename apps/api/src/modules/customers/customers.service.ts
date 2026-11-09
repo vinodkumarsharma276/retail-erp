@@ -72,6 +72,8 @@ export const customersService = {
           { name: { contains: query, mode: 'insensitive' } },
           { customerCode: { contains: query, mode: 'insensitive' } },
           { saleRecords: { some: { ledgerNumber: { contains: query, mode: 'insensitive' } } } },
+          // Account Number from the account register (Customer Searching).
+          { registerEntries: { some: { accountNumber: { contains: query.replace(/\s+/g, ''), mode: 'insensitive' } } } },
         ],
       },
       include: {

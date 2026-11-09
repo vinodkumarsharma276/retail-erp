@@ -195,8 +195,6 @@ export function ProductListPage() {
     {
       key: 'modelNumber',
       header: 'Model',
-      // The longest text on the row, so spare width lands where it reads.
-      flexible: true,
       sortable: true,
       sortAccessor: (g) => g.modelNumber,
       render: (g) => (

@@ -21,7 +21,14 @@ const STOP = new Set([
   'ONL', 'ONLINE', 'REF', 'NO', 'TXN', 'UTR', 'PVT', 'LTD', 'BANK', 'NA', 'NULL', 'OTHERS', 'VPS', 'IPS', 'DEBIT', 'CREDIT', 'CARD',
   'HDFC', 'ICICI', 'SBI', 'AXIS', 'KOTAK', 'YESB', 'PAYTM', 'YBL', 'IBL', 'OKAXIS', 'OKHDFCBANK', 'OKICICI', 'OKSBI', 'INDIA',
   'CHQ', 'CLG', 'CTS', 'CLR', 'DT', 'GST', 'CGST', 'SGST', 'IGST', 'MANDATE', 'SI', 'AUTOPAY', 'DEP', 'WDL', 'CASH', 'SELF', 'IMPS-P2A', 'AND', 'THE', 'FOR', 'VIA',
+  // Federal Bank codes: NFT = NEFT, TFR/FT/CLG = transaction type, IN/OUT = UPI direction, ACHDR/ACHCR = NACH, STD INS = standing instruction.
+  'NFT', 'TFR', 'IN', 'OUT', 'ACHDR', 'ACHCR', 'STD', 'INS', 'WWW',
+  // UPI remarks, often cut short.
+  'PAID', 'REMARK', 'USING', 'SENT',
 ]);
+
+/** Free-text remark words that, cut short, show up as fake payees ("Payme", "Paid sup"). */
+const REMARK_PREFIX = /^(pay|paid|sent|navi|remark|na)/i;
 
 const KEEP_CASE = new Set(['pvt', 'ltd', 'llp', 'inc', 'mr', 'mrs', 'ms', 'dr', 'st']);
 
@@ -37,33 +44,67 @@ function titleCase(s: string) {
     .join(' ');
 }
 
+/** UPI ids as banks print them; a wrapped id is rejoined first ("sandeep.9489- 13@waicici"). */
+const VPA = /([a-z0-9][a-z0-9._-]{1,})@([a-z]*)/i;
+
+/** A name from a UPI id's handle: "harish15kaira" -> "Harish Kaira"; a phone-number handle has no name. */
+function nameFromHandle(handle: string): string | null {
+  if (/^\d{10}/.test(handle)) return null;
+  const words = handle
+    .split(/[._\-\d]+/)
+    .filter((w) => w.length >= 2 && !STOP.has(w.toUpperCase()));
+  // "ak3733176951" — two letters say nothing; the id itself is the better label.
+  if (words.join('').length < 3) return null;
+  return titleCase(words.slice(0, 3).join(' '));
+}
+
+/** A name-like token: no reference codes, no leading filler words, no stray trailing letter. */
+function nameFromToken(token: string): string | null {
+  const words = token
+    // References and IFSCs mix letters and digits (FBBT262925890053, ICIC0001917, S93626886).
+    .replace(/\b(?=[A-Z]*\d)(?=\d*[A-Z])[A-Z0-9]{5,}\b/gi, ' ')
+    .replace(/[^A-Za-z&.' ]/g, ' ')
+    .split(' ')
+    .map((w) => w.replace(/^\.+|\.+$/g, ''))
+    .filter(Boolean);
+  let start = 0;
+  while (start < words.length && STOP.has(words[start].toUpperCase())) start++;
+  let end = words.length;
+  // A narration cut mid-word leaves one letter behind ("… ICIC0001917 V").
+  while (end > start && words[end - 1].length === 1) end--;
+  let name = words.slice(start, end);
+  if (!name.length || name.every((w) => STOP.has(w.toUpperCase()))) return null;
+  if (name.length === 1 && (REMARK_PREFIX.test(name[0]) || name[0].length <= 3)) return null;
+  // Some banks print the beneficiary twice ("LBS AIRCON LBS AIRCON").
+  const half = name.length / 2;
+  if (Number.isInteger(half) && name.slice(0, half).join(' ').toUpperCase() === name.slice(half).join(' ').toUpperCase()) name = name.slice(0, half);
+  const cleaned = name.join(' ').replace(/\s+(CHQ|CHEQUE)\b.*$/i, '');
+  if (cleaned.replace(/[^A-Za-z]/g, '').length < 3) return null;
+  return titleCase(cleaned).slice(0, 60);
+}
+
 /**
  * Pull the most likely payee / payer name out of a bank narration, e.g.
  *   "UPI/DR/412345678901/RAMESH KUMAR/SBIN/ramesh@oksbi/Payment" -> "Ramesh Kumar"
  *   "NEFT-HDFCR52024031512345-SAMSUNG INDIA ELECTRONICS PVT LTD-..." -> "Samsung India Electronics Pvt Ltd"
+ *   "NFT/FBBT262925890053 Laxmi Enterpris ICIC0001917 V / FT" -> "Laxmi Enterpris"
+ *   "UPI IN/004768578765 /harish15kaira@axl/Payment f/5722 / TFR" -> "Harish Kaira"
+ * With a UPI id, only text *before* it can be the name; what follows is the payer's remark.
  */
 export function extractCounterparty(desc: string): string | null {
-  const vpa = desc.match(/([a-z0-9._-]{3,})@[a-z]{2,}/i);
-  const tokens = desc
-    .replace(/[a-z0-9._-]+@[a-z]+/gi, ' ')
-    .split(/[\/|:*#]|\s-\s|-(?=[A-Z])|(?<=[A-Z0-9])-|\s{2,}/)
-    .map((t) => t.trim())
-    .filter((t) => t && !/^[A-Z]{4}0[A-Z0-9]{6}$/i.test(t)) // drop IFSC codes before digits are stripped
-    .map((t) => t.replace(/[^A-Za-z&.' ]/g, ' ').replace(/\s+/g, ' ').trim())
-    .filter(Boolean);
-
+  const text = desc.replace(/([.\-_])\s+(?=[a-z0-9._-]*@)/gi, '$1');
+  const vpa = VPA.exec(text);
+  const head = vpa ? text.slice(0, vpa.index) : text;
+  const tokens = head.split(/[\/|:*#]|\s-\s|-(?=[A-Z])|(?<=[A-Z0-9])-|\s{2,}/);
   for (const t of tokens) {
-    const words = t.split(' ').filter((w) => w.length > 1);
-    if (!words.length) continue;
-    if (words.every((w) => STOP.has(w.toUpperCase()))) continue;
-    // Drop leading filler words ("To TRF ...", "By CLR CTS ...") and trailing cheque noise.
-    let start = 0;
-    while (start < words.length && STOP.has(words[start].toUpperCase())) start++;
-    const cleaned = words.slice(start).join(' ').replace(/\s+(CHQ|CHEQUE)\b.*$/i, '');
-    if (cleaned.replace(/[^A-Za-z]/g, '').length < 3) continue;
-    return titleCase(cleaned).slice(0, 60);
+    const name = nameFromToken(t.trim());
+    if (name) return name;
   }
-  if (vpa) return vpa[1].replace(/[._-]+/g, ' ').replace(/\d+/g, '').trim() || null;
+  if (vpa) {
+    const handle = vpa[1].replace(/[._-]+$/, '');
+    // A phone-number id is still the best key for "the same person paid again".
+    return nameFromHandle(handle) ?? `${handle}@${vpa[2]}`.slice(0, 60);
+  }
   return null;
 }
 

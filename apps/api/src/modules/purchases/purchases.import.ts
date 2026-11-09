@@ -7,6 +7,7 @@ import type {
   PurchaseImportRow,
 } from '@retailerp/shared-types';
 import { prisma } from '../../config/database.js';
+import { applySupplierAdvances } from '../distributors/supplier-advances.js';
 
 /**
  * Bulk import of purchases from a spreadsheet (a Tally purchase register,
@@ -599,6 +600,9 @@ export const purchaseImportService = {
                 createdBy: ctx.userId,
               },
             });
+          } else {
+            // Money already paid to this supplier in advance pays this bill first.
+            await applySupplierAdvances(tx, ctx.shopId, distributorId!);
           }
           return { created: purchase.id };
         });

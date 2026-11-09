@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ChevronsUpDown, ChevronUp, Download } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { ColumnPicker } from './ColumnPicker';
@@ -47,19 +47,6 @@ export interface Column<T> {
   exportValue?: (row: T) => string | number | null | undefined;
   /** Keep this column out of exports (row numbers, button clusters). */
   exportable?: boolean;
-  /**
-   * Give this column whatever width is left over.
-   *
-   * A table narrower than the space it has to fill has to put the slack
-   * somewhere, and left to itself the browser spreads it across every
-   * column — which strands a cluster of icons at the left of a very wide
-   * Actions cell and reads as a hole in the table. Handing it to one column
-   * that can use it, the name usually, leaves every other column snug.
-   *
-   * Unset on every column, the first sortable left-aligned one takes it,
-   * which is the name column in practice.
-   */
-  flexible?: boolean;
 }
 
 export type SortDir = 'asc' | 'desc';
@@ -158,6 +145,32 @@ const SELECT_COLUMN_WIDTH = 40;
 /** The chevron column on a table whose rows open. */
 const EXPANDER_COLUMN_WIDTH = 32;
 
+/**
+ * Scale widths to add up to `available`, keeping their proportions, with no
+ * column below the minimum. Columns that would be squeezed under it are held
+ * at the minimum and the rest share what remains; if even that cannot fit,
+ * every column sits at its minimum and the table scrolls.
+ */
+function fitWidths(widths: Record<string, number>, available: number): Record<string, number> {
+  const keys = Object.keys(widths);
+  if (available <= 0 || keys.length === 0) return widths;
+  const floored = new Set<string>();
+  let out: Record<string, number> = {};
+  for (let pass = 0; pass <= keys.length; pass++) {
+    const free = keys.filter((k) => !floored.has(k));
+    const room = available - floored.size * MIN_COLUMN_WIDTH;
+    const total = free.reduce((sum, k) => sum + widths[k], 0);
+    if (free.length === 0 || room <= 0 || total <= 0) {
+      return Object.fromEntries(keys.map((k) => [k, MIN_COLUMN_WIDTH]));
+    }
+    out = Object.fromEntries(keys.map((k) => [k, floored.has(k) ? MIN_COLUMN_WIDTH : (widths[k] * room) / total]));
+    const under = free.filter((k) => out[k] < MIN_COLUMN_WIDTH);
+    if (under.length === 0) break;
+    for (const k of under) floored.add(k);
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -186,7 +199,7 @@ export function DataTable<T>({
   const keyOf = (row: T, idx: number) => (rowKey ? rowKey(row, idx) : String(idx));
 
   // ------ What this viewer wants to see, and how wide ------
-  const { prefs, toggleColumn, setWidth, setWidths, clearWidths, reset } = useTablePreferences(tableId);
+  const { prefs, toggleColumn, setWidths, clearWidths, reset } = useTablePreferences(tableId);
   const tableRef = useRef<HTMLTableElement>(null);
   /**
    * How much room the table has.
@@ -299,131 +312,100 @@ export function DataTable<T>({
   /** What the header arrows should show. */
   const activeSort = serverSort ? { key: serverSort.key, dir: serverSort.dir } : sort;
 
-  // ------ Dragging a column wider or narrower ------
-  /** The drag in progress, shown live before it is written down. */
-  const [dragging, setDragging] = useState<{ key: string; width: number } | null>(null);
-
-  const widthFor = (key: string) =>
-    dragging?.key === key ? dragging.width : prefs.widths[key];
-
+  // ------ Column widths: always exactly the width of the page ------
   /**
-   * Widths only hold under `table-layout: fixed`; on auto the browser sizes
-   * to content and ignores them. Switching layout mid-table would jump, so
-   * every column's current width is written down on the first drag and the
-   * table changes over already measured.
+   * Saved widths are proportions, not promises. On screen the columns are
+   * always scaled to fill the room the table has — no dead band at the right
+   * when they add up to less, and no last column pushed off the edge when
+   * they add up to more. Before anyone has dragged anything, the starting
+   * proportions are each column's natural width (measured once, from the
+   * content, the moment there are rows to measure).
    *
-   * All or nothing: a column with no width of its own would be handed
-   * whatever space is left over, which is not a width anybody chose. If one
-   * turns up without (a column added to the code since, or un-hidden having
-   * never been measured) the table goes back to sizing itself, and the next
-   * drag measures the lot again.
+   * Dragging keeps that true: the dragged edge follows the pointer and the
+   * other columns give or take the difference in proportion, so the table
+   * still ends at the right-hand edge. Only when every column is down to
+   * its minimum does the table outgrow the page and scroll.
    */
-  /**
-   * One column is elastic: it is never given a width of its own, so it
-   * takes whatever the others do not use and the table stays full with
-   * nothing dead at the end.
-   *
-   * A column the person has dragged is a width they chose, so it stops
-   * being eligible — otherwise the elastic column could never be made
-   * narrower, since every pixel taken off it came straight back as slack.
-   * Drag them all and there is nothing left to stretch, which is fine: the
-   * table is then exactly the widths asked for.
-   */
-  const pinned = (key: string) => prefs.widths[key] != null;
+  const extrasWidth = (picking ? SELECT_COLUMN_WIDTH : 0) + (expanding ? EXPANDER_COLUMN_WIDTH : 0);
+  const availableWidth = viewportWidth > 0 ? viewportWidth - extrasWidth : 0;
+  const visibleSignature = visibleColumns.map((col) => col.key).join('|');
 
-  const flexCandidates = [
-    ...visibleColumns.filter((col) => col.flexible),
-    ...visibleColumns.filter(
-      (col) => col.sortable && col.align !== 'right' && col.align !== 'center' && col.key !== 'sno',
-    ),
-    ...visibleColumns.filter((col) => col.align !== 'right' && col.align !== 'center'),
-  ];
+  /** Natural widths, measured from the content for the columns now on show. */
+  const [natural, setNatural] = useState<{ signature: string; widths: Record<string, number> } | null>(null);
+  /** The drag in progress: every column's width, shown live before it is written down. */
+  const [dragging, setDragging] = useState<{ key: string; widths: Record<string, number> } | null>(null);
 
-  const flexibleKey = flexCandidates.find((col) => !pinned(col.key))?.key ?? null;
+  const baseWidths = useMemo(() => {
+    const measured = natural?.signature === visibleSignature ? natural.widths : null;
+    const known = visibleColumns.map((col) => prefs.widths[col.key] ?? measured?.[col.key]);
+    const given = known.filter((w): w is number => w != null && w > 0);
+    if (!given.length) return null;
+    // A column shown since the widths were saved starts at the average.
+    const fallback = given.reduce((a, b) => a + b, 0) / given.length;
+    return Object.fromEntries(visibleColumns.map((col, i) => [col.key, known[i] ?? fallback]));
+  }, [visibleColumns, visibleSignature, prefs.widths, natural]);
 
-  const anyWidthSet =
-    visibleColumns.length > 0 &&
-    Object.keys(prefs.widths).length > 0 &&
-    // The elastic column is deliberately left without one — it is the thing
-    // that takes up the slack — so it does not count against "all set".
-    visibleColumns.every((col) => col.key === flexibleKey || widthFor(col.key) != null);
+  const displayWidths = dragging?.widths ?? (baseWidths ? fitWidths(baseWidths, availableWidth) : null);
+  const fixedLayout = displayWidths != null;
+  const tableWidth = displayWidths
+    ? Object.values(displayWidths).reduce((a, b) => a + b, 0) + extrasWidth
+    : null;
 
-  /**
-   * The table is sized to its columns, not to the box around it.
-   *
-   * This is the whole trick: under `table-layout: fixed` at `width: 100%`,
-   * the browser shares out the difference between the widths it was given
-   * and the width it has to fill — so dragging one column quietly moves
-   * every other one. Summing them instead means the dragged edge is the
-   * only thing that moves, and the wrapper scrolls when they outgrow it.
-   */
-  /** Everything except the elastic column, which is what is left over. */
-  const pinnedTotal =
-    visibleColumns.reduce(
-      (sum, col) => sum + (col.key === flexibleKey ? 0 : (widthFor(col.key) ?? 0)),
-      0,
-    ) +
-    (picking ? SELECT_COLUMN_WIDTH : 0) +
-    (expanding ? EXPANDER_COLUMN_WIDTH : 0);
-
-  /**
-   * What the elastic column gets: the room left over, but never so little
-   * that it disappears. When it hits that floor the table outgrows its box
-   * and scrolls, which is the honest outcome — better than a column
-   * silently reduced to nothing.
-   */
-  const elasticWidth =
-    anyWidthSet && flexibleKey && viewportWidth > 0
-      ? Math.max(MIN_COLUMN_WIDTH, viewportWidth - pinnedTotal)
-      : null;
-
-  const totalWidth = anyWidthSet ? pinnedTotal + (elasticWidth ?? 0) : null;
+  // First time there are rows to look at, take each column's natural width as
+  // its starting proportion. Done before paint, so the page never shows the
+  // unfitted layout.
+  useLayoutEffect(() => {
+    if (baseWidths || !tableRef.current || sortedData.length === 0) return;
+    const widths: Record<string, number> = {};
+    for (const cell of tableRef.current.querySelectorAll<HTMLTableCellElement>('thead th[data-col]')) {
+      if (cell.dataset.col) widths[cell.dataset.col] = cell.getBoundingClientRect().width;
+    }
+    if (Object.keys(widths).length) setNatural({ signature: visibleSignature, widths });
+  }, [baseWidths, visibleSignature, sortedData.length]);
 
   const startResize = (event: React.PointerEvent<HTMLSpanElement>, key: string) => {
     event.preventDefault();
     // The handle sits in the header; the header sorts. Not this click.
     event.stopPropagation();
+    if (!tableRef.current) return;
 
-    const th = (event.currentTarget.closest('th') as HTMLTableCellElement | null);
-    if (!th) return;
-    const startX = event.clientX;
-    const startWidth = th.getBoundingClientRect().width;
-
-    // Pin every column at what it measures now, in one go, so the table can
-    // switch to fixed layout without anything shifting. The elastic column
-    // is left alone unless it is the one being dragged: pinning it would
-    // leave nothing to take up the slack, and the dead space at the end of
-    // the table would be back.
-    if (!anyWidthSet && tableRef.current) {
-      const measured: Record<string, number> = {};
+    // What every column measures now: the fitted widths, or the browser's if
+    // nothing has been measured yet.
+    let current = displayWidths;
+    if (!current) {
+      current = {};
       for (const cell of tableRef.current.querySelectorAll<HTMLTableCellElement>('thead th[data-col]')) {
-        const colKey = cell.dataset.col;
-        if (!colKey) continue;
-        if (colKey === flexibleKey && colKey !== key) continue;
-        measured[colKey] = cell.getBoundingClientRect().width;
+        if (cell.dataset.col) current[cell.dataset.col] = cell.getBoundingClientRect().width;
       }
-      setWidths(measured);
     }
+    const start = current;
+    const startWidth = start[key] ?? MIN_COLUMN_WIDTH;
+    const others = Object.keys(start).filter((k) => k !== key);
+    const startX = event.clientX;
+
+    /** Dragged column at the pointer; the others share what is left, in proportion. */
+    const widthsAt = (dx: number): Record<string, number> => {
+      if (availableWidth <= 0) return { ...start, [key]: Math.max(MIN_COLUMN_WIDTH, startWidth + dx) };
+      const widest = Math.max(MIN_COLUMN_WIDTH, availableWidth - MIN_COLUMN_WIDTH * others.length);
+      const width = Math.min(widest, Math.max(MIN_COLUMN_WIDTH, startWidth + dx));
+      const rest = fitWidths(Object.fromEntries(others.map((k) => [k, start[k]])), availableWidth - width);
+      return { ...rest, [key]: width };
+    };
 
     // No pointer capture: the move and up listeners are on the window, which
     // already follows the pointer off the handle, and capture throws on a
     // synthetic event — taking the whole drag down with it.
-    setDragging({ key, width: startWidth });
-
-    const onMove = (move: PointerEvent) => {
-      setDragging({ key, width: Math.max(MIN_COLUMN_WIDTH, startWidth + (move.clientX - startX)) });
-    };
+    setDragging({ key, widths: widthsAt(0) });
+    const onMove = (move: PointerEvent) => setDragging({ key, widths: widthsAt(move.clientX - startX) });
     const onUp = (up: PointerEvent) => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
-      setWidth(key, Math.max(MIN_COLUMN_WIDTH, startWidth + (up.clientX - startX)));
+      setWidths(widthsAt(up.clientX - startX));
       setDragging(null);
     };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
   };
-
-
   const columnPickerItems = columns.map((col) => ({
     key: col.key,
     label: col.header || col.key,
@@ -657,25 +639,10 @@ export function DataTable<T>({
       <div ref={scrollRef} className="hidden overflow-x-auto md:block">
         <table
           ref={tableRef}
-          className={cn(
-            'text-sm',
-            anyWidthSet && 'table-fixed',
-            // Only stretch to fill the box while some column can absorb the
-            // slack. Once every one of them is a width the person chose,
-            // the table is the sum of those widths and ends there.
-            (!anyWidthSet || flexibleKey) && 'w-full',
-          )}
-          style={
-            totalWidth == null
-              ? undefined
-              : flexibleKey
-                ? { minWidth: totalWidth }
-                : // `table-layout: fixed` is ignored on a table whose width
-                  // is auto, and the column widths go back to being decided
-                  // by content. With nothing left to stretch, the width has
-                  // to be stated outright or none of them are honoured.
-                  { width: totalWidth }
-          }
+          className={cn('text-sm', fixedLayout ? 'table-fixed' : 'w-full')}
+          // Fixed layout honours column widths only on a table whose own
+          // width is stated, so it is the sum of the fitted columns.
+          style={tableWidth != null ? { width: tableWidth } : undefined}
         >
           <thead>
             <tr className="border-b border-border bg-muted/40">
@@ -707,33 +674,18 @@ export function DataTable<T>({
               {visibleColumns.map((col) => {
                 const isActive = activeSort?.key === col.key;
                 const Icon = !isActive ? ChevronsUpDown : activeSort?.dir === 'asc' ? ChevronUp : ChevronDown;
-                const width = widthFor(col.key);
+                const width = displayWidths?.[col.key];
                 const canResize = canCustomise && col.resizable !== false;
                 return (
                   <th
                     key={col.key}
                     data-col={col.key}
-                    style={
-                      // The elastic column is never pinned, in either
-                      // layout: left to find its own width it takes
-                      // whatever the others do not use, which is what
-                      // keeps the table full without an empty column at
-                      // the end. A width dragged onto it becomes its floor.
-                      col.key === flexibleKey
-                        ? elasticWidth != null
-                          ? { width: elasticWidth, minWidth: elasticWidth, maxWidth: elasticWidth }
-                          : // Sizing itself: 100% here means "take what
-                            // nobody else needs", not the whole table.
-                            { width: '100%' }
-                        : width
-                          ? { width, minWidth: width, maxWidth: width }
-                          : undefined
-                    }
+                    style={width ? { width, minWidth: width, maxWidth: width } : undefined}
                     className={cn(
                       'group/th relative h-9 px-3 text-left align-middle text-overline',
                       // Fixed layout has to be allowed to clip, or a long
-                      // header keeps the column wider than it was dragged.
-                      anyWidthSet ? 'truncate' : 'whitespace-nowrap',
+                      // header keeps the column wider than it was given.
+                      fixedLayout ? 'truncate' : 'whitespace-nowrap',
                       col.align === 'center' && 'text-center',
                       col.align === 'right' && 'text-right',
                     )}
@@ -744,9 +696,8 @@ export function DataTable<T>({
                         aria-orientation="vertical"
                         aria-label={`Resize ${col.header || col.key} column`}
                         onPointerDown={(e) => startResize(e, col.key)}
-                        // Back to columns sizing themselves. All of them: one
-                        // column without a width would be handed the
-                        // leftovers rather than a width anybody chose.
+                        // Back to the columns' natural proportions. All of them:
+                        // the widths are one set of proportions, not separate.
                         onDoubleClick={(e) => {
                           e.stopPropagation();
                           clearWidths();
@@ -854,7 +805,7 @@ export function DataTable<T>({
                       'px-3 py-2 align-middle',
                       // Under fixed layout a cell has to clip, or its
                       // contents hold the column open against the drag.
-                      anyWidthSet && 'truncate',
+                      fixedLayout && 'truncate',
                       col.align === 'center' && 'text-center',
                       col.align === 'right' && 'text-right',
                       col.className,

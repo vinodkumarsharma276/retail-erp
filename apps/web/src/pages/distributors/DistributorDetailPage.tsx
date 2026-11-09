@@ -14,6 +14,8 @@ import {
   PackagePlus,
   X,
   CheckCircle,
+  Wallet,
+  Eraser,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import {
@@ -21,7 +23,9 @@ import {
   useDistributorProductsQuery,
   useDistributorPaymentsQuery,
   useRecordDistributorPaymentMutation,
+  type LumpsumPaymentResult,
 } from '../../hooks/useDistributors';
+import { ClearPaymentsDialog } from './ClearPaymentsDialog';
 import { usePurchasesQuery } from '../../hooks/usePurchases';
 import { DataTable } from '../../components/DataTable';
 import type { Column, PaginationState } from '../../components/DataTable';
@@ -66,6 +70,12 @@ export function DistributorDetailPage() {
   // A purchase belongs to one shop's books, so it cannot be started while the
   // header is showing every shop at once.
   const allShopsMode = isAllShops(useShopStore((s) => s.currentShopId));
+  // The shop that holds any money paid beyond the open bills, as an advance.
+  const headerShopName = useShopStore((s) => s.currentShopName);
+  const advanceShopName = allShopsMode ? null : headerShopName;
+
+  // Clearing payments (owner): across every shop, like the totals on this page.
+  const [showClear, setShowClear] = useState(false);
 
   // Distributor detail
   const { data: distributor, isLoading, isError } = useDistributorDetailQuery(id);
@@ -79,7 +89,7 @@ export function DistributorDetailPage() {
     allShops: true,
   });
   const allPurchases = allPurchasesQuery.data?.data ?? [];
-  const pendingPurchases = allPurchases.filter((p) => p.paymentStatus !== 'paid');
+  const pendingPurchases = allPurchases.filter((p) => p.paymentStatus !== 'paid' && p.paymentStatus !== 'settled');
   const totalPending = pendingPurchases.reduce(
     (sum, p) => sum + (Number(p.netAmount) - Number(p.amountPaid)),
     0,
@@ -128,6 +138,8 @@ export function DistributorDetailPage() {
     id: dc.category?.id ?? dc.categoryId ?? dc.id,
     name: dc.category?.name ?? (dc as any).name ?? 'Unknown',
   }));
+  const advances =
+    ((distributor as any).advances as Array<{ shop: { id: string; name: string }; remaining: number }> | undefined) ?? [];
 
   return (
     <div>
@@ -179,19 +191,39 @@ export function DistributorDetailPage() {
               </button>
             )
           )}
-          {totalPending > 0 && can('purchases.record_payment') && (
+          {(totalPending > 0 || !allShopsMode) && can('purchases.record_payment') && (
             <button
               onClick={() => setShowPaymentDialog(true)}
+              title={totalPending > 0 ? undefined : `Nothing is owed; money paid now is held as an advance for ${advanceShopName}`}
               className={cn(
                 'flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium',
                 'bg-primary text-primary-foreground hover:bg-primary/90 transition-colors',
               )}
             >
               <Banknote className="h-4 w-4" />
-              Make Payment
-              <span className="ml-1 text-xs opacity-90">
-                ({formatINR(totalPending)})
-              </span>
+              {totalPending > 0 ? (
+                <>
+                  Make Payment
+                  <span className="ml-1 text-xs opacity-90">
+                    ({formatINR(totalPending)})
+                  </span>
+                </>
+              ) : (
+                'Pay in advance'
+              )}
+            </button>
+          )}
+          {can('distributors.clear_payments') && (
+            <button
+              onClick={() => setShowClear(true)}
+              title="Delete every payment and advance and mark every bill settled, in all shops: Total paid and Pending go to ₹0"
+              className={cn(
+                'flex items-center gap-2 rounded-md border border-destructive/40 px-4 py-2 text-sm font-medium text-destructive',
+                'hover:bg-destructive/10 transition-colors',
+              )}
+            >
+              <Eraser className="h-4 w-4" />
+              Clear payments
             </button>
           )}
           {can('distributors.edit') && (
@@ -208,6 +240,21 @@ export function DistributorDetailPage() {
           )}
         </div>
       </div>
+
+      {/* Advance held: money paid before the bills, adjusted against the next ones */}
+      {advances.length > 0 && (
+        <div className="mb-6 flex items-start gap-3 rounded-lg border border-green-300 bg-green-50 p-4 text-sm dark:border-green-800 dark:bg-green-950/30">
+          <Wallet className="mt-0.5 h-5 w-5 flex-shrink-0 text-green-700 dark:text-green-400" />
+          <div>
+            <p className="font-medium text-green-800 dark:text-green-200">
+              Advance paid: {formatINR(advances.reduce((s, a) => s + a.remaining, 0))}
+            </p>
+            <p className="mt-0.5 text-green-700 dark:text-green-400">
+              {advances.map((a) => `${a.shop.name} ${formatINR(a.remaining)}`).join(' · ')} — adjusted automatically against their next bills at that shop.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Info card */}
       <div className="rounded-lg border bg-card p-6 mb-6">
@@ -312,9 +359,12 @@ export function DistributorDetailPage() {
           distributorId={id!}
           totalPending={totalPending}
           pendingInvoiceCount={pendingPurchases.length}
+          advanceShopName={advanceShopName}
           onClose={() => setShowPaymentDialog(false)}
         />
       )}
+
+      {id && <ClearPaymentsDialog ids={[id]} open={showClear} onClose={() => setShowClear(false)} />}
     </div>
   );
 }
@@ -524,11 +574,19 @@ function PaymentsTab({ distributorId }: { distributorId: string }) {
     {
       key: 'invoice',
       header: 'Invoice #',
-      render: (row) => (
-        <span className="font-mono text-xs">
-          {row.purchase?.invoiceNumber ?? row.invoiceNumber ?? '-'}
-        </span>
-      ),
+      render: (row) =>
+        row.isAdvance ? (
+          <span className="text-xs font-medium text-green-700 dark:text-green-400">
+            Advance{row.shop ? ` · ${row.shop.name}` : ''}
+            {' — '}
+            {Number(row.advanceRemaining) > 0 ? `${formatINR(Number(row.advanceRemaining))} not yet adjusted` : 'fully adjusted'}
+          </span>
+        ) : (
+          <span className="font-mono text-xs">
+            {row.purchase?.invoiceNumber ?? row.invoiceNumber ?? '-'}
+            {row.fromAdvance && <span className="ml-1.5 font-sans text-muted-foreground">(from advance)</span>}
+          </span>
+        ),
     },
   ];
 
@@ -572,7 +630,7 @@ function PendingInvoicesTab({ distributorId }: { distributorId: string }) {
 
   // Filter to only show non-fully-paid invoices for the "Pending Invoices" tab
   const pendingPurchases = purchases.filter(
-    (p) => p.paymentStatus !== 'paid',
+    (p) => p.paymentStatus !== 'paid' && p.paymentStatus !== 'settled',
   );
 
   const columns: Column<Purchase>[] = [
@@ -621,7 +679,7 @@ function PendingInvoicesTab({ distributorId }: { distributorId: string }) {
       header: 'Pending',
       align: 'right',
       render: (row) => {
-        const pending = (Number(row.netAmount) || 0) - (Number(row.amountPaid) || 0);
+        const pending = row.paymentStatus === 'settled' ? 0 : (Number(row.netAmount) || 0) - (Number(row.amountPaid) || 0);
         return (
           <span className={cn(pending > 0 ? 'text-red-600 font-medium' : '')}>
             {formatINR(pending)}
@@ -675,11 +733,14 @@ function LumpsumPaymentDialog({
   distributorId,
   totalPending,
   pendingInvoiceCount,
+  advanceShopName,
   onClose,
 }: {
   distributorId: string;
   totalPending: number;
   pendingInvoiceCount: number;
+  /** Shop that holds any excess as an advance; null in "All Shops" mode. */
+  advanceShopName: string | null;
   onClose: () => void;
 }) {
   useEscapeKey(true, onClose);
@@ -718,12 +779,7 @@ function LumpsumPaymentDialog({
 
   const removeTender = (id: string) =>
     setTenders((prev) => (prev.length === 1 ? prev : prev.filter((t) => t.id !== id)));
-  const [result, setResult] = useState<{
-    totalDistributed: number;
-    invoicesPaidFull: number;
-    invoicesPaidPartial: number;
-    remainingAmount: number;
-  } | null>(null);
+  const [result, setResult] = useState<LumpsumPaymentResult | null>(null);
 
   const parsedAmount = tenders.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
   const everyTenderFilled = tenders.every((t) => (parseFloat(t.amount) || 0) > 0 && t.paymentMode);
@@ -748,7 +804,14 @@ function LumpsumPaymentDialog({
       });
       setResult(res);
       toast.success(
-        `Payment of ${formatINR(res.totalDistributed)} distributed across ${res.invoicesPaidFull + res.invoicesPaidPartial} invoice(s)`,
+        [
+          res.totalDistributed > 0
+            ? `Payment of ${formatINR(res.totalDistributed)} distributed across ${res.invoicesPaidFull + res.invoicesPaidPartial} invoice(s)`
+            : '',
+          res.advanceAmount > 0 ? `${formatINR(res.advanceAmount)} kept as an advance` : '',
+        ]
+          .filter(Boolean)
+          .join('; '),
       );
     } catch (error: any) {
       const message =
@@ -804,8 +867,12 @@ function LumpsumPaymentDialog({
                 <p className="text-lg font-semibold mt-1">{formatINR(result.totalDistributed)}</p>
               </div>
               <div className="rounded-md border p-3">
-                <p className="text-muted-foreground">Remaining (Unallocated)</p>
-                <p className="text-lg font-semibold mt-1">{formatINR(result.remainingAmount)}</p>
+                <p className="text-muted-foreground">
+                  {result.advanceAmount > 0 ? 'Kept as Advance' : 'Remaining (Unallocated)'}
+                </p>
+                <p className={cn('text-lg font-semibold mt-1', result.advanceAmount > 0 && 'text-green-700 dark:text-green-400')}>
+                  {formatINR(result.advanceAmount > 0 ? result.advanceAmount : result.remainingAmount)}
+                </p>
               </div>
             </div>
 
@@ -919,8 +986,10 @@ function LumpsumPaymentDialog({
 
               {parsedAmount > totalPending && (
                 <p className="text-xs text-amber-600">
-                  That is {formatINR(parsedAmount - totalPending)} more than is outstanding. The
-                  excess stays unallocated.
+                  That is {formatINR(parsedAmount - totalPending)} more than is outstanding.{' '}
+                  {advanceShopName
+                    ? `It will be kept as an advance for ${advanceShopName} and adjusted automatically against this supplier's next bills there.`
+                    : 'Choose one shop in the header to keep the excess as an advance; with All Shops selected it stays unallocated.'}
                 </p>
               )}
             </div>

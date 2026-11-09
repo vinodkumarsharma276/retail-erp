@@ -57,7 +57,7 @@ npm run test --workspace=apps/api -- tests/unit/allocator.test.ts   # single fil
 - Schema change: edit `apps/api/prisma/schema.prisma`, then from `apps/api`:
   `npx prisma migrate dev --name <snake_case>` → commit the migration folder.
 - Background jobs only run with `ENABLE_SCHEDULER=true` (`SCHEDULER_CRON`, `BANK_FEED_CRON`, `SCHEDULER_TZ`).
-- OCR / statement AI are disabled unless `OPENAI_API_KEY` is set (see `apps/api/src/config/index.ts`).
+- OCR / statement AI / customer-name matching AI are disabled unless `OPENAI_API_KEY` is set (see `apps/api/src/config/index.ts`); name matching then falls back to edit distance.
 - Dev passwords: seed default `RetailERP@2026`; `npx tsx scripts/set-dev-password.ts` (in `apps/api`) sets all to `1234`.
 
 ## Architecture rules (read before changing code)
@@ -112,6 +112,15 @@ npm run test --workspace=apps/api -- tests/unit/allocator.test.ts   # single fil
   `apps/api/src/modules/installments/installments.{engine,allocator,derivations}.ts`.
   [docs/installment/installment.md](docs/installment/installment.md) describes the **legacy** redistribution model.
 - **Ledger number** on every sale mirrors the physical office register (e.g. `VE001`).
+- **Customer Searching** (`modules/customer-search`, feature `customer_search`) is the account
+  register moved off a Google Sheet: one entry per item bought, with an **Account Number**
+  (`BD-1`, `CI2-421`, `MJ12`) that may repeat — a reused number is allowed but flagged. Every
+  entry is filed under a Customer matched on **name + mobile** — never mobile alone, relatives
+  share phones; the co-applicant is a Customer with `isGuarantor`. Unlike installments, it does
+  not need `sales.view_real`. Problems (no mobile, reused number…) are stored per entry in
+  `issues` and kept current by `refreshIssues`; the UI lists them under "Needs review".
+  Changing an entry's shop moves its customer too unless they have other entries/sales in the
+  old shop. See docs/CONTEXT.md §6.
 - Inter-shop transfers are a sale/purchase between two GST entities with a full item audit trail.
 
 ## Code conventions

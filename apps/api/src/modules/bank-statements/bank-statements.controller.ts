@@ -2,6 +2,7 @@ import path from 'node:path';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { ZodError } from 'zod';
 import { prisma } from '../../config/database.js';
+import { loadUsablePermissions } from '../../middleware/permissions.js';
 import { sendError, sendSuccess } from '../../utils/response.js';
 import { config } from './engine/config.js';
 import { SUPPORTED_EXT } from './engine/parsers/index.js';
@@ -18,6 +19,7 @@ import {
   statementPatchSchema,
   supplierPaymentSchema,
   txPatchSchema,
+  txIdsSchema,
   uploadFieldsSchema,
 } from './bank-statements.validation.js';
 
@@ -32,6 +34,12 @@ export function scopeOf(request: FastifyRequest): Scope {
 async function reviewerName(request: FastifyRequest) {
   const user = await prisma.user.findUnique({ where: { id: request.currentUser!.userId }, select: { fullName: true } });
   return user?.fullName || request.currentUser!.username;
+}
+
+/** Deleting bank rows also takes back supplier payments recorded from them — only for those who may record them. */
+async function canUndoPayments(request: FastifyRequest) {
+  const perms = await loadUsablePermissions(request.currentUser!.userId, request.shopFilter!.tenantId);
+  return perms.has('purchases.record_payment');
 }
 
 /** Map service / validation / multipart errors to the app's `{ success: false, error }` shape. */
@@ -83,8 +91,19 @@ export const bankStatementsController = {
       password: field('password'),
       bankAccountId: field('bankAccountId'),
       duplicates: field('duplicates'),
+      allowOtherShop: field('allowOtherShop'),
     });
     const buffer = await part.toBuffer();
+    const sf = req.shopFilter!;
+    // Shops the uploader could switch this upload to (same rule as the shop-scope middleware).
+    const switchableShopIds = (await loadUsablePermissions(req.currentUser!.userId, sf.tenantId)).has('shop.switch')
+      ? (
+          await prisma.userShop.findMany({
+            where: { userId: req.currentUser!.userId, tenantId: sf.tenantId, shop: { isActive: true, tenantId: sf.tenantId } },
+            select: { shopId: true },
+          })
+        ).map((s) => s.shopId)
+      : [];
     const result = await service.uploadStatement(scopeOf(req), {
       buffer,
       fileName: part.filename,
@@ -93,6 +112,8 @@ export const bankStatementsController = {
       password: fields.password,
       bankAccountId: fields.bankAccountId,
       duplicates: fields.duplicates,
+      allowOtherShop: fields.allowOtherShop,
+      switchableShopIds,
       uploadedById: req.currentUser!.userId,
     });
     return sendSuccess(reply, result, 201);
@@ -103,9 +124,13 @@ export const bankStatementsController = {
   ),
 
   deleteStatement: handle(async (req, reply) => {
-    await service.deleteStatement(scopeOf(req), req.params.id);
-    return sendSuccess(reply, { deleted: true });
+    const result = await service.deleteStatement(scopeOf(req), req.params.id, { canUndoPayments: await canUndoPayments(req) });
+    return sendSuccess(reply, { deleted: true, ...result });
   }),
+
+  statementDeleteImpact: handle(async (req, reply) =>
+    sendSuccess(reply, await service.deleteImpact(scopeOf(req), { statementId: req.params.id })),
+  ),
 
   recategorize: handle(async (req, reply) => sendSuccess(reply, await service.recategorizeStatement(scopeOf(req), req.params.id))),
 
@@ -130,6 +155,17 @@ export const bankStatementsController = {
     const rows = await service.patchTransactions(scopeOf(req), ids, patch, await reviewerName(req));
     return sendSuccess(reply, { updated: rows.length });
   }),
+
+  transactionsDeleteImpact: handle(async (req, reply) =>
+    sendSuccess(reply, await service.deleteImpact(scopeOf(req), { ids: txIdsSchema.parse(req.body).ids })),
+  ),
+
+  deleteTransactions: handle(async (req, reply) =>
+    sendSuccess(
+      reply,
+      await service.deleteTransactions(scopeOf(req), txIdsSchema.parse(req.body).ids, { canUndoPayments: await canUndoPayments(req) }),
+    ),
+  ),
 
   recordSupplierPayment: handle(async (req, reply) =>
     sendSuccess(

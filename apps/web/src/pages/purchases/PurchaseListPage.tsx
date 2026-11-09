@@ -185,8 +185,6 @@ export function PurchaseListPage() {
     },
     {
       key: 'distributor',
-      // The long text on this row, so spare width lands where it reads.
-      flexible: true,
       header: 'Distributor',
       sortable: true,
       sortAccessor: (row) => row.distributor?.companyName ?? '',
@@ -234,9 +232,9 @@ export function PurchaseListPage() {
       header: 'Pending',
       align: 'right',
       sortable: true,
-      sortAccessor: (row) => (Number(row.netAmount) || 0) - (Number(row.amountPaid) || 0),
+      sortAccessor: (row) => (row.paymentStatus === 'settled' ? 0 : (Number(row.netAmount) || 0) - (Number(row.amountPaid) || 0)),
       render: (row) => {
-        const pending = (Number(row.netAmount) || 0) - (Number(row.amountPaid) || 0);
+        const pending = row.paymentStatus === 'settled' ? 0 : (Number(row.netAmount) || 0) - (Number(row.amountPaid) || 0);
         return (
           <span className={cn(pending > 0 && 'text-red-600 font-medium')}>
             {formatINR(pending)}
@@ -410,6 +408,7 @@ export function PurchaseListPage() {
               <option value="pending">Pending</option>
               <option value="partial">Partial</option>
               <option value="paid">Paid</option>
+              <option value="settled">Settled</option>
             </select>
             <ChevronDown className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           </div>
