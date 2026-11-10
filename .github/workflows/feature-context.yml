@@ -1,0 +1,23 @@
+name: Feature context
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  documentation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Test context checker
+        run: npm run docs:test
+      - name: Check feature documentation and reviewed source checkpoints
+        run: npm run docs:check

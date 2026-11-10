@@ -4,6 +4,14 @@
 > Purpose: Comprehensive context for LLMs working on this codebase.
 > Agent rules, commands and conventions live in [AGENTS.md](../AGENTS.md) — read that first.
 > Every local login is in [DEV_LOGINS.md](./DEV_LOGINS.md).
+>
+> **Current feature context (2026-11-10):** start with [features/README.md](features/README.md).
+> Source-reviewed feature documents supersede overlapping historical behavior below; this
+> long-form overview has not been fully re-certified. Agents maintain them through the
+> [context workflow](FEATURE_CONTEXT_WORKFLOW.md).
+> New mobile development targets **Flutter**, for all authorized roles with staged web parity.
+> The existing Expo client is legacy. First slice:
+> [cached Customer Searching/details + online create/edit](mobile/customer-searching-handoff.md).
 
 ---
 
@@ -26,7 +34,7 @@ RetailERP is a full-stack web + mobile application that replaces Tally and Marg 
 - **Purchase imports** from Tally purchase registers and spreadsheets (incl. unbilled purchases)
 - **DB-driven dynamic forms** (admin can modify form fields without code deploy)
 - **Custom roles & per-user permissions**, field-level hiding of sensitive data
-- **Employee mobile app** for field installment collection
+- **Legacy employee Expo app** for field collection; new Flutter direction covers all authorized roles
 
 ### Tenants and shops (seed data)
 
@@ -63,12 +71,23 @@ RetailERP is a full-stack web + mobile application that replaces Tally and Marg 
 - **Icons**: lucide-react
 - **Routing**: react-router-dom 7
 
-### Frontend Mobile (apps/mobile)
+### Legacy Frontend Mobile (apps/mobile)
 - **Framework**: React Native with Expo SDK 52+
 - **Routing**: Expo Router (file-based)
 - **Storage**: expo-secure-store
 - **Screens (implemented)**: login, collections list/detail, record payment, profile
 - **Push**: expo-notifications (planned; API has token-registration stubs)
+
+### New mobile direction (Flutter foundation implemented)
+- Dart/Flutter client at [apps/mobile-flutter](../apps/mobile-flutter/README.md), Android+iOS
+  project files; RetailERP name, `com.retailerpai.mobile` ID, intended site `retailerpai.com`.
+- Real tenant login, secure token persistence/refresh, authoritative identity/access loading,
+  shop selection, lifecycle revalidation and themed placeholder shell exist.
+- All authorized tenant roles, eventual full web parity, released feature by feature.
+- First business slice is Customer Searching with cached reads/details and online create/edit;
+  that feature is not implemented in Flutter yet.
+- ERP/API is authoritative; Sheets is import-only. Delta sync and permission-aware persistent
+  caching are required work, not existing APIs. See [mobile foundation](features/mobile-foundation.md).
 
 ### Shared Packages
 - **@retailerp/shared-types**: TypeScript interfaces/enums shared across all apps
@@ -459,74 +478,8 @@ are a summary; the `*.routes.ts` files are authoritative.
 | PUT | /:id | Update |
 
 ### Customer Searching (`/api/v1/customer-search`)
-The shops' account register, moved off a Google Sheet (`Account Number | CUSTOMER_NAME |
-Address | Mobile | CO | CO_Mobile | AREA | Purchase_Date | Product | Brand | Model | Shop`, the
-sheet's `ID` column is the **Account Number**). One `CustomerSearchEntry` per item bought, in
-the shop its Shop says. Search is tenant-wide. Every entry is filed under a `Customer` matched on
-**name + mobile** (relatives share phones), and the co-applicant (CO) is a Customer marked
-`isGuarantor`. Feature `customer_search` (Enterprise); permissions `customer_search.*` need
-`customers.list` (writes also `customers.create` + `customers.view_phone`) but **not**
-`sales.view_real` — staff see the co-applicant by the owner's decision. The two buttons map to
-`customer_search.create` ("Customer Searching: New entry") and `customer_search.import`
-("Customer Searching: Import the sheet").
-
-**Account numbers** are read as the register writes them — `BD-1`, `CI2-421` (sub-series),
-`BD-406A`, `BN.596`, `MJ12` — and the next number keeps the series' separator (`BD-264` → `BD-265`).
-They are **not unique**: the real sheet reuses ~3,700 numbers for different people. A reused
-number is allowed — the form warns first (409 with `usedBy` + next free number; "Save anyway"
-sends `allowDuplicate`) — and every entry sharing it is flagged.
-
-**Needs review.** The sheet is imported as it is; nothing but an unknown Shop stops a row. Each
-entry carries `issues` (codes in `REGISTER_ISSUES`, shared-utils): `duplicate_account`,
-`missing_account`, `odd_account`, `missing_name`, `missing_mobile`, `invalid_mobile`,
-`missing_date`, `invalid_date`, `future_date`, `co_incomplete`, `no_product_type`. Unusable sheet
-values (a 9-digit mobile, an unreadable date) are kept in `rawValues`. `refreshIssues`
-(`customer-search.issues.ts`) recomputes an entry and every entry sharing its number on each
-create / edit / delete / import. The search page has a **Needs review** tab with a problem
-dropdown (`GET /review-summary`). Rows with no usable mobile get a customer of their own (phone
-''); rows with no name get none.
-
-**Shops.** The Shop column (name or code) decides each row's shop; blank → the import's default
-shop (pre-selected as the shop the file names most often). Changing a row's Shop and re-importing
-**moves** the entry; changing Shop on Edit entry does the same. Its customer and co-applicant move
-too unless they still have another entry or a sale in the old shop (`moveCustomersWithEntry`);
-real sales never move. CSV files are read as plain text in the browser so day-first dates
-(`1/3/2021`) aren't turned into US month-first ones.
-
-**Product type** (`categoryId` → `ProductCategory`): entries made in the app must pick a **leaf**
-of the tenant's type tree (API checks it). The sheet only names top-level types, so import
-matches its Product text against top-level types (exact / plural / lookalike), then a same-named
-sub-type ("LED TV" → TV › LED TV), and offers the rest as new top-level types that are created
-only when the importer confirms (`categories.create` needed). Each decision is kept in
-`CustomerSearchProductMapping` and reused by later ranges; unmatched text stays in `product`
-with no type (filter "No product type"). The type filter matches a type and every type below it
-(`path` prefix). **Export** has a `Product Type` column (full path, `›`-separated) plus
-`Type Level 1…N`, N = deepest type in that export; shallower types leave the extra levels blank,
-so a deeper tree just adds columns; then Shop, Customer Code and Needs review. Re-importing an
-export reads `Type Level 1` (or the path when blank) as Product.
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | / | Search (account number, name, mobile, co-applicant, area, product type) + filters incl. `categoryId` (subtree, or `none`) and `issue` (`any` or a code); tenant-wide |
-| GET | /review-summary | Entries needing review, in all and per problem |
-| GET | /prefixes, /next-number?prefix= | Series in use and the next free number (BD-264 → BD-265, MJ009 → MJ010) |
-| GET | /customer-matches?mobile=&name= | Customers already on a mobile, for the form's autofill / "did you mean" |
-| GET | /by-customer/:customerId | Items a customer bought and entries they are co-applicant on |
-| POST, PATCH | /, /:id | Create / edit an entry (shop selectable; a reused account number needs `allowDuplicate`) |
-| DELETE | /:id | Delete an entry (`customer_search.delete`, owner/admin by default); its customer and co-applicant stay |
-| POST | /import/preview, /import | Sheet import, a range of records at a time: preview classifies rows (new / already imported / moves shop / can't import) with their review problems, groups name variants on one mobile (edit distance, AI for borderline pairs — names only) and matches Product text to types; commit applies the choices, creates/links customers, moves changed-shop rows |
-| GET | /import/batches, /export | Past import ranges; Excel export |
-
-**Cutover from the Google Sheet** (one time):
-1. Add a `Shop` column (shop name or code per row), then download as .xlsx or .csv. The `ID`
-   heading is read as Account Number.
-2. Customer Searching → Import: pick records 1–1000 (and the shop for rows with a blank Shop),
-   check, confirm the product types (and which new ones to create), decide the name groups,
-   import. Repeat with the suggested next range; a range can be re-run safely. Work through the
-   **Needs review** tab afterwards.
-3. When every range is in, set the sheet to view-only and have staff use **New entry** instead.
-4. After deploying, run `npx tsx prisma/seed/sync-permission-catalog.ts` and
-   `npx tsx prisma/seed/backfill-customer-search-issues.ts` (in `apps/api`).
+The account register moved off the Google Sheet: search, entries, Needs review, sheet import and
+export. Full description in [features/customer-searching.md](features/customer-searching.md).
 
 ### Sales (`/api/v1/sales`)
 | Method | Path | Description | Notes |
@@ -707,7 +660,7 @@ All EMIs are equal amounts. Interest rates: 1%, 1.5%, 2%, 2.5%, 3% per month.
 ### Installment Collection Rules (current)
 Based on [ADR-0001](./adr/0001-per-emi-overdue-installment-model.md), amended by later owner
 rules. The old reschedule / sub-row / redistribution model is legacy
-([installment/installment.md](./installment/installment.md)).
+([legacy/installment-redistribution.md](./legacy/installment-redistribution.md)).
 1. **Fixed schedule** — EMIs are generated once at sale time (`plannedAmount` keeps the original).
 2. **Oldest-first allocation** — a payment clears the oldest EMI still owing, then the next; the
    collector may pick a specific EMI first. Surplus beyond everything owed → `creditBalance`.

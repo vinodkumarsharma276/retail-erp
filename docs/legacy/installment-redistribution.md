@@ -1,5 +1,14 @@
 # Installment Module — Complete Reference
 
+> Historical redistribution reference, preserved on 2026-11-10 without removing its original
+> content. Statements below are historical, including role assumptions, rollover behavior,
+> split payments and call-list rules; they are not current API guarantees.
+> See [current installment documentation](../features/installment.md),
+> [current engine](../../apps/api/src/modules/installments/installments.engine.ts),
+> [legacy rules](../../apps/api/src/modules/installments/installments.rules.ts), and
+> [shared calculations](../../packages/shared-utils/src/emi-calculator.ts).
+> ADR links below remain valid: `features` and `legacy` are both one level below `docs`.
+
 This document contains legacy reference material for the original redistribution-based installment system.
 
 The current implementation direction is **ADR-0001: Per-EMI Overdue Installment Model (Pattern B)**. Read [docs/adr/0001-per-emi-overdue-installment-model.md](../adr/0001-per-emi-overdue-installment-model.md) and [docs/adr/0001-implementation-plan.md](../adr/0001-implementation-plan.md) before modifying installment-related code.

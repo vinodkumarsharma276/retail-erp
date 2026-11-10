@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { prisma } from '../../config/database.js';
 import { tenantContext } from '../../config/tenant-context.js';
-import { generateCustomerCode } from '../../utils/id-generator.js';
+import { generateCustomerCode, lastCustomerCode } from '../../utils/id-generator.js';
 import {
   isIsoDate,
   isValidMobile,
@@ -452,12 +452,7 @@ export async function commitImport(input: ImportCommitInput, userId: string, opt
 
   return prisma.$transaction(
     async (tx) => {
-      const last = await tx.customer.findFirst({
-        where: { customerCode: { startsWith: 'CUST-' } },
-        orderBy: { customerCode: 'desc' },
-        select: { customerCode: true },
-      });
-      let lastCode = last?.customerCode;
+      let lastCode = await lastCustomerCode(tx);
 
       type NewCustomer = {
         id: string;
@@ -674,6 +669,7 @@ export async function commitImport(input: ImportCommitInput, userId: string, opt
       });
       return result;
     },
-    { timeout: 180_000, maxWait: 10_000 },
+    // A 10,000-row range writes that many entries plus their customers in one go.
+    { timeout: 300_000, maxWait: 10_000 },
   );
 }

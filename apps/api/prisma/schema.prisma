@@ -2187,6 +2187,9 @@ model CustomerSearchEntry {
   sheetRowNumber Int?     @map("sheet_row_number")
   createdBy      String?  @map("created_by")
   updatedBy      String?  @map("updated_by")
+  /// Sent by a client (the mobile app) with a new entry, so a retried save
+  /// after a lost response returns the entry already made instead of a second one.
+  clientRequestId String? @map("client_request_id") @db.Uuid
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz()
   updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz()
 
@@ -2205,9 +2208,30 @@ model CustomerSearchEntry {
   @@index([categoryId])
   @@index([customerId])
   @@index([coCustomerId])
+  @@unique([tenantId, clientRequestId])
   @@index([mobile])
   @@index([shopId])
   @@map("customer_search_entries")
+}
+
+/// Change log of the register for the mobile app's sync: one row per insert,
+/// update or delete of a `customer_search_entries` row, written by a database
+/// trigger (so imports, scripts and FK actions are captured too) in the same
+/// transaction as the change. Holds no entry data — the sync reads current rows.
+/// `txid` is the writing transaction's id; readers only return changes from
+/// transactions older than every one still running, so none is skipped.
+model CustomerSearchChange {
+  seq       BigInt   @id @default(autoincrement())
+  tenantId  String   @map("tenant_id")
+  /// No foreign key: a deleted entry's change row is its tombstone.
+  entryId   String   @map("entry_id")
+  txid      BigInt
+  /// I insert, U update, D delete.
+  op        String   @db.Char(1)
+  changedAt DateTime @default(now()) @map("changed_at") @db.Timestamptz()
+
+  @@index([tenantId, txid, seq])
+  @@map("customer_search_changes")
 }
 
 /// One run of the sheet import: a range of rows from one file.

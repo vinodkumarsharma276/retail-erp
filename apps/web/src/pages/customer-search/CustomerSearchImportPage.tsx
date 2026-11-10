@@ -27,7 +27,9 @@ import {
 import { useCanCheck } from '../../hooks/usePermission';
 
 const DEFAULT_RANGE = 500;
-const MAX_RANGE = 1000;
+const MAX_RANGE = 10_000;
+/** Preview rows drawn at once; a 10,000-row table would make the page crawl. */
+const PREVIEW_PAGE = 500;
 
 type Resolution = Record<string, string>;
 type RowFilter = 'problems' | 'all' | 'new' | 'move' | 'exists' | 'invalid';
@@ -323,6 +325,7 @@ export function CustomerSearchImportPage() {
   const can = useCanCheck();
   const canCreateTypes = can('categories.create');
   const [filter, setFilter] = useState<RowFilter>('problems');
+  const [shown, setShown] = useState(PREVIEW_PAGE);
   const [result, setResult] = useState<ImportResult | null>(null);
 
   const shops = me.data?.shops ?? [];
@@ -414,7 +417,8 @@ export function CustomerSearchImportPage() {
           ]),
         ),
       );
-      setFilter(data.summary.invalid > 0 ? 'problems' : 'all');
+      setFilter(data.rows.some((r) => r.status === 'invalid' || r.status === 'move' || r.issues.length > 0) ? 'problems' : 'all');
+      setShown(PREVIEW_PAGE);
     } catch (error) {
       toast.error(apiErrorMessage(error, "Couldn't check the rows"));
     }
@@ -449,6 +453,17 @@ export function CustomerSearchImportPage() {
   });
   const reviewGroups = (preview?.groups ?? []).filter((g) => g.needsReview);
   const otherGroups = (preview?.groups ?? []).filter((g) => !g.needsReview);
+
+  const importButton = preview ? (
+    <Button
+      onClick={commit}
+      loading={commitMutation.isPending}
+      disabled={stale || preview.summary.new + preview.summary.move === 0 || !shopId}
+    >
+      Import {preview.summary.new.toLocaleString('en-IN')} entr{preview.summary.new === 1 ? 'y' : 'ies'}
+      {preview.summary.move ? `, move ${preview.summary.move}` : ''}
+    </Button>
+  ) : null;
 
   return (
     <div>
@@ -582,6 +597,18 @@ export function CustomerSearchImportPage() {
             <StatChip label="Product types not in the app" value={preview.summary.newProductTypes} tone={preview.summary.newProductTypes ? 'warning' : 'neutral'} />
           </div>
 
+          {/* The same button as at the bottom, so a long preview needn't be scrolled through. */}
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-card p-3">
+            <p className="text-sm text-muted-foreground">
+              {stale
+                ? 'You fixed rows below — check again before importing.'
+                : preview.summary.new + preview.summary.move === 0
+                  ? 'Nothing new to import in this range.'
+                  : `${preview.summary.flagged > 0 ? `${preview.summary.flagged.toLocaleString('en-IN')} will be listed under Needs review. ` : ''}Product type and name choices below are pre-filled; change any you disagree with, or import as they are.`}
+            </p>
+            {importButton}
+          </div>
+
           {preview.productTypes.length > 0 && (
             <ProductTypesCard
               types={preview.productTypes}
@@ -649,7 +676,15 @@ export function CustomerSearchImportPage() {
                   ['invalid', "Can't import"],
                 ] as Array<[RowFilter, string]>
               ).map(([key, label]) => (
-                <Button key={key} size="sm" variant={filter === key ? 'default' : 'ghost'} onClick={() => setFilter(key)}>
+                <Button
+                  key={key}
+                  size="sm"
+                  variant={filter === key ? 'default' : 'ghost'}
+                  onClick={() => {
+                    setFilter(key);
+                    setShown(PREVIEW_PAGE);
+                  }}
+                >
                   {label}
                 </Button>
               ))}
@@ -675,7 +710,7 @@ export function CustomerSearchImportPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {visibleRows.map((r) => (
+                  {visibleRows.slice(0, shown).map((r) => (
                     <PreviewRow key={r.recordNo} row={r} edit={edits[r.recordNo]} onEdit={editRow} />
                   ))}
                   {visibleRows.length === 0 && (
@@ -686,6 +721,14 @@ export function CustomerSearchImportPage() {
                 </tbody>
               </table>
             </div>
+            {visibleRows.length > shown && (
+              <div className="flex flex-wrap items-center justify-center gap-3 border-t p-3 text-sm text-muted-foreground">
+                Showing {shown.toLocaleString('en-IN')} of {visibleRows.length.toLocaleString('en-IN')} rows
+                <Button size="sm" variant="secondary" onClick={() => setShown((n) => n + PREVIEW_PAGE)}>
+                  Show {Math.min(PREVIEW_PAGE, visibleRows.length - shown)} more
+                </Button>
+              </div>
+            )}
           </section>
 
           <div className="flex flex-wrap items-center justify-end gap-3">
@@ -699,14 +742,7 @@ export function CustomerSearchImportPage() {
                 {preview.summary.flagged} will be imported and listed under Needs review.
               </span>
             )}
-            <Button
-              onClick={commit}
-              loading={commitMutation.isPending}
-              disabled={stale || preview.summary.new + preview.summary.move === 0 || !shopId}
-            >
-              Import {preview.summary.new} entr{preview.summary.new === 1 ? 'y' : 'ies'}
-              {preview.summary.move ? `, move ${preview.summary.move}` : ''}
-            </Button>
+            {importButton}
           </div>
         </>
       )}

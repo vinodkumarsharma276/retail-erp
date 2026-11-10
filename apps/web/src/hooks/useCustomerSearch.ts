@@ -418,7 +418,7 @@ export function useDeleteEntryMutation() {
 export function useImportPreviewMutation() {
   return useMutation({
     mutationFn: async (payload: ImportRequest) => {
-      const { data } = await apiClient.post<ApiResponse<ImportPreview>>('/customer-search/import/preview', payload, { timeout: 120_000 });
+      const { data } = await apiClient.post<ApiResponse<ImportPreview>>('/customer-search/import/preview', payload, { timeout: 300_000 });
       return data.data!;
     },
   });
@@ -433,7 +433,7 @@ export function useImportCommitMutation() {
         productTypes: Record<string, ProductTypeDecision>;
       },
     ) => {
-      const { data } = await apiClient.post<ApiResponse<ImportResult>>('/customer-search/import', payload, { timeout: 180_000 });
+      const { data } = await apiClient.post<ApiResponse<ImportResult>>('/customer-search/import', payload, { timeout: 330_000 });
       return data.data!;
     },
     onSuccess: () => {

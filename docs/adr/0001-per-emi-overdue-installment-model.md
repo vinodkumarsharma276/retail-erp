@@ -4,7 +4,7 @@
 - **Date**: 2026-05-30
 - **Deciders**: Vinod Sharma (owner)
 - **Supersedes**: Current "redistribution" model in [apps/api/src/modules/installments/installments.rules.ts](../../apps/api/src/modules/installments/installments.rules.ts)
-- **Related docs**: [docs/installment/installment.md](../installment/installment.md)
+- **Related docs**: [Current installment feature](../features/installment.md), [legacy redistribution reference](../legacy/installment-redistribution.md)
 
 > **Amendments after implementation (commits of 2026-09-22 — the code is authoritative):**
 > - **Short payments**: a due EMI paid short now counts as paid and, by default, the shortfall is
@@ -381,7 +381,8 @@ Phases 1–4 are required as a single PR (they are mutually dependent — partia
 
 ## 10. References
 
-- Current model walkthrough: [docs/installment/installment.md](../installment/installment.md)
+- Current feature reference: [Installments](../features/installment.md)
+- Historical redistribution walkthrough: [Legacy installments](../legacy/installment-redistribution.md)
 - Bug-fix archeology: `apps/api/prisma/seed/fix-ve*.ts` (16+ files)
 - Inspection script (still useful): [apps/api/scripts/inspect-ledger.ts](../../apps/api/scripts/inspect-ledger.ts)
 - Multi-tenancy pattern: [apps/api/src/middleware/tenant-resolver.ts](../../apps/api/src/middleware/tenant-resolver.ts)

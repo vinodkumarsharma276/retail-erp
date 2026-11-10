@@ -1,6 +1,6 @@
 import { prisma } from '../../config/database.js';
 import type { Prisma } from '@prisma/client';
-import { generateCustomerCode } from '../../utils/id-generator.js';
+import { generateCustomerCode, lastCustomerCode } from '../../utils/id-generator.js';
 
 export const customersService = {
   /**
@@ -146,16 +146,7 @@ export const customersService = {
       }
     }
 
-    // Get last `CUST-####` code to generate the next one. Filter explicitly so
-    // that non-standard codes (e.g. `SHOP-VE-NE` for transfer-shop customers)
-    // can't poison the sequence and produce `CUST-0NaN`.
-    const lastCustomer = await prisma.customer.findFirst({
-      where: { customerCode: { startsWith: 'CUST-' } },
-      orderBy: { customerCode: 'desc' },
-      select: { customerCode: true },
-    });
-
-    const customerCode = generateCustomerCode(lastCustomer?.customerCode ?? undefined);
+    const customerCode = generateCustomerCode(await lastCustomerCode(prisma));
 
     const customer = await prisma.customer.create({
       data: {

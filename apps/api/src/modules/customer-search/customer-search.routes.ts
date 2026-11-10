@@ -6,14 +6,17 @@ import { shopScope } from '../../middleware/shop-scope.js';
 import { validate } from '../../middleware/validate.js';
 import { createEntrySchema, importCommitSchema, importPreviewSchema, updateEntrySchema } from './customer-search.validation.js';
 
-/** A 1,000-row import range is a few hundred KB of JSON. */
-const IMPORT_BODY_LIMIT = 5 * 1024 * 1024;
+/** A 10,000-row import range is a few MB of JSON (about 500 bytes a row). */
+const IMPORT_BODY_LIMIT = 25 * 1024 * 1024;
 
 export async function customerSearchRoutes(app: FastifyInstance) {
   // Search the register (tenant-wide; the sheet covered every shop).
   app.get('/', { preHandler: [authenticate, shopScope, requirePermission('customer_search.list')] }, c.list as any);
 
   app.get('/prefixes', { preHandler: [authenticate, shopScope, requirePermission('customer_search.list')] }, c.prefixes as any);
+
+  // On-device copy for the mobile app: snapshot pages, then changes and deletions.
+  app.get('/sync', { preHandler: [authenticate, shopScope, requirePermission('customer_search.list')] }, c.sync as any);
 
   // "Needs review": how many entries have each kind of problem.
   app.get('/review-summary', { preHandler: [authenticate, shopScope, requirePermission('customer_search.list')] }, c.reviewSummary as any);

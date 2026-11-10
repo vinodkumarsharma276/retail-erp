@@ -45,6 +45,7 @@ argument-hint: 'Optional hint shown for /my-skill'
 | Skill | Purpose |
 |---|---|
 | [add-api-module](add-api-module/SKILL.md) | Scaffold a new tenant-safe, permission-guarded Fastify module (+ optional web hook) |
+| [update-feature-docs](update-feature-docs/SKILL.md) | Load feature context, review code/doc drift, update feature docs and record content-hash checkpoints for web/API/Flutter handoffs |
 
 ## Ideas for next skills
 

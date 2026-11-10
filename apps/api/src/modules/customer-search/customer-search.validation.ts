@@ -29,13 +29,18 @@ export const entrySchema = z.object({
   allowDuplicate: z.boolean().optional(),
 });
 
-export const createEntrySchema = entrySchema;
+export const createEntrySchema = entrySchema.extend({
+  /** Client-generated id of this save; repeating it returns the entry already made. */
+  clientRequestId: z.string().uuid().optional(),
+});
 export const updateEntrySchema = entrySchema.partial().extend({
   purchaseDate: isoDate.nullable().optional(),
   categoryId: z.string().uuid().optional(),
+  /** The entry's `updatedAt` the editor started from; a newer one is refused (409 `stale`). */
+  expectedUpdatedAt: z.string().datetime({ offset: true }).optional(),
 });
 
-export type EntryInput = z.infer<typeof entrySchema>;
+export type EntryInput = z.infer<typeof createEntrySchema>;
 export type EntryUpdateInput = z.infer<typeof updateEntrySchema>;
 
 /** One row of the sheet as the browser read it (and the person may have fixed it). */
@@ -56,7 +61,7 @@ export const importRowSchema = z.object({
   shop: text(200).default(''),
 });
 
-export const MAX_IMPORT_ROWS = 1000;
+export const MAX_IMPORT_ROWS = 10_000;
 
 const importBase = z.object({
   fileName: z.string().trim().min(1).max(255),

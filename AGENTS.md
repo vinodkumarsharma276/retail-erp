@@ -21,13 +21,15 @@ Seeded tenants (local dev — see [docs/DEV_LOGINS.md](docs/DEV_LOGINS.md) for e
 
 ## Stack & layout
 
-Turborepo + npm workspaces, Node ≥ 22, TypeScript (ESM) everywhere.
+Turborepo + npm workspaces, Node ≥ 22, TypeScript (ESM) for API/web/shared packages and legacy Expo.
+The approved new mobile target is Flutter (Dart), not an Expo extension.
 
 | Path | What |
 |---|---|
 | `apps/api` | Fastify 5 + Prisma 6 + PostgreSQL 16, Zod validation, JWT (access + refresh), `node-cron` jobs, OpenAI (OCR + bank-statement categorisation), Vitest |
 | `apps/web` | React 19 + Vite 6 (dev port **5180**, strict), TailwindCSS 4, shadcn-style primitives in `src/components/ui/`, TanStack Query 5, Zustand 5, react-hook-form, react-router 7, Recharts, `@react-pdf/renderer`, PWA (`vite-plugin-pwa`). `PlatformApp.tsx` is the platform-admin SPA |
-| `apps/mobile` | Expo Router app for the **employee** role (installment collection): login, collections list/detail, record payment, profile |
+| `apps/mobile` | **Legacy** Expo Router employee collection app. Preserve it; do not extend it for the new mobile direction or remove it without approval |
+| `apps/mobile-flutter` | Flutter Android+iOS app: real tenant login, secure session storage/refresh, offline start, shop/access controls, theme, module shell, and **Customer Searching** (encrypted cached search/details, online create/edit, background updates). RetailERP display name, `com.retailerpai.mobile` ID. Other modules and push still pending |
 | `packages/shared-types` | Types/enums shared by all apps (`@retailerp/shared-types`). Holds the **access rulebook**: `features.ts`, `permissions.ts`, `access.ts` |
 | `packages/shared-utils` | EMI calculator, installment rules, GSTIN/phone/PAN/Aadhaar validators, INR/date formatters, Tally/purchase-sheet parsers (`@retailerp/shared-utils`) |
 | `infra/azure` | Bicep + deploy script. Deployment options/costs: [docs/DEPLOYMENT_PLAN.md](docs/DEPLOYMENT_PLAN.md) |
@@ -49,11 +51,24 @@ npm run build
 npm run lint                                  # web has ESLint; api lint is a no-op placeholder
 npm test                                      # = vitest run in apps/api
 npm run test --workspace=apps/api -- tests/unit/allocator.test.ts   # single file
+
+npm run docs:status                           # detect feature-context drift
+npm run docs:check                            # headings, links, rail coverage, reviewed hashes
+npm run docs:test                             # context-checker regression tests
 ```
 
+- Flutter is separate from npm workspaces: in `apps/mobile-flutter`, run `flutter analyze`,
+  `flutter test` and `flutter build apk --debug --dart-define=API_BASE_URL=<LAN-server-URL>`.
+  Configure the reachable LAN API URL explicitly; release/profile builds require HTTPS.
+  See [apps/mobile-flutter/README.md](apps/mobile-flutter/README.md). iOS needs macOS/Xcode.
 - **Unit tests** (`apps/api/tests/unit`) need nothing. **Integration tests** (`tests/integration`)
   need PostgreSQL running; `tests/global-setup.ts` migrates and empties a separate
   `retailerp_test` database (the dev DB is never touched). Tests run serially in one fork.
+  `tests/setup-env.ts` fakes today as **2026-10-04**, so test data dated later counts as future.
+- Known pre-existing noise — don't chase it unless asked: `npx tsc --noEmit` in `apps/api` reports
+  ~130 errors in older seeds/services (filter the output for the files you touched); `npm run lint`
+  fails on `apps/web/eslint.config.js`. Web typecheck: `npx tsc --noEmit -p tsconfig.app.json` in
+  `apps/web` — it is not `strict`, so check null handling by eye.
 - Schema change: edit `apps/api/prisma/schema.prisma`, then from `apps/api`:
   `npx prisma migrate dev --name <snake_case>` → commit the migration folder.
 - Background jobs only run with `ENABLE_SCHEDULER=true` (`SCHEDULER_CRON`, `BANK_FEED_CRON`, `SCHEDULER_TZ`).
@@ -91,9 +106,16 @@ npm run test --workspace=apps/api -- tests/unit/allocator.test.ts   # single fil
 - `middleware/field-access.ts` strips sensitive fields (cost price, Aadhaar, bank details) from
   responses unless the caller has permission.
 - New permission keys go in `packages/shared-types/src/permissions.ts`; to grant them to existing
-  tenants' roles, add them to `NEW_DEFAULTS` in `apps/api/prisma/seed/sync-permission-catalog.ts`.
+  tenants' roles, add them to `NEW_DEFAULTS` in `apps/api/prisma/seed/sync-permission-catalog.ts`
+  (run it with `npx tsx prisma/seed/sync-permission-catalog.ts` in `apps/api`). `ROLE_ADMIN_PERMISSIONS`
+  is "everything except …", so an owner-only key must be excluded there explicitly.
+- The API caches each user's effective permissions in memory for 60 s (`CACHE_TTL_MS`). Changes
+  made through the app clear it at once; changes made by a script take up to a minute to show.
 
 ### Business invariants
+These are intended policies. Source-reviewed feature docs list observed implementation gaps;
+those gaps are not approval to reproduce unsafe behavior in Flutter or expand access.
+
 - **Dual sale recording**: every sale writes `sale_records` (real) and `sale_records_sanitized`
   (shown as a cash full-payment) in one transaction. Users without `sales.view_real` see only the
   sanitized copy and **must never see installment, interest or finance data** — they lose every
@@ -110,7 +132,8 @@ npm run test --workspace=apps/api -- tests/unit/allocator.test.ts   # single fil
   flat ₹/day **per sale** (default ₹2, `SaleRecord.penaltyPerDay`), early-payment deduction is
   opt-in — nothing is charged automatically; the collector ticks a box. Engine:
   `apps/api/src/modules/installments/installments.{engine,allocator,derivations}.ts`.
-  [docs/installment/installment.md](docs/installment/installment.md) describes the **legacy** redistribution model.
+  [docs/features/installment.md](docs/features/installment.md) is the current feature reference;
+  [docs/legacy/installment-redistribution.md](docs/legacy/installment-redistribution.md) preserves the old model.
 - **Ledger number** on every sale mirrors the physical office register (e.g. `VE001`).
 - **Customer Searching** (`modules/customer-search`, feature `customer_search`) is the account
   register moved off a Google Sheet: one entry per item bought, with an **Account Number**
@@ -120,8 +143,44 @@ npm run test --workspace=apps/api -- tests/unit/allocator.test.ts   # single fil
   not need `sales.view_real`. Problems (no mobile, reused number…) are stored per entry in
   `issues` and kept current by `refreshIssues`; the UI lists them under "Needs review".
   Changing an entry's shop moves its customer too unless they have other entries/sales in the
-  old shop. See docs/CONTEXT.md §6.
+  old shop. The sheet is imported in ranges of up to **10,000 rows** (`MAX_IMPORT_ROWS`; 25 MB body,
+  one 300 s transaction); CSVs are parsed as raw text in the browser so d/m dates stay day-first.
+  See [docs/features/customer-searching.md](docs/features/customer-searching.md) for the full model, endpoints and cutover steps.
+- **Customer codes** are `CUST-<n>`, one sequence per tenant, padded to 4 digits but growing past
+  9999. Get the last one with `lastCustomerCode()` (`utils/id-generator.ts`, numeric order) —
+  never `orderBy: { customerCode: 'desc' }`: as text `CUST-9999` sorts after `CUST-10000`, which
+  re-issues an existing code (unique on `tenant_id, customer_code`).
 - Inter-shop transfers are a sale/purchase between two GST entities with a full item audit trail.
+
+## Feature context workflow
+
+- **The agent loads the documents; do not ask the user to assemble or manually read context.**
+  Before feature work, read [docs/features/README.md](docs/features/README.md), the owning feature
+  doc and relevant dependency docs. Match left-rail items through
+  [manifest.json](docs/features/manifest.json); supporting capabilities have docs too.
+- Use the [update-feature-docs skill](.claude/skills/update-feature-docs/SKILL.md) at task start,
+  after meaningful behavior changes and before handoff. Keep the
+  [standard shape](docs/features/_template.md), preserve useful detail, and distinguish implemented,
+  planned, legacy and unverified behavior. Source review is not runtime certification.
+- Update owning/dependent docs and index when affected; ADRs hold architectural rationale.
+  After source review, run `npm run docs:checkpoint -- <feature-id> --reviewed`, then
+  `npm run docs:check`. Hash checkpoints include committed and uncommitted changes. Never advance
+  checkpoints just to hide stale context; classify UNMAPPED changes and add real source ownership.
+- See [docs/FEATURE_CONTEXT_WORKFLOW.md](docs/FEATURE_CONTEXT_WORKFLOW.md) for all-layer ownership,
+  checkpoint semantics and cadence. Skills run on task events/request, not an idle-chat timer.
+  End with changed / verified / remaining / cross-feature impact / next action.
+- Mobile: ERP/API is authoritative; Sheets is import-only. Flutter's first slice is described in
+  [docs/mobile/customer-searching-handoff.md](docs/mobile/customer-searching-handoff.md).
+  Reuse [apps/mobile-flutter](apps/mobile-flutter/) for every feature; do not recreate its
+  shell, session store or HTTP/auth flow. Intended website is `retailerpai.com`, but no domain
+  registration/deployment or server tenant-apex change is implied by the app identity.
+  Local caching must include updates/deletions and access changes, not merely appended rows.
+  Customer Searching implements this: `GET /customer-search/sync` (trigger-written change log,
+  snapshot + delta + tombstones) and an encrypted per-user SQLCipher copy in Flutter — follow
+  [docs/features/customer-searching.md](docs/features/customer-searching.md) for the next cached
+  feature. Offline reads do not imply offline writes.
+- Keep agent memory to short durable conventions; feature state belongs in versioned docs.
+  Separate chats do not isolate files: use worktrees for concurrent implementation.
 
 ## Code conventions
 
@@ -146,16 +205,30 @@ npm run test --workspace=apps/api -- tests/unit/allocator.test.ts   # single fil
   runs `index.ts` only. `star-electronics.seed.ts` and `bootstrap-platform-admin.ts` are run by hand.
 - `.claude/` is git-ignored except `.claude/skills/` (shared, committed skills).
 - `apps/web/dev-dist/` is generated by the PWA plugin in dev.
-- Windows dev machine: use PowerShell-friendly commands; `npx tsx <script>` for TS scripts.
+- Windows dev machine: use PowerShell-friendly commands; `npx tsx <script>` for TS scripts
+  (`.ts`, not `.mts`, and no top-level `await` — wrap in an async IIFE).
+- `prisma migrate dev` / `prisma generate` fail with `EPERM … query_engine-windows.dll.node` while
+  the API dev server (`tsx watch`) is running — stop `npm run dev` first.
+- A developer usually has `npm run dev` running in their own terminal — check ports 3001/5180 and
+  use it; don't stop or restart it without asking. Stopping an agent-started `npm run dev` can
+  leave turbo/vite/tsx orphaned on those ports — kill those node PIDs and confirm the ports are free.
+- The app runs **locally only** — nothing is deployed yet. "After deploying" steps in the docs
+  just mean "run once against the database you use". Note `ci.yml` still deploys to Azure on a
+  push to `main`.
 
 ## Docs index
 
 | Doc | Status / use |
 |---|---|
-| [docs/CONTEXT.md](docs/CONTEXT.md) | Long-form system context (schema, endpoints, business logic) |
+| [docs/CONTEXT.md](docs/CONTEXT.md) | Historical long-form overview; current behavior belongs in the source-reviewed feature docs |
+| [docs/features/README.md](docs/features/README.md) | Feature inventory: all left-rail items and supporting capabilities, web/mobile direction and dependencies |
+| [docs/features/_template.md](docs/features/_template.md) | Standard feature shape; use it for every current feature doc |
+| [docs/FEATURE_CONTEXT_WORKFLOW.md](docs/FEATURE_CONTEXT_WORKFLOW.md) | Agent-driven maintenance, source-hash checkpoints and feature-chat handoffs |
+| [docs/mobile/customer-searching-handoff.md](docs/mobile/customer-searching-handoff.md) | First Flutter implementation slice and sync/cache acceptance requirements |
 | [docs/DEV_LOGINS.md](docs/DEV_LOGINS.md) | All local logins per tenant/role — current |
 | [docs/adr/0001-per-emi-overdue-installment-model.md](docs/adr/0001-per-emi-overdue-installment-model.md) | Installment model decision (implemented, amended) |
-| [docs/installment/installment.md](docs/installment/installment.md) | Legacy redistribution model reference |
+| [docs/features/installment.md](docs/features/installment.md) | Current installment feature reference |
+| [docs/legacy/installment-redistribution.md](docs/legacy/installment-redistribution.md) | Preserved legacy redistribution reference; not the implementation spec |
 | [docs/OCR_INVOICE_AND_REGISTER_PLAN.md](docs/OCR_INVOICE_AND_REGISTER_PLAN.md) | Invoice/register OCR design (implemented: `modules/ocr`) |
 | [docs/DEPLOYMENT_PLAN.md](docs/DEPLOYMENT_PLAN.md) | Azure hosting options and costs |
 | [docs/UI_IMPROVEMENT_PLAN.md](docs/UI_IMPROVEMENT_PLAN.md), [docs/ADD_SALE_FORM_REDESIGN.md](docs/ADD_SALE_FORM_REDESIGN.md) | UI plans (partially implemented) |

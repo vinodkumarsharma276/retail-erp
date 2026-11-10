@@ -1,7 +1,7 @@
 import * as XLSX from 'xlsx';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../config/database.js';
-import { generateCustomerCode } from '../../utils/id-generator.js';
+import { generateCustomerCode, lastCustomerCode } from '../../utils/id-generator.js';
 import {
   isValidMobile,
   nextAccountNumber,
@@ -124,12 +124,7 @@ const orderBy: Prisma.CustomerSearchEntryOrderByWithRelationInput[] = [
 const toIsoDate = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null);
 
 async function newCustomerCode(tx: Prisma.TransactionClient) {
-  const last = await tx.customer.findFirst({
-    where: { customerCode: { startsWith: 'CUST-' } },
-    orderBy: { customerCode: 'desc' },
-    select: { customerCode: true },
-  });
-  return generateCustomerCode(last?.customerCode ?? undefined);
+  return generateCustomerCode(await lastCustomerCode(tx));
 }
 
 /**
@@ -351,6 +346,11 @@ export const customerSearchService = {
   },
 
   async create(input: EntryInput, ctx: { shopId: string; userId: string }) {
+    // A repeated save (the first response was lost) returns the entry it made.
+    if (input.clientRequestId) {
+      const prior = await savedForRequest(input.clientRequestId, ctx.userId);
+      if (prior) return prior;
+    }
     const acc = parseAccountNumber(input.accountNumber);
     const entry = normalizeEntry(input);
     await assertLeafType(input.categoryId);
@@ -361,7 +361,7 @@ export const customerSearchService = {
       const used = await usersOfNumber(acc.accountNumber);
       if (used.length) throw await takenError(acc.accountNumber, acc.prefix, used);
     }
-    return prisma.$transaction(async (tx) => {
+    const save = () => prisma.$transaction(async (tx) => {
       const customerId = await resolveCustomer(
         tx,
         { id: input.customerId, name: entry.customerName, mobile: entry.mobile, address: entry.address, area: entry.area },
@@ -391,6 +391,7 @@ export const customerSearchService = {
           brand: entry.brand,
           model: entry.model,
           source: 'app',
+          clientRequestId: input.clientRequestId ?? null,
           createdBy: ctx.userId,
           updatedBy: ctx.userId,
         } as any,
@@ -399,11 +400,22 @@ export const customerSearchService = {
       await refreshIssues(tx, { ids: [created.id] });
       return tx.customerSearchEntry.findUniqueOrThrow({ where: { id: created.id } });
     });
+    try {
+      return await save();
+    } catch (error) {
+      // Two copies of the same save raced: the other one made the entry.
+      if (input.clientRequestId && error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        const prior = await savedForRequest(input.clientRequestId, ctx.userId);
+        if (prior) return prior;
+      }
+      throw error;
+    }
   },
 
   async update(id: string, input: EntryUpdateInput, ctx: { shopId: string; userId: string }) {
     const existing = await prisma.customerSearchEntry.findUnique({ where: { id } });
     if (!existing) throw new CustomerSearchError('Entry not found', 404);
+    if (input.expectedUpdatedAt) assertNotStale(existing.updatedAt, input.expectedUpdatedAt);
 
     const merged: EntryInput = {
       accountNumber: input.accountNumber ?? existing.accountNumber,
@@ -448,6 +460,12 @@ export const customerSearchService = {
     if (entry.coMobileValid || !merged.coMobile) delete raw.coMobile;
 
     return prisma.$transaction(async (tx) => {
+      if (input.expectedUpdatedAt) {
+        // Lock the row so an edit committed since the check above is caught too.
+        const [row] = await tx.$queryRaw<{ updated_at: Date }[]>`
+          SELECT updated_at FROM customer_search_entries WHERE id = ${id} FOR UPDATE`;
+        assertNotStale(row?.updated_at ?? null, input.expectedUpdatedAt);
+      }
       const customerId = personChanged
         ? await resolveCustomer(
             tx,
@@ -601,6 +619,26 @@ function normalizeEntry(input: EntryInput) {
   };
 }
 
+/** The entry an earlier save with this client request id made, if any (only the same user's). */
+async function savedForRequest(clientRequestId: string, userId: string) {
+  const prior = await prisma.customerSearchEntry.findFirst({ where: { clientRequestId } });
+  if (prior && prior.createdBy !== userId) {
+    throw new CustomerSearchError('This save was already used by someone else. Start a new entry.', 409, { code: 'request_reused' });
+  }
+  return prior;
+}
+
+/** 409 when the entry changed after the editor loaded it. */
+function assertNotStale(current: Date | null, expected: string) {
+  if (!current || current.getTime() !== new Date(expected).getTime()) {
+    throw new CustomerSearchError(
+      'Someone else changed this entry after you opened it. Reload it, check the changes, and save again.',
+      409,
+      { code: 'stale', updatedAt: current ? current.toISOString() : null },
+    );
+  }
+}
+
 /** 409 for a reused account number: who already has it, and the next free one in its series. */
 async function takenError(
   accountNumber: string,
@@ -612,6 +650,6 @@ async function takenError(
   return new CustomerSearchError(
     `Account Number ${accountNumber} is already used for ${who}${next ? `. The next free one is ${next}` : ''}.`,
     409,
-    { nextAccountNumber: next, usedBy: usedBy.map((u) => ({ id: u.id, customerName: u.customerName, shopCode: u.shop.code })) },
+    { code: 'duplicate_account', nextAccountNumber: next, usedBy: usedBy.map((u) => ({ id: u.id, customerName: u.customerName, shopCode: u.shop.code })) },
   );
 }

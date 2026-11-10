@@ -66,7 +66,9 @@ Creates `apps/api/src/modules/<name>/` following the house pattern used by
 8. **Tests** — add `apps/api/tests/unit/<name>*.test.ts` for pure logic; add an integration test
    under `tests/integration/` when the module writes data, including a tenant-isolation case
    (see `tests/integration/tenant-isolation.test.ts` and `tests/helpers/fixtures.ts`).
-9. **Docs** — add the module to the module list in `docs/CONTEXT.md` (§6) if it is user-facing.
+9. **Docs** — if it is user-facing, describe it in `docs/features/<feature>.md` (what it does,
+   rules, access, API, where the code lives — see `docs/features/customer-searching.md`) and add a
+   short pointer to that file in the module list of `docs/CONTEXT.md` (§6).
 
 ## Verify
 

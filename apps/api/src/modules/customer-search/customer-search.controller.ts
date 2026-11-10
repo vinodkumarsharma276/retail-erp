@@ -1,6 +1,7 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { customerSearchService, CustomerSearchError, type SearchFilters } from './customer-search.service.js';
 import { commitImport, previewImport, ImportError } from './customer-search.import.js';
+import { syncRegister } from './customer-search.sync.js';
 import type { EntryInput, EntryUpdateInput, ImportCommitInput, ImportPreviewInput } from './customer-search.validation.js';
 import { sendError, sendPaginated, sendSuccess } from '../../utils/response.js';
 import { parsePagination } from '../../utils/pagination.js';
@@ -108,6 +109,19 @@ export const customerSearchController = {
       return sendSuccess(reply, await customerSearchService.remove(request.params.id));
     } catch (error) {
       return fail(reply, error, 'Failed to delete the entry');
+    }
+  },
+
+  async sync(request: FastifyRequest<{ Querystring: { token?: string; limit?: string } }>, reply: FastifyReply) {
+    try {
+      const perms = await loadUsablePermissions(request.currentUser!.userId, request.tenant?.id ?? request.currentUser!.tenantId);
+      const phones = perms.has('customers.view_phone');
+      const limit = request.query.limit ? Number.parseInt(request.query.limit, 10) : undefined;
+      if (limit !== undefined && !(limit > 0)) return sendError(reply, 'limit must be a positive number');
+      const page = await syncRegister(request.query.token || undefined, { phones, rawValues: phones && perms.has('customer_search.detail') }, limit);
+      return sendSuccess(reply, page);
+    } catch (error) {
+      return fail(reply, error, 'Failed to sync the register');
     }
   },
 
