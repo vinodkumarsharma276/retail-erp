@@ -50,7 +50,11 @@ series (prefix) and suggests the next number, keeping the series' separator and 
 They are **not unique**: the real sheet reuses ~3,700 numbers for different people. A reused
 number is allowed — create/edit without `allowDuplicate` returns **409** with
 `{ nextAccountNumber, usedBy }` and the form offers **Save anyway** — and every entry sharing it is
-flagged `duplicate_account`.
+flagged `duplicate_account`. Several items bought together are several entries with the same
+number (owner decision 2026-11-11): entries with the same **person (name + mobile) and purchase
+date** are one purchase (`purchaseKey`, `customer-search.issues.ts`), so they neither get the 409
+nor the flag. Only another person or another date is a reuse. An entry with neither name nor
+mobile is always its own purchase.
 
 ### Needs review
 
@@ -60,7 +64,9 @@ longer than 30 characters makes a row invalid. Request/schema limits also apply.
 `packages/shared-utils/src/customer-register.ts`):
 
 `duplicate_account`, `missing_account`, `odd_account`, `missing_name`, `missing_mobile`,
-`invalid_mobile`, `missing_date`, `invalid_date`, `future_date`, `co_incomplete`, `no_product_type`.
+`invalid_mobile`, `missing_date`, `invalid_date`, `future_date`, `co_incomplete`, `no_product_type`,
+`items_unknown` (no type and Product is only a count such as `6 ITEM` — `countOnlyProduct`; shown
+instead of `no_product_type`).
 
 Unusable sheet values (a 9-digit mobile, an unreadable date) are kept in `rawValues` for whoever
 fixes the entry, and cleared once it is fixed. `refreshIssues(tx, { ids, accountNumbers })`
@@ -84,12 +90,50 @@ or a sale in the old shop (`moveCustomersWithEntry`). Real sales never move.
 - **In the app:** the form must pick a **leaf** type (`assertLeafType` — `isLeaf` or no active
   children). The list's type filter matches a type and every type below it (`path` prefix), or
   `none` for "No product type".
-- **On import:** the sheet only names top-level types. Its Product text is matched against
-  top-level types (exact / plural / lookalike), then a unique same-named sub-type
-  ("LED TV" → TV › LED TV); the rest are offered as **new** top-level types, created only when the
-  importer confirms (needs `categories.create`, else 403). Each decision is kept per text in
-  `CustomerSearchProductMapping` and reused by later ranges. Unmatched text stays in `product`
-  with no type (`no_product_type`).
+- **On import** (2026-11-11 rework): staff write Product fast — abbreviations (W/M, REF), Hindi
+  words (ALMARI, GADDA, CHULA), misspellings (STEPLIZER), several items in a cell (W/M-REF) and
+  counts (2 ITEM). Each row is first planned into items (`planItems`,
+  [product glossary](../../apps/api/src/modules/customer-search/customer-search.product-glossary.ts)):
+  - **Several items** (`,` `;` `+` `&` `--`, a spaced `/`, or a single `-`/`/` when every side is
+    known; never inside W/M, DEEP-REF, JUCER/MIXER) → **one entry per item**, same account number,
+    customer, co-applicant, date and shop; Brand/Model split the same way when they have that many
+    parts, else copied. `product` holds the item's own text.
+  - **A count** (`N ITEM/ITEN`, `ALL ITEM`) → split from Model when it lists exactly N known goods
+    (`2 ITEM` + `REF WM`); otherwise one entry, no type, `items_unknown`.
+  - A part is "known" only from a saved decision, the glossary or an exact type name — never a
+    spelling guess.
+
+  Each distinct item text is then read, first answer wins: **saved decision**
+  (`CustomerSearchProductMapping`) → junk (no letters/digits → blank) → the tenant's **exact type
+  name** (top level, plural, slug, or a unique same-named sub-type) → the built-in **glossary**
+  (path such as Refrigerator › Deep Freezer; found by walking the tree, or by the last name when
+  unique; a missing path is proposed as a new type under its deepest existing parent) → a close
+  spelling of a top-level type → **not recognised**. With a working `OPENAI_API_KEY`, the
+  preview sends the not-recognised and lookalike texts (≤300, batches of 60) to `gpt-4o-mini`
+  ([product adjudicator](../../apps/api/src/modules/customer-search/customer-search.product-adjudicator.ts)):
+  only the text, its row count and ≤3 Brand / Model samples, plus the type names and the same
+  glossary/rules — no names, mobiles or addresses. Answers (`type`, `new` under an existing parent,
+  `several`, `blank`, `unsure`) are validated against the tree; a bad answer, a failure or no key
+  leaves the text as it was. `several` is never applied — the reason asks the importer to separate
+  the items with commas in the row and check again.
+
+  Everything is only **pre-filled** (`suggestion`): AI answers are pre-selected but highlighted;
+  not-recognised texts default to **blank** (no longer to "create"); glossary/AI types are created
+  only when the importer keeps "create" (needs `categories.create`, else 403), at the top level or
+  under `parentId` (the parent's `isLeaf` turns false). Each decision is saved per text and reused
+  by later ranges, so a text is decided once. Unmatched text stays in `product` with no type
+  (`no_product_type`).
+- **Glossary** (`PRODUCT_GLOSSARY`, built from the owner's sheet, records 21,001–59,028): one table
+  feeds the matcher, the AI prompt and the import screen's "How product texts are read" panel —
+  add a spelling there and all three learn it. A text listed under two types fails at startup.
+- **Owner decisions 2026-11-11:** new types Refrigerator › Deep Freezer; Cooler; Stabilizer;
+  Laptop; Microwave; Inverter / UPS; Heater; Fan › Table Fan / Wall Fan / Pedestal Fan;
+  Furniture › Mattress / Table / Chair / Dressing Table; Mobile › Accessories; and small
+  appliances at the top level (Induction Cooktop, Water Dispenser, Kettle, Trimmer, Hair Dryer,
+  and the existing Iron, Mixer Grinder, Water Purifier — moved for `vn` by
+  `prisma/seed/flatten-small-appliances.ts vn`, which also switched the emptied "Small
+  Appliances" off). SOUND BAR → Home Theatre, BT → Speaker, JUICER → Mixer Grinder; STONE,
+  SICER, M/AC, 14 AC, RED and brand-only texts (CROMPTON) are left to the AI and the importer.
 - **Export:** a `Product Type` column (full path, `›`-separated) plus `Type Level 1…N`, where N is
   the deepest type in that export — shallower types leave the extra levels blank, so a deeper tree
   just adds columns. Then Shop, Customer Code and Needs review. Re-importing an export reads
@@ -154,15 +198,20 @@ Page `CustomerSearchImportPage.tsx`, engine `customer-search.import.ts`.
 
 1. **File** — .xlsx or .csv, read in the browser. CSVs are read as raw text
    (`XLSX.read(…, { raw: true })`) and dates parsed day-first, so `1/3/2021` stays 1 March.
-2. **Range** — From / To record (record 1 = first row under the headings). Up to **10,000 records**
-   per range (`MAX_IMPORT_ROWS`). The page shows which ranges of the file are already in
+2. **Range** — From / To record (record 1 = first row under the headings). Up to **20,000 records**
+   per range (`MAX_IMPORT_ROWS`; raised from 10,000 on 2026-11-12 — the largest 20,000-row range of
+   the owner's sheet is about 6 MB of JSON). The page shows which ranges of the file are already in
    (`/import/batches`) and suggests the next one.
 3. **Check** (`POST /import/preview`) — each row is *new*, *already imported*, *moves shop* or
-   *can't import*, with its review problems. Rows already in are matched on account number +
+   *can't import*, with its review problems and notes ("2 items, one entry each: W/M, REF",
+   "6 ITEM: 6 items, not listed"). Rows already in are matched on account number +
    name + mobile (+ date when there is no number); identical rows inside a range are skipped, so a
-   range can be re-run safely. The preview opens on the **Problems** filter and lists 500 rows at a
-   time ("Show more").
-4. **Decide** — product types (above) and **names on the same mobile**: variants are grouped by
+   range can be re-run safely. A row split into items made several entries; re-running skips them
+   all, and a changed Shop moves them all. The preview opens on the **Problems** filter and lists
+   500 rows at a time ("Show more"). Chips also show the entries the rows make, rows with several
+   items, count-only rows and product texts not recognised.
+4. **Decide** — product types (above; the table can show only the ones to check, and has the
+   glossary/rules panel) and **names on the same mobile**: variants are grouped by
    edit distance, with OpenAI (`gpt-4o-mini`, names only) for borderline pairs when
    `OPENAI_API_KEY` works; the importer picks who is the same person and which spelling to keep.
 5. **Import** (`POST /import`) — the **Import N entries** button sits above the preview and at the
@@ -253,7 +302,14 @@ and migration `20261110120000_customer_search_sync_log`.
 
 The [search screen](../../apps/web/src/pages/customer-search/CustomerSearchPage.tsx) uses
 25-row pages, 300 ms debounced name/area input, URL-backed filters, All / Needs review tabs and
-permission-gated actions. It sends `q` only after two trimmed characters. All-shops mode offers
+permission-gated actions. It sends `q` only after two trimmed characters. A line above the table
+shows the total from the list's pagination ("20,976 entries in the register", or "N entries
+match" with filters / Needs review). Opening a row, its Edit button or New entry passes the list
+URL (tab, problem, search, page) in router state ([registerListUrl.ts](../../apps/web/src/pages/customer-search/registerListUrl.ts));
+the details screen's ← Back, Delete, Edit → Cancel/Save and the form's Back return to that exact
+view instead of the plain register (owner request 2026-11-12). Dragging across a cell to select
+text no longer opens the row — the shared `DataTable` ignores a row click while text is
+selected, in every table. All-shops mode offers
 read/search but asks users to select a single shop before adding.
 
 The [form](../../apps/web/src/pages/customer-search/CustomerSearchFormPage.tsx) handles series
@@ -287,7 +343,15 @@ Code: [lib/features/customer_search](../../apps/mobile-flutter/lib/features/cust
   SQLCipher file `register_<tenant>_<user>.db` with a random 32-byte key in platform secure
   storage per tenant + user. Tables `entries`, `staging_entries`, `shops`, `categories`, `meta`,
   plus an FTS5 **trigram** index `entry_text` (`detail = 'column'`) kept in step by triggers.
-  An unreadable file (lost key) is recreated; schema changes drop and re-download the copy.
+  An unreadable file (lost key, SQLite "not a database") is recreated; any other open error
+  (e.g. busy) is reported and never deletes the copy. Schema changes drop and re-download the copy.
+  The app and the background updater each open **their own connection**
+  (`singleInstance: false`): the Android plugin keeps connections process-wide and WorkManager
+  runs in the app's process, so a shared connection closed by the background run used to break
+  the open app ("could not be opened: DatabaseException(database_closed)", or a stuck
+  "updating…"; found on the phone 2026-11-10). If an update still finds its connection closed,
+  the controller reopens the copy once and retries; a lease blocked by the other connection's
+  write counts as "already updating".
   Withheld phones are stored as NULL, never as an empty number.
 - **Sync** ([register_sync.dart](../../apps/mobile-flutter/lib/features/customer_search/register_sync.dart)):
   one run at a time per process and per device (a lease row shared with the background task);
@@ -310,10 +374,16 @@ Code: [lib/features/customer_search](../../apps/mobile-flutter/lib/features/cust
   [detail](../../apps/mobile-flutter/lib/features/customer_search/entry_detail_page.dart),
   [form](../../apps/mobile-flutter/lib/features/customer_search/entry_form_page.dart)):
   last-updated banner (warning when stale or the last update failed; tap to update), "Search
-  in" + search box with clear button, 50-row pages with endless scroll. Each row: customer name
-  (bold) with shop and account-number badges; product type path · brand · model; purchase date
-  (`28 Dec 2025`), mobile (`98765 43210`, only when visible to the user) and area with icons;
-  co-applicant; a red "Needs review: …" label when the entry has problems. Details come from the
+  in" + search box with clear button, a counts line ("20,976 entries in the register", or
+  "N found of TOTAL" while searching, Indian digit grouping, plus "N need review" in red),
+  50-row pages with endless scroll; a new search or column choice jumps back to the first
+  (newest) row, while a background update keeps the loaded rows and position. Each row is two
+  lines (owner decision 2026-11-10, simpler rows; compact type — name 14sp, account number and
+  second line 12sp, then scaled by the phone's own font-size setting): customer name (bold) with the account number
+  on the right; then product type (last level, else the product text) · purchase date
+  (`28 Dec 2025`) · mobile (`98765 43210`, only when visible to the user); a small red dot
+  (tooltip lists the problems) when the entry needs review. Shop, area, co-applicant, brand
+  and model are on the details screen. Details come from the
   copy; "entered by",
   import file/rows and a permitted matching sale load online. New entry / Edit need a
   connection: series → `next-number`, existing customers on the mobile (`customer-matches`),
@@ -443,6 +513,45 @@ idempotent create and stale-edit refusal. Web `tsc -p tsconfig.app.json` passed.
   through the phone UI was not driven (simulated taps lag on this device); the widget tests and
   the HTTP check above cover that path.
 
+2026-11-10 (row/header/module slice): `flutter analyze` clean; `flutter test` — 44 tests
+passed, adding the owner vs non-owner module list (others see only Installments and Customer
+Searching; plan/permissions still apply; `mobile_app` off → none), Indian digit grouping, and
+the screen's counts line ("2 entries in the register", "need review", "found of 2"), two-line
+row and review-dot tooltip. Scroll-to-top on a new search is by source inspection only (the
+widget test has two rows). Web `tsc -p tsconfig.app.json` passed with the total line above the
+table.
+
+2026-11-11 (background/foreground connection fix): on the phone (debug build, the owner's dev
+server), a scheduled WorkManager update ran in the app's own process while the register was
+open; with the old build the open app's next update then hung on "updating…" (and, as reported,
+failed with `database_closed`); the cause is the plugin's process-wide connection sharing (see
+Device copy). With the fix, a scheduled background run (01:12, same process id as the open app)
+was followed by a successful resume update and tap-to-update in the same session. A forced
+`cmd jobscheduler run` does not reproduce it — WorkManager declines to run periodic work early.
+`flutter test` — 45 passed, including a controller test that closes the copy under the open
+app and expects a reopen + successful update (it fails with the reopen disabled), and the sync
+result reporting `closed`.
+
+2026-11-11 (product glossary, items, AI suggestions):
+
+- `npm run test --workspace=apps/api` — 24 files, 344 tests passed. Unit CS7b reads every
+  Product text of records 21,001–59,028 against the owner's tree and checks the agreed result
+  (glossary, new type, split, count, AI-only), Model-based splits, Brand/Model splitting, no
+  split inside one product, saved decisions enabling a split, glossary consistency, AI answer
+  validation and the prompt. Integration CS23: a split row → two entries under one customer
+  with split Brand/Model and no reused-number flag, a count row → `items_unknown`, a sub-type
+  created under its parent (parent no longer a leaf), the item count, a hand-entered item of the
+  same purchase without a 409 and another person's with one, re-import skipping and a Shop change
+  moving all items. CS4/CS21 now use another date for their reuse checks; CS6 uses texts the
+  glossary doesn't know. Web `tsc -p tsconfig.app.json` and `flutter analyze` passed.
+- Dry-run preview of records 21,001–31,000 against the dev database (nothing saved; name AI off
+  for the run so no customer names were sent): 98 distinct texts → 83 glossary, 9 exact type
+  names, 6 not recognised (14 AC, CROMPTON, M/AC, RED, SICER, STONE) plus `------` blank;
+  14 new types proposed (the agreed list, previously 99); 12 rows split (10,001 entries from
+  9,987 rows); 18 count-only rows flagged. The AI step could not be verified: OpenAI answered
+  429 `insufficient_quota` ("no credits remaining") — the name adjudicator is affected too.
+  The UI screens were not exercised in a browser.
+
 Acceptance must cover shared-mobile relatives, duplicate 409/confirmation, no-mobile entries,
 invalid dates/mobile, category hierarchy, forbidden shop, cross-tenant IDs, restricted phones,
 review updates, missing entry, save failure, and preserving customers on deletion. Flutter
@@ -453,7 +562,7 @@ permission downgrades and measured approximately 58,000-row cache/search perform
 
 1. Add a `Shop` column (shop name or code per row; blank = the import's default shop), then
    download as .xlsx or .csv.
-2. Customer Searching → **Import the sheet**: pick a range of up to 10,000 records, check, confirm
+2. Customer Searching → **Import the sheet**: pick a range of up to 20,000 records, check, confirm
    the product types (and which new ones to create), decide the name groups, import. Repeat with
    the suggested next range. Work through the **Needs review** tab afterwards.
 3. When every range is in, set the sheet to view-only and have staff use **New entry** instead.
@@ -463,9 +572,16 @@ permission downgrades and measured approximately 58,000-row cache/search perform
 
 ## Known gaps and next work
 
-- **Not verified on a device yet:** that Android actually runs the WorkManager update in the
-  background (code and scheduling exist; the OS decides timing); iOS build/Keychain/background;
-  a release (non-debug) build's timings; the first download over Wi-Fi rather than USB.
+- **OpenAI key has no credits** (seen 2026-11-11): product-type and name suggestions silently fall
+  back (glossary / edit distance) until billing is topped up. The product AI was never run
+  successfully, so its prompt is untested against the live model.
+- Rows already imported (records 1–21,000) have no Product text, so the glossary can't type them;
+  an AI's "several items" answer is shown, not applied (the importer edits the row). Two sheet
+  rows with the same account number + name + mobile but different products are still treated as
+  the same row (one such case in the whole sheet).
+- **Not verified on a device yet:** iOS build/Keychain/background; a release (non-debug)
+  build's timings; the first download over Wi-Fi rather than USB. (The Android WorkManager
+  update was observed running on the phone on 2026-11-10/11 — see Verification.)
 - **Recommended:** HTTP response compression on the API (e.g. `@fastify/compress`, a new server
   dependency — needs approval). A first download is ~38 MB of JSON; Dart's HTTP client already
   accepts gzip, so no app change would be needed.

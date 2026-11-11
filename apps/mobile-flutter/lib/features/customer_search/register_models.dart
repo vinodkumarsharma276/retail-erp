@@ -208,6 +208,7 @@ const registerIssueLabels = {
   'future_date': 'Purchase date is in the future',
   'co_incomplete': 'Co-applicant details incomplete',
   'no_product_type': 'No product type',
+  'items_unknown': 'Several items, details unknown',
 };
 
 /// The web's `normalizeMobile`: last 10 digits, or '' when fewer.

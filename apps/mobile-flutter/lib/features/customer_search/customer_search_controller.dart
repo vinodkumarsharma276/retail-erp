@@ -50,11 +50,13 @@ class CustomerSearchController extends ChangeNotifier
   List<RegisterCategory> categories = const [];
   List<RegisterShop> shops = const [];
   List<(String, int)> prefixes = const [];
+  int needsReview = 0;
 
   /// Bumped whenever the copy changes, so open lists query again.
   int revision = 0;
   DateTime? _lastAttempt;
   Timer? _timer;
+  Future<bool>? _reopening;
   String? _owner;
   bool _disposed = false;
 
@@ -82,6 +84,31 @@ class CustomerSearchController extends ChangeNotifier
 
   void _changed() => unawaited(_reload());
 
+  /// Opens this user's copy again after its connection was closed under us.
+  Future<bool> _reopen() async {
+    final identity = _identity;
+    if (identity == null || _disposed || lostAccess) return false;
+    final old = db;
+    try {
+      await old?.close();
+    } on Object {
+      // Already closed.
+    }
+    final RegisterDatabase opened;
+    try {
+      opened = await opener(identity.tenantId, identity.userId);
+    } on Object {
+      return false;
+    }
+    if (_disposed || db != old) {
+      await opened.close();
+      return false;
+    }
+    db = opened;
+    _sync = RegisterSync(session.api, opened, onProgress: _changed);
+    return true;
+  }
+
   Future<void> _reload() async {
     final current = db;
     if (current == null || _disposed) return;
@@ -89,6 +116,7 @@ class CustomerSearchController extends ChangeNotifier
     categories = await current.categories();
     shops = await current.shops();
     prefixes = await current.prefixes();
+    needsReview = await current.needsReviewCount();
     revision++;
     if (!_disposed) notifyListeners();
   }
@@ -126,7 +154,7 @@ class CustomerSearchController extends ChangeNotifier
     }
   }
 
-  Future<RegisterSyncResult?> syncNow() async {
+  Future<RegisterSyncResult?> syncNow({bool retry = true}) async {
     final sync = _sync;
     if (sync == null || _disposed) return null;
     _lastAttempt = _now();
@@ -134,6 +162,16 @@ class CustomerSearchController extends ChangeNotifier
     notifyListeners();
     final result = await sync.run();
     if (_disposed) return result;
+    if (result.closed && retry) {
+      // Callers sharing this failed run share one reopen; a later caller
+      // finds the copy already replaced.
+      final reopened = identical(_sync, sync)
+          ? await (_reopening ??= _reopen().whenComplete(
+              () => _reopening = null,
+            ))
+          : true;
+      if (reopened && !_disposed) return syncNow(retry: false);
+    }
     syncing = false;
     syncError = result.outcome == RegisterSyncOutcome.failed
         ? result.error?.message

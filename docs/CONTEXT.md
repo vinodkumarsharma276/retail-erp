@@ -85,7 +85,8 @@ RetailERP is a full-stack web + mobile application that replaces Tally and Marg 
   shop selection, lifecycle revalidation and themed placeholder shell exist.
 - All authorized tenant roles, eventual full web parity, released feature by feature.
 - First business slice is Customer Searching with cached reads/details and online create/edit;
-  that feature is not implemented in Flutter yet.
+  implemented — see [Customer Searching](features/customer-searching.md). On the phone,
+  everyone except the owner sees only Customer Searching and Installments ("coming soon").
 - ERP/API is authoritative; Sheets is import-only. Delta sync and permission-aware persistent
   caching are required work, not existing APIs. See [mobile foundation](features/mobile-foundation.md).
 

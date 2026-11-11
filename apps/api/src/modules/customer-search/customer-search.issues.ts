@@ -1,5 +1,5 @@
 import type { Prisma } from '@prisma/client';
-import { personNameKey, REGISTER_ISSUE_CODES, type RegisterIssue } from '@retailerp/shared-utils';
+import { countOnlyProduct, personNameKey, REGISTER_ISSUE_CODES, type RegisterIssue } from '@retailerp/shared-utils';
 
 /**
  * Review problems on register entries.
@@ -9,6 +9,10 @@ import { personNameKey, REGISTER_ISSUE_CODES, type RegisterIssue } from '@retail
  * a person's attention. Everything but `duplicate_account` depends only on
  * the entry itself; that one depends on the other entries sharing its number,
  * so it is refreshed for every entry of an account number that changes.
+ *
+ * Several items bought together are several entries with the same account
+ * number, customer and purchase date; that is one purchase, not a reused
+ * number. Only a second purchase (another person or another date) is flagged.
  */
 
 /** As-written values the entry couldn't use, kept for whoever fixes it. */
@@ -28,6 +32,8 @@ export interface IssueFields {
   coCustomerId: string | null;
   purchaseDate: Date | null;
   categoryId: string | null;
+  /** The sheet's Product text; "3 ITEM" with no type means the items aren't known. */
+  product?: string | null;
   rawValues: unknown;
 }
 
@@ -49,8 +55,16 @@ export function rowIssues(e: IssueFields): RegisterIssue[] {
   const coNamed = !!e.coName?.trim();
   const coMobileGiven = !!(e.coMobile?.trim() || raw.coMobile?.trim());
   if ((coNamed && !e.coCustomerId) || (!coNamed && coMobileGiven)) out.add('co_incomplete');
-  if (!e.categoryId) out.add('no_product_type');
+  if (!e.categoryId) out.add(countOnlyProduct(e.product) ? 'items_unknown' : 'no_product_type');
   return order(out);
+}
+
+/** One purchase: same person (name + mobile) on the same date. An entry naming nobody is a purchase of its own. */
+export function purchaseKey(e: { id?: string; customerName: string; mobile: string; purchaseDate: Date | string | null }): string {
+  const name = personNameKey(e.customerName);
+  if (!name && !e.mobile) return `entry:${e.id ?? Math.random()}`;
+  const date = e.purchaseDate instanceof Date ? e.purchaseDate.toISOString().slice(0, 10) : e.purchaseDate ?? '';
+  return [name, e.mobile, date].join('|');
 }
 
 const order = (codes: Iterable<string>) => {
@@ -79,17 +93,19 @@ export async function refreshIssues(
 
   const select = {
     id: true, accountNumber: true, seriesNo: true, customerName: true, mobile: true, coName: true, coMobile: true,
-    coCustomerId: true, purchaseDate: true, categoryId: true, rawValues: true, issues: true,
+    coCustomerId: true, purchaseDate: true, categoryId: true, product: true, rawValues: true, issues: true,
   } as const;
   const entries = await tx.customerSearchEntry.findMany({
     where: { OR: [...(ids.length ? [{ id: { in: ids } }] : []), ...(numbers.size ? [{ accountNumber: { in: [...numbers] } }] : [])] },
     select,
   });
-  const counts = new Map<string, number>();
-  for (const e of entries) if (e.accountNumber) counts.set(e.accountNumber, (counts.get(e.accountNumber) ?? 0) + 1);
+  const purchases = new Map<string, Set<string>>();
+  for (const e of entries) {
+    if (e.accountNumber) purchases.set(e.accountNumber, (purchases.get(e.accountNumber) ?? new Set()).add(purchaseKey(e)));
+  }
 
   for (const e of entries) {
-    const next = order([...rowIssues(e), ...((counts.get(e.accountNumber) ?? 0) > 1 ? ['duplicate_account'] : [])]);
+    const next = order([...rowIssues(e), ...((purchases.get(e.accountNumber)?.size ?? 0) > 1 ? ['duplicate_account'] : [])]);
     if (!sameList(next, e.issues)) {
       await tx.customerSearchEntry.update({ where: { id: e.id }, data: { issues: next } });
     }

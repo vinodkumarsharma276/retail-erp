@@ -367,6 +367,10 @@ class RegisterDatabase {
           )
           .toList();
 
+  Future<int> needsReviewCount() async => Sqflite.firstIntValue(
+    await db.rawQuery("SELECT COUNT(*) FROM entries WHERE issues <> '[]'"),
+  )!;
+
   /// Series in use with their entry counts, A–Z.
   Future<List<(String, int)>> prefixes() async => (await db.rawQuery(
     "SELECT prefix, COUNT(*) AS n FROM entries WHERE prefix <> '' GROUP BY prefix ORDER BY prefix",

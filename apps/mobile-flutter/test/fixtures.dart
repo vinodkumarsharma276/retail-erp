@@ -11,8 +11,13 @@ const fixtureCredentials = Credentials(
   shopId: 'test-shop',
 );
 
-Json identityData({List<String>? permissions, bool customerSearch = true}) => {
-  'user': {'id': 'test-user', 'fullName': 'Test User'},
+Json identityData({
+  List<String>? permissions,
+  bool customerSearch = true,
+  String? role,
+  Map<String, bool>? flags,
+}) => {
+  'user': {'id': 'test-user', 'fullName': 'Test User', 'role': ?role},
   'tenant': {
     'id': 'test-tenant-id',
     'slug': 'test-tenant',
@@ -22,7 +27,7 @@ Json identityData({List<String>? permissions, bool customerSearch = true}) => {
       permissions ??
       ['nav.customer_search', 'customer_search.list', 'shop.switch'],
   'features': {
-    'flags': {'mobile_app': true, 'customer_search': customerSearch},
+    'flags': flags ?? {'mobile_app': true, 'customer_search': customerSearch},
   },
   'shops': [
     {'id': 'test-shop', 'name': 'Test Shop', 'code': 'TS'},

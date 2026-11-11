@@ -143,7 +143,7 @@ those gaps are not approval to reproduce unsafe behavior in Flutter or expand ac
   not need `sales.view_real`. Problems (no mobile, reused number…) are stored per entry in
   `issues` and kept current by `refreshIssues`; the UI lists them under "Needs review".
   Changing an entry's shop moves its customer too unless they have other entries/sales in the
-  old shop. The sheet is imported in ranges of up to **10,000 rows** (`MAX_IMPORT_ROWS`; 25 MB body,
+  old shop. The sheet is imported in ranges of up to **20,000 rows** (`MAX_IMPORT_ROWS`; 25 MB body,
   one 300 s transaction); CSVs are parsed as raw text in the browser so d/m dates stay day-first.
   See [docs/features/customer-searching.md](docs/features/customer-searching.md) for the full model, endpoints and cutover steps.
 - **Customer codes** are `CUST-<n>`, one sequence per tenant, padded to 4 digits but growing past

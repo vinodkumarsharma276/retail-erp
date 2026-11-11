@@ -80,9 +80,7 @@ class _AppShellState extends State<AppShell> {
     final session = widget.session;
     final identity = session.identity!;
     final mobileEnabled = identity.flags['mobile_app'] == true;
-    final features = featureCatalog
-        .where((f) => mobileEnabled && f.visibleTo(identity))
-        .toList();
+    final features = mobileModulesFor(identity);
     final selected = _selected;
     final permitted = selected != null && features.contains(selected);
     return PopScope(
@@ -208,7 +206,7 @@ class _AppShellState extends State<AppShell> {
                               ),
                               const SizedBox(height: 12),
                               const Text(
-                                'This feature is not implemented in Flutter yet.',
+                                'Coming soon to the mobile app. Use the web app for now.',
                                 textAlign: TextAlign.center,
                               ),
                             ],
@@ -236,12 +234,6 @@ class _AppShellState extends State<AppShell> {
                               style: Theme.of(context).textTheme.titleLarge,
                             ),
                           ),
-                          const Padding(
-                            padding: EdgeInsets.all(8),
-                            child: Text(
-                              'Mobile foundation - feature screens coming next',
-                            ),
-                          ),
                           ...features.map(
                             (feature) => Card(
                               child: ListTile(
@@ -251,7 +243,9 @@ class _AppShellState extends State<AppShell> {
                                   feature.id == 'customer-searching' &&
                                           _register != null
                                       ? 'Search the account register, also offline'
-                                      : 'Not implemented yet',
+                                      : mobileModulesBuilt.contains(feature.id)
+                                      ? 'Open'
+                                      : 'Coming soon',
                                 ),
                                 trailing: const Icon(Icons.chevron_right),
                                 onTap: () =>

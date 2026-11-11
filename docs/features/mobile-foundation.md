@@ -101,11 +101,16 @@ payments and other features remain later slices unless reprioritized.
 
 The current [app shell](../../apps/mobile-flutter/lib/app/app_shell.dart) provides Modules and
 Account destinations. Its [catalog](../../apps/mobile-flutter/lib/features/feature_catalog.dart)
-mirrors 18 rail capabilities with feature/permission gates; entries without a Flutter screen are
-visibly unimplemented, not mock business screens. Customer Searching opens its real page. The
+mirrors 18 rail capabilities with feature/permission gates; entries without a Flutter screen show
+"Coming soon to the mobile app", not mock business screens. Customer Searching opens its real page.
+**Owner decision 2026-11-10:** for now everyone except the `owner` role sees only Customer
+Searching and Installments (still subject to their permissions and plan) via
+`mobileModulesFor`; the owner sees every module they are allowed. This uses the `role` from
+`/auth/me` and only trims the phone's list — it is not authorization; an identity cached before
+`role` was stored counts as non-owner until the next online check. The
 shell receives platform services (`RegisterServices`: encrypted file opener/remover, sync
 setting, background scheduler) from `main.dart`, so widget tests can pass fakes. `mobile_app`
-must be enabled for module navigation. API effective permissions are used directly, not
+must be enabled for module navigation. Otherwise API effective permissions are used directly, not
 reimplemented from role names. Server-side checks remain authoritative; the existing
 switch-shop endpoint's legacy role restriction can still return 403.
 

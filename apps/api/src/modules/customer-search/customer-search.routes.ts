@@ -6,7 +6,7 @@ import { shopScope } from '../../middleware/shop-scope.js';
 import { validate } from '../../middleware/validate.js';
 import { createEntrySchema, importCommitSchema, importPreviewSchema, updateEntrySchema } from './customer-search.validation.js';
 
-/** A 10,000-row import range is a few MB of JSON (about 500 bytes a row). */
+/** A 20,000-row import range is about 6 MB of JSON (the owner's sheet, 2026-11-12). */
 const IMPORT_BODY_LIMIT = 25 * 1024 * 1024;
 
 export async function customerSearchRoutes(app: FastifyInstance) {

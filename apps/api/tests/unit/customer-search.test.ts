@@ -33,9 +33,13 @@ import {
   buildTypeColumns,
   categoryPaths,
   defaultDecision,
+  knownText,
   matchProductTexts,
+  TypeTree,
 } from '../../src/modules/customer-search/customer-search.product-types.js';
-import { rowIssues } from '../../src/modules/customer-search/customer-search.issues.js';
+import { glossaryPath, itemParts, planItems, PRODUCT_GLOSSARY } from '../../src/modules/customer-search/customer-search.product-glossary.js';
+import { applyAnswer, productPrompt } from '../../src/modules/customer-search/customer-search.product-adjudicator.js';
+import { purchaseKey, rowIssues } from '../../src/modules/customer-search/customer-search.issues.js';
 import { resolveShop, rowKey } from '../../src/modules/customer-search/customer-search.import.js';
 
 const allOn = Object.fromEntries(ALL_FEATURE_KEYS.map((k) => [k, true]));
@@ -187,40 +191,46 @@ describe('CS5. Name groups on a shared mobile', () => {
 });
 
 describe('CS7. Product types', () => {
-  const top = [
-    { id: 't-fridge', name: 'Fridge', slug: 'fridge' },
-    { id: 't-wm', name: 'Washing Machine', slug: 'washing-machine' },
-    { id: 't-ac', name: 'Air Conditioner', slug: 'air-conditioner' },
-  ];
+  const tree = new TypeTree([
+    { id: 't-fridge', name: 'Fridge', slug: 'fridge', parentId: null },
+    { id: 't-wm', name: 'Washing Machine', slug: 'washing-machine', parentId: null },
+    { id: 't-ac', name: 'Air Conditioner', slug: 'air-conditioner', parentId: null },
+  ]);
+  const texts = (list: string[]) => list.map((text) => ({ text }));
 
-  it('matches sheet text to top-level types: remembered, exact, plural, lookalike, new', () => {
+  it('matches sheet text: remembered, the tenant\'s own name, plural, glossary, lookalike, new', () => {
     const matches = matchProductTexts(
-      ['Fridge', 'fridges', 'Washing  machine', 'Air Conditoner', 'Cooler', 'cooler', 'Geyser', ''],
-      top,
+      texts(['Fridge', 'fridges', 'W/M', 'Air Conditoner', 'Gizmo', 'gizmo', 'Geyser', '']),
+      tree,
       new Map([['geyser', null]]),
     );
     const byKey = Object.fromEntries(matches.map((m) => [m.textKey, [m.kind, m.categoryId, m.rows]]));
     expect(byKey).toEqual({
       fridge: ['matched', 't-fridge', 1],
       fridges: ['matched', 't-fridge', 1],
-      'washing machine': ['matched', 't-wm', 1],
+      'w/m': ['glossary', 't-wm', 1],
       'air conditoner': ['similar', 't-ac', 1],
-      cooler: ['new', null, 2],
+      gizmo: ['new', null, 2],
       geyser: ['mapped', null, 1],
     });
     // Nothing is created unless asked: a new text defaults to blank.
-    expect(defaultDecision(matches.find((m) => m.textKey === 'cooler')!)).toEqual({ action: 'blank' });
+    expect(defaultDecision(matches.find((m) => m.textKey === 'gizmo')!)).toEqual({ action: 'blank' });
     expect(defaultDecision(matches.find((m) => m.textKey === 'fridge')!)).toEqual({ action: 'existing', categoryId: 't-fridge' });
   });
 
   it('prefers an existing sub-type of the same name over creating a duplicate top-level type', () => {
-    const [m] = matchProductTexts(['LED TV'], top, new Map(), [{ id: 's-led', name: 'LED TV', pathLabel: 'Electronics › TV › LED TV' }]);
+    const deep = new TypeTree([
+      { id: 'e', name: 'Electronics', slug: 'electronics', parentId: null },
+      { id: 't', name: 'TV', slug: 'tv', parentId: 'e' },
+      { id: 's-led', name: 'LED TV', slug: 'led-tv', parentId: 't' },
+      { id: 'tv-stand', name: 'Stand', slug: 'stand', parentId: 't' },
+      { id: 'f', name: 'Fan', slug: 'fan', parentId: null },
+      { id: 'fan-stand', name: 'Stand', slug: 'stand', parentId: 'f' },
+    ]);
+    const [m] = matchProductTexts(texts(['LED TV']), deep, new Map());
     expect(m).toMatchObject({ kind: 'matched', categoryId: 's-led', categoryName: 'Electronics › TV › LED TV' });
     // Ambiguous (two sub-types of that name): it stays new for the person to decide.
-    const [n] = matchProductTexts(['Stand'], top, new Map(), [
-      { id: 'a', name: 'Stand', pathLabel: 'TV › Stand' },
-      { id: 'b', name: 'Stand', pathLabel: 'Fan › Stand' },
-    ]);
+    const [n] = matchProductTexts(texts(['Stand']), deep, new Map());
     expect(n.kind).toBe('new');
   });
 
@@ -260,6 +270,159 @@ describe('CS7. Product types', () => {
   });
 });
 
+describe('CS7b. Reading the sheet\'s Product column (glossary, items, counts, AI answers)', () => {
+  // The owner's type tree after small appliances moved to the top (2026-11-11).
+  const cats: Array<[string, string, string | null]> = [
+    ['ac', 'AC', null], ['ac-split', 'Split AC', 'ac'], ['ac-window', 'Window AC', 'ac'],
+    ['almirah', 'Almirah', null], ['battery', 'Battery', null], ['battery-ups', 'UPS Battery', 'battery'],
+    ['chimney', 'Chimney', null], ['earbuds', 'Earbuds', null], ['fan', 'Fan', null],
+    ['furniture', 'Furniture', null], ['bed', 'Bed', 'furniture'], ['dining', 'Dining Table', 'furniture'], ['sofa', 'Sofa', 'furniture'],
+    ['gas', 'Gas Stove', null], ['geyser', 'Geyser', null], ['ht', 'Home Theatre', null], ['mobile', 'Mobile', null],
+    ['smartphone', 'Smartphone', 'mobile'], ['ref', 'Refrigerator', null], ['ref-single', 'Single Door', 'ref'],
+    ['sewing', 'Sewing Machine', null], ['iron', 'Iron', null], ['mixer', 'Mixer Grinder', null], ['ro', 'Water Purifier', null],
+    ['speaker', 'Speaker', null], ['tv', 'TV', null], ['led', 'LED TV', 'tv'], ['wm', 'Washing Machine', null], ['wm-top', 'Top Load', 'wm'],
+  ];
+  const vn = new TypeTree(cats.map(([id, name, parentId]) => ({ id, name, slug: id, parentId })));
+  const knows = knownText(vn, new Map());
+
+  /** "Type" (existing), "+Type" (to create), "-" (blank), "?" (for the AI / a person), "count", joined with " + " for items. */
+  const read = (product: string, brand = '', model = '') => {
+    const plan = planItems({ product, brand, model }, knows);
+    if (plan.kind === 'count') return 'count';
+    const parts = plan.kind === 'one' ? [plan.text] : plan.items.map((i) => i.text);
+    return parts
+      .map((p) => {
+        const [m] = matchProductTexts([{ text: p }], vn, new Map());
+        if (m.categoryId && m.kind !== 'similar') return m.categoryName;
+        if (m.create) return `+${m.create.label}`;
+        if (m.kind === 'glossary') return '-';
+        return '?';
+      })
+      .join(' + ');
+  };
+
+  it('reads every Product text of records 21,001–31,000 the way the owner agreed', () => {
+    const expected: Record<string, string> = {
+      ALMARI: 'Almirah', REF: 'Refrigerator', LED: 'TV › LED TV', 'W/M': 'Washing Machine', WM: 'Washing Machine', 'W-M': 'Washing Machine',
+      'W.M': 'Washing Machine', 'W//M': 'Washing Machine', 'W\\M': 'Washing Machine', MIXER: 'Mixer Grinder', MIXI: 'Mixer Grinder',
+      MIXIER: 'Mixer Grinder', 'JUCER/MIXER': 'Mixer Grinder', JUICER: 'Mixer Grinder', 'S/M': 'Sewing Machine', SM: 'Sewing Machine',
+      PAYDAN: 'Sewing Machine', GADDA: '+Furniture › Mattress', 'W/AC': 'AC › Window AC', 'H/T': 'Home Theatre', HT: 'Home Theatre',
+      HOMETHEATER: 'Home Theatre', 'SOUND BAR': 'Home Theatre', DEEPFREEZER: '+Refrigerator › Deep Freezer', 'DEEP REF': '+Refrigerator › Deep Freezer',
+      DEEPFREZER: '+Refrigerator › Deep Freezer', DEEPFREEZ: '+Refrigerator › Deep Freezer', DEEPREF: '+Refrigerator › Deep Freezer',
+      'DEEP-REF': '+Refrigerator › Deep Freezer', PRESS: 'Iron', 'INSTA IRON': 'Iron', STEPLIZER: '+Stabilizer', STABLIZER: '+Stabilizer',
+      SATBLIZER: '+Stabilizer', STABLAISER: '+Stabilizer', STABLISER: '+Stabilizer', STABILIZER: '+Stabilizer', INDUCTION: '+Induction Cooktop',
+      INDUTION: '+Induction Cooktop', 'INFRA INDUCTION': '+Induction Cooktop', 'COOK TPO': '+Induction Cooktop', RO: 'Water Purifier',
+      'R.O.': 'Water Purifier', LAPTOP: '+Laptop', 'LAP TOP': '+Laptop', CHULA: 'Gas Stove', 'CHULA 3BR': 'Gas Stove', 'LPG STOVE': 'Gas Stove',
+      GIJAR: 'Geyser', GIJER: 'Geyser', CHAIR: '+Furniture › Chair', 'PLASTIC CHAIR': '+Furniture › Chair',
+      'WATER DISPANCER': '+Water Dispenser', 'WATER DISPENCER': '+Water Dispenser', 'WATER DIS.': '+Water Dispenser',
+      'WATER DISPENSER': '+Water Dispenser', 'W/D': '+Water Dispenser', BT: 'Speaker', 'SONUD BOX': 'Speaker', 'SOUND BOX': 'Speaker',
+      SPEKAR: 'Speaker', SPIKER: 'Speaker', COOLER: '+Cooler', KETTEL: '+Kettle', KATEL: '+Kettle', KETTLE: '+Kettle', CATTLE: '+Kettle',
+      TRIMER: '+Trimmer', TRIMAR: '+Trimmer', TRIMMER: '+Trimmer', '------': '-', CIMANI: 'Chimney', 'COOKER HOOD': 'Chimney',
+      'DRESHING TABEL': '+Furniture › Dressing Table', HAIRDRYER: '+Hair Dryer', MICROWAVE: '+Microwave', TABEL: '+Furniture › Table',
+      TABLE: '+Furniture › Table',
+      // Several items: an entry each.
+      'LED--W/M': 'TV › LED TV + Washing Machine', 'REF--W/M--COLLER': 'Refrigerator + Washing Machine + +Cooler',
+      'W/M -- IRON': 'Washing Machine + Iron', 'W/M-REF': 'Washing Machine + Refrigerator', 'W/M, LED': 'Washing Machine + TV › LED TV',
+      // Only a count (no Model list here).
+      '2 ITEM': 'count', '3 ITEM': 'count', '5 ITEM': 'count', '2ITEM': 'count', '10 ITEM': 'count', '2 ITEN': 'count',
+      '3ITEM': 'count', '6 ITEM': 'count', '7 ITEM': 'count', 'ALL ITEM': 'count',
+      // Records 31,001 onwards.
+      MOBILE: 'Mobile', MOBILA: 'Mobile', FAN: 'Fan', 'FAN,': 'Fan', 'TABLE FAN': '+Fan › Table Fan', 'T/ FAN': '+Fan › Table Fan',
+      'W/FAN': '+Fan › Wall Fan', 'PADISTAL FAN': '+Fan › Pedestal Fan', 'STAND FAN': '+Fan › Pedestal Fan', COLLER: '+Cooler',
+      COOELR: '+Cooler', BATTREY: 'Battery', INVERTER: '+Inverter / UPS', UPS: '+Inverter / UPS', BUDS: 'Earbuds',
+      CHARGER: '+Mobile › Accessories', CABLE: '+Mobile › Accessories', ADUPTER: '+Mobile › Accessories', MAXI: 'Mixer Grinder',
+      HEATER: '+Heater', 'COOLER / FAN': '+Cooler + Fan', 'FAN,COOLER': 'Fan + +Cooler', 'COOLOER / FAN': '+Cooler + Fan',
+      'COOLER / IRON': '+Cooler + Iron',
+    };
+    const got = Object.fromEntries(Object.keys(expected).map((t) => [t, read(t)]));
+    expect(got).toEqual(expected);
+    // Left for the AI and a person: brands, unclear words, a count of ACs.
+    for (const t of ['STONE', 'SICER', 'M/AC', '14 AC', 'RED', 'CROMPTON', 'COOLER, FAN V GUARD, LUMI']) {
+      expect(read(t), t).toBe('?');
+    }
+  });
+
+  it('splits an "N ITEM" row from Model only when Model lists exactly that many goods', () => {
+    expect(read('2 ITEM', 'LG', 'REF WM')).toBe('Refrigerator + Washing Machine');
+    expect(read('3ITEM', '3MODAL', 'LED,,W/M,MOBILE')).toBe('TV › LED TV + Washing Machine + Mobile');
+    expect(read('2 ITEN', 'LG', 'WM REF')).toBe('Washing Machine + Refrigerator');
+    expect(read('2ITEM', '2MODAL', 'REF,DEEPREFZER')).toBe('Refrigerator + +Refrigerator › Deep Freezer');
+    expect(read('ALL ITEM', 'ALL', 'REF WM')).toBe('Refrigerator + Washing Machine');
+    // Model names fewer than the count, or model numbers: one entry, flagged.
+    expect(read('10 ITEM', 'LG', 'AC LED')).toBe('count');
+    expect(read('5 ITEM', 'LG', 'AC WM REF LED')).toBe('count');
+    expect(read('2 ITEM', 'LG', 'T80KMM, B199OBEB')).toBe('count');
+    const plan = planItems({ product: '10 ITEM', brand: 'LG', model: 'AC LED' }, knows);
+    expect(plan).toMatchObject({ kind: 'count', count: 10, note: '10 ITEM: 10 items, not listed (Model lists AC, LED)' });
+  });
+
+  it('gives each split item its own Brand and Model when they split the same way', () => {
+    expect(planItems({ product: 'W/M-REF', brand: 'BEKO/WHIRL', model: '260 IMPRO/73157' }, knows)).toEqual({
+      kind: 'several', from: 'product',
+      items: [{ text: 'W/M', brand: 'BEKO', model: '260 IMPRO' }, { text: 'REF', brand: 'WHIRL', model: '73157' }],
+    });
+    // Brand doesn't split in two: both items keep it.
+    expect(planItems({ product: 'W/M, LED', brand: 'SAMSUNG', model: '4520, 20C2723' }, knows)).toMatchObject({
+      items: [{ text: 'W/M', brand: 'SAMSUNG', model: '4520' }, { text: 'LED', brand: 'SAMSUNG', model: '20C2723' }],
+    });
+  });
+
+  it('never splits inside one product: W/M, DEEP-REF, JUCER/MIXER, GAS/STOVE stay whole', () => {
+    for (const t of ['W/M', 'DEEP-REF', 'JUCER/MIXER', 'GAS/STOVE', 'T/ FAN']) expect(itemParts(t, knows), t).toEqual([t]);
+    // An unknown part stops a split; the text is read as one product.
+    expect(itemParts('COOLER, FAN V GUARD, LUMI', knows)).toBeNull();
+  });
+
+  it('a saved decision counts as known, so "GIZMO-REF" splits once GIZMO is decided', () => {
+    expect(itemParts('GIZMO-REF', knows)).toBeNull();
+    expect(itemParts('GIZMO-REF', knownText(vn, new Map([['gizmo', 'fan']])))).toEqual(['GIZMO', 'REF']);
+  });
+
+  it('keeps the glossary consistent: no text means two types, and each text is found again', () => {
+    for (const e of PRODUCT_GLOSSARY) for (const t of e.texts) expect(glossaryPath(t), t).toEqual(e.path);
+  });
+
+  it('checks the AI\'s answers against the tree before suggesting anything', () => {
+    const [base] = matchProductTexts([{ text: 'STONE', brand: 'HAVELLS' }], vn, new Map());
+    expect(base).toMatchObject({ kind: 'new', samples: ['HAVELLS'] });
+    expect(applyAnswer(base, { kind: 'type', path: ['Iron'], reason: 'Havells stone iron' }, vn)).toMatchObject({
+      kind: 'ai', categoryId: 'iron', suggestion: { action: 'existing', categoryId: 'iron' }, reason: 'AI: Havells stone iron',
+    });
+    // A path that isn't in the tree, or a new type under a parent that isn't: ignored.
+    expect(applyAnswer(base, { kind: 'type', path: ['Kitchen', 'Stone'] }, vn)).toBeNull();
+    expect(applyAnswer(base, { kind: 'new', path: ['Kitchen', 'Stone Grinder'] }, vn)).toBeNull();
+    expect(applyAnswer(base, { kind: 'new', path: ['Mobile', 'Power Bank'] }, vn)).toMatchObject({
+      kind: 'ai', create: { name: 'Power Bank', parentId: 'mobile', label: 'Mobile › Power Bank' },
+      suggestion: { action: 'create', name: 'Power Bank', parentId: 'mobile' },
+    });
+    // "New" but it exists: that type.
+    expect(applyAnswer(base, { kind: 'new', path: ['Geyser'] }, vn)).toMatchObject({ kind: 'ai', categoryId: 'geyser' });
+    // Several items: a person separates them in the row; nothing is pre-filled.
+    const several = applyAnswer(base, { kind: 'several', items: [['Cooler'], ['Fan']] }, vn)!;
+    expect(several.suggestion).toEqual({ action: 'blank' });
+    expect(several.reason).toContain('Separate them with commas');
+    expect(applyAnswer(base, { kind: 'nonsense' }, vn)).toBeNull();
+  });
+
+  it('builds the prompt from the same glossary and the tenant\'s tree', () => {
+    const prompt = productPrompt(vn);
+    expect(prompt).toContain('ALMARI, ALMIRA, ALMIRAH, ALMARIYA → Almirah');
+    expect(prompt).toContain('TV › LED TV');
+    expect(prompt).toContain('GADDA = Mattress');
+  });
+
+  it('treats items of one purchase (same person, same date) as one use of an account number', () => {
+    const a = { customerName: 'Ram  Lal', mobile: '9812345678', purchaseDate: '2024-03-01' };
+    expect(purchaseKey(a)).toBe(purchaseKey({ ...a, customerName: 'ram lal', purchaseDate: new Date('2024-03-01T00:00:00Z') }));
+    expect(purchaseKey(a)).not.toBe(purchaseKey({ ...a, purchaseDate: '2024-03-02' }));
+    expect(purchaseKey(a)).not.toBe(purchaseKey({ ...a, customerName: 'Shyam Lal' }));
+    // Entries naming nobody are never "the same purchase".
+    expect(purchaseKey({ id: '1', customerName: '', mobile: '', purchaseDate: null })).not.toBe(
+      purchaseKey({ id: '2', customerName: '', mobile: '', purchaseDate: null }),
+    );
+  });
+});
+
 describe('CS8. Review problems, shops and row identity', () => {
   const base = {
     accountNumber: 'BD-1', seriesNo: 1, customerName: 'Pawan', mobile: '9599418909', coName: null, coMobile: null,
@@ -287,6 +450,9 @@ describe('CS8. Review problems, shops and row identity', () => {
     expect(rowIssues({ ...base, coName: 'Ram' })).toEqual(['co_incomplete']);
     expect(rowIssues({ ...base, coName: 'Ram', coMobile: '9812345678', coCustomerId: 'c' })).toEqual([]);
     expect(rowIssues({ ...base, categoryId: null })).toEqual(['no_product_type']);
+    // "3 ITEM" with no type: the items aren't known, which says more than "no type".
+    expect(rowIssues({ ...base, categoryId: null, product: '3 ITEM' })).toEqual(['items_unknown']);
+    expect(rowIssues({ ...base, product: '3 ITEM' })).toEqual([]);
     // Labels exist for every code, in a fixed order.
     expect(REGISTER_ISSUE_CODES.every((c) => typeof REGISTER_ISSUES[c] === 'string')).toBe(true);
   });

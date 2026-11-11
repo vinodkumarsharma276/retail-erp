@@ -144,20 +144,25 @@ class _CustomerSearchPageState extends State<CustomerSearchPage> {
       // Like the web: searching starts at two characters.
       _query = _query.copyWith(text: text.length >= 2 ? text : '');
       register.searched();
-      unawaited(_search());
+      unawaited(_search(newQuery: true));
     });
   }
 
   void _setQuery(RegisterQuery next) {
     _query = next;
-    unawaited(_search());
+    unawaited(_search(newQuery: true));
   }
 
-  Future<void> _search() async {
+  /// [newQuery]: the search changed, so start again at the first row. A
+  /// refresh after an update keeps the rows already loaded and the position.
+  Future<void> _search({bool newQuery = false}) async {
     final db = register.db;
     if (db == null) return;
     final generation = ++_generation;
-    final page = await db.search(_query, limit: _pageSize);
+    final limit = newQuery || _rows.length < _pageSize
+        ? _pageSize
+        : _rows.length;
+    final page = await db.search(_query, limit: limit);
     if (!mounted || generation != _generation) return;
     setState(() {
       _rows
@@ -165,6 +170,7 @@ class _CustomerSearchPageState extends State<CustomerSearchPage> {
         ..addAll(page.entries);
       _total = page.total;
     });
+    if (newQuery && _scroll.hasClients) _scroll.jumpTo(0);
   }
 
   Future<void> _loadMore() async {
@@ -229,15 +235,11 @@ class _CustomerSearchPageState extends State<CustomerSearchPage> {
             onText: _onText,
             onField: (field) => _setQuery(_query.copyWith(field: field)),
           ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                '$_total ${_total == 1 ? 'entry' : 'entries'}',
-                style: Theme.of(context).textTheme.labelMedium,
-              ),
-            ),
+          _CountsHeader(
+            total: register.status?.entries ?? 0,
+            found: _total,
+            searching: _query.text.isNotEmpty,
+            needsReview: register.needsReview,
           ),
           Expanded(
             child: _rows.isEmpty
@@ -316,7 +318,7 @@ class _SearchRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 2),
       child: Row(
         children: [
           SizedBox(
@@ -324,11 +326,13 @@ class _SearchRow extends StatelessWidget {
             child: DropdownButtonFormField<RegisterField>(
               initialValue: field,
               isExpanded: true,
+              style: Theme.of(context).textTheme.bodyMedium,
               decoration: const InputDecoration(
                 labelText: 'Search in',
+                isDense: true,
                 contentPadding: EdgeInsets.symmetric(
                   horizontal: 12,
-                  vertical: 14,
+                  vertical: 12,
                 ),
               ),
               items: RegisterField.values
@@ -350,11 +354,14 @@ class _SearchRow extends StatelessWidget {
               controller: controller,
               onChanged: onText,
               textInputAction: TextInputAction.search,
+              style: Theme.of(context).textTheme.bodyMedium,
               keyboardType: field == RegisterField.mobile
                   ? TextInputType.phone
                   : TextInputType.text,
               decoration: InputDecoration(
-                prefixIcon: const Icon(Icons.search),
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                prefixIcon: const Icon(Icons.search, size: 20),
                 hintText: field == RegisterField.all
                     ? 'Search'
                     : 'Search ${field.label.toLowerCase()}',
@@ -380,8 +387,86 @@ class _SearchRow extends StatelessWidget {
   }
 }
 
-/// One register entry: who, which account, what was bought, and the key
-/// facts (date, mobile, area, shop) as labelled icons.
+/// Indian digit grouping: 20976 → 20,976; 123456 → 1,23,456.
+String formatCount(int n) {
+  final s = n.abs().toString();
+  if (s.length <= 3) return '${n < 0 ? '-' : ''}$s';
+  final last3 = s.substring(s.length - 3);
+  var rest = s.substring(0, s.length - 3);
+  final groups = <String>[];
+  while (rest.length > 2) {
+    groups.insert(0, rest.substring(rest.length - 2));
+    rest = rest.substring(0, rest.length - 2);
+  }
+  if (rest.isNotEmpty) groups.insert(0, rest);
+  return '${n < 0 ? '-' : ''}${groups.join(',')},$last3';
+}
+
+/// Above the list: how many entries the register has, how many a search
+/// found, and how many need review.
+class _CountsHeader extends StatelessWidget {
+  const _CountsHeader({
+    required this.total,
+    required this.found,
+    required this.searching,
+    required this.needsReview,
+  });
+  final int total;
+  final int found;
+  final bool searching;
+  final int needsReview;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final strong = theme.textTheme.labelLarge?.copyWith(
+      fontWeight: FontWeight.w700,
+    );
+    final muted = theme.textTheme.bodySmall?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 4, 14, 4),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text.rich(
+              searching
+                  ? TextSpan(
+                      children: [
+                        TextSpan(text: formatCount(found), style: strong),
+                        TextSpan(
+                          text: ' found of ${formatCount(total)}',
+                          style: muted,
+                        ),
+                      ],
+                    )
+                  : TextSpan(
+                      children: [
+                        TextSpan(text: formatCount(total), style: strong),
+                        TextSpan(
+                          text: total == 1
+                              ? ' entry in the register'
+                              : ' entries in the register',
+                          style: muted,
+                        ),
+                      ],
+                    ),
+            ),
+          ),
+          if (needsReview > 0)
+            Text(
+              '${formatCount(needsReview)} need review',
+              style: muted?.copyWith(color: theme.colorScheme.error),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// One register entry in two lines: who and which account, then what was
+/// bought, when, and the mobile. Everything else is on the details screen.
 class _EntryTile extends StatelessWidget {
   const _EntryTile({
     required this.entry,
@@ -396,172 +481,81 @@ class _EntryTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final muted = theme.textTheme.bodyMedium?.copyWith(
-      color: scheme.onSurfaceVariant,
-    );
-    final type = register.typePath(entry.categoryId);
-    final product = [
+    final type = register.typePath(entry.categoryId).split(' › ').last;
+    final second = [
       if (type.isNotEmpty) type else ?entry.product,
-      ?entry.brand,
-      ?entry.model,
-    ].where((v) => v.trim().isNotEmpty).join(' · ');
-    final shop = register.shopLabel(entry.shopId);
-    final facts = <Widget>[
       if ((entry.purchaseDate ?? '').isNotEmpty)
-        _Fact(Icons.event_outlined, displayDate(entry.purchaseDate)),
-      if ((entry.mobile ?? '').isNotEmpty)
-        _Fact(Icons.phone_outlined, displayMobile(entry.mobile!)),
-      if ((entry.area ?? '').isNotEmpty)
-        _Fact(Icons.place_outlined, entry.area!),
-    ];
+        displayDate(entry.purchaseDate),
+      if ((entry.mobile ?? '').isNotEmpty) displayMobile(entry.mobile!),
+    ].where((v) => v.trim().isNotEmpty).join('  ·  ');
     return InkWell(
       onTap: onTap,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        padding: const EdgeInsets.fromLTRB(14, 7, 12, 7),
+        child: Row(
           children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Text(
-                    entry.customerName.isEmpty
-                        ? '(no name)'
-                        : entry.customerName,
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          entry.customerName.isEmpty
+                              ? '(no name)'
+                              : entry.customerName,
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Text(
+                        entry.accountNumber.isEmpty ? '—' : entry.accountNumber,
+                        style: theme.textTheme.labelMedium?.copyWith(
+                          color: scheme.primary,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-                const SizedBox(width: 8),
-                if (shop.isNotEmpty) ...[
-                  Tooltip(
-                    message: 'Shop',
-                    child: _Badge(
-                      shop,
-                      background: scheme.surfaceContainerHighest,
-                      foreground: scheme.onSurfaceVariant,
-                      icon: Icons.storefront_outlined,
+                  if (second.isNotEmpty) ...[
+                    const SizedBox(height: 1),
+                    Text(
+                      second,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                  ),
-                  const SizedBox(width: 6),
+                  ],
                 ],
-                _Badge(
-                  entry.accountNumber.isEmpty
-                      ? 'No account no.'
-                      : entry.accountNumber,
-                  background: scheme.secondaryContainer,
-                  foreground: scheme.onSecondaryContainer,
-                ),
-              ],
+              ),
             ),
-            if (product.isNotEmpty) ...[
-              const SizedBox(height: 2),
-              Text(
-                product,
-                style: muted,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ],
-            if (facts.isNotEmpty) ...[
-              const SizedBox(height: 6),
-              Wrap(spacing: 14, runSpacing: 4, children: facts),
-            ],
-            if ((entry.coName ?? '').isNotEmpty) ...[
-              const SizedBox(height: 4),
-              _Fact(Icons.people_outline, 'Co-applicant: ${entry.coName}'),
-            ],
-            if (entry.issues.isNotEmpty) ...[
-              const SizedBox(height: 6),
-              Tooltip(
-                message: entry.issues
-                    .map((c) => registerIssueLabels[c] ?? c)
-                    .join('\n'),
-                child: _Badge(
-                  entry.issues.length == 1
-                      ? 'Needs review: ${registerIssueLabels[entry.issues.first] ?? entry.issues.first}'
-                      : 'Needs review: ${entry.issues.length} problems',
-                  background: scheme.errorContainer,
-                  foreground: scheme.onErrorContainer,
-                  icon: Icons.report_problem_outlined,
+            if (entry.issues.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(left: 10),
+                child: Tooltip(
+                  message: entry.issues
+                      .map((c) => registerIssueLabels[c] ?? c)
+                      .join('\n'),
+                  child: Container(
+                    width: 9,
+                    height: 9,
+                    decoration: BoxDecoration(
+                      color: scheme.error,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
                 ),
               ),
-            ],
           ],
         ),
       ),
     );
   }
-}
-
-class _Fact extends StatelessWidget {
-  const _Fact(this.icon, this.text);
-  final IconData icon;
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    final color = Theme.of(context).colorScheme.onSurfaceVariant;
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 16, color: color),
-        const SizedBox(width: 4),
-        Flexible(
-          child: Text(
-            text,
-            style: Theme.of(
-              context,
-            ).textTheme.bodySmall?.copyWith(color: color),
-            overflow: TextOverflow.ellipsis,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _Badge extends StatelessWidget {
-  const _Badge(
-    this.text, {
-    required this.background,
-    required this.foreground,
-    this.icon,
-  });
-  final String text;
-  final Color background;
-  final Color foreground;
-  final IconData? icon;
-
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-    decoration: BoxDecoration(
-      color: background,
-      borderRadius: BorderRadius.circular(6),
-    ),
-    child: Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        if (icon != null) ...[
-          Icon(icon, size: 14, color: foreground),
-          const SizedBox(width: 4),
-        ],
-        Flexible(
-          child: Text(
-            text,
-            style: Theme.of(context).textTheme.labelMedium?.copyWith(
-              color: foreground,
-              fontWeight: FontWeight.w600,
-            ),
-            overflow: TextOverflow.ellipsis,
-          ),
-        ),
-      ],
-    ),
-  );
 }

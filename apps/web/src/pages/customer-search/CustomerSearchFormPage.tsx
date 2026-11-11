@@ -30,6 +30,7 @@ import {
   type CustomerMatch,
   type EntryPayload,
 } from '../../hooks/useCustomerSearch';
+import { useRegisterListUrl } from './registerListUrl';
 
 const NEW_PREFIX = '__new__';
 const today = () => new Date().toISOString().slice(0, 10);
@@ -141,6 +142,9 @@ export function CustomerSearchFormPage() {
   const { id } = useParams<{ id: string }>();
   const isEdit = !!id;
   const navigate = useNavigate();
+  const listUrl = useRegisterListUrl();
+  /** Back to the entry (when editing) or the list view this started from. */
+  const goBack = () => navigate(isEdit ? `/customer-search/${id}` : listUrl, { state: { listUrl } });
   const toast = useToast();
   const [form, setForm] = useState<FormState>(EMPTY);
   const [loaded, setLoaded] = useState(!isEdit);
@@ -258,7 +262,7 @@ export function CustomerSearchFormPage() {
           })
         : await createMutation.mutateAsync(payload);
       toast.success(saved.issues?.length ? `Saved ${saved.accountNumber} — listed under Needs review` : `Saved ${saved.accountNumber}`);
-      navigate(`/customer-search/${saved.id}`);
+      navigate(`/customer-search/${saved.id}`, { state: { listUrl } });
     } catch (err) {
       setError({ message: apiErrorMessage(err, "Couldn't save the entry"), suggestion: takenSuggestion(err), taken: isTakenNumber(err) });
     }
@@ -277,7 +281,7 @@ export function CustomerSearchFormPage() {
       <PageHeader
         title={isEdit ? `Edit ${entry.data?.accountNumber ?? 'entry'}` : 'New entry'}
         description={isEdit ? undefined : 'Pick the series, then the customer by mobile number. New customers are created in the current shop.'}
-        backTo={isEdit ? `/customer-search/${id}` : '/customer-search'}
+        backTo={goBack}
       />
 
       <form onSubmit={submit} className="space-y-4">
@@ -486,7 +490,7 @@ export function CustomerSearchFormPage() {
         )}
 
         <div className="flex items-center justify-end gap-2">
-          <Button variant="ghost" type="button" onClick={() => navigate(isEdit ? `/customer-search/${id}` : '/customer-search')}>
+          <Button variant="ghost" type="button" onClick={goBack}>
             Cancel
           </Button>
           <Button type="submit" loading={saving} disabled={!canSave} icon={form.customerId ? <UserCheck className="h-3.5 w-3.5" /> : <UserPlus className="h-3.5 w-3.5" />}>

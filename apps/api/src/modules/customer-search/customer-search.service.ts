@@ -16,7 +16,7 @@ import {
 } from '@retailerp/shared-utils';
 import type { EntryInput, EntryUpdateInput } from './customer-search.validation.js';
 import { buildTypeColumns, categoryPaths } from './customer-search.product-types.js';
-import { moveCustomersWithEntry, refreshIssues, type RawValues } from './customer-search.issues.js';
+import { moveCustomersWithEntry, purchaseKey, refreshIssues, type RawValues } from './customer-search.issues.js';
 
 export class CustomerSearchError extends Error {
   constructor(message: string, public statusCode = 400, public details?: Record<string, unknown>) {
@@ -178,13 +178,23 @@ async function assertShopAccess(userId: string, shopId: string) {
 }
 
 /** Other entries already using an account number, for the "already used" warning. */
-async function usersOfNumber(accountNumber: string, exceptId?: string) {
+/**
+ * Entries that already use this account number for a different purchase.
+ * Another item of the same purchase (same person, same date) is not a reuse.
+ */
+async function usersOfNumber(
+  accountNumber: string,
+  exceptId?: string,
+  purchase?: { customerName: string; mobile: string; purchaseDate: string | null },
+) {
   if (!accountNumber) return [];
-  return prisma.customerSearchEntry.findMany({
+  const users = await prisma.customerSearchEntry.findMany({
     where: { accountNumber, ...(exceptId ? { id: { not: exceptId } } : {}) },
-    select: { id: true, customerName: true, shop: { select: { code: true } } },
-    take: 5,
+    select: { id: true, customerName: true, mobile: true, purchaseDate: true, shop: { select: { code: true } } },
+    take: 50,
   });
+  const own = purchase ? purchaseKey(purchase) : null;
+  return users.filter((u) => purchaseKey({ ...u, purchaseDate: toIsoDate(u.purchaseDate) }) !== own).slice(0, 5);
 }
 
 export const customerSearchService = {
@@ -358,7 +368,7 @@ export const customerSearchService = {
     if (shopId !== ctx.shopId) await assertShopAccess(ctx.userId, shopId);
     // A reused account number is allowed, but only once the person has seen the warning.
     if (!input.allowDuplicate) {
-      const used = await usersOfNumber(acc.accountNumber);
+      const used = await usersOfNumber(acc.accountNumber, undefined, { ...entry, purchaseDate: input.purchaseDate });
       if (used.length) throw await takenError(acc.accountNumber, acc.prefix, used);
     }
     const save = () => prisma.$transaction(async (tx) => {
@@ -441,7 +451,7 @@ export const customerSearchService = {
     const shopChanged = shopId !== existing.shopId;
     if (shopChanged) await assertShopAccess(ctx.userId, shopId);
     if (acc.accountNumber !== existing.accountNumber && !input.allowDuplicate) {
-      const used = await usersOfNumber(acc.accountNumber, id);
+      const used = await usersOfNumber(acc.accountNumber, id, { ...entry, purchaseDate: merged.purchaseDate || null });
       if (used.length) throw await takenError(acc.accountNumber, acc.prefix, used);
     }
     const personChanged =

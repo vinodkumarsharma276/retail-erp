@@ -14,7 +14,7 @@ import {
   tidyName,
   type RegisterIssue,
 } from '@retailerp/shared-utils';
-import { moveCustomersWithEntry, refreshIssues, rowIssues, type RawValues } from './customer-search.issues.js';
+import { moveCustomersWithEntry, purchaseKey, refreshIssues, rowIssues, type RawValues } from './customer-search.issues.js';
 import {
   borderlinePairs,
   buildVariants,
@@ -33,14 +33,18 @@ import {
 import { adjudicatePersonNames, customerNameAdjudicatorEnabled } from './customer-name-adjudicator.js';
 import { siblingClash, clashMessage } from '../categories/categories.service.js';
 import {
-  categoryPaths,
   categorySlug,
   defaultDecision,
+  knownText,
   matchProductTexts,
   productTextKey,
+  TypeTree,
   TYPE_PATH_SEPARATOR,
+  type ProductText,
   type ProductTypeDecision,
 } from './customer-search.product-types.js';
+import { planItems, PRODUCT_GLOSSARY, PRODUCT_TEXT_RULES, type ItemPlan } from './customer-search.product-glossary.js';
+import { adjudicateProductTexts, productAdjudicatorEnabled } from './customer-search.product-adjudicator.js';
 import type { ImportCommitInput, ImportPreviewInput, ImportRow } from './customer-search.validation.js';
 
 /**
@@ -89,6 +93,8 @@ export interface AnalysedRow extends ImportRow {
   shopCode: string | null;
   /** For `move`: the shop it is in now. */
   moveFrom?: string;
+  /** What the Product cell names: one item, several (one entry each) or only a count. Set for new rows. */
+  items?: ItemPlan;
   normalized?: {
     accountNumber: string;
     prefix: string;
@@ -105,8 +111,8 @@ export interface AnalysedRow extends ImportRow {
     rawValues: RawValues;
     /** Identifies "the same row" across imports. */
     key: string;
-    /** For `move`: the entry to move. */
-    moveEntryId?: string;
+    /** For `move`: the entries to move (a row split into items made several). */
+    moveEntryIds?: string[];
   };
   customer?: PersonMatch;
   co?: PersonMatch;
@@ -241,7 +247,11 @@ export async function analyseRows(
           select: { id: true, accountNumber: true, customerName: true, mobile: true, purchaseDate: true, shopId: true },
         })
       : [];
-  const existingByKey = new Map(existingEntries.map((e) => [rowKey(e.accountNumber, e.customerName, e.mobile, toIso(e.purchaseDate)), e]));
+  const existingByKey = new Map<string, typeof existingEntries>();
+  for (const e of existingEntries) {
+    const key = rowKey(e.accountNumber, e.customerName, e.mobile, toIso(e.purchaseDate));
+    existingByKey.set(key, [...(existingByKey.get(key) ?? []), e]);
+  }
   const othersByNumber = new Map<string, typeof existingEntries>();
   for (const e of existingEntries) {
     if (e.accountNumber) othersByNumber.set(e.accountNumber, [...(othersByNumber.get(e.accountNumber) ?? []), e]);
@@ -251,19 +261,22 @@ export async function analyseRows(
     const n = r.normalized!;
     const prior = existingByKey.get(n.key);
     if (prior) {
-      if (prior.shopId === n.shopId) {
+      // A row split into items made several entries; they move together.
+      const elsewhere = prior.filter((e) => e.shopId !== n.shopId);
+      if (!elsewhere.length) {
         r.status = 'exists';
         r.warnings = [];
       } else {
         r.status = 'move';
-        r.moveFrom = codeOf.get(prior.shopId) ?? '?';
-        n.moveEntryId = prior.id;
+        r.moveFrom = codeOf.get(elsewhere[0].shopId) ?? '?';
+        n.moveEntryIds = elsewhere.map((e) => e.id);
         r.warnings = [`Moves from ${r.moveFrom} to ${r.shopCode}`];
       }
     }
   }
 
-  // Reused account numbers: allowed, but flagged on every entry that shares one.
+  // Reused account numbers: allowed, but flagged on every entry that shares
+  // one — unless it is the same purchase (same person, same date).
   const inRange = new Map<string, AnalysedRow[]>();
   for (const r of analysed) {
     if (r.status === 'new' && r.normalized!.accountNumber) {
@@ -272,11 +285,16 @@ export async function analyseRows(
   }
   for (const [number, list] of inRange) {
     const others = othersByNumber.get(number) ?? [];
-    if (list.length + others.length < 2) continue;
+    const keyOf = (r: AnalysedRow) => purchaseKey({ id: `record:${r.recordNo}`, ...r.normalized! });
+    const purchases = new Set([...others.map((o) => purchaseKey({ ...o, purchaseDate: toIso(o.purchaseDate) })), ...list.map(keyOf)]);
+    if (purchases.size < 2) continue;
     for (const r of list) {
+      const own = keyOf(r);
       const names = [
-        ...others.map((o) => `${o.customerName || '(no name)'} (in the register)`),
-        ...list.filter((l) => l !== r).map((l) => `${l.normalized!.customerName || '(no name)'} (record ${l.recordNo})`),
+        ...others
+          .filter((o) => purchaseKey({ ...o, purchaseDate: toIso(o.purchaseDate) }) !== own)
+          .map((o) => `${o.customerName || '(no name)'} (in the register)`),
+        ...list.filter((l) => l !== r && keyOf(l) !== own).map((l) => `${l.normalized!.customerName || '(no name)'} (record ${l.recordNo})`),
       ];
       if (!r.issues.includes('duplicate_account')) r.issues = ['duplicate_account', ...r.issues];
       r.warnings.unshift(`${number} is also used for ${names.join(', ')}`);
@@ -352,7 +370,7 @@ export function summarise(analysis: Analysis) {
     exists: count('exists'),
     move: count('move'),
     invalid: count('invalid'),
-    /** New rows that will be listed under "Needs review" (product type not counted). */
+    /** New rows that will be listed under "Needs review" (a missing product type not counted). */
     flagged: analysis.rows.filter((r) => r.status === 'new' && r.issues.length > 0).length,
     groups: analysis.groups.length,
     groupsNeedingReview: analysis.groups.filter((g) => g.needsReview).length,
@@ -362,9 +380,14 @@ export function summarise(analysis: Analysis) {
   };
 }
 
-/** Product texts of the rows about to be imported, matched to the tenant's top-level types. */
-async function productTypeMatches(rows: AnalysedRow[]) {
-  const [all, mappings] = await Promise.all([
+/**
+ * What each new row's Product names — one item, several (an entry each) or
+ * only a count — and how every item's text matches the tenant's types.
+ * Sets `items` on the new rows. With `useAi`, texts nothing else explains
+ * get the model's suggestion.
+ */
+async function productTypeMatches(rows: AnalysedRow[], options: { useAi: boolean }) {
+  const [all, mappingRows] = await Promise.all([
     prisma.productCategory.findMany({
       where: { isActive: true },
       select: { id: true, name: true, slug: true, parentId: true },
@@ -372,25 +395,72 @@ async function productTypeMatches(rows: AnalysedRow[]) {
     }),
     prisma.customerSearchProductMapping.findMany({ select: { textKey: true, categoryId: true } }),
   ]);
-  const topLevel = all.filter((c) => !c.parentId);
-  const pathOf = categoryPaths(all);
-  const deeper = all
-    .filter((c) => c.parentId)
-    .map((c) => ({ id: c.id, name: c.name, pathLabel: (pathOf(c.id) ?? [c.name]).join(TYPE_PATH_SEPARATOR) }));
-  const texts = rows.filter((r) => r.status === 'new').map((r) => r.product);
-  const matches = matchProductTexts(texts, topLevel, new Map(mappings.map((m) => [m.textKey, m.categoryId])), deeper);
-  return { matches, topLevel };
+  const tree = new TypeTree(all);
+  const mappings = new Map(mappingRows.map((m) => [m.textKey, m.categoryId]));
+  const knows = knownText(tree, mappings);
+
+  const texts: ProductText[] = [];
+  for (const r of rows) {
+    if (r.status !== 'new') continue;
+    const plan = planItems(r, knows);
+    r.items = plan;
+    if (plan.kind === 'one') {
+      texts.push({ text: plan.text, brand: r.brand, model: r.model });
+    } else if (plan.kind === 'several') {
+      texts.push(...plan.items);
+      r.warnings.push(
+        `${plan.items.length} items, one entry each: ${plan.items.map((i) => i.text).join(', ')}${plan.from === 'model' ? ' (listed in Model)' : ''}`,
+      );
+    } else {
+      r.warnings.push(plan.note);
+      if (!r.issues.includes('items_unknown')) r.issues = [...r.issues, 'items_unknown'];
+    }
+  }
+
+  let matches = matchProductTexts(texts, tree, mappings);
+  let aiAsked = false;
+  let aiAnswered = 0;
+  if (options.useAi) {
+    ({ matches, asked: aiAsked, answered: aiAnswered } = await adjudicateProductTexts(matches, tree));
+  }
+  return { matches, tree, aiAsked, aiAnswered };
 }
+
+/** How many entries the new rows make: an entry per item of a split row. */
+const entriesOf = (r: AnalysedRow) => (r.items?.kind === 'several' ? r.items.items.length : 1);
 
 export async function previewImport(input: ImportPreviewInput) {
   const analysis = await analyseRows(input.rows, { useAi: true, defaultShopId: input.shopId });
-  const { matches, topLevel } = await productTypeMatches(analysis.rows);
+  const { matches, tree, aiAsked, aiAnswered } = await productTypeMatches(analysis.rows, { useAi: true });
+  const fresh = analysis.rows.filter((r) => r.status === 'new');
+  const toCreate = new Set(matches.filter((m) => m.suggestion.action === 'create').map((m) => m.create?.label ?? m.text));
   return {
     rows: analysis.rows.map(({ normalized: _n, ...rest }) => rest),
     groups: analysis.groups,
     productTypes: matches,
-    topLevelTypes: topLevel.map((t) => ({ id: t.id, name: t.name })),
-    summary: { ...summarise(analysis), newProductTypes: matches.filter((m) => m.kind === 'new').length },
+    topLevelTypes: tree.topLevel.map((t) => ({ id: t.id, name: t.name })),
+    /** Every type, by its full path, for picking one. */
+    typeOptions: tree.all
+      .map((c) => ({ id: c.id, label: tree.label(c.id) ?? c.name }))
+      .sort((a, b) => a.label.localeCompare(b.label)),
+    /** How Product texts are read, for the help panel. */
+    productHelp: {
+      rules: PRODUCT_TEXT_RULES,
+      glossary: PRODUCT_GLOSSARY.map((e) => ({ type: e.path.join(TYPE_PATH_SEPARATOR), texts: e.texts, note: e.note ?? null })),
+    },
+    summary: {
+      ...summarise(analysis),
+      /** Distinct types the pre-filled choices would create. */
+      newProductTypes: toCreate.size,
+      /** Texts left without a type (nothing recognised them). */
+      unknownProductTexts: matches.filter((m) => !m.categoryId && m.suggestion.action === 'blank' && m.kind !== 'mapped').length,
+      entries: fresh.reduce((n, r) => n + entriesOf(r), 0),
+      splitRows: fresh.filter((r) => r.items?.kind === 'several').length,
+      itemsUnknown: fresh.filter((r) => r.items?.kind === 'count').length,
+      productAiAvailable: productAdjudicatorEnabled(),
+      productAiUsed: aiAnswered > 0,
+      productAiFailed: aiAsked && aiAnswered === 0,
+    },
   };
 }
 
@@ -437,7 +507,7 @@ export async function commitImport(input: ImportCommitInput, userId: string, opt
   }
 
   // What each Product text means: the person's choice, else the obvious match.
-  const { matches } = await productTypeMatches(analysis.rows);
+  const { matches } = await productTypeMatches(analysis.rows, { useAi: false });
   const typeDecisions = new Map<string, ProductTypeDecision>(
     matches.map((m) => [m.textKey, input.productTypes[m.textKey] ?? defaultDecision(m)]),
   );
@@ -508,22 +578,18 @@ export async function commitImport(input: ImportCommitInput, userId: string, opt
 
       const batchId = randomUUID();
 
-      // Product types: create the confirmed new top-level ones, check the
-      // chosen existing ones are this tenant's, and remember every decision.
-      const topLevel = await tx.productCategory.findMany({
-        where: { parentId: null },
-        select: { id: true, name: true, slug: true, isActive: true },
+      // Product types: create the confirmed new ones (at the top level or
+      // under a parent), check the chosen existing ones are this tenant's,
+      // and remember every decision.
+      const types = await tx.productCategory.findMany({
+        select: { id: true, name: true, slug: true, isActive: true, parentId: true, level: true, path: true, isLeaf: true },
       });
       const typeIdByKey = new Map<string, string | null>();
       const createdTypes = new Map<string, string>();
       let typesCreated = 0;
       const tenantId = tenantContext.currentTenantId()!;
       const chosenIds = [...typeDecisions.values()].flatMap((d) => (d.action === 'existing' ? [d.categoryId] : []));
-      const known = new Set(
-        chosenIds.length
-          ? (await tx.productCategory.findMany({ where: { id: { in: chosenIds } }, select: { id: true } })).map((c) => c.id)
-          : [],
-      );
+      const known = new Set(chosenIds.length ? types.filter((c) => chosenIds.includes(c.id)).map((c) => c.id) : []);
       for (const [key, decision] of typeDecisions) {
         if (decision.action === 'blank') {
           typeIdByKey.set(key, null);
@@ -532,25 +598,37 @@ export async function commitImport(input: ImportCommitInput, userId: string, opt
           typeIdByKey.set(key, decision.categoryId);
         } else {
           const name = decision.name.replace(/\s+/g, ' ').trim();
-          const nameKey = productTextKey(name);
-          let id = createdTypes.get(nameKey);
+          const parentId = decision.parentId ?? null;
+          const placeKey = `${parentId ?? ''}|${productTextKey(name)}`;
+          let id = createdTypes.get(placeKey);
           if (!id) {
             const slug = categorySlug(name);
             if (!slug) throw new ImportError(`"${name}" can't be a product type name.`);
-            const clash = siblingClash(topLevel, { name, slug });
-            if (clash && !clash.isActive) throw new ImportError(clashMessage(clash, null));
+            const parent = parentId ? types.find((c) => c.id === parentId && c.isActive) : null;
+            if (parentId && !parent) throw new ImportError(`The type to put "${name}" under no longer exists. Preview again.`);
+            const clash = siblingClash(types.filter((c) => c.parentId === parentId), { name, slug });
+            if (clash && !clash.isActive) throw new ImportError(clashMessage(clash, parent?.name ?? null));
             if (clash) {
               id = clash.id;
             } else {
               const made = await tx.productCategory.create({
-                data: { name, slug, parentId: null, level: 0, path: slug, isLeaf: true, purchaseModes: 'billed' } as any,
-                select: { id: true, name: true, slug: true, isActive: true },
+                data: {
+                  name, slug, parentId,
+                  level: parent ? parent.level + 1 : 0,
+                  path: parent ? `${parent.path}.${slug}` : slug,
+                  isLeaf: true, purchaseModes: 'billed',
+                } as any,
+                select: { id: true, name: true, slug: true, isActive: true, parentId: true, level: true, path: true, isLeaf: true },
               });
-              topLevel.push(made);
+              if (parent?.isLeaf) {
+                await tx.productCategory.update({ where: { id: parent.id }, data: { isLeaf: false } });
+                parent.isLeaf = false;
+              }
+              types.push(made);
               id = made.id;
               typesCreated += 1;
             }
-            createdTypes.set(nameKey, id);
+            createdTypes.set(placeKey, id);
           }
           typeIdByKey.set(key, id);
         }
@@ -561,7 +639,7 @@ export async function commitImport(input: ImportCommitInput, userId: string, opt
         });
       }
 
-      const entries = fresh.map((r) => {
+      const entries = fresh.flatMap((r) => {
         const n = r.normalized!;
         const address = { line1: r.address ? r.address.slice(0, 255) : null, line2: r.area ? r.area.slice(0, 255) : null };
         // A name with no usable mobile can't be matched to anyone: it is a customer of its own.
@@ -573,35 +651,44 @@ export async function commitImport(input: ImportCommitInput, userId: string, opt
             ? customerIdFor(outcomeOf(n.coName, n.coMobile), n.coMobile, true, { line1: null, line2: null }, n.shopId)
             : null;
         const purchaseDate = n.purchaseDate ? new Date(`${n.purchaseDate}T00:00:00Z`) : null;
-        const categoryId = typeIdByKey.get(productTextKey(r.product)) ?? null;
         const coMobile = n.coMobile;
-        return {
-          id: randomUUID(),
-          shopId: n.shopId,
-          accountNumber: n.accountNumber,
-          prefix: n.prefix,
-          seriesNo: n.seriesNo,
-          customerId,
-          customerName: n.customerName,
-          mobile: n.mobile,
-          address: r.address ? r.address.slice(0, 500) : null,
-          area: r.area ? r.area.slice(0, 100) : null,
-          coCustomerId,
-          coName: n.coName,
-          coMobile,
-          purchaseDate,
-          categoryId,
-          product: r.product ? r.product.slice(0, 200) : null,
-          brand: r.brand ? r.brand.slice(0, 100) : null,
-          model: r.model ? r.model.slice(0, 200) : null,
-          issues: rowIssues({ ...n, coMobile, coCustomerId, purchaseDate, categoryId }),
-          rawValues: Object.keys(n.rawValues).length ? n.rawValues : undefined,
-          source: 'import',
-          importBatchId: batchId,
-          sheetRowNumber: r.sheetRow,
-          createdBy: userId,
-          updatedBy: userId,
-        };
+        // A row naming several items is an entry per item, under the same account number.
+        const plan = r.items;
+        const items =
+          plan?.kind === 'several'
+            ? plan.items
+            : [{ text: plan?.kind === 'one' ? plan.text : r.product, brand: r.brand, model: r.model }];
+        return items.map((item) => {
+          const categoryId = plan?.kind === 'count' ? null : typeIdByKey.get(productTextKey(item.text)) ?? null;
+          const product = item.text || null;
+          return {
+            id: randomUUID(),
+            shopId: n.shopId,
+            accountNumber: n.accountNumber,
+            prefix: n.prefix,
+            seriesNo: n.seriesNo,
+            customerId,
+            customerName: n.customerName,
+            mobile: n.mobile,
+            address: r.address ? r.address.slice(0, 500) : null,
+            area: r.area ? r.area.slice(0, 100) : null,
+            coCustomerId,
+            coName: n.coName,
+            coMobile,
+            purchaseDate,
+            categoryId,
+            product: product ? product.slice(0, 200) : null,
+            brand: item.brand ? item.brand.slice(0, 100) : null,
+            model: item.model ? item.model.slice(0, 200) : null,
+            issues: rowIssues({ ...n, coMobile, coCustomerId, purchaseDate, categoryId, product }),
+            rawValues: Object.keys(n.rawValues).length ? n.rawValues : undefined,
+            source: 'import',
+            importBatchId: batchId,
+            sheetRowNumber: r.sheetRow,
+            createdBy: userId,
+            updatedBy: userId,
+          };
+        });
       });
 
       if (created.size) {
@@ -630,12 +717,10 @@ export async function commitImport(input: ImportCommitInput, userId: string, opt
       // Rows already in the register whose Shop changed: move them, and their
       // customers when nothing else keeps those in the old shop.
       for (const r of moving) {
-        const entry = await tx.customerSearchEntry.update({
-          where: { id: r.normalized!.moveEntryId! },
-          data: { shopId: r.normalized!.shopId, updatedBy: userId },
-          select: { customerId: true, coCustomerId: true },
-        });
-        await moveCustomersWithEntry(tx, [entry.customerId, entry.coCustomerId], r.normalized!.shopId);
+        const ids = r.normalized!.moveEntryIds ?? [];
+        const before = await tx.customerSearchEntry.findMany({ where: { id: { in: ids } }, select: { customerId: true, coCustomerId: true } });
+        await tx.customerSearchEntry.updateMany({ where: { id: { in: ids } }, data: { shopId: r.normalized!.shopId, updatedBy: userId } });
+        await moveCustomersWithEntry(tx, before.flatMap((e) => [e.customerId, e.coCustomerId]), r.normalized!.shopId);
       }
 
       // Flag reused account numbers on these entries and on the ones they share a number with.
@@ -669,7 +754,7 @@ export async function commitImport(input: ImportCommitInput, userId: string, opt
       });
       return result;
     },
-    // A 10,000-row range writes that many entries plus their customers in one go.
+    // A 20,000-row range writes that many entries plus their customers in one go.
     { timeout: 300_000, maxWait: 10_000 },
   );
 }

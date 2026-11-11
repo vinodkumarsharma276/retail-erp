@@ -22,6 +22,25 @@ class FeatureEntry {
       (prerequisite == null || identity.can(prerequisite!));
 }
 
+/// Owner decision (2026-11-10): on the phone, everyone except the owner sees
+/// only these modules for now. Their permissions still apply on top.
+const mobileModulesForEveryone = {'customer-searching', 'installment'};
+
+/// Modules with a working Flutter screen; the rest are listed as "coming soon".
+const mobileModulesBuilt = {'customer-searching'};
+
+/// The modules this user's phone lists, in rail order.
+List<FeatureEntry> mobileModulesFor(Identity identity) {
+  if (identity.flags['mobile_app'] != true) return const [];
+  return featureCatalog
+      .where(
+        (f) =>
+            f.visibleTo(identity) &&
+            (identity.isOwner || mobileModulesForEveryone.contains(f.id)),
+      )
+      .toList();
+}
+
 const featureCatalog = [
   FeatureEntry(
     'dashboard',

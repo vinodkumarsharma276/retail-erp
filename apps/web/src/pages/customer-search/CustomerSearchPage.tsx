@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { Download, Pencil, Plus, Search, Trash2, UploadCloud, UserSearch, X } from 'lucide-react';
 import { formatDateIN, formatPhone, REGISTER_ISSUES, type RegisterIssue } from '@retailerp/shared-utils';
 import { PageHeader } from '../../components/PageHeader';
@@ -25,6 +25,7 @@ import {
   useReviewSummaryQuery,
   type CustomerSearchEntry,
 } from '../../hooks/useCustomerSearch';
+import type { FromRegister } from './registerListUrl';
 import { Tabs } from '../../components/ui/tabs';
 
 const PAGE_SIZE = 25;
@@ -36,6 +37,9 @@ const PAGE_SIZE = 25;
  */
 export function CustomerSearchPage() {
   const navigate = useNavigate();
+  const location = useLocation();
+  // Details and edit come back to exactly this view (tab, problem, search, page).
+  const fromList: FromRegister = { listUrl: location.pathname + location.search };
   const can = useCanCheck();
   const toast = useToast();
   const allShopsMode = isAllShops(useShopStore((s) => s.currentShopId));
@@ -267,6 +271,7 @@ export function CustomerSearchPage() {
                 {can('customer_search.edit') && (
                   <Link
                     to={`/customer-search/${r.id}/edit`}
+                    state={fromList}
                     className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                     title={`Edit ${r.accountNumber}`}
                     aria-label={`Edit ${r.accountNumber}`}
@@ -302,7 +307,7 @@ export function CustomerSearchPage() {
         New entry
       </Button>
     ) : (
-      <Link to="/customer-search/new">
+      <Link to="/customer-search/new" state={fromList}>
         <Button icon={<Plus className="h-3.5 w-3.5" />}>New entry</Button>
       </Link>
     )
@@ -458,7 +463,7 @@ export function CustomerSearchPage() {
           description={emptyHint}
           action={
             can('customer_search.create') && !allShopsMode
-              ? { label: 'New entry', onClick: () => navigate('/customer-search/new') }
+              ? { label: 'New entry', onClick: () => navigate('/customer-search/new', { state: fromList }) }
               : undefined
           }
           secondaryAction={
@@ -468,17 +473,28 @@ export function CustomerSearchPage() {
           }
         />
       ) : (
-        <DataTable<CustomerSearchEntry>
-          tableId="customer-search"
-          columns={columns}
-          data={entries}
-          isLoading={query.isLoading}
-          pagination={paginationState}
-          onPageChange={(p) => update({ page: String(p) })}
-          emptyMessage={view === 'review' ? 'Nothing to review here.' : 'No entries match your search.'}
-          rowKey={(r) => r.id}
-          onRowClick={can('customer_search.detail') ? (r) => navigate(`/customer-search/${r.id}`) : undefined}
-        />
+        <>
+          {pagination && (
+            <p className="mb-2 text-sm text-muted-foreground" data-testid="customer-search-total">
+              <span className="font-semibold text-foreground">{pagination.totalItems.toLocaleString('en-IN')}</span>{' '}
+              {pagination.totalItems === 1 ? 'entry' : 'entries'}
+              {hasFilters || view === 'review'
+                ? pagination.totalItems === 1 ? ' matches' : ' match'
+                : ' in the register'}
+            </p>
+          )}
+          <DataTable<CustomerSearchEntry>
+            tableId="customer-search"
+            columns={columns}
+            data={entries}
+            isLoading={query.isLoading}
+            pagination={paginationState}
+            onPageChange={(p) => update({ page: String(p) })}
+            emptyMessage={view === 'review' ? 'Nothing to review here.' : 'No entries match your search.'}
+            rowKey={(r) => r.id}
+            onRowClick={can('customer_search.detail') ? (r) => navigate(`/customer-search/${r.id}`, { state: fromList }) : undefined}
+          />
+        </>
       )}
 
       <ConfirmDialog

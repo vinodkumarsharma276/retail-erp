@@ -120,6 +120,11 @@ void main() {
       expect(find.textContaining('Ram Lal'), findsOneWidget);
       expect(find.textContaining('Sita Devi'), findsOneWidget);
       expect(find.text('New entry'), findsOneWidget);
+      expect(
+        find.textContaining('2 entries in the register', findRichText: true),
+        findsOneWidget,
+      );
+      expect(find.textContaining('need review'), findsOneWidget);
       for (final removed in [
         'Needs review',
         'Series',
@@ -138,11 +143,12 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.textContaining('Ram Lal'), findsNothing);
       expect(find.textContaining('Sita Devi'), findsOneWidget);
-      // The row: account badge, readable date and mobile, review label.
+      // Two-line row: name + account, then what/when/mobile; issues are a dot.
       expect(find.text('BD-2'), findsOneWidget);
-      expect(find.text('1 Feb 2025'), findsOneWidget);
-      expect(find.text('98123 45678'), findsOneWidget);
-      expect(find.text('Needs review: No product type'), findsOneWidget);
+      expect(find.textContaining('1 Feb 2025'), findsOneWidget);
+      expect(find.textContaining('98123 45678'), findsOneWidget);
+      expect(find.byTooltip('No product type'), findsOneWidget);
+      expect(find.textContaining('found of 2'), findsOneWidget);
 
       // "Search in" → Account number: "bd-1" no longer matches by name.
       expect(find.text('All'), findsOneWidget);

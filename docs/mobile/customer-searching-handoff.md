@@ -5,7 +5,9 @@
 The user approved this scope on 2026-11-10. **Status (2026-11-10, feature chat):** the register
 sync API and the Flutter first release (encrypted cached search/details, online create/edit,
 background updates) are implemented, tested and measured on an Android phone with synthetic
-data. The checklist below shows what is still open.
+data. The checklist below shows what is still open. Later the same day (owner decisions): the
+phone shows only Customer Searching and Installments ("coming soon") to everyone but the owner,
+the list has a counts line and two-line rows, and a new search starts at the top.
 
 Agents must load [AGENTS.md](../../AGENTS.md), the [feature index](../features/README.md),
 [Customer Searching](../features/customer-searching.md),

@@ -42,7 +42,7 @@ void main() {
       await tester.tap(find.text('Customer Searching'));
       await tester.pumpAndSettle();
       expect(
-        find.text('This feature is not implemented in Flutter yet.'),
+        find.text('Coming soon to the mobile app. Use the web app for now.'),
         findsOneWidget,
       );
       await tester.tap(find.text('Account'));

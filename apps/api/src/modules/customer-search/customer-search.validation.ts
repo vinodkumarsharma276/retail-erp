@@ -61,7 +61,7 @@ export const importRowSchema = z.object({
   shop: text(200).default(''),
 });
 
-export const MAX_IMPORT_ROWS = 10_000;
+export const MAX_IMPORT_ROWS = 20_000;
 
 const importBase = z.object({
   fileName: z.string().trim().min(1).max(255),
@@ -76,7 +76,7 @@ export const importPreviewSchema = importBase;
 
 const productTypeDecision = z.discriminatedUnion('action', [
   z.object({ action: z.literal('existing'), categoryId: z.string().uuid() }),
-  z.object({ action: z.literal('create'), name: z.string().trim().min(1).max(200) }),
+  z.object({ action: z.literal('create'), name: z.string().trim().min(1).max(200), parentId: z.string().uuid().nullable().optional() }),
   z.object({ action: z.literal('blank') }),
 ]);
 

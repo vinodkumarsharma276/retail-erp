@@ -96,6 +96,7 @@ class Identity {
     final tenant = object(json['tenant']);
     userId = requiredText(user, 'id');
     fullName = requiredText(user, 'fullName');
+    role = user['role'] is String ? user['role'] as String : '';
     tenantId = requiredText(tenant, 'id');
     tenantSlug = requiredText(tenant, 'slug');
     tenantName = requiredText(tenant, 'name');
@@ -115,6 +116,11 @@ class Identity {
   }
   late final String userId;
   late final String fullName;
+
+  /// The user's role key (`owner`, `admin`, …). Used only to choose which
+  /// modules the phone lists; permissions still decide what is allowed.
+  late final String role;
+  bool get isOwner => role == 'owner';
   late final String tenantId;
   late final String tenantSlug;
   late final String tenantName;
@@ -125,7 +131,7 @@ class Identity {
   /// The access last confirmed by the server, saved so the app can start
   /// offline and show cached data. Server checks still decide every request.
   Json toJson() => {
-    'user': {'id': userId, 'fullName': fullName},
+    'user': {'id': userId, 'fullName': fullName, 'role': role},
     'tenant': {'id': tenantId, 'slug': tenantSlug, 'name': tenantName},
     'permissions': permissions.toList(),
     'features': {'flags': flags},

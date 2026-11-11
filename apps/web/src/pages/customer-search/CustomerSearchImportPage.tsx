@@ -27,8 +27,8 @@ import {
 import { useCanCheck } from '../../hooks/usePermission';
 
 const DEFAULT_RANGE = 500;
-const MAX_RANGE = 10_000;
-/** Preview rows drawn at once; a 10,000-row table would make the page crawl. */
+const MAX_RANGE = 20_000;
+/** Preview rows drawn at once; a 20,000-row table would make the page crawl. */
 const PREVIEW_PAGE = 500;
 
 type Resolution = Record<string, string>;
@@ -178,63 +178,116 @@ function NameGroupCard({
 
 const KIND_LABEL: Record<ImportProductType['kind'], { label: string; tone: 'success' | 'neutral' | 'warning' | 'info' }> = {
   mapped: { label: 'Chosen before', tone: 'neutral' },
+  glossary: { label: 'Known spelling', tone: 'success' },
   matched: { label: 'Matches', tone: 'success' },
   similar: { label: 'Looks like', tone: 'warning' },
-  new: { label: 'Not in the app', tone: 'info' },
+  ai: { label: 'AI suggests', tone: 'warning' },
+  new: { label: 'Not recognised', tone: 'info' },
 };
 
 const decisionValue = (d: ProductTypeDecision | undefined) =>
   !d || d.action === 'blank' ? 'blank' : d.action === 'create' ? 'create' : `existing:${d.categoryId}`;
 
-/** The sheet's Product values, each matched to a top-level product type or offered as a new one. */
+/** What to pre-fill: the server's suggestion, but never a new type for someone who can't create one. */
+const initialTypeDecision = (t: ImportProductType, canCreate: boolean): ProductTypeDecision =>
+  t.suggestion.action === 'create' && !canCreate ? { action: 'blank' } : t.suggestion;
+
+/** Worth a second look: guesses, AI answers and anything that would create a type or stay blank. */
+const needsCheck = (t: ImportProductType, d: ProductTypeDecision | undefined) =>
+  t.kind === 'ai' || t.kind === 'similar' || t.kind === 'new' || d?.action === 'create';
+
+/** The sheet's Product values, each read through the glossary, the type names or the AI, for the person to confirm. */
 function ProductTypesCard({
   types,
-  topLevel,
+  options,
+  help,
   decisions,
   canCreate,
   onChange,
 }: {
   types: ImportProductType[];
-  topLevel: Array<{ id: string; name: string }>;
+  options: Array<{ id: string; label: string }>;
+  help: ImportPreview['productHelp'];
   decisions: Record<string, ProductTypeDecision>;
   canCreate: boolean;
   onChange: (textKey: string, decision: ProductTypeDecision) => void;
 }) {
-  const toCreate = types.filter((t) => decisions[t.textKey]?.action === 'create');
+  const [onlyCheck, setOnlyCheck] = useState(false);
+  const labelOf = (t: ImportProductType) => t.create?.label ?? t.text;
+  const toCreate = [...new Set(types.filter((t) => decisions[t.textKey]?.action === 'create').map(labelOf))];
+  const shown = onlyCheck ? types.filter((t) => needsCheck(t, decisions[t.textKey])) : types;
   return (
     <section className="mb-4 rounded-lg border bg-card p-4">
       <h2 className="mb-1 flex items-center gap-2 text-base font-semibold">
         <Tags className="h-4 w-4" /> Product types
       </h2>
       <p className="mb-3 text-sm text-muted-foreground">
-        The sheet's Product column, matched to the app's top-level product types. Confirm each one; choices are remembered for the next ranges.
+        The sheet's Product column, read the way staff write it (W/M, REF, ALMARI…). Rows naming several items become an entry each.
+        Everything is pre-filled; check the highlighted ones. Choices are remembered for the next ranges.
       </p>
       {toCreate.length > 0 && (
         <div className="mb-3 rounded-md border border-info/30 bg-info-muted px-3 py-2 text-sm text-info">
-          {toCreate.length} new product type{toCreate.length === 1 ? '' : 's'} will be created: <strong>{toCreate.map((t) => t.text).join(', ')}</strong>
+          {toCreate.length} new product type{toCreate.length === 1 ? '' : 's'} will be created: <strong>{toCreate.join(', ')}</strong>
         </div>
       )}
+      <details className="mb-3 rounded-md border bg-muted/40 px-3 py-2 text-sm">
+        <summary className="cursor-pointer font-medium">How product texts are read</summary>
+        <ul className="mt-2 list-disc space-y-1 pl-5 text-muted-foreground">
+          {help.rules.map((r) => (
+            <li key={r}>{r}</li>
+          ))}
+        </ul>
+        <table className="mt-3 w-full text-xs">
+          <thead className="text-left text-muted-foreground">
+            <tr>
+              <th className="py-1 pr-3 font-medium">Product type</th>
+              <th className="py-1 font-medium">Written on the sheet as</th>
+            </tr>
+          </thead>
+          <tbody>
+            {help.glossary.map((g) => (
+              <tr key={g.type} className="border-t align-top">
+                <td className="py-1 pr-3 font-medium">{g.type}</td>
+                <td className="py-1">
+                  {g.texts.join(', ')}
+                  {g.note ? <span className="text-muted-foreground"> — {g.note}</span> : null}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p className="mt-2 text-xs text-muted-foreground">
+          Anything else goes to the AI (when set up) and to you. Only the Product text and the Brand / Model beside it are sent — never names or mobiles.
+        </p>
+      </details>
+      <label className="mb-2 flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={onlyCheck} onChange={(e) => setOnlyCheck(e.target.checked)} />
+        Show only the ones to check ({types.filter((t) => needsCheck(t, decisions[t.textKey])).length})
+      </label>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="text-left text-xs text-muted-foreground">
             <tr>
               <th className="py-1 pr-3 font-medium">On the sheet</th>
               <th className="py-1 pr-3 font-medium">Rows</th>
-              <th className="py-1 pr-3 font-medium">Found</th>
+              <th className="py-1 pr-3 font-medium">Read as</th>
               <th className="py-1 font-medium">Product type in the app</th>
             </tr>
           </thead>
           <tbody>
-            {types.map((t) => (
-              <tr key={t.textKey} className="border-t">
-                <td className="py-1.5 pr-3 font-medium">{t.text}</td>
+            {shown.map((t) => (
+              <tr key={t.textKey} className={cn('border-t align-top', t.kind === 'ai' && 'bg-warning-muted/60')}>
+                <td className="py-1.5 pr-3">
+                  <span className="font-medium">{t.text}</span>
+                  {t.samples.length > 0 && <span className="block text-xs text-muted-foreground">{t.samples.join(' · ')}</span>}
+                </td>
                 <td className="py-1.5 pr-3 tabular-nums">{t.rows}</td>
                 <td className="py-1.5 pr-3">
                   <Badge tone={KIND_LABEL[t.kind].tone}>
                     {KIND_LABEL[t.kind].label}
                     {t.kind === 'similar' && t.categoryName ? ` ${t.categoryName}` : ''}
-                    {t.kind === 'matched' && t.categoryName && !topLevel.some((c) => c.id === t.categoryId) ? ` (sub-type)` : ''}
                   </Badge>
+                  {t.reason && <span className="mt-0.5 block max-w-72 text-xs text-muted-foreground">{t.reason}</span>}
                 </td>
                 <td className="py-1.5">
                   <Select
@@ -247,18 +300,15 @@ function ProductTypesCard({
                         v === 'blank'
                           ? { action: 'blank' }
                           : v === 'create'
-                            ? { action: 'create', name: t.text }
+                            ? { action: 'create', name: t.create?.name ?? t.text, parentId: t.create?.parentId ?? null }
                             : { action: 'existing', categoryId: v.slice('existing:'.length) },
                       );
                     }}
                   >
-                    {canCreate && t.kind !== 'matched' && <option value="create">+ Create new type “{t.text}”</option>}
-                    {t.categoryId && !topLevel.some((c) => c.id === t.categoryId) && (
-                      <option value={`existing:${t.categoryId}`}>{t.categoryName ?? 'Chosen before'}</option>
-                    )}
-                    {topLevel.map((c) => (
+                    {canCreate && (t.create || t.kind !== 'matched') && <option value="create">+ Create new type “{labelOf(t)}”</option>}
+                    {options.map((c) => (
                       <option key={c.id} value={`existing:${c.id}`}>
-                        {c.name}
+                        {c.label}
                       </option>
                     ))}
                     <option value="blank">— Leave blank (keep the text) —</option>
@@ -269,13 +319,12 @@ function ProductTypesCard({
           </tbody>
         </table>
       </div>
-      {!canCreate && types.some((t) => t.kind === 'new') && (
+      {!canCreate && types.some((t) => t.create || t.kind === 'new') && (
         <p className="mt-2 text-xs text-muted-foreground">You can't create product types; ask someone who can, or leave these blank and set them later.</p>
       )}
     </section>
   );
 }
-
 function StatChip({ label, value, tone }: { label: string; value: number; tone: 'success' | 'neutral' | 'danger' | 'warning' }) {
   const colours = {
     success: 'border-success/30 bg-success-muted text-success',
@@ -406,15 +455,7 @@ export function CustomerSearchImportPage() {
       setResolutions(Object.fromEntries(data.groups.map((g) => [g.mobile, g.suggestion])));
       setTypeDecisions((prev) =>
         Object.fromEntries(
-          data.productTypes.map((t): [string, ProductTypeDecision] => [
-            t.textKey,
-            prev[t.textKey] ??
-              (t.categoryId
-                ? { action: 'existing', categoryId: t.categoryId }
-                : t.kind === 'new' && canCreateTypes
-                  ? { action: 'create', name: t.text }
-                  : { action: 'blank' }),
-          ]),
+          data.productTypes.map((t): [string, ProductTypeDecision] => [t.textKey, prev[t.textKey] ?? initialTypeDecision(t, canCreateTypes)]),
         ),
       );
       setFilter(data.rows.some((r) => r.status === 'invalid' || r.status === 'move' || r.issues.length > 0) ? 'problems' : 'all');
@@ -589,12 +630,17 @@ export function CustomerSearchImportPage() {
         <>
           <div className="mb-4 flex flex-wrap gap-3">
             <StatChip label="Ready to import" value={preview.summary.new} tone="success" />
+            {preview.summary.entries !== preview.summary.new && (
+              <StatChip label="Entries they make (one per item)" value={preview.summary.entries} tone="success" />
+            )}
             <StatChip label="…of which need review" value={preview.summary.flagged} tone={preview.summary.flagged ? 'warning' : 'neutral'} />
             <StatChip label="Already imported" value={preview.summary.exists} tone="neutral" />
             <StatChip label="Move to another shop" value={preview.summary.move} tone={preview.summary.move ? 'warning' : 'neutral'} />
             <StatChip label="Can't import" value={preview.summary.invalid} tone={preview.summary.invalid ? 'danger' : 'neutral'} />
             <StatChip label="Mobiles with several names" value={preview.summary.groups} tone={preview.summary.groupsNeedingReview ? 'warning' : 'neutral'} />
-            <StatChip label="Product types not in the app" value={preview.summary.newProductTypes} tone={preview.summary.newProductTypes ? 'warning' : 'neutral'} />
+            <StatChip label="Rows with several items" value={preview.summary.splitRows} tone="neutral" />
+            <StatChip label="Only a count (N ITEM)" value={preview.summary.itemsUnknown} tone={preview.summary.itemsUnknown ? 'warning' : 'neutral'} />
+            <StatChip label="Product texts not recognised" value={preview.summary.unknownProductTexts} tone={preview.summary.unknownProductTexts ? 'warning' : 'neutral'} />
           </div>
 
           {/* The same button as at the bottom, so a long preview needn't be scrolled through. */}
@@ -612,7 +658,8 @@ export function CustomerSearchImportPage() {
           {preview.productTypes.length > 0 && (
             <ProductTypesCard
               types={preview.productTypes}
-              topLevel={preview.topLevelTypes}
+              options={preview.typeOptions}
+              help={preview.productHelp}
               decisions={typeDecisions}
               canCreate={canCreateTypes}
               onChange={(key, decision) => setTypeDecisions((d) => ({ ...d, [key]: decision }))}

@@ -42,10 +42,14 @@ class RegisterFiles {
   Future<RegisterDatabase> open(String tenantId, String userId) async {
     final path = await _path(tenantId, userId);
     final key = await _key(tenantId, userId);
+    // Never share a connection: the plugin keeps connections process-wide, so
+    // the background updater (another engine in the same process) would
+    // otherwise get the app's connection and close it under the app.
     Future<Database> attempt() => openDatabase(
       path,
       password: key,
       version: schemaVersion,
+      singleInstance: false,
       onConfigure: configureRegisterDb,
       onCreate: (db, _) => createRegisterSchema(db),
       onUpgrade: upgradeRegisterSchema,
@@ -53,12 +57,18 @@ class RegisterFiles {
     );
     try {
       return RegisterDatabase(await attempt());
-    } on DatabaseException {
-      // Unreadable (e.g. the key was lost on reinstall): start a fresh copy.
+    } on DatabaseException catch (error) {
+      // Only an unreadable file (e.g. the key was lost on reinstall) starts a
+      // fresh copy; a busy or locked file must never be deleted.
+      if (!_unreadable(error)) rethrow;
       await deleteDatabase(path);
       return RegisterDatabase(await attempt());
     }
   }
+
+  static bool _unreadable(DatabaseException error) =>
+      error.getResultCode() == 26 ||
+      error.toString().contains('not a database');
 
   /// Removes the copy and its key (the user lost access to the register).
   Future<void> delete(String tenantId, String userId) async {

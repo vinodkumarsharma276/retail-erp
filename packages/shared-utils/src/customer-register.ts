@@ -321,10 +321,25 @@ export const REGISTER_ISSUES = {
   future_date: 'Purchase date is in the future',
   co_incomplete: 'Co-applicant details incomplete',
   no_product_type: 'No product type',
+  items_unknown: 'Several items, details unknown',
 } as const;
 
 export type RegisterIssue = keyof typeof REGISTER_ISSUES;
 export const REGISTER_ISSUE_CODES = Object.keys(REGISTER_ISSUES) as RegisterIssue[];
+
+/**
+ * A Product cell that gives a count instead of the goods ("2 ITEM", "3ITEM",
+ * "2 ITEN", "ALL ITEM"): how many (or 'all'); null when it names goods or
+ * counts fewer than two.
+ */
+export function countOnlyProduct(text: string | null | undefined): number | 'all' | null {
+  const t = String(text ?? '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim();
+  const m = /^(\d{1,3}|ALL)\s*ITE[MN]S?$/.exec(t);
+  if (!m) return null;
+  if (m[1] === 'ALL') return 'all';
+  const n = Number(m[1]);
+  return n >= 2 ? n : null;
+}
 
 /** No digits at all ("XXXXX", "NO MOBILE", blank) is missing; digits that aren't a mobile are invalid. */
 export function mobileProblem(value: unknown): 'missing' | 'invalid' | null {

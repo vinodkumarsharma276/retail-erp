@@ -14,6 +14,10 @@ vi.mock('../../src/modules/customer-search/customer-name-adjudicator.js', () => 
   customerNameAdjudicatorEnabled: () => false,
   adjudicatePersonNames: async () => [],
 }));
+vi.mock('../../src/modules/customer-search/customer-search.product-adjudicator.js', () => ({
+  productAdjudicatorEnabled: () => false,
+  adjudicateProductTexts: async (matches: unknown[]) => ({ matches, asked: false, answered: 0 }),
+}));
 
 /**
  * CS — Customer Searching: the account register moved off the Google Sheet.
@@ -170,7 +174,8 @@ describe('CS. Customer Searching import and entries', () => {
     const entry = await run(() => customerSearchService.create({ ...base, accountNumber: 'MJ010' }, ctx));
     expect(entry.customerId).toBe(customerId);
 
-    const err = await run(() => customerSearchService.create({ ...base, accountNumber: 'mj010' }, ctx)).catch((e) => e);
+    // The same number for another purchase (here a later date) is refused until confirmed.
+    const err = await run(() => customerSearchService.create({ ...base, purchaseDate: '2026-11-02', accountNumber: 'mj010' }, ctx)).catch((e) => e);
     expect(err).toBeInstanceOf(CustomerSearchError);
     expect(err.statusCode).toBe(409);
     expect(err.details).toMatchObject({ nextAccountNumber: 'MJ011', usedBy: [{ customerName: 'asha verma' }] });
@@ -206,8 +211,8 @@ describe('CS. Customer Searching import and entries', () => {
     const rows = [
       row({ accountNumber: 'P1', customerName: 'A', mobile: '9810000001', product: 'fridge' }),
       row({ accountNumber: 'P2', customerName: 'B', mobile: '9810000002', product: 'Fridges' }),
-      row({ accountNumber: 'P3', customerName: 'C', mobile: '9810000003', product: 'Cooler' }),
-      row({ accountNumber: 'P4', customerName: 'D', mobile: '9810000004', product: 'Inverter' }),
+      row({ accountNumber: 'P3', customerName: 'C', mobile: '9810000003', product: 'Gizmo' }),
+      row({ accountNumber: 'P4', customerName: 'D', mobile: '9810000004', product: 'Widget' }),
       row({ accountNumber: 'P5', customerName: 'E', mobile: '9810000005', product: '' }),
     ];
     const preview = await run(() => previewImport(batch(shopId, rows)));
@@ -215,39 +220,40 @@ describe('CS. Customer Searching import and entries', () => {
     expect(kinds).toEqual({
       fridge: ['matched', types.fridge],
       fridges: ['matched', types.fridge],
-      cooler: ['new', null],
-      inverter: ['new', null],
+      gizmo: ['new', null],
+      widget: ['new', null],
     });
-    expect(preview.summary.newProductTypes).toBe(2);
+    // Unknown texts are not pre-set to create a type: someone picks one, or asks for it.
+    expect(preview.summary).toMatchObject({ newProductTypes: 0, unknownProductTexts: 2 });
     // Only top-level types are offered: the sheet never named a sub-type.
     expect(preview.topLevelTypes.map((t) => t.name).sort()).toEqual(['Electronics', 'Fridge', 'LED TV']);
 
     // Without permission, creating a type is refused.
     await expect(
-      run(() => commitImport({ ...batch(shopId, rows), productTypes: { cooler: { action: 'create', name: 'Cooler' } } }, userId, false)),
+      run(() => commitImport({ ...batch(shopId, rows), productTypes: { gizmo: { action: 'create', name: 'Gizmo' } } }, userId, false)),
     ).rejects.toMatchObject({ statusCode: 403 });
 
     const result = await run(() =>
-      commitImport({ ...batch(shopId, rows), productTypes: { cooler: { action: 'create', name: 'Cooler' }, inverter: { action: 'blank' } } }, userId),
+      commitImport({ ...batch(shopId, rows), productTypes: { gizmo: { action: 'create', name: 'Gizmo' }, widget: { action: 'blank' } } }, userId),
     );
     expect(result).toMatchObject({ inserted: 5, productTypesCreated: 1 });
 
-    const cooler = await run(() => prisma.productCategory.findFirst({ where: { name: 'Cooler' } }));
-    expect(cooler).toMatchObject({ parentId: null, level: 0, path: 'cooler', isLeaf: true });
+    const cooler = await run(() => prisma.productCategory.findFirst({ where: { name: 'Gizmo' } }));
+    expect(cooler).toMatchObject({ parentId: null, level: 0, path: 'gizmo', isLeaf: true });
     const entries = await run(() => prisma.customerSearchEntry.findMany({ orderBy: { accountNumber: 'asc' } }));
     expect(entries.map((e) => [e.accountNumber, e.categoryId, e.product])).toEqual([
       ['P1', types.fridge, 'fridge'],
       ['P2', types.fridge, 'Fridges'],
-      ['P3', cooler!.id, 'Cooler'],
-      ['P4', null, 'Inverter'],
+      ['P3', cooler!.id, 'Gizmo'],
+      ['P4', null, 'Widget'],
       ['P5', null, null],
     ]);
 
     // The next range reuses the choices without asking again.
-    const later = [row({ accountNumber: 'P6', customerName: 'F', mobile: '9810000006', product: 'COOLER' }), row({ accountNumber: 'P7', customerName: 'G', mobile: '9810000007', product: 'inverter' })];
+    const later = [row({ accountNumber: 'P6', customerName: 'F', mobile: '9810000006', product: 'GIZMO' }), row({ accountNumber: 'P7', customerName: 'G', mobile: '9810000007', product: 'widget' })];
     const again = await run(() => previewImport(batch(shopId, later)));
     expect(again.productTypes.map((t) => [t.textKey, t.kind, t.categoryId])).toEqual(
-      expect.arrayContaining([['cooler', 'mapped', cooler!.id], ['inverter', 'mapped', null]]),
+      expect.arrayContaining([['gizmo', 'mapped', cooler!.id], ['widget', 'mapped', null]]),
     );
     await run(() => commitImport(batch(shopId, later), userId));
     const p6 = await run(() => prisma.customerSearchEntry.findFirst({ where: { accountNumber: 'P6' } }));
@@ -678,8 +684,8 @@ describe('CS. Safe saves from a device', () => {
     const err = await run(() => customerSearchService.create(input, { shopId, userId: other.id })).catch((e) => e);
     expect(err).toMatchObject({ statusCode: 409, details: { code: 'request_reused' } });
 
-    // A duplicate number is still refused first, then saved once confirmed.
-    const dup = await run(() => customerSearchService.create({ ...input, clientRequestId: undefined }, { shopId, userId })).catch((e) => e);
+    // A duplicate number (another purchase) is still refused first, then saved once confirmed.
+    const dup = await run(() => customerSearchService.create({ ...input, purchaseDate: '2026-02-02', clientRequestId: undefined }, { shopId, userId })).catch((e) => e);
     expect(dup).toMatchObject({ statusCode: 409, details: { code: 'duplicate_account', nextAccountNumber: 'Q2' } });
   });
 
@@ -701,5 +707,76 @@ describe('CS. Safe saves from a device', () => {
 
     const ok = await run(() => customerSearchService.update(entry.id, { area: 'Phone edit', expectedUpdatedAt: web.updatedAt.toISOString() }, { shopId, userId }));
     expect(ok.area).toBe('Phone edit');
+  });
+
+  it('CS23 a row naming several items becomes an entry each (one purchase, not a reused number); counts are flagged; sub-types are created under their parent', async () => {
+    const { shopId, userId, run, types, secondShopId, tenantId } = await setup();
+    const fan = await prisma.productCategory.create({
+      data: { tenantId, name: 'Fan', slug: 'fan', level: 0, path: 'fan', isLeaf: true },
+    });
+    const person = { customerName: 'Split Person', mobile: '9810000801', purchaseDate: '01/03/2024' };
+    const rows = [
+      row({ accountNumber: 'S1', ...person, product: 'W/M-FRIDGE', brand: 'BEKO/WHIRL', model: '260 IMPRO/73157' }),
+      row({ accountNumber: 'S2', customerName: 'Count Person', mobile: '9810000802', purchaseDate: '02/03/2024', product: '6 ITEM', brand: 'SAMSUNG' }),
+      row({ accountNumber: 'S3', customerName: 'Fan Person', mobile: '9810000803', purchaseDate: '03/03/2024', product: 'TABLE FAN' }),
+    ];
+
+    const preview = await run(() => previewImport(batch(shopId, rows)));
+    expect(preview.summary).toMatchObject({ new: 3, entries: 4, splitRows: 1, itemsUnknown: 1, newProductTypes: 2 });
+    expect(preview.rows[0].warnings).toContain('2 items, one entry each: W/M, FRIDGE');
+    expect(preview.rows[0].issues).not.toContain('duplicate_account');
+    expect(preview.rows[1].issues).toContain('items_unknown');
+    const byKey = Object.fromEntries(preview.productTypes.map((t) => [t.textKey, t]));
+    expect(byKey['w/m']).toMatchObject({ kind: 'glossary', create: { name: 'Washing Machine', parentId: null } });
+    expect(byKey.fridge).toMatchObject({ kind: 'matched', categoryId: types.fridge });
+    expect(byKey['table fan']).toMatchObject({ kind: 'glossary', create: { name: 'Table Fan', parentId: fan.id, label: 'Fan › Table Fan' } });
+    expect(preview.typeOptions.map((o) => o.label)).toContain('Electronics › TV › LED TV');
+
+    // Import with what was pre-filled, as the screen sends it.
+    const productTypes = Object.fromEntries(preview.productTypes.map((t) => [t.textKey, t.suggestion]));
+    const result = await run(() => commitImport({ ...batch(shopId, rows), productTypes }, userId));
+    expect(result).toMatchObject({ inserted: 4, productTypesCreated: 2 });
+
+    const tableFan = await run(() => prisma.productCategory.findFirstOrThrow({ where: { name: 'Table Fan' } }));
+    expect(tableFan).toMatchObject({ parentId: fan.id, level: 1, path: 'fan.table-fan', isLeaf: true });
+    expect((await prisma.productCategory.findUniqueOrThrow({ where: { id: fan.id } })).isLeaf).toBe(false);
+
+    const s1 = await run(() => prisma.customerSearchEntry.findMany({ where: { accountNumber: 'S1' }, orderBy: { product: 'asc' } }));
+    expect(s1.map((e) => [e.product, e.brand, e.model, e.issues])).toEqual([
+      ['FRIDGE', 'WHIRL', '73157', []],
+      ['W/M', 'BEKO', '260 IMPRO', []],
+    ]);
+    expect(s1[0].categoryId).toBe(types.fridge);
+    expect(s1[0].customerId).toBe(s1[1].customerId);
+    const s2 = await run(() => prisma.customerSearchEntry.findFirstOrThrow({ where: { accountNumber: 'S2' } }));
+    expect(s2).toMatchObject({ categoryId: null, product: '6 ITEM', issues: ['items_unknown'] });
+    const listed = await run(() => customerSearchService.list({ q: 'S1' }, { skip: 0, take: 5 }));
+    expect(listed.entries.map((e) => e.customerItemCount)).toEqual([2, 2]);
+
+    // Another item of the same purchase, entered by hand: no "number already used".
+    const third = await run(() =>
+      customerSearchService.create(
+        { accountNumber: 'S1', customerName: 'Split Person', mobile: '9810000801', purchaseDate: '2024-03-01', categoryId: types.led },
+        { shopId, userId },
+      ),
+    );
+    expect(third.issues).toEqual([]);
+    // Someone else on S1 is a reused number, flagged everywhere.
+    const other = await run(() =>
+      customerSearchService.create(
+        { accountNumber: 'S1', customerName: 'Somebody Else', mobile: '9810000804', purchaseDate: '2024-03-05', categoryId: types.led },
+        { shopId, userId },
+      ),
+    ).catch((e) => e);
+    expect(other).toMatchObject({ statusCode: 409, details: { code: 'duplicate_account' } });
+
+    // Importing the range again skips the split row; a changed Shop moves every item of that purchase.
+    const again = await run(() => previewImport(batch(shopId, rows)));
+    expect(again.summary).toMatchObject({ new: 0, exists: 3 });
+    const moved = rows.map((r) => (r.accountNumber === 'S1' ? { ...r, shop: 'NE' } : r));
+    expect((await run(() => previewImport(batch(shopId, moved)))).rows[0].status).toBe('move');
+    await run(() => commitImport(batch(shopId, moved), userId));
+    const after = await run(() => prisma.customerSearchEntry.findMany({ where: { accountNumber: 'S1' }, select: { shopId: true } }));
+    expect(after.map((e) => e.shopId)).toEqual([secondShopId, secondShopId, secondShopId]);
   });
 });

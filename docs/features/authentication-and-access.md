@@ -141,7 +141,10 @@ single-flight refresh rotation, one bounded 401 retry, shop switching and server
 local cleanup. Passwords are not stored or trimmed. Server changes clear the saved credentials;
 stale requests cannot repopulate a cleared session. Storage/network/server errors are visible.
 
-The Modules/Account shell uses effective grants and feature flags, including `mobile_app`.
+The Modules/Account shell uses effective grants and feature flags, including `mobile_app`. For
+now (owner decision 2026-11-10) it additionally lists only Customer Searching and Installments
+to every role except `owner`, using `user.role` from `/auth/me` — a display choice, not an
+access rule; the API still checks permissions on every request.
 Foreground/manual revalidation blocks protected UI when the server answers with a failure.
 When the server **cannot be reached**, the app continues with the last server-confirmed identity
 (saved in secure storage, removed on sign-out) and shows an offline banner — an owner decision

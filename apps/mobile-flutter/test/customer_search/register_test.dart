@@ -503,6 +503,7 @@ void main() {
       final result = await RegisterSync(api, closed).run();
       expect(result.outcome, RegisterSyncOutcome.failed);
       expect(result.error, isNotNull);
+      expect(result.closed, isTrue);
     },
   );
 

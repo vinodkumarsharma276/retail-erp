@@ -161,14 +161,22 @@ export interface ImportProductType {
   textKey: string;
   text: string;
   rows: number;
-  kind: 'mapped' | 'matched' | 'similar' | 'new';
+  /** `glossary`: a known way staff write it; `ai`: the model's suggestion (check it). */
+  kind: 'mapped' | 'glossary' | 'matched' | 'similar' | 'ai' | 'new';
   categoryId: string | null;
   categoryName: string | null;
+  /** A type the glossary or the AI says to create. */
+  create?: { name: string; parentId: string | null; label: string };
+  /** What is pre-filled. */
+  suggestion: ProductTypeDecision;
+  reason?: string;
+  /** A few "Brand / Model" pairs written beside it. */
+  samples: string[];
 }
 
 export type ProductTypeDecision =
   | { action: 'existing'; categoryId: string }
-  | { action: 'create'; name: string }
+  | { action: 'create'; name: string; parentId?: string | null }
   | { action: 'blank' };
 
 export interface ImportPreview {
@@ -176,6 +184,10 @@ export interface ImportPreview {
   groups: ImportNameGroup[];
   productTypes: ImportProductType[];
   topLevelTypes: Array<{ id: string; name: string }>;
+  /** Every type, by full path. */
+  typeOptions: Array<{ id: string; label: string }>;
+  /** How the Product column is read. */
+  productHelp: { rules: string[]; glossary: Array<{ type: string; texts: string[]; note: string | null }> };
   summary: {
     total: number;
     new: number;
@@ -186,9 +198,17 @@ export interface ImportPreview {
     groups: number;
     groupsNeedingReview: number;
     newProductTypes: number;
+    unknownProductTexts: number;
+    /** Entries the new rows make (a row naming several items makes one each). */
+    entries: number;
+    splitRows: number;
+    itemsUnknown: number;
     aiUsed: boolean;
     aiFailed: boolean;
     aiAvailable: boolean;
+    productAiAvailable: boolean;
+    productAiUsed: boolean;
+    productAiFailed: boolean;
   };
 }
 

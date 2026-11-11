@@ -6,6 +6,12 @@ import { ExportDialog } from './ExportDialog';
 import { exportCsv, exportExcel, printTable } from '../lib/table-export';
 import { useTablePreferences } from '../hooks/useTablePreferences';
 
+/**
+ * Dragging across a cell to copy it ends in a click; that click shouldn't open
+ * the row. (A plain click clears any selection first, so it still opens.)
+ */
+const selectingText = () => (window.getSelection()?.toString() ?? '').length > 0;
+
 // ---------------------------------------------------------------------------
 // Column definition
 // ---------------------------------------------------------------------------
@@ -602,7 +608,7 @@ export function DataTable<T>({
         {sortedData.map((row, idx) => (
           <div
             key={rowKey ? rowKey(row, idx) : idx}
-            onClick={onRowClick ? () => onRowClick(row, idx) : undefined}
+            onClick={onRowClick ? () => !selectingText() && onRowClick(row, idx) : undefined}
             role={onRowClick ? 'button' : undefined}
             tabIndex={onRowClick ? 0 : undefined}
             onKeyDown={onRowClick ? (event) => {
@@ -748,9 +754,9 @@ export function DataTable<T>({
               <tr
                 onClick={
                   canOpen
-                    ? () => setOpenKey(isOpen ? null : rowId)
+                    ? () => !selectingText() && setOpenKey(isOpen ? null : rowId)
                     : onRowClick
-                      ? () => onRowClick(row, idx)
+                      ? () => !selectingText() && onRowClick(row, idx)
                       : undefined
                 }
                 className={cn(

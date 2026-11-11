@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math';
+import 'package:sqflite_sqlcipher/sqflite.dart' show DatabaseException;
 import '../../core/api_client.dart';
 import '../../core/session_models.dart';
 import 'register_database.dart';
@@ -7,11 +8,28 @@ import 'register_database.dart';
 enum RegisterSyncOutcome { updated, skipped, failed }
 
 class RegisterSyncResult {
-  const RegisterSyncResult(this.outcome, {this.error, this.pages = 0});
+  const RegisterSyncResult(
+    this.outcome, {
+    this.error,
+    this.pages = 0,
+    this.closed = false,
+  });
   final RegisterSyncOutcome outcome;
   final ApiException? error;
   final int pages;
+
+  /// The copy's connection was closed under this run; reopening it fixes it.
+  final bool closed;
 }
+
+bool _isClosed(Object error) =>
+    error is DatabaseException && error.isDatabaseClosedError();
+
+/// SQLITE_BUSY: another connection (the app or the background updater) is
+/// writing at this moment.
+bool _isBusy(Object error) =>
+    error is DatabaseException &&
+    (error.getResultCode() == 5 || error.toString().contains('locked'));
 
 /// Brings the device copy up to date through `GET customer-search/sync`.
 /// One run at a time per process (single flight) and per device (a lease in
@@ -50,9 +68,13 @@ class RegisterSync {
         return const RegisterSyncResult(RegisterSyncOutcome.skipped);
       }
     } on Object catch (error) {
+      if (_isBusy(error)) {
+        return const RegisterSyncResult(RegisterSyncOutcome.skipped);
+      }
       return RegisterSyncResult(
         RegisterSyncOutcome.failed,
         error: ApiException('The saved register could not be opened: $error'),
+        closed: _isClosed(error),
       );
     }
     var pages = 0;
@@ -106,6 +128,7 @@ class RegisterSync {
         RegisterSyncOutcome.failed,
         error: failure,
         pages: pages,
+        closed: _isClosed(error),
       );
     } finally {
       await _quietly(() => db.releaseLease(owner));

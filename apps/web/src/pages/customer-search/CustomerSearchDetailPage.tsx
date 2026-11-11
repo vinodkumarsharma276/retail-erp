@@ -10,6 +10,7 @@ import { LoadingSpinner } from '../../components/LoadingSpinner';
 import { useCanCheck } from '../../hooks/usePermission';
 import { useToast } from '../../stores/toast-store';
 import { apiErrorMessage, useCustomerSearchEntryQuery, useDeleteEntryMutation } from '../../hooks/useCustomerSearch';
+import { useRegisterListUrl } from './registerListUrl';
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -28,13 +29,14 @@ export function CustomerSearchDetailPage() {
   const toast = useToast();
   const [confirming, setConfirming] = useState(false);
   const deleteMutation = useDeleteEntryMutation();
+  const listUrl = useRegisterListUrl();
   const { data: entry, isLoading, isError, error } = useCustomerSearchEntryQuery(id);
 
   if (isLoading) return <LoadingSpinner />;
   if (isError || !entry) {
     return (
       <div>
-        <PageHeader title="Entry not found" backTo="/customer-search" />
+        <PageHeader title="Entry not found" backTo={listUrl} />
         <p className="text-sm text-muted-foreground">{apiErrorMessage(error, 'This entry does not exist.')}</p>
       </div>
     );
@@ -45,7 +47,7 @@ export function CustomerSearchDetailPage() {
       <PageHeader
         title={entry.accountNumber || '(no account number)'}
         description={[entry.productType?.join(' › ') ?? entry.product, entry.brand, entry.model].filter(Boolean).join(' · ') || undefined}
-        backTo="/customer-search"
+        backTo={listUrl}
         badge={<Badge tone={entry.source === 'import' ? 'neutral' : 'primary'}>{entry.source === 'import' ? 'From the sheet' : 'Entered in app'}</Badge>}
         actions={
           can('customer_search.edit') || can('customer_search.delete') ? (
@@ -56,7 +58,7 @@ export function CustomerSearchDetailPage() {
                 </Button>
               )}
               {can('customer_search.edit') && (
-                <Link to={`/customer-search/${entry.id}/edit`}>
+                <Link to={`/customer-search/${entry.id}/edit`} state={{ listUrl }}>
                   <Button variant="secondary" icon={<Pencil className="h-3.5 w-3.5" />}>Edit</Button>
                 </Link>
               )}
@@ -104,7 +106,7 @@ export function CustomerSearchDetailPage() {
           try {
             await deleteMutation.mutateAsync(entry.id);
             toast.success(`Deleted ${entry.accountNumber}`);
-            navigate('/customer-search');
+            navigate(listUrl);
           } catch (err) {
             toast.error(apiErrorMessage(err, "Couldn't delete the entry"));
           }
