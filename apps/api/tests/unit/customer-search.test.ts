@@ -7,7 +7,10 @@ import {
   effectivePermissions,
 } from '@retailerp/shared-types';
 import {
+  accountSearchText,
+  formatAccountNumber,
   isIsoDate,
+  isValidAccountPrefix,
   isValidMobile,
   mobileProblem,
   REGISTER_ISSUE_CODES,
@@ -45,29 +48,41 @@ import { resolveShop, rowKey } from '../../src/modules/customer-search/customer-
 const allOn = Object.fromEntries(ALL_FEATURE_KEYS.map((k) => [k, true]));
 
 describe('CS1. Account numbers', () => {
-  it('reads the register\'s own shapes: BD-1, CI2-421, BD-406A, DF-738(A), BN.596, MJ12', () => {
-    expect(parseAccountNumber(' bd- 33 ')).toEqual({ accountNumber: 'BD-33', prefix: 'BD', separator: '-', seriesNo: 33 });
-    expect(parseAccountNumber('CI2 -421')).toEqual({ accountNumber: 'CI2-421', prefix: 'CI2', separator: '-', seriesNo: 421 });
-    expect(parseAccountNumber('BD-406A')).toMatchObject({ prefix: 'BD', seriesNo: 406 });
-    expect(parseAccountNumber('DF-738(A)')).toMatchObject({ prefix: 'DF', seriesNo: 738 });
-    expect(parseAccountNumber('BN.596')).toMatchObject({ prefix: 'BN', separator: '.', seriesNo: 596 });
-    expect(parseAccountNumber(' mj 12 ')).toEqual({ accountNumber: 'MJ12', prefix: 'MJ', separator: '', seriesNo: 12 });
-    expect(parseAccountNumber('D7')).toMatchObject({ prefix: 'D', seriesNo: 7 });
+  it('writes every standard shape one way: two letters, a space, the number', () => {
+    for (const typed of ['BD-33', ' bd- 33 ', 'BD33', 'bd 33', 'BD.033', 'BD-33.', 'BD-33`', 'BD - 33']) {
+      expect(parseAccountNumber(typed), typed).toEqual({ accountNumber: 'BD 33', prefix: 'BD', seriesNo: 33 });
+    }
+    expect(formatAccountNumber('mj009')).toBe('MJ 9');
   });
 
-  it('keeps other shapes, without a series number', () => {
+  it('keeps other shapes as written, without a series number (flagged for review)', () => {
     expect(parseAccountNumber('BL-528,35')).toMatchObject({ accountNumber: 'BL-528,35', prefix: 'BL', seriesNo: null });
+    expect(parseAccountNumber('DH-306-406')).toMatchObject({ accountNumber: 'DH-306-406', seriesNo: null });
+    expect(parseAccountNumber('BD-406A')).toMatchObject({ accountNumber: 'BD-406A', prefix: 'BD', seriesNo: null });
+    expect(parseAccountNumber('DF-738(A)')).toMatchObject({ accountNumber: 'DF-738(A)', seriesNo: null });
+    expect(parseAccountNumber('ABCD-421').seriesNo).toBeNull();
+    expect(parseAccountNumber('D7').seriesNo).toBeNull();
     expect(parseAccountNumber('1234').prefix).toBe('');
     expect(parseAccountNumber('').accountNumber).toBe('');
   });
 
-  it('suggests the next number written the way the series writes it', () => {
-    expect(nextAccountNumber('BD', { accountNumber: 'BD-264', seriesNo: 264 })).toBe('BD-265');
-    expect(nextAccountNumber('CI2', { accountNumber: 'CI2-421', seriesNo: 421 })).toBe('CI2-422');
-    expect(nextAccountNumber('MJ', { accountNumber: 'MJ12', seriesNo: 12 })).toBe('MJ13');
-    expect(nextAccountNumber('MJ', { accountNumber: 'MJ009', seriesNo: 9 })).toBe('MJ010');
-    expect(nextAccountNumber('BD', { accountNumber: 'BD-406A', seriesNo: 406 })).toBe('BD-407');
-    expect(nextAccountNumber('mi', null)).toBe('MI-1');
+  it('a series may be 3 letters, and may carry one digit for a new register (CK → CK2)', () => {
+    expect(parseAccountNumber('ck2-15')).toEqual({ accountNumber: 'CK2 15', prefix: 'CK2', seriesNo: 15 });
+    expect(parseAccountNumber('CK2 015')).toEqual({ accountNumber: 'CK2 15', prefix: 'CK2', seriesNo: 15 });
+    expect(parseAccountNumber('ABC-7')).toEqual({ accountNumber: 'ABC 7', prefix: 'ABC', seriesNo: 7 });
+    expect(parseAccountNumber('ABC2.7')).toEqual({ accountNumber: 'ABC2 7', prefix: 'ABC2', seriesNo: 7 });
+    // With no separator the digits are all the number.
+    expect(parseAccountNumber('CK215')).toEqual({ accountNumber: 'CK 215', prefix: 'CK', seriesNo: 215 });
+    expect(nextAccountNumber('ck2', { seriesNo: 15 })).toBe('CK2 16');
+    expect(accountSearchText('ck2-15')).toBe('CK2 15');
+  });
+
+  it('suggests the next number of a series; searches find "BD 12" however it is typed', () => {
+    expect(nextAccountNumber('BD', { seriesNo: 264 })).toBe('BD 265');
+    expect(nextAccountNumber('mi', null)).toBe('MI 1');
+    expect(['bd', 'abc', 'ck2', 'abc2'].map(isValidAccountPrefix)).toEqual([true, true, true, true]);
+    expect(['B', 'ABCD', 'CK22', '2CK'].map(isValidAccountPrefix)).toEqual([false, false, false, false]);
+    expect(['bd-12', 'bd12', 'BD 012', 'bd', '12'].map(accountSearchText)).toEqual(['BD 12', 'BD 12', 'BD 12', 'BD', '12']);
   });
 });
 

@@ -23,7 +23,7 @@ void main() {
       server.put(
         entry(
           'e1',
-          account: 'BD-1',
+          account: 'BD 1',
           name: 'Ram Lal',
           mobile: '9876543210',
           date: '2025-01-05',
@@ -33,7 +33,7 @@ void main() {
       server.put(
         entry(
           'e2',
-          account: 'BD-2',
+          account: 'BD 2',
           name: 'Sita Devi',
           mobile: '9812345678',
           date: '2025-02-01',
@@ -144,7 +144,7 @@ void main() {
       expect(find.textContaining('Ram Lal'), findsNothing);
       expect(find.textContaining('Sita Devi'), findsOneWidget);
       // Two-line row: name + account, then what/when/mobile; issues are a dot.
-      expect(find.text('BD-2'), findsOneWidget);
+      expect(find.text('BD 2'), findsOneWidget);
       expect(find.textContaining('1 Feb 2025'), findsOneWidget);
       expect(find.textContaining('98123 45678'), findsOneWidget);
       expect(find.byTooltip('No product type'), findsOneWidget);

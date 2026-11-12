@@ -40,8 +40,22 @@ class _EntryFormPageState extends State<EntryFormPage> {
   final _mobile = TextEditingController();
   final _address = TextEditingController();
   final _area = TextEditingController();
+  final _areaFocus = FocusNode();
+  final _nameFocus = FocusNode();
+  List<String> _areas = const [];
+  final _brandFocus = FocusNode();
+  final _modelFocus = FocusNode();
+  List<String> _brands = const [];
+  List<String> _models = const [];
+  String? _brandsFor;
+  String _modelsFor = '|';
+  Timer? _modelDebounce;
   final _coName = TextEditingController();
   final _coMobile = TextEditingController();
+  final _altMobile = TextEditingController();
+  final _coAltMobile = TextEditingController();
+  bool _altOpen = false;
+  bool _coAltOpen = false;
   final _product = TextEditingController();
   final _brand = TextEditingController();
   final _model = TextEditingController();
@@ -74,6 +88,18 @@ class _EntryFormPageState extends State<EntryFormPage> {
     if (e != null) _fill(e);
     _mobile.addListener(_queueMatches);
     _name.addListener(_queueMatches);
+    unawaited(_loadAreas());
+    _brand.addListener(_queueModels);
+    unawaited(_loadBrands());
+  }
+
+  Future<void> _loadAreas() async {
+    try {
+      final list = await register.db?.areas() ?? const <String>[];
+      if (mounted) setState(() => _areas = list);
+    } on Object {
+      // Suggestions only; typing still works.
+    }
   }
 
   void _fill(RegisterEntry e) {
@@ -84,6 +110,8 @@ class _EntryFormPageState extends State<EntryFormPage> {
     _area.text = e.area ?? '';
     _coName.text = e.coName ?? '';
     _coMobile.text = e.coMobile ?? '';
+    _altMobile.text = e.altMobile ?? '';
+    _coAltMobile.text = e.coAltMobile ?? '';
     _product.text = e.product ?? '';
     _brand.text = e.brand ?? '';
     _model.text = e.model ?? '';
@@ -95,6 +123,11 @@ class _EntryFormPageState extends State<EntryFormPage> {
   @override
   void dispose() {
     _matchDebounce?.cancel();
+    _areaFocus.dispose();
+    _nameFocus.dispose();
+    _brandFocus.dispose();
+    _modelFocus.dispose();
+    _modelDebounce?.cancel();
     for (final c in [
       _account,
       _name,
@@ -103,6 +136,8 @@ class _EntryFormPageState extends State<EntryFormPage> {
       _area,
       _coName,
       _coMobile,
+      _altMobile,
+      _coAltMobile,
       _product,
       _brand,
       _model,
@@ -117,8 +152,10 @@ class _EntryFormPageState extends State<EntryFormPage> {
 
   Future<void> _useSeries(String prefix) async {
     final p = prefix.trim().toUpperCase();
-    if (!RegExp(r'^[A-Z]{1,3}\d?$').hasMatch(p)) {
-      setState(() => _seriesError = '1–3 letters, optionally one digit (CI2)');
+    if (!RegExp(r'^[A-Z]{2,3}\d?$').hasMatch(p)) {
+      setState(
+        () => _seriesError = '2 or 3 letters, optionally one digit: BD, CK2',
+      );
       return;
     }
     setState(() {
@@ -186,12 +223,6 @@ class _EntryFormPageState extends State<EntryFormPage> {
     return chain;
   }
 
-  bool _isLeaf(String id) {
-    final category = register.categories.where((c) => c.id == id).firstOrNull;
-    if (category == null) return false;
-    return category.isLeaf || _children(id).isEmpty;
-  }
-
   // --- Save ------------------------------------------------------------------
 
   String? _text(TextEditingController c) {
@@ -207,6 +238,8 @@ class _EntryFormPageState extends State<EntryFormPage> {
     'area': _text(_area),
     'coName': _text(_coName),
     'coMobile': _text(_coMobile),
+    'altMobile': _text(_altMobile),
+    'coAltMobile': _text(_coAltMobile),
     'purchaseDate': _purchaseDate,
     'categoryId': _categoryId,
     'product': _text(_product),
@@ -226,12 +259,16 @@ class _EntryFormPageState extends State<EntryFormPage> {
 
     diff('accountNumber', _account.text.trim(), base.accountNumber);
     diff('customerName', _name.text.trim(), base.customerName);
-    if (base.mobile != null) diff('mobile', _text(_mobile), base.mobile);
+    if (base.mobile != null) {
+      diff('mobile', _text(_mobile), base.mobile);
+      diff('altMobile', _text(_altMobile), base.altMobile);
+    }
     diff('address', _text(_address), base.address);
     diff('area', _text(_area), base.area);
     diff('coName', _text(_coName), base.coName);
     if (base.coMobile != null || base.coName == null) {
       diff('coMobile', _text(_coMobile), base.coMobile);
+      diff('coAltMobile', _text(_coAltMobile), base.coAltMobile);
     }
     diff('product', _text(_product), base.product);
     diff('brand', _text(_brand), base.brand);
@@ -251,16 +288,10 @@ class _EntryFormPageState extends State<EntryFormPage> {
 
   Future<void> _save({bool allowDuplicate = false}) async {
     if (_saving || !_form.currentState!.validate()) return;
-    // A new entry needs a leaf type; an edit may keep what it had (imports
-    // often have none, or a top-level one), but a changed type must be a leaf.
-    final categoryId = _categoryId;
-    if ((!_editing && categoryId == null) ||
-        (categoryId != null &&
-            categoryId != _base?.categoryId &&
-            !_isLeaf(categoryId))) {
-      setState(
-        () => _error = 'Choose the product type down to its last level.',
-      );
+    // A new entry needs a product type; the sub-type is optional (owner
+    // decision 2026-11-12). An edit may keep what it had (imports often have none).
+    if (!_editing && _categoryId == null) {
+      setState(() => _error = 'Choose a product type.');
       return;
     }
     setState(() {
@@ -380,6 +411,10 @@ class _EntryFormPageState extends State<EntryFormPage> {
             _coName.text = value ?? '';
           case 'coMobile':
             _coMobile.text = value ?? '';
+          case 'altMobile':
+            _altMobile.text = value ?? '';
+          case 'coAltMobile':
+            _coAltMobile.text = value ?? '';
           case 'product':
             _product.text = value ?? '';
           case 'brand':
@@ -452,6 +487,232 @@ class _EntryFormPageState extends State<EntryFormPage> {
     ),
   );
 
+  /// Matches at the start first, then anywhere; at most 30.
+  static Iterable<String> _suggest(List<String> all, String text) {
+    final typed = text.trim().toUpperCase();
+    if (typed.isEmpty) return all.take(30);
+    final starts = all.where((a) => a.toUpperCase().startsWith(typed));
+    final within = all.where((a) {
+      final u = a.toUpperCase();
+      return !u.startsWith(typed) && u.contains(typed);
+    });
+    return [...starts, ...within].take(30);
+  }
+
+  /// A text field that offers [options] as you type; new text is allowed.
+  Widget _suggestField(
+    TextEditingController controller,
+    FocusNode focus,
+    String label,
+    List<String> options, {
+    String? helper,
+    int maxLength = 200,
+  }) => Padding(
+    padding: const EdgeInsets.only(bottom: 12),
+    child: RawAutocomplete<String>(
+      textEditingController: controller,
+      focusNode: focus,
+      optionsBuilder: (value) => _suggest(options, value.text),
+      fieldViewBuilder: (context, controller, focus, onSubmitted) =>
+          TextFormField(
+            controller: controller,
+            focusNode: focus,
+            decoration: InputDecoration(
+              labelText: label,
+              helperText: helper,
+              counterText: '',
+            ),
+            maxLength: maxLength,
+            textCapitalization: TextCapitalization.characters,
+            onFieldSubmitted: (_) => onSubmitted(),
+          ),
+      optionsViewBuilder: (context, onSelected, options) => Align(
+        alignment: Alignment.topLeft,
+        child: Material(
+          elevation: 4,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 240, maxWidth: 360),
+            child: ListView(
+              padding: EdgeInsets.zero,
+              shrinkWrap: true,
+              children: [
+                for (final o in options)
+                  ListTile(
+                    dense: true,
+                    visualDensity: VisualDensity.compact,
+                    title: Text(o),
+                    onTap: () => onSelected(o),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+
+  // --- Customer name: type-or-pick ------------------------------------------
+
+  int _nameSearch = 0;
+
+  /// Names already used that contain the text (2+ letters), after a short
+  /// pause. Picking one fills only the name; the mobile decides the person.
+  Future<Iterable<Json>> _findNames(String text) async {
+    final q = text.trim();
+    if (q.replaceAll(RegExp('[^A-Za-z]'), '').length < 2) return const [];
+    final ticket = ++_nameSearch;
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    if (ticket != _nameSearch || !mounted) return const [];
+    try {
+      final envelope = await widget.session.api.requestEnvelope(
+        'GET',
+        'customer-search/customer-names?q=${Uri.encodeQueryComponent(q)}',
+      );
+      return (envelope['data'] as List).map((n) => object(n)).toList();
+    } on Object {
+      return const [];
+    }
+  }
+
+  Widget _nameField() => Padding(
+    padding: const EdgeInsets.only(bottom: 12),
+    child: RawAutocomplete<Json>(
+      textEditingController: _name,
+      focusNode: _nameFocus,
+      displayStringForOption: (n) => '${n['name']}',
+      optionsBuilder: (value) => _findNames(value.text),
+      fieldViewBuilder: (context, controller, focus, onSubmitted) =>
+          TextFormField(
+            controller: controller,
+            focusNode: focus,
+            decoration: const InputDecoration(
+              labelText: 'Customer name *',
+              helperText: 'Pick a name already used or type a new one',
+              counterText: '',
+            ),
+            maxLength: 200,
+            textCapitalization: TextCapitalization.words,
+            validator: (v) =>
+                (v ?? '').trim().isEmpty ? 'Customer name is required' : null,
+            onFieldSubmitted: (_) => onSubmitted(),
+          ),
+      optionsViewBuilder: (context, onSelected, options) => Align(
+        alignment: Alignment.topLeft,
+        child: Material(
+          elevation: 4,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 240, maxWidth: 360),
+            child: ListView(
+              padding: EdgeInsets.zero,
+              shrinkWrap: true,
+              children: [
+                for (final n in options)
+                  ListTile(
+                    dense: true,
+                    visualDensity: VisualDensity.compact,
+                    title: Text('${n['name']}'),
+                    trailing: (n['count'] as num? ?? 1) > 1
+                        ? Text('${n['count']} customers')
+                        : null,
+                    onTap: () => onSelected(n),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+
+  /// "Add another number", then a second mobile field that can be removed.
+  Widget _secondMobile(
+    TextEditingController c, {
+    required bool open,
+    required ValueChanged<bool> onOpen,
+  }) {
+    if (!open && c.text.isEmpty) {
+      return Align(
+        alignment: Alignment.centerLeft,
+        child: TextButton.icon(
+          onPressed: () => onOpen(true),
+          icon: const Icon(Icons.add, size: 18),
+          label: const Text('Add another number'),
+        ),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: TextFormField(
+        controller: c,
+        decoration: InputDecoration(
+          labelText: 'Second mobile',
+          counterText: '',
+          suffixIcon: IconButton(
+            tooltip: 'Remove',
+            icon: const Icon(Icons.close),
+            onPressed: () {
+              c.clear();
+              onOpen(false);
+            },
+          ),
+        ),
+        keyboardType: TextInputType.phone,
+        maxLength: 20,
+        validator: _mobileRule,
+      ),
+    );
+  }
+
+  // --- Brand and model lists (Product type → Brand → Model) -----------------
+  Future<void> _loadBrands() async {
+    final type = _categoryId;
+    if (type == _brandsFor) return;
+    _brandsFor = type;
+    _queueModels();
+    if (type == null) {
+      if (_brands.isNotEmpty && mounted) setState(() => _brands = const []);
+      return;
+    }
+    try {
+      final envelope = await widget.session.api.requestEnvelope(
+        'GET',
+        'lookup/brands?categoryId=${Uri.encodeQueryComponent(type)}',
+      );
+      final list = (envelope['data'] as List).map((b) => '$b').toList();
+      if (mounted && _brandsFor == type) setState(() => _brands = list);
+    } on Object {
+      // Suggestions only; typing still works.
+    }
+  }
+
+  void _queueModels() {
+    _modelDebounce?.cancel();
+    _modelDebounce = Timer(const Duration(milliseconds: 400), _loadModels);
+  }
+
+  Future<void> _loadModels() async {
+    final type = _categoryId;
+    final make = _brand.text.trim().toUpperCase();
+    final key = '${type ?? ''}|$make';
+    if (key == _modelsFor) return;
+    _modelsFor = key;
+    if (type == null || make.isEmpty) {
+      if (_models.isNotEmpty && mounted) setState(() => _models = const []);
+      return;
+    }
+    try {
+      final envelope = await widget.session.api.requestEnvelope(
+        'GET',
+        'lookup/models?categoryId=${Uri.encodeQueryComponent(type)}'
+            '&brand=${Uri.encodeQueryComponent(make)}',
+      );
+      final list = (envelope['data'] as List).map((m) => '$m').toList();
+      if (mounted && _modelsFor == key) setState(() => _models = list);
+    } on Object {
+      // Suggestions only.
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final identity = widget.session.identity!;
@@ -472,14 +733,15 @@ class _EntryFormPageState extends State<EntryFormPage> {
                 : null,
             isExpanded: true,
             decoration: InputDecoration(
-              labelText: level == 0
-                  ? 'Product type *'
-                  : 'Type (level ${level + 1})',
+              labelText: level == 0 ? 'Product type *' : 'Sub-type (optional)',
             ),
             items: options
                 .map((o) => DropdownMenuItem(value: o.id, child: Text(o.name)))
                 .toList(),
-            onChanged: (id) => setState(() => _categoryId = id),
+            onChanged: (id) {
+              setState(() => _categoryId = id);
+              unawaited(_loadBrands());
+            },
           ),
         ),
       );
@@ -566,12 +828,7 @@ class _EntryFormPageState extends State<EntryFormPage> {
                   ? 'Account number is required'
                   : null,
             ),
-            _field(
-              _name,
-              'Customer name *',
-              validator: (v) =>
-                  (v ?? '').trim().isEmpty ? 'Customer name is required' : null,
-            ),
+            _nameField(),
             if (!_editing || _base?.mobile != null)
               _field(
                 _mobile,
@@ -579,6 +836,12 @@ class _EntryFormPageState extends State<EntryFormPage> {
                 keyboard: TextInputType.phone,
                 maxLength: 20,
                 validator: _mobileRule,
+              ),
+            if (!_editing || _base?.mobile != null)
+              _secondMobile(
+                _altMobile,
+                open: _altOpen,
+                onOpen: (v) => setState(() => _altOpen = v),
               ),
             if (_matches.isNotEmpty)
               Card(
@@ -617,7 +880,14 @@ class _EntryFormPageState extends State<EntryFormPage> {
                 ),
               ),
             _field(_address, 'Address', maxLength: 500),
-            _field(_area, 'Area', maxLength: 100),
+            _suggestField(
+              _area,
+              _areaFocus,
+              'Area',
+              _areas,
+              helper: 'Pick from the list or type a new area',
+              maxLength: 100,
+            ),
             _field(_coName, 'Co-applicant name'),
             if (!_editing || _base?.coMobile != null || _base?.coName == null)
               _field(
@@ -626,6 +896,12 @@ class _EntryFormPageState extends State<EntryFormPage> {
                 keyboard: TextInputType.phone,
                 maxLength: 20,
                 validator: _mobileRule,
+              ),
+            if (!_editing || _base?.coMobile != null || _base?.coName == null)
+              _secondMobile(
+                _coAltMobile,
+                open: _coAltOpen,
+                onOpen: (v) => setState(() => _coAltOpen = v),
               ),
             Padding(
               padding: const EdgeInsets.only(bottom: 12),
@@ -641,8 +917,14 @@ class _EntryFormPageState extends State<EntryFormPage> {
             ),
             ...levels,
             _field(_product, 'Product (as written)'),
-            _field(_brand, 'Brand', maxLength: 100),
-            _field(_model, 'Model'),
+            _suggestField(
+              _brand,
+              _brandFocus,
+              'Brand',
+              _brands,
+              maxLength: 100,
+            ),
+            _suggestField(_model, _modelFocus, 'Model', _models),
             DropdownButtonFormField<String>(
               initialValue: _shopId,
               isExpanded: true,

@@ -62,6 +62,14 @@ export const customerSearchController = {
     }
   },
 
+  async areas(_request: FastifyRequest, reply: FastifyReply) {
+    try {
+      return sendSuccess(reply, await customerSearchService.areas());
+    } catch (error) {
+      return fail(reply, error, 'Failed to load areas');
+    }
+  },
+
   async reviewSummary(_request: FastifyRequest, reply: FastifyReply) {
     try {
       return sendSuccess(reply, await customerSearchService.reviewSummary());
@@ -73,7 +81,7 @@ export const customerSearchController = {
   async nextNumber(request: FastifyRequest<{ Querystring: { prefix?: string } }>, reply: FastifyReply) {
     try {
       const prefix = (request.query.prefix ?? '').trim();
-      if (!/^[A-Za-z]{1,3}\d?$/.test(prefix)) return sendError(reply, 'Prefix must be 1-3 letters, optionally followed by one digit (CI2)');
+      if (!/^[A-Za-z]{2,3}\d?$/.test(prefix)) return sendError(reply, 'A series is 2 or 3 letters, optionally with one digit, e.g. BD, CK2, ABC');
       return sendSuccess(reply, await customerSearchService.nextNumber(prefix));
     } catch (error) {
       return fail(reply, error, 'Failed to suggest a number');
@@ -83,6 +91,14 @@ export const customerSearchController = {
   async customerMatches(request: FastifyRequest<{ Querystring: { mobile?: string; name?: string } }>, reply: FastifyReply) {
     try {
       return sendSuccess(reply, await customerSearchService.customerMatches(request.query.mobile ?? '', request.query.name));
+    } catch (error) {
+      return fail(reply, error, 'Failed to look up customers');
+    }
+  },
+
+  async customerNames(request: FastifyRequest<{ Querystring: { q?: string } }>, reply: FastifyReply) {
+    try {
+      return sendSuccess(reply, await customerSearchService.customerNames(request.query.q ?? ''));
     } catch (error) {
       return fail(reply, error, 'Failed to look up customers');
     }

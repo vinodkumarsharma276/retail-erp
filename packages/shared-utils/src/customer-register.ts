@@ -13,70 +13,66 @@ import { isValidPhone } from './validators';
 
 // --- Account numbers --------------------------------------------------------
 
-/** Upper-case, no spaces: " bd- 33 " → "BD-33". */
+/** Upper-case, no spaces: " bd- 33 " → "BD-33". For series letters and odd-shaped numbers. */
 export function normalizeAccountNumber(value: unknown): string {
   return String(value ?? '').toUpperCase().replace(/\s+/g, '');
 }
 
+/**
+ * The register's one way to write an account number (owner decisions
+ * 2026-11-12/13): the series, one space, the number — "BD 12", "CK2 15",
+ * "ABC 7". A series is 2 or 3 letters, optionally followed by one digit for a
+ * new register of the same letters (CK → CK2). Typed or imported as BD-12,
+ * BD12, bd.012, "BD - 12", CK2-15 or with a stray mark after it ("DB-513.",
+ * "BQ-418`"), it is stored the standard way. A series digit needs a separator
+ * after it: "CK215" is CK 215, "CK2-15" is CK2 15.
+ */
+const STANDARD_ACCOUNT = /^([A-Z]{2,3})(?:(\d)[\s\-._]+|[\s\-._]*)(\d{1,9})[^A-Z0-9]*$/;
+
+/**
+ * An account number as the register stores it: the standard "BD 12" when it
+ * has that shape; anything else (BK-73A, DE-452,53) is kept as written,
+ * upper-case without spaces, and is flagged for review.
+ */
+export function formatAccountNumber(value: unknown): string {
+  const text = String(value ?? '').toUpperCase().trim();
+  const m = STANDARD_ACCOUNT.exec(text);
+  return m ? `${m[1]}${m[2] ?? ''} ${Number(m[3])}` : text.replace(/\s+/g, '');
+}
+
+/** Part of an account number typed into a search: "bd-12" / "bd12" → "BD 12", "ck2-5" → "CK2 5", "bd" → "BD", "12" → "12". */
+export function accountSearchText(value: unknown): string {
+  const text = String(value ?? '').toUpperCase().trim();
+  const m = /^([A-Z]{2,3})(?:(\d)[\s\-._]+|[\s\-._]*)(\d{1,9})$/.exec(text);
+  return m ? `${m[1]}${m[2] ?? ''} ${Number(m[3])}` : text.replace(/\s+/g, ' ');
+}
+
 export interface ParsedAccountNumber {
   accountNumber: string;
-  /** The series letters, with a sub-series digit when there is one ("BD", "CI2"); '' when none. */
+  /** The series ("BD", "CK2", "ABC"); for an odd shape, its leading letters; '' when none. */
   prefix: string;
-  /** What sits between the series and its number in this account number: "-", "." or "". */
-  separator: string;
-  /** The number within the series; null when the account number isn't a series shape. */
+  /** The number within the series; null when the account number isn't the standard shape. */
   seriesNo: number | null;
 }
 
-/**
- * The shapes the register uses: BD-1, CI2-421 (sub-series 2 of CI), BN.596,
- * BD-406A / DF-738(A) (a second sale under one number), and MJ12.
- * A digit right after the letters only belongs to the series when a
- * separator follows it, so "MJ12" is MJ + 12, not MJ1 + 2.
- */
-const SERIES = /^(?:([A-Z]{1,3}\d?)([-.])|([A-Z]{1,3}))(\d{1,9})(?:[A-Z]|\([A-Z]\))?$/;
-
 export function parseAccountNumber(value: unknown): ParsedAccountNumber {
-  const accountNumber = normalizeAccountNumber(value);
-  const match = SERIES.exec(accountNumber);
-  if (match) {
-    return {
-      accountNumber,
-      prefix: match[1] ?? match[3],
-      separator: match[2] ?? '',
-      seriesNo: Number(match[4]),
-    };
-  }
+  const accountNumber = formatAccountNumber(value);
+  const match = /^([A-Z]{2,3}\d?) (\d+)$/.exec(accountNumber);
+  if (match) return { accountNumber, prefix: match[1], seriesNo: Number(match[2]) };
   const letters = /^[A-Z]+/.exec(accountNumber)?.[0] ?? '';
-  return { accountNumber, prefix: letters.slice(0, 10), separator: '', seriesNo: null };
+  return { accountNumber, prefix: letters.slice(0, 10), seriesNo: null };
 }
 
-/** A prefix someone types for a new series: 1-3 letters, optionally one digit (CI2). */
+/** A series someone types for a new series: 2 or 3 letters, optionally one digit (CK2, ABC2). */
 export function isValidAccountPrefix(prefix: string): boolean {
-  return /^[A-Z]{1,3}\d?$/.test(normalizeAccountNumber(prefix));
+  return /^[A-Z]{2,3}\d?$/.test(normalizeAccountNumber(prefix));
 }
 
-/** New series are written like the register's own: letters, hyphen, number (BD-1). */
-export const DEFAULT_ACCOUNT_SEPARATOR = '-';
-
-/**
- * The number after the highest one in a series, written the way that series
- * already writes its numbers: same separator (BD-12 → BD-13, MJ12 → MJ13) and
- * same zero-padding (MJ009 → MJ010).
- */
-export function nextAccountNumber(
-  prefix: string,
-  last: { accountNumber: string; seriesNo: number | null } | null,
-): string {
+/** The number after the highest one in a series: BD 12 → BD 13; a new series starts at BD 1. */
+export function nextAccountNumber(prefix: string, last: { seriesNo: number | null } | null): string {
   const p = normalizeAccountNumber(prefix);
-  if (!last || last.seriesNo == null) return `${p}${DEFAULT_ACCOUNT_SEPARATOR}1`;
-  const parsed = parseAccountNumber(last.accountNumber);
-  const digits = /\d+/.exec(last.accountNumber.slice(p.length + parsed.separator.length))?.[0] ?? '';
-  const next = String(last.seriesNo + 1);
-  const number = digits.startsWith('0') ? next.padStart(digits.length, '0') : next;
-  return `${p}${parsed.separator}${number}`;
+  return `${p} ${last?.seriesNo != null ? last.seriesNo + 1 : 1}`;
 }
-
 // --- Mobiles ----------------------------------------------------------------
 
 /** Last ten digits, or '' when there aren't ten. "+91 98765-43210" → "9876543210". */

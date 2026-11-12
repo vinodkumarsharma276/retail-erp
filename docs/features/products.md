@@ -38,6 +38,20 @@ source of truth, including for future Flutter clients.
 - Enrichment fills blank researchable specifications only, excludes per-unit identifiers,
   never changes prices, and stores an MRP suggestion for human review. It requires
   `OPENAI_API_KEY`; otherwise the API explains that lookup is disabled.
+- **Product type → Brand → Model catalog** (owner request 2026-11-13): `CatalogBrand`
+  (a make under one type, keyed `brandKey(canonicalBrand(name))`) and `CatalogModel` (a model
+  of that make, keyed `modelKey`) feed the Brand and Model dropdowns of the product, purchase
+  and Customer Searching forms. A type's list covers its **family** — the type, its parents and
+  its sub-types (Refrigerator ↔ Refrigerator › Deep Freezer), never siblings (Cooler shows only
+  cooler makes). Lists suggest; typing a new value is allowed and it **joins the catalog when
+  saved** (`catalogService.learn`, called by product create/update, purchase create and register
+  create/update/import). Cells naming several makes (`TRUFAST, LUMINOUS`) and non-makes in
+  `NOT_BRANDS` (LED, W/M, 2 BRAND…) are never added. Entries and products keep brand/model as
+  text; the catalog is only the suggestion source.
+- Misspelt makes are one make: `BRAND_ALIASES` in
+  [brand-names.ts](../../packages/shared-utils/src/brand-names.ts) maps known variants
+  (WHIRLPHOOL/WHIR → WHIRLPOOL, SAM → SAMSUNG…, list agreed with the owner 2026-11-13).
+  Product brands keep what was typed; the catalog and lookups match through the alias key.
 
 ## Access, tenancy, and shop scope
 
@@ -83,8 +97,16 @@ Prefix `/api/v1/products`; standard success/error envelopes, paginated list/grou
 | `POST /:id/enrich` | Fill missing model specifications; return lookup outcome/suggestions. |
 | `GET /enrich/batch/:batchId`, `POST /enrich/batch/:batchId` | Import-run progress and enrichment passes; optional limit 1–50, refresh. |
 
+Lookup helpers (`/api/v1/lookup`, any authenticated user; tenant-scoped by the Prisma extension):
+
+| Method/path | Contract |
+|---|---|
+| `GET /brands?categoryId=` | Makes for the type's family: catalog brands, the type's `brand` attribute options and makes on stock; one per alias key, A–Z. `[]` without a type. |
+| `GET /models?categoryId=&brand=` | Model numbers of that make (matched through the alias key) within the type's family: catalog models plus stock models; A–Z. `[]` without a type or brand. |
+
 Models: `Product`, `ProductCategory`, category attributes, `ProductAuditTrail`, `Purchase`,
-`Distributor`, `Shop`, `PurchaseImportBatch`. Prisma money is Decimal and usually serialized
+`Distributor`, `Shop`, `PurchaseImportBatch`, `CatalogBrand`, `CatalogModel` (migration
+`20261112195544_add_brand_model_catalog`; deleting a type cascades its catalog rows). Prisma money is Decimal and usually serialized
 as strings; UI code converts for arithmetic/formatting.
 
 ## Web behavior
@@ -100,6 +122,13 @@ as strings; UI code converts for arithmetic/formatting.
   denial remains authoritative; a permission-restricted timeline is not proof of no history.
 - [useProducts.ts](../../apps/web/src/hooks/useProducts.ts) also fetches category tree and
   attribute definitions. Category administration belongs to Settings, not this stock list.
+- Brand and Model on the edit form are type-or-pick dropdowns
+  ([BrandInput](../../apps/web/src/components/BrandInput.tsx),
+  [ModelInput](../../apps/web/src/components/ModelInput.tsx), both on the shared
+  [SuggestInput](../../apps/web/src/components/SuggestInput.tsx)): a compact list that narrows
+  as you type (matches at the start first, 50 rows shown, "Showing 50 of N — type to narrow"),
+  keyboard support, and a note when the typed value is new. Model waits for a type and a brand.
+  They work with react-hook-form's `register(...)`. Saves invalidate the `['lookup']` queries.
 
 ## Mobile behavior and differences
 
@@ -131,10 +160,24 @@ caching are open; offline writes/background synchronization are not implemented 
   [access prerequisites](../../packages/shared-types/src/access.ts),
   [module registration](../../apps/api/src/app.ts), [context](../CONTEXT.md).
 - Existing [enrichment unit tests](../../apps/api/tests/unit/product-enrich.test.ts).
+- Catalog: [service](../../apps/api/src/modules/catalog/catalog.service.ts),
+  [lookup routes](../../apps/api/src/modules/lookup/lookup.routes.ts),
+  [brand names](../../packages/shared-utils/src/brand-names.ts),
+  [lookup hooks](../../apps/web/src/hooks/useLookup.ts),
+  [one-off backfill](../../apps/api/prisma/seed/build-brand-catalog.ts),
+  [unit tests](../../apps/api/tests/unit/brand-names.test.ts).
 
 ## Verification and acceptance
 
-Source inspection only; no tests executed. Targeted existing command:
+2026-11-13 (catalog): `npm run test --workspace=apps/api` — 25 files, 352 tests passed,
+including unit `brand-names.test.ts` (aliases, several-make cells, W/M kept whole, catalog
+eligibility) and integration CS26 (type family, alias-matched models, learning on create/edit,
+no duplicate model by spelling). Web `tsc -p tsconfig.app.json` passed. Browser check against the
+dev server: product edit (Gas Stove) offered GLEN, INTEX, LIVE ELVA, LIVGUARD, LIVPURE and the
+picked brand's models; the product was not saved. Purchase-form model search was type-checked
+only, not exercised in a browser.
+
+Earlier: source inspection only. Targeted existing command:
 `npm run test --workspace=apps/api -- tests/unit/product-enrich.test.ts`.
 Acceptance needs: shop/tenant separation including by-ID paths; denied cost/supplier/history;
 full IMEI lookup; grouped-unit selection; duplicate serials; missing attributes; pricing
@@ -158,3 +201,9 @@ refusing sale/transfer; purchase-date filters excluding unlinked stock.
 2026-11-10: document physical-unit identity, implemented entry paths and scope gaps explicitly.
 Flutter is approved for all authorized tenant roles with eventual web parity through the same
 API. No checkpoint inventory/hashes were edited in this source-only documentation pass.
+
+2026-11-13 (owner): Brand and Model are dropdowns tied to the product type (type → brand →
+model) on the Customer Searching (web + phone), purchase and product forms; new values are
+allowed and added when saved; misspelt register makes were merged and the entries corrected
+(`build-brand-catalog.ts --apply`: 1,296 entries, 259 spellings; catalog 253 brands and 1,024
+models for the main tenant). Ambiguous spellings (`LIV`, SAVITA, SUNITA, ASHU, SADI) were left.

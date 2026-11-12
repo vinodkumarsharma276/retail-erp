@@ -158,7 +158,7 @@ export function CustomerSearchDetailPage() {
                 entry.customerName || null
               )}
             </Row>
-            <Row label="Mobile">{entry.mobile ? formatPhone(entry.mobile) : null}</Row>
+            <Row label="Mobile">{[entry.mobile, entry.altMobile].filter(Boolean).map((m) => formatPhone(m!)).join(', ') || null}</Row>
             <Row label="Address">{entry.address}</Row>
             <Row label="Area">{entry.area}</Row>
           </dl>
@@ -183,7 +183,7 @@ export function CustomerSearchDetailPage() {
                   entry.coName
                 )}
               </Row>
-              <Row label="Mobile">{entry.coMobile ? formatPhone(entry.coMobile) : null}</Row>
+              <Row label="Mobile">{[entry.coMobile, entry.coAltMobile].filter(Boolean).map((m) => formatPhone(m!)).join(', ') || null}</Row>
             </dl>
           ) : (
             <p className="text-sm text-muted-foreground">No co-applicant on this entry.</p>

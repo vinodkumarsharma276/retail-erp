@@ -4,18 +4,22 @@ import { isIsoDate } from '@retailerp/shared-utils';
 const text = (max: number) => z.string().trim().max(max);
 const optionalText = (max: number) => text(max).nullable().optional();
 const isoDate = z.string().refine(isIsoDate, 'Purchase date must be a real date (yyyy-mm-dd)');
+export const MAX_ITEM_QUANTITY = 100;
 
 export const entrySchema = z.object({
   accountNumber: z.string().trim().min(1, 'Account Number is required').max(30),
   customerName: text(200).min(1, 'Customer name is required'),
   /** Optional: an entry without a mobile is saved and listed under "Needs review". */
   mobile: z.string().trim().max(20).nullable().optional(),
+  /** A second mobile (optional; searchable, never used to match the customer). */
+  altMobile: optionalText(20),
   address: optionalText(500),
   area: optionalText(100),
   coName: optionalText(200),
   coMobile: optionalText(20),
+  coAltMobile: optionalText(20),
   purchaseDate: isoDate,
-  /** Product type: a leaf of the tenant's category tree. */
+  /** Product type: any active type of the tenant's tree (a sub-type is optional). */
   categoryId: z.string().uuid('Choose the product type'),
   product: optionalText(200),
   brand: optionalText(100),
@@ -29,19 +33,48 @@ export const entrySchema = z.object({
   allowDuplicate: z.boolean().optional(),
 });
 
-export const createEntrySchema = entrySchema.extend({
-  /** Client-generated id of this save; repeating it returns the entry already made. */
-  clientRequestId: z.string().uuid().optional(),
+/**
+ * Another product bought under the same account number on the same day: it
+ * becomes its own entry (one per unit of `quantity`) with the same customer,
+ * co-applicant, date and shop — one purchase, so not a reused number.
+ */
+export const itemSchema = z.object({
+  categoryId: z.string().uuid('Choose the product type'),
+  product: optionalText(200),
+  brand: optionalText(100),
+  model: optionalText(200),
+  quantity: z.number().int().min(1).max(MAX_ITEM_QUANTITY).default(1),
 });
-export const updateEntrySchema = entrySchema.partial().extend({
-  purchaseDate: isoDate.nullable().optional(),
-  categoryId: z.string().uuid().optional(),
-  /** The entry's `updatedAt` the editor started from; a newer one is refused (409 `stale`). */
-  expectedUpdatedAt: z.string().datetime({ offset: true }).optional(),
-});
+export const MAX_ITEMS_PER_SAVE = 200;
+
+const withinItemLimit = (v: { quantity?: number; moreItems?: Array<{ quantity: number }> }) =>
+  (v.quantity ?? 1) + (v.moreItems ?? []).reduce((n, i) => n + i.quantity, 0) <= MAX_ITEMS_PER_SAVE;
+const itemLimitMessage = { message: `At most ${MAX_ITEMS_PER_SAVE} items in one save`, path: ['moreItems'] };
+
+export const createEntrySchema = entrySchema
+  .extend({
+    /** Client-generated id of this save; repeating it returns the entry already made. */
+    clientRequestId: z.string().uuid().optional(),
+    /** How many of this (first) item: that many entries. */
+    quantity: z.number().int().min(1).max(MAX_ITEM_QUANTITY).optional(),
+    moreItems: z.array(itemSchema).max(50).optional(),
+  })
+  .refine(withinItemLimit, itemLimitMessage);
+export const updateEntrySchema = entrySchema
+  .partial()
+  .extend({
+    purchaseDate: isoDate.nullable().optional(),
+    categoryId: z.string().uuid().optional(),
+    /** The entry's `updatedAt` the editor started from; a newer one is refused (409 `stale`). */
+    expectedUpdatedAt: z.string().datetime({ offset: true }).optional(),
+    /** Items to add to this account (new entries, same customer, date and shop as the saved entry). */
+    moreItems: z.array(itemSchema).max(50).optional(),
+  })
+  .refine(withinItemLimit, itemLimitMessage);
 
 export type EntryInput = z.infer<typeof createEntrySchema>;
 export type EntryUpdateInput = z.infer<typeof updateEntrySchema>;
+export type ItemInput = z.infer<typeof itemSchema>;
 
 /** One row of the sheet as the browser read it (and the person may have fixed it). */
 export const importRowSchema = z.object({

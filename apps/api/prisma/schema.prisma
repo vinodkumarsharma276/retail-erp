@@ -222,6 +222,8 @@ model Tenant {
   customerSearchEntries  CustomerSearchEntry[]
   customerSearchImports  CustomerSearchImportBatch[]
   customerSearchMappings CustomerSearchProductMapping[]
+  catalogBrands          CatalogBrand[]
+  catalogModels          CatalogModel[]
 
   @@index([planId])
   @@index([status])
@@ -655,6 +657,7 @@ model ProductCategory {
   purchaseInvoiceSeries     PurchaseInvoiceSeries[]
   customerSearchEntries     CustomerSearchEntry[]
   customerSearchMappings    CustomerSearchProductMapping[]
+  catalogBrands             CatalogBrand[]
 
   @@unique([slug, parentId])
   @@index([tenantId])
@@ -662,6 +665,49 @@ model ProductCategory {
   @@index([path])
   @@index([slug])
   @@map("product_categories")
+}
+
+/// The makes sold under one product type (Cooler → SYMPHONY, BAJAJ…). Feeds
+/// the Brand dropdowns; filled from the register, stock and each type's
+/// brand list, and added to whenever an entry, product or purchase is saved
+/// with a make not on it yet. Entries keep their brand as text.
+model CatalogBrand {
+  id         String   @id @default(uuid())
+  tenantId   String   @map("tenant_id")
+  categoryId String   @map("category_id")
+  /// As first seen ("SAMSUNG", "Nilkamal").
+  name       String   @db.VarChar(100)
+  /// `brandKey(canonicalBrand(name))`, so spellings of one make are one row.
+  key        String   @db.VarChar(100)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  tenant   Tenant          @relation(fields: [tenantId], references: [id])
+  category ProductCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  models   CatalogModel[]
+
+  @@unique([tenantId, categoryId, key])
+  @@index([tenantId])
+  @@index([categoryId])
+  @@map("catalog_brands")
+}
+
+/// Model numbers of one make within one product type (Cooler → SYMPHONY →
+/// DIET 50T). Feeds the Model dropdowns; grows the same way as CatalogBrand.
+model CatalogModel {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  brandId   String   @map("brand_id")
+  name      String   @db.VarChar(200)
+  /// `modelKey(name)`.
+  key       String   @db.VarChar(200)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  tenant Tenant       @relation(fields: [tenantId], references: [id])
+  brand  CatalogBrand @relation(fields: [brandId], references: [id], onDelete: Cascade)
+
+  @@unique([brandId, key])
+  @@index([tenantId])
+  @@map("catalog_models")
 }
 
 model CategoryAttribute {
@@ -2154,6 +2200,8 @@ model CustomerSearchEntry {
   /// normalised 10 digits, or '' when there is no valid one.
   customerName String  @map("customer_name") @db.VarChar(200)
   mobile       String  @db.VarChar(15)
+  /// A second mobile of the customer (10 digits, normalised); searchable, not used for matching.
+  altMobile    String? @map("alt_mobile") @db.VarChar(15)
   address      String? @db.VarChar(500)
   area         String? @db.VarChar(100)
 
@@ -2162,6 +2210,8 @@ model CustomerSearchEntry {
   coCustomerId String? @map("co_customer_id")
   coName       String? @map("co_name") @db.VarChar(200)
   coMobile     String? @map("co_mobile") @db.VarChar(15)
+  /// A second mobile of the co-applicant.
+  coAltMobile  String? @map("co_alt_mobile") @db.VarChar(15)
 
   purchaseDate DateTime? @map("purchase_date") @db.Date
   /// Product type from the tenant's category tree. A leaf for entries made in

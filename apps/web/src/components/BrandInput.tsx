@@ -1,39 +1,34 @@
-import { forwardRef, useId } from 'react';
-import { Input, type InputProps } from './ui/input';
+import { forwardRef } from 'react';
+import type { InputProps } from './ui/input';
+import { SuggestInput } from './SuggestInput';
 import { useBrandsQuery } from '../hooks/useLookup';
 
-type Props = Omit<InputProps, 'list' | 'type'> & {
-  /** The leaf category whose makes are suggested. */
+type Props = Omit<InputProps, 'list' | 'type' | 'icon'> & {
+  /** The product type whose makes are offered. */
   categoryId: string | undefined;
 };
 
 /**
- * Brand: type to narrow the list, or type a make that is not on it yet.
+ * Brand: pick one of the makes sold under the product type, or type a new one.
  *
  * A closed dropdown cannot be right here. A shop takes on a new supplier's
  * make the day the first unit arrives, and nobody is going to stop and edit
  * the category before they can book it in. So the list suggests rather than
- * restricts: the suggestions are the category's own brands plus every make
- * already on its stock, which means a new one joins the list by being used
- * once, with no master list for anyone to curate.
+ * restricts: it is the type's Brand catalog (filled from the register, stock
+ * and the type's brand list), and a new make joins it once it is saved.
  *
  * Drop-in for `<Input />` — takes `ref`, `register(...)` and the rest.
  */
-export const BrandInput = forwardRef<HTMLInputElement, Props>(function BrandInput(
-  { categoryId, ...props },
-  ref,
-) {
-  const listId = `brands-${useId()}`;
-  const { data: brands = [] } = useBrandsQuery(categoryId);
-
+export const BrandInput = forwardRef<HTMLInputElement, Props>(function BrandInput({ categoryId, ...props }, ref) {
+  const { data: brands = [], isFetching } = useBrandsQuery(categoryId);
   return (
-    <>
-      <Input ref={ref} type="text" list={listId} autoComplete="off" {...props} />
-      <datalist id={listId}>
-        {brands.map((brand) => (
-          <option key={brand} value={brand} />
-        ))}
-      </datalist>
-    </>
+    <SuggestInput
+      ref={ref}
+      options={brands}
+      loading={isFetching && brands.length === 0}
+      emptyText={categoryId ? 'No brands saved for this type yet — type one' : 'Pick a product type first'}
+      newHint={(typed) => `“${typed}” is new — it is added to this type's brands when saved`}
+      {...props}
+    />
   );
 });

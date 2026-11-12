@@ -1,5 +1,6 @@
 import { prisma } from '../../config/database.js';
 import type { Prisma } from '@prisma/client';
+import { accountSearchText } from '@retailerp/shared-utils';
 import { generateCustomerCode, lastCustomerCode } from '../../utils/id-generator.js';
 
 export const customersService = {
@@ -72,7 +73,8 @@ export const customersService = {
           { name: { contains: query, mode: 'insensitive' } },
           { customerCode: { contains: query, mode: 'insensitive' } },
           { saleRecords: { some: { ledgerNumber: { contains: query, mode: 'insensitive' } } } },
-          // Account Number from the account register (Customer Searching).
+          // Account Number from the account register (Customer Searching): "BD 12", or odd shapes as written.
+          { registerEntries: { some: { accountNumber: { contains: accountSearchText(query), mode: 'insensitive' } } } },
           { registerEntries: { some: { accountNumber: { contains: query.replace(/\s+/g, ''), mode: 'insensitive' } } } },
         ],
       },

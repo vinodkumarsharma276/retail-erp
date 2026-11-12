@@ -121,6 +121,10 @@ Models: `Purchase`, `Product`, `ProductAuditTrail`, `PurchasePayment`, `Supplier
   enrichment is a separate product action, not silently part of every import.
 - OCR and web lookup depend on configured providers; they do not prove a scanned/imported
   invoice is correct. The API preview and human review remain necessary.
+- Brand (billed and unbilled forms) is a type-or-pick dropdown of the item type's makes, and
+  the billed form's model search shows only stock of that type and make plus the make's saved
+  model numbers ("sold before") — see the catalog in [Products](products.md) (2026-11-13). A
+  purchase adds its makes and models to the catalog when saved.
 
 ## Mobile behavior and differences
 

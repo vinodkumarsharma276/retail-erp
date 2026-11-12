@@ -144,6 +144,7 @@ class _EntryDetailPageState extends State<EntryDetailPage> {
                 _section(context, 'Customer', [
                   ('Name', entry.customerName),
                   ('Mobile', entry.mobile),
+                  ('Second mobile', entry.altMobile),
                   ('Customer code', entry.customerCode),
                   (
                     'Items bought',
@@ -157,6 +158,7 @@ class _EntryDetailPageState extends State<EntryDetailPage> {
                 _section(context, 'Co-applicant', [
                   ('Name', entry.coName),
                   ('Mobile', entry.coMobile),
+                  ('Second mobile', entry.coAltMobile),
                   ('Customer code', entry.coCustomerCode),
                 ]),
                 _section(context, 'Purchase', [

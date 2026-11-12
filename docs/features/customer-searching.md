@@ -42,10 +42,30 @@ The sheet's `ID` heading is read as **Account Number** — never call it "ID" in
 
 ### Account numbers
 
-Read as the register writes them — `BD-1`, `CI2-421` (sub-series), `BD-406A`, `DF-738(A)`,
-`BN.596`, `MJ12` — and stored uppercase with spaces removed (`''` = missing). The form picks a
-series (prefix) and suggests the next number, keeping the series' separator and zero-padding
-(`BD-264` → `BD-265`, `MJ009` → `MJ010`); a new series defaults to `-` (`MI-1`).
+**One format** (owner decision 2026-11-12): the series, a space, the number — `BD 12`.
+A series is **2 or 3 letters, optionally followed by one digit** (owner request 2026-11-12): a
+new register of the same letters is numbered `CK2` (so `CK 15` and `CK2 15` are different
+accounts, listed as separate series), and `ABC 7` is a 3-letter series.
+`formatAccountNumber` / `parseAccountNumber` (`packages/shared-utils/src/customer-register.ts`)
+write `BD-12`, `BD12`, `bd.012`, `BD - 12` and a stray trailing mark (`DB-513.`, ``BQ-418` ``) as
+`BD 12`, and `ck2-15` / `CK2 015` as `CK2 15`, on import, create and edit, so re-importing the
+sheet still matches existing rows. A series digit is recognised only when a separator follows it:
+`CK215` reads as `CK 215`. Any other shape (`BK-73A`, `DF-738(A)`, `DE-452,53`, one or four
+letters) is kept as written (upper case, no spaces), has no series number and is flagged
+`odd_account` for a person to fix. New series must follow the same rule (`isValidAccountPrefix`;
+the API's `next-number` refuses others); the next number is the series' highest + 1 (`BD 264` →
+`BD 265`, a new series starts at `BD 1` / `CK2 1`). Search on web, Customers and the phone uses
+`accountSearchText`: `bd-12`, `bd12` and `BD 12` all find `BD 12`, `ck2-15` finds `CK2 15` (plus
+a raw match for odd shapes). A dry run of the standardiser after this change (41,078 entries)
+converted nothing new: no stored odd number had the digit-series shape.
+
+`prisma/seed/standardise-account-numbers.ts` (dry run; `--apply`) converted the dev DB on
+2026-11-12: 30,808 rewritten (155 had leading zeros, e.g. `BD-007` → `BD 7`; no two numbers
+collided), 167 left unusual and flagged (161 with a trailing letter such as `BK-73A`, and
+`DE-452,53`, `DE-453,54`, `DE-515,16`, `BL-528,35`, `BL-536,40` — the owner fixes these by
+hand). `DH-306-406` (one customer, 101 items) was expanded into entries `DH 306`…`DH 406` with the
+same customer, date and shop and a blank product / brand / model. Re-importing that sheet row
+would add it again as a new odd-shaped entry.
 
 They are **not unique**: the real sheet reuses ~3,700 numbers for different people. A reused
 number is allowed — create/edit without `allowDuplicate` returns **409** with
@@ -87,8 +107,10 @@ or a sale in the old shop (`moveCustomersWithEntry`). Real sales never move.
 
 `categoryId` → `ProductCategory`, the app's own product-type tree, whatever its depth.
 
-- **In the app:** the form must pick a **leaf** type (`assertLeafType` — `isLeaf` or no active
-  children). The list's type filter matches a type and every type below it (`path` prefix), or
+- **In the app:** the form must pick a product type, at **any level** — the sub-type is optional
+  (owner decision 2026-11-12; `assertType` only checks it is an active type of this tenant, and the
+  web cascader runs with `allowNonLeaf`, so "Select subcategory…" keeps the level above). The
+  list's type filter matches a type and every type below it (`path` prefix), or
   `none` for "No product type".
 - **On import** (2026-11-11 rework): staff write Product fast — abbreviations (W/M, REF), Hindi
   words (ALMARI, GADDA, CHULA), misspellings (STEPLIZER), several items in a cell (W/M-REF) and
@@ -136,8 +158,16 @@ or a sale in the old shop (`moveCustomersWithEntry`). Real sales never move.
   SICER, M/AC, 14 AC, RED and brand-only texts (CROMPTON) are left to the AI and the importer.
 - **Export:** a `Product Type` column (full path, `›`-separated) plus `Type Level 1…N`, where N is
   the deepest type in that export — shallower types leave the extra levels blank, so a deeper tree
-  just adds columns. Then Shop, Customer Code and Needs review. Re-importing an export reads
-  `Type Level 1` (or the path when blank) as Product.
+  just adds columns. Then Shop, Customer Code, Needs review, `Mobile 2` and `CO_Mobile 2`. Re-importing an
+  export reads `Type Level 1` (or the path when blank) as Product; the import ignores the two
+  second-mobile columns.
+- **Second mobiles** (owner request 2026-11-13): an entry may hold one more number for the customer
+  (`altMobile`) and one for the co-applicant (`coAltMobile`), migration
+  `20261112202605_customer_search_second_mobiles`. Each must be a valid 10-digit Indian mobile;
+  the same as the first number is stored as none. They are searched like the first number (web
+  list, phone search and Mobile / Co-applicant search fields), copied to the other items of the
+  same save, shown on details and exported, but **never used to match or link a customer** —
+  that stays name + first mobile.
 
 ## Access, tenancy, and shop scope
 
@@ -160,8 +190,8 @@ Current employee defaults include none of these. Mobile's intended audience does
 automatically grant them. Defaults live in
 [permissions.ts](../../packages/shared-types/src/permissions.ts); existing tenants get new keys
 via [permission sync](../../apps/api/prisma/seed/sync-permission-catalog.ts).
-[Field access](../../apps/api/src/middleware/field-access.ts) strips `mobile`, `coMobile`,
-`phone` and `rawValues` without `customers.view_phone`; absent fields must stay absent in cache.
+[Field access](../../apps/api/src/middleware/field-access.ts) strips `mobile`, `altMobile`, `coMobile`,
+`coAltMobile`, `phone` and `rawValues` without `customers.view_phone`; absent fields must stay absent in cache.
 The API caches permissions for 60 s; in-app edits invalidate immediately, scripts do not.
 
 Routes run authentication and shop middleware, but register reads are deliberately tenant-wide,
@@ -182,11 +212,11 @@ Tenant-wide register access does not grant sales access.
 - Filter by series, area, purchase-date range, product-type subtree or review issue; API also
   supports shop, customer and import-batch filters. Detail shows purchase, customer,
   co-applicant and import provenance; a permitted sale link is optional.
-- Create requires account number, customer name, real ISO purchase date and leaf product type;
-  mobile is optional, but a supplied invalid customer/co-applicant mobile is rejected.
+- Create requires account number, customer name, real ISO purchase date and a product type (any
+  level); mobile is optional, but a supplied invalid customer/co-applicant mobile is rejected.
   Prefix/next-number and same-mobile customer-match helpers assist the form.
-- Edit supports partial updates and keeps an unchanged imported top-level category; a changed
-  category must be an active leaf. Customer identity changes re-resolve links. A duplicate-number
+- Edit supports partial updates and keeps an unchanged imported category; a changed category
+  must be an active type of the tenant. Customer identity changes re-resolve links. A duplicate-number
   409 provides `details.nextAccountNumber` and `details.usedBy`; explicitly confirm Save anyway
   before retrying with `allowDuplicate`.
 - Delete confirms first and removes only the entry; linked customers stay. Related duplicate
@@ -237,11 +267,13 @@ not a unique stable sync cursor. Date-only values serialize as `yyyy-mm-dd` or n
 | GET | /review-summary | list | Entries needing review, in all and per problem |
 | GET | /sync?token=&limit= | list | Mobile on-device copy: snapshot pages, then changes and deletions (see below) |
 | GET | /prefixes | list | Series in use |
+| GET | /areas | list | Areas in use for the form's type-or-pick Area field: `{ area, count }`, case variants merged into capitals, values without two letters in a row dropped, most used first; tenant-wide |
 | GET | /next-number?prefix= | create/edit | The next free number in a series |
 | GET | /customer-matches?mobile=&name= | create/edit | Customers already on a mobile, for the form's autofill / "did you mean" |
+| GET | /customer-names?q= | create/edit | Names of existing customers containing the text (2+ letters): `{ name, count }`, each name once, starting matches first, at most 20. Picking one only fills the name |
 | GET | /by-customer/:customerId | list | Items a customer bought and entries they are co-applicant on |
 | GET | /:id | detail | Entry detail |
-| POST, PATCH | /, /:id | create, edit | Create / edit an entry (shop selectable; a reused account number needs `allowDuplicate`) |
+| POST, PATCH | /, /:id | create, edit | Create / edit an entry (shop selectable; a reused account number needs `allowDuplicate`). Several products in one save: create takes `quantity` for its own item and `moreItems: [{ categoryId, brand?, model?, quantity }]`; edit takes `moreItems`. Each unit becomes its own entry with the same account number, customer, co-applicant, date and shop, in one transaction (≤100 per row, ≤200 per save); the response is the first/edited entry plus `itemsSaved` |
 | DELETE | /:id | delete | Delete an entry; its customer and co-applicant stay |
 | POST | /import/preview, /import | import | Sheet import, one range at a time (see Import) |
 | GET | /import/batches | import | Past import ranges |
@@ -314,7 +346,41 @@ read/search but asks users to select a single shop before adding.
 
 The [form](../../apps/web/src/pages/customer-search/CustomerSearchFormPage.tsx) handles series
 suggestions, existing-person selection, category cascades, selectable shops and duplicate-number
-confirmation. The [detail screen](../../apps/web/src/pages/customer-search/CustomerSearchDetailPage.tsx)
+confirmation. Products sit in an **Items** table ([ItemsTable](../../apps/web/src/pages/customer-search/ItemsTable.tsx),
+owner request 2026-11-12): a spreadsheet-style row per product — type (any level, picked by full
+path such as `Refrigerator › Deep Freezer`, or "+ New type…"), brand, model, Qty — with Add item,
+Duplicate row and Remove row, and a count of the entries the save makes. On Edit, row 1 is the
+entry itself (Qty fixed at 1, can't be removed) and added rows become new entries under the same
+account. Cancel and Save sit both in the page header and at the bottom (the header button
+submits the form by id), and a save error is shown above the form and above the bottom buttons
+(owner request 2026-11-12). The account number is tidied to `BD 12` when the field loses focus.
+The purchase date uses the shared `DateInput` (owner request 2026-11-12): typed or pasted as
+dd/mm/yyyy (also yyyy-mm-dd or "5 Mar 2025"), taken as soon as it is a whole real date, with a
+calendar button; text that isn't a date stays visible with "Not a date…" below it. An invalid
+customer or co-applicant mobile shows "Enter a 10-digit mobile number starting with 6, 7, 8 or 9"
+under its box (Save stays disabled until fixed or emptied). "New series…" takes up to 4
+characters (`BD`, `CK2`, `ABC`) and says what is allowed while the text isn't a valid series.
+**Area** is type-or-pick (owner request 2026-11-12, compact list 2026-11-13): the shared
+[SuggestInput](../../apps/web/src/components/SuggestInput.tsx) dropdown — not the browser's
+`<datalist>` popup, which was too long and mixed in saved addresses — listing every area already
+in the register (`GET /customer-search/areas` — spellings differing only in case merged,
+values without two letters in a row, such as a mobile shown as `9.91E+09`, left out, most used
+first), narrowing as you type (start matches first, 50 rows, "type to narrow"); a new area
+can be typed, and the text is trimmed and put in capitals when the box loses focus.
+**Customer name** is also type-or-pick (2026-11-13): after 2 letters it lists names of existing
+customers containing the text (`/customer-names`, each name once with "N customers"); picking one
+only fills the name — mobile, address, area and the customer link come from the mobile matches
+under Mobile, as before (owner decision: name + mobile decide the person). **Mobile** and
+**Co-applicant mobile** each have "+ Add another number", which opens a second box with a remove
+button; an invalid second number, or one without a first number, shows an error and blocks Save.
+**Brand** and **Model** in the Items table are the same kind of dropdown, tied to the row's
+product type: Brand lists only that type's makes, Model only that make's models within the type
+(`/lookup/brands`, `/lookup/models` — see [Products](products.md) for the catalog). A new brand
+or model can be typed and joins the lists when saved. The API writes known misspellings one way
+(`canonicalBrand`: `whirlphool` → `WHIRLPOOL`, `TRU/LUM` → `TRUFAST, LUMINOUS`) on create, edit
+and import; `build-brand-catalog.ts --apply` corrected 1,296 existing entries (2026-11-13, owner
+approved the merge list; ambiguous `LIV`, SAVITA, SUNITA, ASHU, SADI left as written).
+The [detail screen](../../apps/web/src/pages/customer-search/CustomerSearchDetailPage.tsx)
 shows preserved invalid imported values only when returned by the API.
 The [hook](../../apps/web/src/hooks/useCustomerSearch.ts) invalidates relevant register/customer
 queries after writes; this is not cross-device persistent cache synchronization.
@@ -386,8 +452,14 @@ Code: [lib/features/customer_search](../../apps/mobile-flutter/lib/features/cust
   and model are on the details screen. Details come from the
   copy; "entered by",
   import file/rows and a permitted matching sale load online. New entry / Edit need a
-  connection: series → `next-number`, existing customers on the mobile (`customer-matches`),
-  product-type cascade from the cached tree (leaf for new entries; an edit may keep an imported
+  connection: series → `next-number` (2–3 letters plus an optional digit, as on the web), a
+  type-or-pick Customer name (`customer-names`; picking fills only the name), "Add another number"
+  under Mobile and Co-applicant mobile (second numbers; shown on details, searched in the copy), existing
+  customers on the mobile (`customer-matches`), Area suggestions from the cached copy (case
+  variants merged, most used first; a new area can be typed), Brand and Model suggestions for the
+  chosen type and make from `/lookup/brands` and `/lookup/models` (online, like the rest of the form),
+  product-type cascade from the cached tree (any level for new entries, "Sub-type (optional)"; an
+  edit may keep an imported
   or empty type), shop from the user's assigned shops. Save sends a per-form `clientRequestId`
   (create) or only changed fields + `expectedUpdatedAt` (edit); reused number → dialog with
   "Use next" / "Save anyway"; changed by someone else → the latest version is loaded with this
@@ -552,6 +624,41 @@ result reporting `closed`.
   429 `insufficient_quota` ("no credits remaining") — the name adjudicator is affected too.
   The UI screens were not exercised in a browser.
 
+2026-11-12 (series with a digit / 3 letters, Area type-or-pick):
+
+- Unit `customer-search.test.ts` (39 passed): `ck2-15` → `CK2 15`, `ABC-7`, `ABC2.7`, `CK215` →
+  `CK 215`, `ABCD-421` stays odd, valid/invalid prefixes. Integration
+  `tests/integration/customer-search.test.ts` (25 passed) incl. CS25: next numbers for `CK2` /
+  `ABC`, `CK` and `CK2` listed as separate series, `/areas` merging `Khora`/`KHORA ` and dropping
+  `9.91E+09`. Web `tsc -p tsconfig.app.json` passed; `flutter analyze` clean, `flutter test`
+  passed (register test adds `accountSearchText` and `areas()` cases).
+- Browser check on the dev server (ve_admin1): New series `CK2` → `CK2 1`, `ABC` → `ABC 1`, `BD` →
+  `BD 1057`; Area offered 172 areas (KHORA, NOIDA, DELHI…); `  new   colony ` became `NEW COLONY`
+  on blur. The phone form was not run on a device.
+
+2026-11-13 (compact Area list, type → brand → model dropdowns):
+
+- `npm run test --workspace=apps/api` — 25 files, 352 tests passed: unit `brand-names.test.ts`;
+  integration CS26 (brands per type family, models per make found through a misspelling,
+  learning on create/edit) and CS23/CS24 now expecting `WHIRLPOOL` for `WHIRL`/`Whirlpool`;
+  CS25's area rule now needs two letters in a row, so `9.91E+09` is really dropped (the earlier
+  "any letter" rule let it through via the `E`). Web `tsc -p tsconfig.app.json` passed;
+  `flutter analyze` clean, `flutter test` 46 passed.
+- Browser check (ve_admin1): Area "kh" → KHORA, KHORA COLONY, KHODA… with no number values;
+  Items row Refrigerator → brands Bosch, Godrej, Haier, LG, LIEBHERR, Samsung, VOLTAS, Whirlpool;
+  LG → 93 models (50 shown). The phone form was not run on a device.
+
+2026-11-13 (second mobiles, name list):
+
+- `npm run test --workspace=apps/api` — 25 files, 354 tests passed, incl. CS27 (names found by any
+  part, each once with a count) and CS28 (second mobiles saved, normalised, the same as the first
+  dropped, copied to more items, searchable, invalid one refused). Web `tsc` passed; `flutter
+  analyze` clean, `flutter test` passed incl. a version-4 → 5 copy upgrade test (columns added in
+  place, second number searchable) and a second-mobile search.
+- Browser check: "ramesh ku" → "RAMESH KUMAR · 26 customers", "RAMESH KUMAR NISHAAD"…; picking
+  kept the typed mobile and left the customer unlinked; second mobile `12345` showed the error and
+  disabled Save. The phone was not run on a device; installed phones upgrade their copy in place.
+
 Acceptance must cover shared-mobile relatives, duplicate 409/confirmation, no-mobile entries,
 invalid dates/mobile, category hierarchy, forbidden shop, cross-tenant IDs, restricted phones,
 review updates, missing entry, save failure, and preserving customers on deletion. Flutter
@@ -593,8 +700,8 @@ permission downgrades and measured approximately 58,000-row cache/search perform
   name + mobile).
 - Device notifications are deferred (needs an FCM/Firebase project).
 - Existing list pagination is for interactive web search, not a bulk sync protocol — use `/sync`.
-- Web next-number query currently enables only 1-2-letter prefixes, while the API accepts 1-3
-  letters plus an optional digit. Flutter uses the API's rule; a web fix is separate.
+- Existing Area values are not rewritten: `khora` and `KHORA` stay as stored (the suggestion list
+  merges them; search is case-insensitive). New/edited entries get capitals on the web form.
 - The web edit form does not send `expectedUpdatedAt`, so two web editors still overwrite each
   other (unchanged behaviour); only device edits are version-checked.
 

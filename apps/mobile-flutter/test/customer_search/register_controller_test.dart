@@ -23,7 +23,7 @@ void main() {
       'updater) reopens the copy and carries on', () async {
     FlutterSecureStorage.setMockInitialValues({});
     final server = FakeRegisterServer()..pageSize = 10;
-    server.put(entry('e1', account: 'BD-1', name: 'Synthetic One'));
+    server.put(entry('e1', account: 'BD 1', name: 'Synthetic One'));
     final dir = await Directory.systemTemp.createTemp('register_test');
     final file = p.join(dir.path, 'register.db');
     final opened = <RegisterDatabase>[];
@@ -71,7 +71,7 @@ void main() {
 
       // Another owner closes the connection the open app is using.
       await opened.single.close();
-      server.put(entry('e2', account: 'BD-2', name: 'Synthetic Two'));
+      server.put(entry('e2', account: 'BD 2', name: 'Synthetic Two'));
 
       final result = await register.syncNow();
       expect(result?.outcome, RegisterSyncOutcome.updated);

@@ -1,6 +1,7 @@
 import { prisma } from '../../config/database.js';
 import type { Prisma } from '@prisma/client';
 import { applySupplierAdvances } from '../distributors/supplier-advances.js';
+import { catalogService } from '../catalog/catalog.service.js';
 import { unbilledSeriesService } from './unbilled-series.js';
 
 /** A purchase that cannot go, because something of it has already moved on. */
@@ -415,6 +416,7 @@ export const purchasesService = {
 
         products.push(product);
       }
+      await catalogService.learn(products.map((p) => ({ categoryId: p.categoryId, brand: p.brand, model: p.modelNumber })), tx);
 
       /*
        * Keep the distributor's "categories supplied" list in step with what

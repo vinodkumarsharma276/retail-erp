@@ -14,6 +14,7 @@ export async function customerSearchRoutes(app: FastifyInstance) {
   app.get('/', { preHandler: [authenticate, shopScope, requirePermission('customer_search.list')] }, c.list as any);
 
   app.get('/prefixes', { preHandler: [authenticate, shopScope, requirePermission('customer_search.list')] }, c.prefixes as any);
+  app.get('/areas', { preHandler: [authenticate, shopScope, requirePermission('customer_search.list')] }, c.areas as any);
 
   // On-device copy for the mobile app: snapshot pages, then changes and deletions.
   app.get('/sync', { preHandler: [authenticate, shopScope, requirePermission('customer_search.list')] }, c.sync as any);
@@ -28,6 +29,9 @@ export async function customerSearchRoutes(app: FastifyInstance) {
   app.get('/customer-matches', {
     preHandler: [authenticate, shopScope, requireAnyPermission('customer_search.create', 'customer_search.edit')],
   }, c.customerMatches as any);
+  app.get('/customer-names', {
+    preHandler: [authenticate, shopScope, requireAnyPermission('customer_search.create', 'customer_search.edit')],
+  }, c.customerNames as any);
 
   // Items a customer bought / is co-applicant on (customer detail page).
   app.get('/by-customer/:customerId', { preHandler: [authenticate, shopScope, requirePermission('customer_search.list')] }, c.forCustomer as any);

@@ -31,6 +31,8 @@ class RegisterEntry {
     required this.createdAt,
     required this.updatedAt,
     this.customerItemCount = 0,
+    this.altMobile,
+    this.coAltMobile,
   });
 
   factory RegisterEntry.fromApi(Json json) => RegisterEntry(
@@ -61,6 +63,8 @@ class RegisterEntry {
     coCustomerCode: json['coCustomerCode'] as String?,
     createdAt: (json['createdAt'] as String?) ?? '',
     updatedAt: (json['updatedAt'] as String?) ?? '',
+    altMobile: json['altMobile'] as String?,
+    coAltMobile: json['coAltMobile'] as String?,
   );
 
   factory RegisterEntry.fromRow(Map<String, Object?> row) => RegisterEntry(
@@ -94,6 +98,8 @@ class RegisterEntry {
     createdAt: row['created_at'] as String,
     updatedAt: row['updated_at'] as String,
     customerItemCount: (row['item_count'] as int?) ?? 0,
+    altMobile: row['alt_mobile'] as String?,
+    coAltMobile: row['co_alt_mobile'] as String?,
   );
 
   final String id;
@@ -109,6 +115,10 @@ class RegisterEntry {
   final String? coCustomerId;
   final String? coName;
   final String? coMobile;
+
+  /// Second mobiles (null when none, or withheld like `mobile`).
+  final String? altMobile;
+  final String? coAltMobile;
 
   /// `yyyy-mm-dd`, a date without a time zone.
   final String? purchaseDate;
@@ -151,6 +161,8 @@ class RegisterEntry {
     'co_customer_id': coCustomerId,
     'co_name': coName,
     'co_mobile': coMobile,
+    'alt_mobile': altMobile,
+    'co_alt_mobile': coAltMobile,
     'purchase_date': purchaseDate,
     'category_id': categoryId,
     'product': product,
@@ -224,6 +236,19 @@ bool isValidMobile(String value) =>
 /// The web's `normalizeAccountNumber`: upper case, no spaces.
 String normalizeAccountNumber(String value) =>
     value.toUpperCase().replaceAll(RegExp(r'\s+'), '');
+
+/// The web's `accountSearchText`: account numbers are stored "BD 12" /
+/// "CK2 15", so a search typed "bd-12", "bd12" or "ck2-15" finds them; "bd"
+/// stays "BD".
+String accountSearchText(String value) {
+  final text = value.toUpperCase().trim();
+  final m = RegExp(
+    r'^([A-Z]{2,3})(?:(\d)[\s\-._]+|[\s\-._]*)(\d{1,9})$',
+  ).firstMatch(text);
+  return m != null
+      ? '${m[1]}${m[2] ?? ''} ${int.parse(m[3]!)}'
+      : text.replaceAll(RegExp(r'\s+'), ' ');
+}
 
 /// Which column the search box looks in ("All" = every searchable column,
 /// as on the web).

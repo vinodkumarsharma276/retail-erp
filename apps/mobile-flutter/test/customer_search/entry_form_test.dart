@@ -134,7 +134,7 @@ void main() {
     'new entry: a dropped connection keeps the input, the retry reuses the same request id, and a reused number needs Save anyway',
     (tester) async {
       final server = FakeRegisterServer()..pageSize = 10;
-      server.put(entry('e1', account: 'BD-1', name: 'Ram Lal'));
+      server.put(entry('e1', account: 'BD 1', name: 'Ram Lal'));
       final posts = <Map<String, dynamic>>[];
       await openRegister(tester, server, (request) async {
         if (request.method == 'POST' &&
@@ -147,17 +147,17 @@ void main() {
               jsonEncode({
                 'success': false,
                 'error':
-                    'Account Number BD-1 is already used for Ram Lal (TS).',
+                    'Account Number BD 1 is already used for Ram Lal (TS).',
                 'details': {
                   'code': 'duplicate_account',
-                  'nextAccountNumber': 'BD-2',
+                  'nextAccountNumber': 'BD 2',
                 },
               }),
               409,
             );
           }
           server.put(
-            entry('e2', account: 'BD-1', name: 'Asha New', date: '2026-01-01'),
+            entry('e2', account: 'BD 1', name: 'Asha New', date: '2026-01-01'),
           );
           return http.Response(
             jsonEncode({
@@ -180,7 +180,7 @@ void main() {
       await tester.tap(find.text('OK'));
       await tester.pumpAndSettle();
       await pick(tester, 'Product type *', 'TV');
-      await pick(tester, 'Type (level 2)', 'LED TV');
+      await pick(tester, 'Sub-type (optional)', 'LED TV');
 
       await tapSave(tester);
       expect(find.textContaining("Couldn't confirm the save"), findsOneWidget);
@@ -214,7 +214,7 @@ void main() {
     (tester) async {
       final server = FakeRegisterServer()..pageSize = 10;
       server.put(
-        entry('e1', account: 'BD-1', name: 'Ram Lal', area: 'Old Area'),
+        entry('e1', account: 'BD 1', name: 'Ram Lal', area: 'Old Area'),
       );
       final patches = <Map<String, dynamic>>[];
       await openRegister(tester, server, (request) async {
@@ -226,7 +226,7 @@ void main() {
             server.put({
               ...entry(
                 'e1',
-                account: 'BD-1',
+                account: 'BD 1',
                 name: 'Ram Lal Sharma',
                 area: 'Old Area',
               ),
@@ -247,7 +247,7 @@ void main() {
           server.put({
             ...entry(
               'e1',
-              account: 'BD-1',
+              account: 'BD 1',
               name: 'Ram Lal Sharma',
               area: 'New Area',
             ),

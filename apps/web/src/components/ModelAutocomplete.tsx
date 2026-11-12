@@ -3,6 +3,9 @@ import { Loader2, Search } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { apiClient } from '../lib/api-client';
 import { useEscapeKey } from '../hooks/useEscapeKey';
+import { useDebounce } from '../hooks/useDebounce';
+import { useModelsQuery } from '../hooks/useLookup';
+import { brandKey, canonicalBrand } from '@retailerp/shared-utils';
 
 /**
  * Shape returned by `/products/search`. Note `brand` is a top-level column on
@@ -31,6 +34,9 @@ interface ModelAutocompleteProps {
   placeholder?: string;
   error?: boolean;
   className?: string;
+  /** Limit to this product type and make, and also offer their saved model numbers. */
+  categoryId?: string;
+  brand?: string;
 }
 
 export function ModelAutocomplete({
@@ -40,6 +46,8 @@ export function ModelAutocomplete({
   placeholder = 'Type model number...',
   error,
   className,
+  categoryId,
+  brand,
 }: ModelAutocompleteProps) {
   const [query, setQuery] = useState(value);
   const [results, setResults] = useState<ProductMatch[]>([]);
@@ -48,6 +56,19 @@ export function ModelAutocomplete({
   const [highlightIdx, setHighlightIdx] = useState(-1);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  // Only the chosen type and make, plus that make's saved model numbers.
+  const make = useDebounce((brand ?? '').trim(), 300);
+  const { data: saved = [] } = useModelsQuery(categoryId, make);
+  const makeKey = make ? brandKey(canonicalBrand(make)) : '';
+  const typedKey = query.trim().toUpperCase();
+  const stockRows = results.filter(
+    (p) => (!categoryId || p.categoryId === categoryId) && (!makeKey || brandKey(canonicalBrand(p.brand)) === makeKey),
+  );
+  const savedRows = saved
+    .filter((m) => (!typedKey || m.toUpperCase().includes(typedKey)) && !stockRows.some((p) => p.modelNumber.toUpperCase() === m.toUpperCase()))
+    .slice(0, 30);
+  const rowCount = stockRows.length + savedRows.length;
 
   // Sync external value
   useEffect(() => {
@@ -68,7 +89,6 @@ export function ModelAutocomplete({
   const searchProducts = useCallback(async (q: string) => {
     if (q.length < 3) {
       setResults([]);
-      setIsOpen(false);
       return;
     }
 
@@ -90,11 +110,10 @@ export function ModelAutocomplete({
       const unique = Array.from(seen.values());
 
       setResults(unique);
-      setIsOpen(unique.length > 0);
+      setIsOpen(true);
       setHighlightIdx(-1);
     } catch {
       setResults([]);
-      setIsOpen(false);
     } finally {
       setIsLoading(false);
     }
@@ -111,6 +130,12 @@ export function ModelAutocomplete({
     }, 250);
   };
 
+  const handleSavedSelect = (model: string) => {
+    setQuery(model);
+    onChange(model);
+    setIsOpen(false);
+  };
+
   const handleSelect = (product: ProductMatch) => {
     setQuery(product.modelNumber);
     onChange(product.modelNumber);
@@ -124,17 +149,18 @@ export function ModelAutocomplete({
   useEscapeKey(isOpen, () => setIsOpen(false));
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (!isOpen || results.length === 0) return;
+    if (!isOpen || rowCount === 0) return;
 
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      setHighlightIdx((prev) => Math.min(prev + 1, results.length - 1));
+      setHighlightIdx((prev) => Math.min(prev + 1, rowCount - 1));
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
       setHighlightIdx((prev) => Math.max(prev - 1, 0));
     } else if (e.key === 'Enter' && highlightIdx >= 0) {
       e.preventDefault();
-      handleSelect(results[highlightIdx]);
+      if (highlightIdx < stockRows.length) handleSelect(stockRows[highlightIdx]);
+      else handleSavedSelect(savedRows[highlightIdx - stockRows.length]);
     }
   };
 
@@ -146,9 +172,7 @@ export function ModelAutocomplete({
           type="text"
           value={query}
           onChange={(e) => handleInputChange(e.target.value)}
-          onFocus={() => {
-            if (results.length > 0) setIsOpen(true);
-          }}
+          onFocus={() => setIsOpen(true)}
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
           className={cn(
@@ -165,9 +189,9 @@ export function ModelAutocomplete({
       </div>
 
       {/* Dropdown */}
-      {isOpen && results.length > 0 && (
+      {isOpen && rowCount > 0 && (
         <div className="absolute z-50 mt-1 w-full max-h-60 overflow-y-auto rounded-md border border-border bg-card shadow-xl ring-1 ring-black/5">
-          {results.map((product, idx) => (
+          {stockRows.map((product, idx) => (
             <button
               key={product.id}
               type="button"
@@ -197,6 +221,24 @@ export function ModelAutocomplete({
               </div>
             </button>
           ))}
+          {savedRows.map((model, i) => {
+            const idx = stockRows.length + i;
+            return (
+              <button
+                key={`saved-${model}`}
+                type="button"
+                onClick={() => handleSavedSelect(model)}
+                onMouseEnter={() => setHighlightIdx(idx)}
+                className={cn(
+                  'flex w-full items-center justify-between gap-3 border-b border-border px-3 py-1.5 text-left text-sm last:border-0',
+                  idx === highlightIdx ? 'bg-primary/10 text-foreground' : 'bg-card text-foreground hover:bg-muted',
+                )}
+              >
+                <span className="truncate">{model}</span>
+                <span className="shrink-0 text-xs text-muted-foreground">sold before</span>
+              </button>
+            );
+          })}
         </div>
       )}
     </div>

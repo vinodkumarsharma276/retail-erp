@@ -9,3 +9,4 @@ export * from './purchase-sheet';
 export * from './creditor-sheet';
 export * from './distributor-duplicates';
 export * from './customer-register';
+export * from './brand-names';

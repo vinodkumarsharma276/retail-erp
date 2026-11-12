@@ -209,6 +209,7 @@ export function useCreateProductMutation() {
       return data.data!;
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['lookup'] });
       queryClient.invalidateQueries({ queryKey: ['products'] });
     },
   });
@@ -235,6 +236,7 @@ export function useUpdateProductMutation() {
       return data.data!;
     },
     onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['lookup'] });
       queryClient.invalidateQueries({ queryKey: ['products'] });
       queryClient.invalidateQueries({
         queryKey: keys.productDetail(variables.id),

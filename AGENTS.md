@@ -137,7 +137,9 @@ those gaps are not approval to reproduce unsafe behavior in Flutter or expand ac
 - **Ledger number** on every sale mirrors the physical office register (e.g. `VE001`).
 - **Customer Searching** (`modules/customer-search`, feature `customer_search`) is the account
   register moved off a Google Sheet: one entry per item bought, with an **Account Number**
-  (`BD-1`, `CI2-421`, `MJ12`) that may repeat — a reused number is allowed but flagged. Every
+  written `BD 12` (series of 2–3 letters plus an optional register digit such as `CK2`, a space,
+  the number — `formatAccountNumber`; other shapes are kept
+  and flagged) that may repeat — a reused number is allowed but flagged. Every
   entry is filed under a Customer matched on **name + mobile** — never mobile alone, relatives
   share phones; the co-applicant is a Customer with `isGuarantor`. Unlike installments, it does
   not need `sales.view_real`. Problems (no mobile, reused number…) are stored per entry in

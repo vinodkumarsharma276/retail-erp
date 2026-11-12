@@ -105,6 +105,7 @@ export function useCreatePurchaseMutation() {
       return data.data!;
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['lookup'] });
       queryClient.invalidateQueries({ queryKey: ['purchases'] });
       queryClient.invalidateQueries({ queryKey: ['distributors'] });
     },
@@ -161,6 +162,7 @@ export function useCreateUnbilledPurchaseMutation() {
       return data.data!;
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['lookup'] });
       queryClient.invalidateQueries({ queryKey: ['purchases'] });
       queryClient.invalidateQueries({ queryKey: ['distributors'] });
       queryClient.invalidateQueries({ queryKey: ['products'] });
@@ -253,6 +255,7 @@ export function usePurchaseImportCommitMutation() {
       return data.data!;
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['lookup'] });
       queryClient.invalidateQueries({ queryKey: ['purchases'] });
       queryClient.invalidateQueries({ queryKey: ['distributors'] });
       queryClient.invalidateQueries({ queryKey: ['products'] });

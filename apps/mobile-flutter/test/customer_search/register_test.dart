@@ -146,6 +146,8 @@ Json entry(
   String? mobile = '9800000000',
   String? coName,
   String? coMobile,
+  String? altMobile,
+  String? coAltMobile,
   String? area,
   String? date,
   String? categoryId,
@@ -155,14 +157,14 @@ Json entry(
   List<String> issues = const [],
   String? product,
 }) {
-  final prefix = RegExp(r'^[A-Z]+(\d(?=[-.]))?').stringMatch(account) ?? '';
+  final prefix = RegExp(r'^[A-Z]+').stringMatch(account) ?? '';
   return {
     'id': id,
     'shopId': shopId,
     'accountNumber': account,
     'prefix': prefix,
     'seriesNo': int.tryParse(
-      account.replaceFirst(RegExp(r'^[A-Z]+\d?[-.]?'), ''),
+      account.replaceFirst(RegExp(r'^[A-Z]+[ \-.]?'), ''),
     ),
     'customerId': customerId,
     'customerName': name,
@@ -172,6 +174,8 @@ Json entry(
     'coCustomerId': null,
     'coName': coName,
     'coMobile': coMobile,
+    'altMobile': altMobile,
+    'coAltMobile': coAltMobile,
     'purchaseDate': date,
     'categoryId': categoryId,
     'product': product,
@@ -224,10 +228,53 @@ void main() {
   )).entries.map((e) => e.id).toSet();
 
   test(
+    'a version-4 copy gains the second-mobile columns in place, and they are searched',
+    () async {
+      final old = await databaseFactoryFfi.openDatabase(
+        inMemoryDatabasePath,
+        options: OpenDatabaseOptions(
+          version: schemaVersion,
+          singleInstance: false,
+          onConfigure: configureRegisterDb,
+          onCreate: (db, _) => createRegisterSchema(db),
+        ),
+      );
+      // Make it look like version 4: no second-mobile columns.
+      for (final trigger in ['insert', 'delete', 'update']) {
+        await old.execute('DROP TRIGGER entries_text_$trigger');
+      }
+      for (final table in ['entries', 'staging_entries']) {
+        await old.execute('ALTER TABLE $table DROP COLUMN alt_mobile');
+        await old.execute('ALTER TABLE $table DROP COLUMN co_alt_mobile');
+      }
+      await upgradeRegisterSchema(old, 4, 5);
+      final copy = RegisterDatabase(old);
+      final row = RegisterEntry.fromApi(
+        entry('x', altMobile: '9555512345'),
+      ).toRow();
+      await copy.db.insert('entries', row);
+      final page = await copy.search(const RegisterQuery(text: '9555512345'));
+      expect(page.entries.map((e) => e.altMobile), ['9555512345']);
+      await copy.close();
+    },
+  );
+
+  test(
+    'account searches match a series typed any way, including CK2 / ABC',
+    () {
+      expect(accountSearchText('bd-12'), 'BD 12');
+      expect(accountSearchText('ck2-015'), 'CK2 15');
+      expect(accountSearchText('abc7'), 'ABC 7');
+      expect(accountSearchText('ck215'), 'CK 215');
+      expect(accountSearchText('bd'), 'BD');
+    },
+  );
+
+  test(
     'first download fills the copy page by page and records when it succeeded',
     () async {
       for (var i = 1; i <= 5; i++) {
-        server.put(entry('id-$i', account: 'BD-$i'));
+        server.put(entry('id-$i', account: 'BD $i'));
       }
       final result = await syncer().run();
       expect(result.outcome, RegisterSyncOutcome.updated);
@@ -338,7 +385,7 @@ void main() {
         server.put(
           entry(
             'a',
-            account: 'BD-12',
+            account: 'BD 12',
             name: 'Ram Lal',
             mobile: '9876543210',
             date: '2025-01-05',
@@ -351,10 +398,11 @@ void main() {
         server.put(
           entry(
             'b',
-            account: 'BD-13',
+            account: 'BD 13',
             name: 'Sita Devi',
             coName: 'Ram Prasad',
             mobile: '',
+            coAltMobile: '9123456789',
             date: '2025-03-01',
             categoryId: 'fridge',
             customerId: 'c2',
@@ -364,7 +412,7 @@ void main() {
         server.put(
           entry(
             'c',
-            account: 'MJ12',
+            account: 'MJ 12',
             name: 'Mohan',
             mobile: '9898989898',
             date: null,
@@ -407,9 +455,14 @@ void main() {
         expect(
           await find(const RegisterQuery(text: 'mj 12')),
           ['c'],
-          reason: 'spaces are removed from account numbers, as on the web',
+          reason: 'typed with or without a space or hyphen, as on the web',
         );
         expect(await find(const RegisterQuery(text: 'mj12')), ['c']);
+        expect(
+          await find(const RegisterQuery(text: '91234 56789')),
+          ['b'],
+          reason: 'a second mobile is searched too',
+        );
         expect(await find(const RegisterQuery(text: '43210')), [
           'a',
         ], reason: 'mobile digits');
@@ -445,6 +498,7 @@ void main() {
         expect(page.total, 3);
         expect((await db.entry('a'))!.customerItemCount, 2);
         expect((await db.prefixes()), [('BD', 2), ('MJ', 1)]);
+        expect(await db.areas(), ['SHASTRI NAGAR']);
 
         // The "Search in" column picker narrows the same text to one column.
         Future<List<String>> inField(RegisterField field, String text) =>

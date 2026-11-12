@@ -41,6 +41,18 @@ function formatForDisplay(iso: string, dateFormat: string): string {
  * isn't punished for typing slashes vs dashes etc. Returns '' if invalid.
  */
 function parseInput(text: string, dateFormat: string): string {
+  const iso = parseLoose(text, dateFormat);
+  return iso && isRealDate(iso) ? iso : '';
+}
+
+/** 2024-02-30 is not a day. */
+function isRealDate(iso: string): boolean {
+  const [y, m, d] = iso.split('-').map(Number);
+  const date = new Date(Date.UTC(y, m - 1, d));
+  return date.getUTCFullYear() === y && date.getUTCMonth() === m - 1 && date.getUTCDate() === d;
+}
+
+function parseLoose(text: string, dateFormat: string): string {
   const t = text.trim();
   if (!t) return '';
   // Already canonical
@@ -129,6 +141,8 @@ export const DateInput = forwardRef<HTMLInputElement, Props>(function DateInput(
   const placeholderHint = formatPlaceholder(dateFormat, placeholder);
 
   const [text, setText] = useState(() => formatForDisplay(value, dateFormat));
+  /** The text typed isn't a date (kept on screen so it can be corrected). */
+  const [invalid, setInvalid] = useState(false);
   const lastValueRef = useRef<string>(value);
   const hiddenRef = useRef<HTMLInputElement | null>(null);
 
@@ -139,6 +153,7 @@ export const DateInput = forwardRef<HTMLInputElement, Props>(function DateInput(
     if (value !== lastValueRef.current) {
       lastValueRef.current = value;
       setText(formatForDisplay(value, dateFormat));
+      setInvalid(false);
     }
   }, [value, dateFormat]);
 
@@ -148,25 +163,35 @@ export const DateInput = forwardRef<HTMLInputElement, Props>(function DateInput(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dateFormat]);
 
+  const accept = (iso: string) => {
+    setInvalid(false);
+    if (iso !== value) {
+      lastValueRef.current = iso;
+      onChange?.(iso);
+    }
+  };
+
   const commit = (raw: string) => {
     const iso = parseInput(raw, dateFormat);
     if (iso) {
       // Re-format on blur so the field always shows canonical layout.
       setText(formatForDisplay(iso, dateFormat));
-      if (iso !== value) {
-        lastValueRef.current = iso;
-        onChange?.(iso);
-      }
-    } else if (raw === '') {
-      if (value !== '') {
-        lastValueRef.current = '';
-        onChange?.('');
-      }
+      accept(iso);
+    } else if (raw.trim() === '') {
+      setText('');
+      accept('');
     } else {
-      // Invalid — restore the previous valid display so the user isn't
-      // stranded with garbage text.
-      setText(formatForDisplay(value, dateFormat));
+      // Keep what was typed so it can be corrected, and say so.
+      setInvalid(true);
     }
+  };
+
+  /** Typed or pasted text that is already a whole date counts at once (no need to leave the field). */
+  const onText = (raw: string) => {
+    setText(raw);
+    const iso = parseInput(raw, dateFormat);
+    if (iso) accept(iso);
+    else if (invalid) setInvalid(false);
   };
 
   const openPicker = () => {
@@ -186,6 +211,7 @@ export const DateInput = forwardRef<HTMLInputElement, Props>(function DateInput(
   };
 
   return (
+    <>
     <div className={cn('relative', className && '')}>
       <input
         ref={ref}
@@ -194,7 +220,17 @@ export const DateInput = forwardRef<HTMLInputElement, Props>(function DateInput(
         type="text"
         inputMode="numeric"
         value={text}
-        onChange={(e) => setText(e.target.value)}
+        onChange={(e) => onText(e.target.value)}
+        onPaste={(e) => {
+          // A pasted date replaces the whole field rather than landing inside the old one.
+          const pasted = e.clipboardData.getData('text');
+          if (pasted && parseInput(pasted, dateFormat)) {
+            e.preventDefault();
+            const iso = parseInput(pasted, dateFormat);
+            setText(formatForDisplay(iso, dateFormat));
+            accept(iso);
+          }
+        }}
         onBlur={(e) => commit(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'Enter') {
@@ -206,11 +242,13 @@ export const DateInput = forwardRef<HTMLInputElement, Props>(function DateInput(
         disabled={disabled}
         required={required}
         aria-label={ariaLabel}
+        aria-invalid={invalid || undefined}
         className={cn(
           'w-full rounded-md border bg-field pl-3 pr-9 py-2.5 text-sm',
           'placeholder:text-muted-foreground',
           'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
           'disabled:opacity-50 disabled:cursor-not-allowed',
+          invalid && 'border-destructive',
           className,
         )}
       />
@@ -264,6 +302,12 @@ export const DateInput = forwardRef<HTMLInputElement, Props>(function DateInput(
         </button>
       </div>
     </div>
+    {invalid && (
+      <p className="mt-1 text-xs text-destructive">
+        Not a date. Type or paste it as {placeholderHint}.
+      </p>
+    )}
+    </>
   );
 });
 

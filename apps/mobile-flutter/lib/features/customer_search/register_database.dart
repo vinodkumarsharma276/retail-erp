@@ -12,11 +12,13 @@ const _entryColumns = '''
   customer_id TEXT,
   customer_name TEXT NOT NULL,
   mobile TEXT,
+  alt_mobile TEXT,
   address TEXT,
   area TEXT,
   co_customer_id TEXT,
   co_name TEXT,
   co_mobile TEXT,
+  co_alt_mobile TEXT,
   purchase_date TEXT,
   category_id TEXT,
   product TEXT,
@@ -32,7 +34,7 @@ const _entryColumns = '''
   search_text TEXT NOT NULL
 ''';
 
-const schemaVersion = 4;
+const schemaVersion = 5;
 
 /// Per-connection settings. The larger page cache keeps decrypted pages in
 /// memory between searches; incremental auto-vacuum (effective on a new
@@ -56,8 +58,12 @@ Future<void> _createEntryIndexes(DatabaseExecutor db) async {
   }
 }
 
-const _textValues =
-    "new.account_number, new.search_text, coalesce(new.mobile, '') || ' ' || coalesce(new.co_mobile, '')";
+/// Every mobile of the entry, for the phone-number index.
+String _phones(String row) =>
+    "coalesce(${row}mobile, '') || ' ' || coalesce(${row}alt_mobile, '') || ' ' || "
+    "coalesce(${row}co_mobile, '') || ' ' || coalesce(${row}co_alt_mobile, '')";
+
+final _textValues = 'new.account_number, new.search_text, ${_phones('new.')}';
 
 /// Keeps `entry_text` (the substring index) in step with `entries`.
 Future<void> _createTextTriggers(DatabaseExecutor db) async {
@@ -105,8 +111,26 @@ Future<void> createRegisterSchema(Database db) async {
   }
 }
 
-/// The copy can always be downloaded again, so an older layout is replaced.
+/// Version 5 only added the second mobiles: add the columns in place (no row
+/// has one yet) instead of downloading the register again. Any other older
+/// layout is replaced; the copy can always be downloaded again.
 Future<void> upgradeRegisterSchema(Database db, int from, int to) async {
+  if (from == 4 && to == 5) {
+    for (final table in ['entries', 'staging_entries']) {
+      await db.execute('ALTER TABLE $table ADD COLUMN alt_mobile TEXT');
+      await db.execute('ALTER TABLE $table ADD COLUMN co_alt_mobile TEXT');
+    }
+    final index = await db.rawQuery(
+      "SELECT value FROM meta WHERE key = 'text_index'",
+    );
+    if (index.isNotEmpty && index.first['value'] == '1') {
+      for (final trigger in ['insert', 'delete', 'update']) {
+        await db.execute('DROP TRIGGER IF EXISTS entries_text_$trigger');
+      }
+      await _createTextTriggers(db);
+    }
+    return;
+  }
   for (final table in [
     'entry_text',
     'entries',
@@ -291,7 +315,7 @@ class RegisterDatabase {
             await tx.execute('DELETE FROM entry_text');
             await tx.execute(
               'INSERT INTO entry_text (rowid, account, text, phones) '
-              "SELECT rowid, account_number, search_text, coalesce(mobile, '') || ' ' || coalesce(co_mobile, '') FROM entries",
+              'SELECT rowid, account_number, search_text, ${_phones('')} FROM entries',
             );
             await _createTextTriggers(tx);
           }
@@ -376,6 +400,14 @@ class RegisterDatabase {
     "SELECT prefix, COUNT(*) AS n FROM entries WHERE prefix <> '' GROUP BY prefix ORDER BY prefix",
   )).map((r) => (r['prefix'] as String, r['n'] as int)).toList();
 
+  /// Areas already used (case variants merged, in capitals), most used first.
+  /// Values without two letters in a row (a mobile typed into Area, often
+  /// "9.91E+09") are left out.
+  Future<List<String>> areas() async => (await db.rawQuery(
+    "SELECT upper(trim(area)) AS a, COUNT(*) AS n FROM entries "
+    "WHERE area GLOB '*[A-Za-z][A-Za-z]*' GROUP BY a ORDER BY n DESC, a",
+  )).map((r) => r['a'] as String).toList();
+
   Future<RegisterEntry?> entry(String id) async {
     final rows = await db.rawQuery(
       'SELECT e.*, (SELECT COUNT(*) FROM entries c WHERE c.customer_id = e.customer_id) AS item_count '
@@ -432,13 +464,13 @@ class RegisterDatabase {
           return;
         }
         if (indexed) narrow(phones, '%$tail%');
-        where.add('e.mobile LIKE ?');
-        args.add('%$tail%');
+        where.add('(e.mobile LIKE ? OR e.alt_mobile LIKE ?)');
+        args.addAll(['%$tail%', '%$tail%']);
       case RegisterField.coApplicant:
         if (phone) {
           if (indexed) narrow(phones, '%$tail%');
-          where.add('e.co_mobile LIKE ?');
-          args.add('%$tail%');
+          where.add('(e.co_mobile LIKE ? OR e.co_alt_mobile LIKE ?)');
+          args.addAll(['%$tail%', '%$tail%']);
         } else {
           if (indexed) narrow(text, '%$lower%');
           where.add(r"e.co_name LIKE ? ESCAPE '\'");
@@ -469,7 +501,7 @@ class RegisterDatabase {
     final q = query.text.trim();
     if (q.isNotEmpty) {
       final lower = q.toLowerCase();
-      final account = normalizeAccountNumber(q);
+      final account = accountSearchText(q);
       final digits = q.replaceAll(RegExp(r'\D'), '');
       final phone =
           digits.length >= 3 &&
@@ -514,8 +546,13 @@ class RegisterDatabase {
         ];
         args.addAll([_like(account), _like(lower), _like(lower)]);
         if (phone) {
-          or.addAll(['e.mobile LIKE ?', 'e.co_mobile LIKE ?']);
-          args.addAll(['%$tail%', '%$tail%']);
+          or.addAll([
+            'e.mobile LIKE ?',
+            'e.alt_mobile LIKE ?',
+            'e.co_mobile LIKE ?',
+            'e.co_alt_mobile LIKE ?',
+          ]);
+          args.addAll(List.filled(4, '%$tail%'));
         }
         where.add('(${or.join(' OR ')})');
       }

@@ -1,5 +1,6 @@
 import { prisma } from '../../config/database.js';
 import type { Prisma } from '@prisma/client';
+import { catalogService } from '../catalog/catalog.service.js';
 
 export const productsService = {
   /**
@@ -460,6 +461,7 @@ export const productsService = {
       performedBy: userId,
       notes: 'Product added to inventory',
     });
+    await catalogService.learn([{ categoryId: product.categoryId, brand: product.brand, model: product.modelNumber }]);
 
     return product;
   },
@@ -546,6 +548,7 @@ export const productsService = {
         },
       },
     });
+    await catalogService.learn([{ categoryId: updated.categoryId, brand: updated.brand, model: updated.modelNumber }]);
 
     return updated;
   },

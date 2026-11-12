@@ -3,6 +3,7 @@ import { prisma } from '../../config/database.js';
 import { tenantContext } from '../../config/tenant-context.js';
 import { generateCustomerCode, lastCustomerCode } from '../../utils/id-generator.js';
 import {
+  canonicalBrand,
   isIsoDate,
   isValidMobile,
   mobileProblem,
@@ -15,6 +16,7 @@ import {
   type RegisterIssue,
 } from '@retailerp/shared-utils';
 import { moveCustomersWithEntry, purchaseKey, refreshIssues, rowIssues, type RawValues } from './customer-search.issues.js';
+import { catalogService } from '../catalog/catalog.service.js';
 import {
   borderlinePairs,
   buildVariants,
@@ -678,7 +680,7 @@ export async function commitImport(input: ImportCommitInput, userId: string, opt
             purchaseDate,
             categoryId,
             product: product ? product.slice(0, 200) : null,
-            brand: item.brand ? item.brand.slice(0, 100) : null,
+            brand: item.brand ? canonicalBrand(item.brand).slice(0, 100) || null : null,
             model: item.model ? item.model.slice(0, 200) : null,
             issues: rowIssues({ ...n, coMobile, coCustomerId, purchaseDate, categoryId, product }),
             rawValues: Object.keys(n.rawValues).length ? n.rawValues : undefined,
@@ -713,6 +715,7 @@ export async function commitImport(input: ImportCommitInput, userId: string, opt
         } as any,
       });
       if (entries.length) await tx.customerSearchEntry.createMany({ data: entries as any });
+      await catalogService.learn(entries, tx);
 
       // Rows already in the register whose Shop changed: move them, and their
       // customers when nothing else keeps those in the old shop.

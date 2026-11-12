@@ -7,6 +7,7 @@ import { cn } from '../../lib/utils';
 import { CategoryCascader } from '../../components/CategoryCascader';
 import { DynamicAttributeFields } from '../../components/DynamicAttributeFields';
 import { BrandInput } from '../../components/BrandInput';
+import { ModelInput } from '../../components/ModelInput';
 import {
   useProductDetailQuery,
   useCreateProductMutation,
@@ -217,19 +218,15 @@ export function ProductAddPage() {
                 <label htmlFor="modelNumber" className="block text-sm font-medium mb-1.5">
                   Model Number <span className="text-destructive">*</span>
                 </label>
-                <input
+                <ModelInput
                   id="modelNumber"
-                  type="text"
+                  categoryId={selectedCategoryId}
+                  brand={methods.watch('brand')}
+                  aria-invalid={!!errors.modelNumber || undefined}
                   {...register('modelNumber', {
                     required: 'Model number is required',
                   })}
                   placeholder="e.g. UA55AU7700"
-                  className={cn(
-                    'w-full rounded-md border bg-field px-3 py-2.5 text-sm',
-                    'placeholder:text-muted-foreground',
-                    'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
-                    errors.modelNumber && 'border-destructive',
-                  )}
                 />
                 {errors.modelNumber && (
                   <p className="mt-1 text-xs text-destructive">

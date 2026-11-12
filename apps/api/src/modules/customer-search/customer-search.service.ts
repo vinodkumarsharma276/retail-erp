@@ -1,8 +1,12 @@
+import { randomUUID } from 'node:crypto';
 import * as XLSX from 'xlsx';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../config/database.js';
 import { generateCustomerCode, lastCustomerCode } from '../../utils/id-generator.js';
 import {
+  accountSearchText,
+  canonicalBrand,
+  isValidAccountPrefix,
   isValidMobile,
   nextAccountNumber,
   normalizeAccountNumber,
@@ -14,7 +18,8 @@ import {
   REGISTER_ISSUES,
   tidyName,
 } from '@retailerp/shared-utils';
-import type { EntryInput, EntryUpdateInput } from './customer-search.validation.js';
+import type { EntryInput, EntryUpdateInput, ItemInput } from './customer-search.validation.js';
+import { catalogService } from '../catalog/catalog.service.js';
 import { buildTypeColumns, categoryPaths } from './customer-search.product-types.js';
 import { moveCustomersWithEntry, purchaseKey, refreshIssues, type RawValues } from './customer-search.issues.js';
 
@@ -50,6 +55,8 @@ async function whereFor(filters: SearchFilters): Promise<Prisma.CustomerSearchEn
   if (q) {
     const digits = q.replace(/\D/g, '');
     const or: Prisma.CustomerSearchEntryWhereInput[] = [
+      { accountNumber: { contains: accountSearchText(q), mode: 'insensitive' } },
+      // Odd-shaped numbers (BK-73A) are kept as written.
       { accountNumber: { contains: normalizeAccountNumber(q), mode: 'insensitive' } },
       { customerName: { contains: q, mode: 'insensitive' } },
       { coName: { contains: q, mode: 'insensitive' } },
@@ -61,7 +68,8 @@ async function whereFor(filters: SearchFilters): Promise<Prisma.CustomerSearchEn
       { customer: { customerCode: { contains: q, mode: 'insensitive' } } },
     ];
     if (digits.length >= 3 && digits.length === q.replace(/[\s+-]/g, '').length) {
-      or.push({ mobile: { contains: digits.slice(-10) } }, { coMobile: { contains: digits.slice(-10) } });
+      const d = digits.slice(-10);
+      or.push({ mobile: { contains: d } }, { altMobile: { contains: d } }, { coMobile: { contains: d } }, { coAltMobile: { contains: d } });
     }
     and.push({ OR: or });
   }
@@ -98,18 +106,14 @@ async function loadTypePaths() {
   return categoryPaths(categories);
 }
 
-/** The product type an entry needs: one of the tenant's, at the deepest level. */
-async function assertLeafType(categoryId: string) {
-  const type = await prisma.productCategory.findUnique({
-    where: { id: categoryId },
-    select: { id: true, isLeaf: true, isActive: true, _count: { select: { children: { where: { isActive: true } } } } },
-  });
+/**
+ * The product type an entry needs: one of the tenant's active types, at any
+ * level — the sub-type is optional (owner decision 2026-11-12).
+ */
+async function assertType(categoryId: string) {
+  const type = await prisma.productCategory.findUnique({ where: { id: categoryId }, select: { isActive: true } });
   if (!type || !type.isActive) throw new CustomerSearchError('Choose a product type from the list', 400);
-  if (!type.isLeaf && type._count.children > 0) {
-    throw new CustomerSearchError('Choose the product type down to its last level', 400);
-  }
 }
-
 const listInclude = {
   customer: { select: { id: true, name: true, customerCode: true } },
   coCustomer: { select: { id: true, name: true, customerCode: true } },
@@ -307,21 +311,45 @@ export const customerSearchService = {
       });
   },
 
+  /**
+   * Areas already in the register, for the form's type-or-pick Area field. The
+   * sheet has "KHORA", "khora" and "Khora" for one place, so spellings that
+   * differ only in case are one area (shown in capitals); cells without two
+   * letters in a row (a mobile pasted into Area, often as "9.91E+09") are
+   * left out. Most used first.
+   */
+  async areas() {
+    const groups = await prisma.customerSearchEntry.groupBy({
+      by: ['area'],
+      _count: { _all: true },
+      where: { area: { not: null } },
+    });
+    const byKey = new Map<string, number>();
+    for (const g of groups) {
+      const key = (g.area ?? '').trim().replace(/\s+/g, ' ').toUpperCase();
+      if (!/[A-Z]{2}/.test(key)) continue;
+      byKey.set(key, (byKey.get(key) ?? 0) + g._count._all);
+    }
+    return [...byKey]
+      .map(([area, count]) => ({ area, count }))
+      .sort((a, b) => b.count - a.count || a.area.localeCompare(b.area));
+  },
+
   /** The next free number in a series. */
   async nextNumber(prefix: string) {
     const p = normalizeAccountNumber(prefix);
+    if (!isValidAccountPrefix(p)) throw new CustomerSearchError('A series is 2 or 3 letters, optionally with one digit, e.g. BD, CK2, ABC');
     const last = await prisma.customerSearchEntry.findFirst({
       where: { prefix: p, seriesNo: { not: null } },
       orderBy: { seriesNo: 'desc' },
       select: { accountNumber: true, seriesNo: true },
     });
     let candidate = nextAccountNumber(p, last);
-    // An odd-shaped number may already sit where the series goes next.
+    // Defensive: never suggest a number that is already used.
     for (let i = 0; i < 50; i++) {
       const taken = await prisma.customerSearchEntry.findFirst({ where: { accountNumber: candidate }, select: { id: true } });
       if (!taken) break;
-      const parsed = parseAccountNumber(candidate);
-      candidate = nextAccountNumber(p, { accountNumber: candidate, seriesNo: parsed.seriesNo });
+      candidate = nextAccountNumber(p, { seriesNo: parseAccountNumber(candidate).seriesNo });
     }
     return { prefix: p, lastAccountNumber: last?.accountNumber ?? null, nextAccountNumber: candidate };
   },
@@ -355,6 +383,37 @@ export const customerSearchService = {
       .sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
   },
 
+  /**
+   * Names of existing customers containing the typed text, for the form's
+   * type-or-pick Customer name: each name once (with how many customers have
+   * it), names starting with the text first; at most 20. Picking one only
+   * fills the name — the person is still decided by name + mobile.
+   */
+  async customerNames(q: string) {
+    const text = tidyName(q);
+    if (personNameKey(text).length < 2) return [];
+    const rows = await prisma.customer.groupBy({
+      by: ['name'],
+      where: { name: { contains: text, mode: 'insensitive' } },
+      _count: { _all: true },
+      orderBy: { name: 'asc' },
+      take: 500,
+    });
+    const byKey = new Map<string, { name: string; count: number }>();
+    for (const r of rows) {
+      const key = personNameKey(r.name);
+      const seen = byKey.get(key);
+      if (seen) seen.count += r._count._all;
+      else byKey.set(key, { name: tidyName(r.name), count: r._count._all });
+    }
+    const lower = text.toLowerCase();
+    const all = [...byKey.values()];
+    return [
+      ...all.filter((n) => n.name.toLowerCase().startsWith(lower)),
+      ...all.filter((n) => !n.name.toLowerCase().startsWith(lower)),
+    ].slice(0, 20);
+  },
+
   async create(input: EntryInput, ctx: { shopId: string; userId: string }) {
     // A repeated save (the first response was lost) returns the entry it made.
     if (input.clientRequestId) {
@@ -363,7 +422,9 @@ export const customerSearchService = {
     }
     const acc = parseAccountNumber(input.accountNumber);
     const entry = normalizeEntry(input);
-    await assertLeafType(input.categoryId);
+    // The first item is the form's own fields; more items each become entries of their own.
+    const units = expandItems([{ categoryId: input.categoryId, product: entry.product, brand: entry.brand, model: entry.model, quantity: input.quantity ?? 1 }, ...(input.moreItems ?? [])]);
+    for (const categoryId of new Set(units.map((u) => u.categoryId))) await assertType(categoryId);
     const shopId = input.shopId ?? ctx.shopId;
     if (shopId !== ctx.shopId) await assertShopAccess(ctx.userId, shopId);
     // A reused account number is allowed, but only once the person has seen the warning.
@@ -390,11 +451,13 @@ export const customerSearchService = {
           customerId,
           customerName: entry.customerName,
           mobile: entry.mobile,
+          altMobile: entry.altMobile,
           address: entry.address,
           area: entry.area,
           coCustomerId,
           coName: entry.coName,
           coMobile: entry.coMobile,
+          coAltMobile: entry.coAltMobile,
           purchaseDate: new Date(`${input.purchaseDate}T00:00:00Z`),
           categoryId: input.categoryId,
           product: entry.product,
@@ -407,8 +470,11 @@ export const customerSearchService = {
         } as any,
         select: { id: true },
       });
-      await refreshIssues(tx, { ids: [created.id] });
-      return tx.customerSearchEntry.findUniqueOrThrow({ where: { id: created.id } });
+      const more = await addItems(tx, created.id, units.slice(1), ctx.userId);
+      await refreshIssues(tx, { ids: [created.id, ...more] });
+      await catalogService.learn(units, tx);
+      const first = await tx.customerSearchEntry.findUniqueOrThrow({ where: { id: created.id } });
+      return { ...first, itemsSaved: 1 + more.length };
     });
     try {
       return await save();
@@ -431,10 +497,12 @@ export const customerSearchService = {
       accountNumber: input.accountNumber ?? existing.accountNumber,
       customerName: input.customerName ?? existing.customerName,
       mobile: input.mobile !== undefined ? input.mobile : existing.mobile,
+      altMobile: input.altMobile !== undefined ? input.altMobile : existing.altMobile,
       address: input.address !== undefined ? input.address : existing.address,
       area: input.area !== undefined ? input.area : existing.area,
       coName: input.coName !== undefined ? input.coName : existing.coName,
       coMobile: input.coMobile !== undefined ? input.coMobile : existing.coMobile,
+      coAltMobile: input.coAltMobile !== undefined ? input.coAltMobile : existing.coAltMobile,
       purchaseDate: input.purchaseDate ?? toIsoDate(existing.purchaseDate) ?? '',
       categoryId: input.categoryId ?? existing.categoryId ?? '',
       product: input.product !== undefined ? input.product : existing.product,
@@ -446,7 +514,9 @@ export const customerSearchService = {
     const acc = parseAccountNumber(merged.accountNumber);
     const entry = normalizeEntry(merged);
     // Only a changed type has to be a leaf; an imported top-level type can stay.
-    if (input.categoryId && input.categoryId !== existing.categoryId) await assertLeafType(input.categoryId);
+    if (input.categoryId && input.categoryId !== existing.categoryId) await assertType(input.categoryId);
+    const moreUnits = expandItems(input.moreItems ?? []);
+    for (const categoryId of new Set(moreUnits.map((u) => u.categoryId))) await assertType(categoryId);
     const shopId = input.shopId ?? existing.shopId;
     const shopChanged = shopId !== existing.shopId;
     if (shopChanged) await assertShopAccess(ctx.userId, shopId);
@@ -500,11 +570,13 @@ export const customerSearchService = {
           customerId,
           customerName: entry.customerName,
           mobile: entry.mobile,
+          altMobile: entry.altMobile,
           address: entry.address,
           area: entry.area,
           coCustomerId,
           coName: entry.coName,
           coMobile: entry.coMobile,
+          coAltMobile: entry.coAltMobile,
           purchaseDate: merged.purchaseDate ? new Date(`${merged.purchaseDate}T00:00:00Z`) : null,
           categoryId: merged.categoryId || null,
           product: entry.product,
@@ -516,8 +588,11 @@ export const customerSearchService = {
       });
       // The customer goes with the entry unless something keeps them in the old shop.
       if (shopChanged) await moveCustomersWithEntry(tx, [customerId, coCustomerId], shopId);
-      await refreshIssues(tx, { ids: [id], accountNumbers: [existing.accountNumber] });
-      return tx.customerSearchEntry.findUniqueOrThrow({ where: { id } });
+      const more = await addItems(tx, id, moreUnits, ctx.userId);
+      await refreshIssues(tx, { ids: [id, ...more], accountNumbers: [existing.accountNumber] });
+      await catalogService.learn([{ categoryId: merged.categoryId || null, brand: entry.brand, model: entry.model }, ...moreUnits], tx);
+      const saved = await tx.customerSearchEntry.findUniqueOrThrow({ where: { id } });
+      return { ...saved, itemsSaved: 1 + more.length };
     });
   },
 
@@ -574,7 +649,7 @@ export const customerSearchService = {
     );
     const header = [
       'Account Number', 'CUSTOMER_NAME', 'Address', 'Mobile', 'CO', 'CO_Mobile', 'AREA', 'Purchase_Date',
-      'Product Type', ...types.levelHeaders, 'Brand', 'Model', 'Shop', 'Customer Code', 'Needs review',
+      'Product Type', ...types.levelHeaders, 'Brand', 'Model', 'Shop', 'Customer Code', 'Needs review', 'Mobile 2', 'CO_Mobile 2',
     ];
     const rows = entries.map((e, i) => [
       e.accountNumber,
@@ -592,6 +667,8 @@ export const customerSearchService = {
       e.shop.name,
       e.customer?.customerCode ?? '',
       e.issues.map((code) => REGISTER_ISSUES[code as keyof typeof REGISTER_ISSUES] ?? code).join('; '),
+      e.altMobile ?? '',
+      e.coAltMobile ?? '',
     ]);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([header, ...rows]), 'Customer Searching');
@@ -615,18 +692,79 @@ function normalizeEntry(input: EntryInput) {
   const coMobileValid = coMobileText !== '' && isValidMobile(coMobileText);
   if (coMobileText && !coMobileValid) throw new CustomerSearchError('Co-applicant mobile must be a 10-digit Indian mobile number');
   const clean = (v: string | null | undefined) => (v ?? '').replace(/\s+/g, ' ').trim() || null;
+  const mobile = mobileText ? normalizeMobile(mobileText) : '';
+  const coMobile = coMobileValid ? normalizeMobile(coMobileText) : null;
   return {
     customerName,
-    mobile: mobileText ? normalizeMobile(mobileText) : '',
+    mobile,
+    altMobile: secondMobile(input.altMobile, mobile, 'Second mobile'),
     address: clean(input.address),
     area: clean(input.area),
     coName,
-    coMobile: coMobileValid ? normalizeMobile(coMobileText) : null,
+    coMobile,
+    coAltMobile: secondMobile(input.coAltMobile, coMobile, 'Co-applicant second mobile'),
     coMobileValid,
     product: clean(input.product),
-    brand: clean(input.brand),
+    brand: canonicalBrand(input.brand) || null,
     model: clean(input.model),
   };
+}
+
+/** A second number: 10 digits, or none; the same as the first counts as none. */
+function secondMobile(text: string | null | undefined, first: string | null, label: string): string | null {
+  const value = (text ?? '').trim();
+  if (!value) return null;
+  if (!isValidMobile(value)) throw new CustomerSearchError(` must be a 10-digit Indian mobile number`);
+  const normalized = normalizeMobile(value);
+  return normalized === first ? null : normalized;
+}
+
+interface ItemUnit {
+  categoryId: string;
+  product: string | null;
+  brand: string | null;
+  model: string | null;
+}
+
+/** Items with a quantity → one unit (entry) each. */
+function expandItems(items: Array<Omit<ItemInput, 'quantity'> & { quantity?: number }>): ItemUnit[] {
+  const clean = (v: string | null | undefined) => (v ?? '').replace(/\s+/g, ' ').trim() || null;
+  return items.flatMap((i) =>
+    Array.from({ length: i.quantity ?? 1 }, () => ({ categoryId: i.categoryId, product: clean(i.product), brand: canonicalBrand(i.brand) || null, model: clean(i.model) })),
+  );
+}
+
+/**
+ * More items of the same purchase as an entry: new entries copying its
+ * account number, customer, co-applicant, date and shop. Returns their ids.
+ */
+async function addItems(tx: Prisma.TransactionClient, fromId: string, units: ItemUnit[], userId: string): Promise<string[]> {
+  if (!units.length) return [];
+  const from = await tx.customerSearchEntry.findUniqueOrThrow({ where: { id: fromId } });
+  const rows = units.map((u) => ({
+    id: randomUUID(),
+    shopId: from.shopId,
+    accountNumber: from.accountNumber,
+    prefix: from.prefix,
+    seriesNo: from.seriesNo,
+    customerId: from.customerId,
+    customerName: from.customerName,
+    mobile: from.mobile,
+    altMobile: from.altMobile,
+    address: from.address,
+    area: from.area,
+    coCustomerId: from.coCustomerId,
+    coName: from.coName,
+    coMobile: from.coMobile,
+    coAltMobile: from.coAltMobile,
+    purchaseDate: from.purchaseDate,
+    ...u,
+    source: 'app',
+    createdBy: userId,
+    updatedBy: userId,
+  }));
+  await tx.customerSearchEntry.createMany({ data: rows as any });
+  return rows.map((r) => r.id);
 }
 
 /** The entry an earlier save with this client request id made, if any (only the same user's). */
@@ -655,7 +793,7 @@ async function takenError(
   prefix: string,
   usedBy: Array<{ id: string; customerName: string; shop: { code: string } }>,
 ) {
-  const next = prefix ? (await customerSearchService.nextNumber(prefix)).nextAccountNumber : null;
+  const next = isValidAccountPrefix(prefix) ? (await customerSearchService.nextNumber(prefix)).nextAccountNumber : null;
   const who = usedBy.map((u) => `${u.customerName || '(no name)'} (${u.shop.code})`).join(', ');
   return new CustomerSearchError(
     `Account Number ${accountNumber} is already used for ${who}${next ? `. The next free one is ${next}` : ''}.`,

@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tansta
 import { apiClient } from '../lib/api-client';
 import type { ApiResponse, PaginatedResponse } from '@retailerp/shared-types';
 import type { RegisterSheetRow } from '@retailerp/shared-utils';
+import { isValidAccountPrefix } from '@retailerp/shared-utils';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -28,6 +29,8 @@ export interface CustomerSearchEntry {
   coCustomerId: string | null;
   coName: string | null;
   coMobile?: string | null;
+  altMobile?: string | null;
+  coAltMobile?: string | null;
   purchaseDate: string | null;
   categoryId: string | null;
   /** Product type names from the top down (Electronics, TV, LED TV); null when none is set. */
@@ -107,6 +110,8 @@ export interface EntryPayload {
   area?: string | null;
   coName?: string | null;
   coMobile?: string | null;
+  altMobile?: string | null;
+  coAltMobile?: string | null;
   purchaseDate: string;
   categoryId: string;
   product?: string | null;
@@ -117,6 +122,10 @@ export interface EntryPayload {
   shopId?: string;
   /** Save even though the account number is already used. */
   allowDuplicate?: boolean;
+  /** How many of the first item (create only): that many entries. */
+  quantity?: number;
+  /** More products under the same account: each unit becomes its own entry. */
+  moreItems?: Array<{ categoryId: string; brand?: string | null; model?: string | null; quantity: number }>;
 }
 
 export type ImportRow = RegisterSheetRow;
@@ -257,6 +266,7 @@ const keys = {
   list: (filters: CustomerSearchFilters) => ['customer-search', 'list', filters] as const,
   detail: (id: string) => ['customer-search', 'detail', id] as const,
   prefixes: ['customer-search', 'prefixes'] as const,
+  areas: ['customer-search', 'areas'] as const,
   nextNumber: (prefix: string) => ['customer-search', 'next-number', prefix] as const,
   matches: (mobile: string, name: string) => ['customer-search', 'matches', mobile, name] as const,
   forCustomer: (id: string) => ['customer-search', 'customer', id] as const,
@@ -334,6 +344,18 @@ export function usePrefixesQuery(enabled = true) {
   });
 }
 
+/** Areas already in the register (case variants merged, most used first). */
+export function useAreasQuery() {
+  return useQuery({
+    queryKey: keys.areas,
+    queryFn: async () => {
+      const { data } = await apiClient.get<ApiResponse<{ area: string; count: number }[]>>('/customer-search/areas');
+      return data.data!;
+    },
+    staleTime: 5 * 60_000,
+  });
+}
+
 export function useNextNumberQuery(prefix: string, enabled = true) {
   const p = prefix.trim().toUpperCase();
   return useQuery({
@@ -344,8 +366,25 @@ export function useNextNumberQuery(prefix: string, enabled = true) {
       );
       return data.data!;
     },
-    enabled: enabled && /^[A-Z]{1,2}$/.test(p),
+    enabled: enabled && isValidAccountPrefix(p),
     staleTime: 0,
+  });
+}
+
+/** Names of existing customers containing the text (2+ letters), each once with how many have it. */
+export function useCustomerNamesQuery(name: string, enabled = true) {
+  const q = name.trim();
+  return useQuery({
+    queryKey: ['customer-search', 'customer-names', q.toLowerCase()] as const,
+    queryFn: async () => {
+      const { data } = await apiClient.get<ApiResponse<{ name: string; count: number }[]>>(
+        `/customer-search/customer-names?${toParams({ q })}`,
+      );
+      return data.data!;
+    },
+    enabled: enabled && q.replace(/[^A-Za-z]/g, '').length >= 2,
+    placeholderData: keepPreviousData,
+    staleTime: 60_000,
   });
 }
 
@@ -393,14 +432,18 @@ export function useImportBatchesQuery(enabled = true) {
 // ---------------------------------------------------------------------------
 // Mutations
 // ---------------------------------------------------------------------------
+/** A saved entry, with how many entries the save made (one per item unit). */
+type SavedEntry = CustomerSearchEntry & { itemsSaved?: number };
+
 export function useCreateEntryMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (payload: EntryPayload) => {
-      const { data } = await apiClient.post<ApiResponse<CustomerSearchEntry>>('/customer-search', payload);
+      const { data } = await apiClient.post<ApiResponse<SavedEntry>>('/customer-search', payload);
       return data.data!;
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['lookup'] });
       queryClient.invalidateQueries({ queryKey: keys.all });
       queryClient.invalidateQueries({ queryKey: ['customers'] });
     },
@@ -411,10 +454,11 @@ export function useUpdateEntryMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, payload }: { id: string; payload: Partial<EntryPayload> }) => {
-      const { data } = await apiClient.patch<ApiResponse<CustomerSearchEntry>>(`/customer-search/${id}`, payload);
+      const { data } = await apiClient.patch<ApiResponse<SavedEntry>>(`/customer-search/${id}`, payload);
       return data.data!;
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['lookup'] });
       queryClient.invalidateQueries({ queryKey: keys.all });
       queryClient.invalidateQueries({ queryKey: ['customers'] });
     },
@@ -457,6 +501,7 @@ export function useImportCommitMutation() {
       return data.data!;
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['lookup'] });
       queryClient.invalidateQueries({ queryKey: keys.all });
       queryClient.invalidateQueries({ queryKey: ['customers'] });
       queryClient.invalidateQueries({ queryKey: ['categories'] });

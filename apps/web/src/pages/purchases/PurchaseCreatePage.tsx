@@ -941,6 +941,8 @@ function BilledPurchaseWizard({
                     >
                       <ModelAutocomplete
                         value={watch(`items.${index}.modelNumber`) || ''}
+                        categoryId={itemCategoryIds[index]}
+                        brand={watch(`items.${index}.brand`) || ''}
                         onChange={(val) => {
                           methods.setValue(`items.${index}.modelNumber`, val, { shouldValidate: true });
                         }}

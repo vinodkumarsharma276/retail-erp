@@ -115,8 +115,8 @@ export function CategoryCascader({
       const options = getLevelOptions(level);
       const node = options.find((c) => c.id === categoryId);
 
-      if (compact && allowNonLeaf && !categoryId) {
-        // "Any" at a lower level keeps the level above as the filter.
+      if (!categoryId && allowNonLeaf) {
+        // "Any" / "Select…" at a lower level keeps the level above as the choice.
         onCategorySelect(level > 0 ? selections[level - 1] : undefined);
       } else if (node?.isLeaf || (allowNonLeaf && !node?.children?.length)) {
         onCategorySelect(categoryId);
@@ -127,7 +127,7 @@ export function CategoryCascader({
         onCategorySelect(undefined);
       }
     },
-    [selections, getLevelOptions, allowNonLeaf, compact, onCategorySelect],
+    [selections, getLevelOptions, allowNonLeaf, onCategorySelect],
   );
 
   /** Show the new type as chosen, under whatever it was filed beneath. */

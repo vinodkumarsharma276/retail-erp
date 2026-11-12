@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Check, UserCheck, UserPlus } from 'lucide-react';
-import { formatPhone } from '@retailerp/shared-utils';
+import { Check, UserCheck, UserPlus, X } from 'lucide-react';
+import { formatAccountNumber, formatPhone, isValidAccountPrefix, isValidMobile } from '@retailerp/shared-utils';
+import { DateInput } from '../../components/DateInput';
 import { PageHeader } from '../../components/PageHeader';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
@@ -9,9 +10,6 @@ import { Select } from '../../components/ui/select';
 import { Badge } from '../../components/ui/badge';
 import { Card } from '../../components/ui/card';
 import { LoadingSpinner } from '../../components/LoadingSpinner';
-import { CategoryCascader } from '../../components/CategoryCascader';
-import { BrandInput } from '../../components/BrandInput';
-import { ModelAutocomplete } from '../../components/ModelAutocomplete';
 import { cn } from '../../lib/utils';
 import { useDebounce } from '../../hooks/useDebounce';
 import { useMeQuery } from '../../hooks/useAuth';
@@ -21,7 +19,9 @@ import {
   apiErrorMessage,
   takenSuggestion,
   isTakenNumber,
+  useAreasQuery,
   useCreateEntryMutation,
+  useCustomerNamesQuery,
   useCustomerMatchesQuery,
   useCustomerSearchEntryQuery,
   useNextNumberQuery,
@@ -31,6 +31,8 @@ import {
   type EntryPayload,
 } from '../../hooks/useCustomerSearch';
 import { useRegisterListUrl } from './registerListUrl';
+import { SuggestInput } from '../../components/SuggestInput';
+import { ItemsTable, MAX_UNITS, newItemRow, rowReady, type ItemRow } from './ItemsTable';
 
 const NEW_PREFIX = '__new__';
 const today = () => new Date().toISOString().slice(0, 10);
@@ -43,19 +45,20 @@ interface FormState {
   area: string;
   coName: string;
   coMobile: string;
+  altMobile: string;
+  coAltMobile: string;
   purchaseDate: string;
-  categoryId: string;
+  /** The sheet's Product text of the entry being edited (kept as it is). */
   product: string;
-  brand: string;
-  model: string;
+  items: ItemRow[];
   customerId: string | null;
   coCustomerId: string | null;
   shopId: string;
 }
 
 const EMPTY: FormState = {
-  accountNumber: '', customerName: '', mobile: '', address: '', area: '', coName: '', coMobile: '',
-  purchaseDate: today(), categoryId: '', product: '', brand: '', model: '', customerId: null, coCustomerId: null, shopId: '',
+  accountNumber: '', customerName: '', mobile: '', address: '', area: '', coName: '', coMobile: '', altMobile: '', coAltMobile: '',
+  purchaseDate: today(), product: '', items: [newItemRow()], customerId: null, coCustomerId: null, shopId: '',
 };
 
 function Field({ label, hint, required, children, className }: { label: string; hint?: ReactNode; required?: boolean; children: ReactNode; className?: string }) {
@@ -138,6 +141,55 @@ function MatchList({
   );
 }
 
+const MOBILE_RULE = 'Enter a 10-digit mobile number starting with 6, 7, 8 or 9';
+
+function secondMobileProblem(second: string, first: string): string | null {
+  if (!second.trim()) return null;
+  if (!isValidMobile(second)) return MOBILE_RULE;
+  if (!first.trim()) return 'Fill in the first mobile before a second one';
+  return null;
+}
+
+/** "+ Add another number", then a second mobile box that can be removed. */
+function SecondMobile({ value, problem, onChange }: { value: string; problem: string | null; onChange: (value: string) => void }) {
+  const [open, setOpen] = useState(false);
+  if (!open && !value) {
+    return (
+      <button type="button" className="mt-1 text-xs text-primary hover:underline" onClick={() => setOpen(true)}>
+        + Add another number
+      </button>
+    );
+  }
+  return (
+    <div className="mt-2">
+      <div className="flex items-center gap-1">
+        <Input
+          autoFocus={open && !value}
+          inputMode="numeric"
+          aria-label="Second mobile"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="Second mobile"
+          aria-invalid={!!problem || undefined}
+        />
+        <Button
+          type="button"
+          size="xs"
+          variant="ghost"
+          aria-label="Remove second mobile"
+          onClick={() => {
+            onChange('');
+            setOpen(false);
+          }}
+        >
+          <X className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+      {problem && <p className="mt-1 text-xs text-destructive">{problem}</p>}
+    </div>
+  );
+}
+
 export function CustomerSearchFormPage() {
   const { id } = useParams<{ id: string }>();
   const isEdit = !!id;
@@ -151,8 +203,6 @@ export function CustomerSearchFormPage() {
   const [prefixChoice, setPrefixChoice] = useState('');
   const [newPrefix, setNewPrefix] = useState('');
   const [numberTouched, setNumberTouched] = useState(false);
-  // On edit, an entry keeps its type (even an imported top-level one) unless the picker is used.
-  const [typeTouched, setTypeTouched] = useState(false);
   const [error, setError] = useState<{ message: string; suggestion: string | null; taken: boolean } | null>(null);
   const me = useMeQuery();
   const shops = me.data?.shops ?? [];
@@ -160,7 +210,8 @@ export function CustomerSearchFormPage() {
 
   const entry = useCustomerSearchEntryQuery(id);
   const prefixes = usePrefixesQuery(!isEdit);
-  const activePrefix = prefixChoice === NEW_PREFIX ? newPrefix.trim().toUpperCase() : prefixChoice;
+  const areas = useAreasQuery();
+  const activePrefix = prefixChoice === NEW_PREFIX ? (isValidAccountPrefix(newPrefix) ? newPrefix.toUpperCase() : '') : prefixChoice;
   const next = useNextNumberQuery(activePrefix, !isEdit);
   const createMutation = useCreateEntryMutation();
   const updateMutation = useUpdateEntryMutation();
@@ -177,11 +228,11 @@ export function CustomerSearchFormPage() {
       area: e.area ?? '',
       coName: e.coName ?? '',
       coMobile: e.coMobile ?? '',
+      altMobile: e.altMobile ?? '',
+      coAltMobile: e.coAltMobile ?? '',
       purchaseDate: e.purchaseDate ?? '',
-      categoryId: e.categoryId ?? '',
       product: e.product ?? '',
-      brand: e.brand ?? '',
-      model: e.model ?? '',
+      items: [{ ...newItemRow({ categoryId: e.categoryId ?? '', brand: e.brand ?? '', model: e.model ?? '' }), existing: true, originalCategoryId: e.categoryId ?? '' }],
       customerId: null,
       coCustomerId: null,
       shopId: e.shopId,
@@ -217,11 +268,18 @@ export function CustomerSearchFormPage() {
     );
   const pickCo = (m: CustomerMatch | null) =>
     setForm((f) => (m ? { ...f, coCustomerId: m.id, coName: m.name } : { ...f, coCustomerId: null }));
+  const nameQuery = useDebounce(form.customerName, 300);
+  const names = useCustomerNamesQuery(nameQuery);
 
   const mobileDigits = form.mobile.replace(/\D/g, '');
-  const typeOk = isEdit ? !typeTouched || !!form.categoryId : !!form.categoryId;
+  const units = form.items.reduce((n, r) => n + (r.existing ? 1 : r.quantity), 0);
+  const typeOk = form.items.every(rowReady) && units <= MAX_UNITS;
   // Mobile may be left empty (the entry is then listed under "Needs review").
-  const mobileOk = mobileDigits.length === 0 || mobileDigits.length >= 10;
+  const mobileProblem = form.mobile.trim() && !isValidMobile(form.mobile) ? 'Enter a 10-digit mobile number starting with 6, 7, 8 or 9' : null;
+  const coMobileProblem = form.coMobile.trim() && !isValidMobile(form.coMobile) ? 'Enter a 10-digit mobile number starting with 6, 7, 8 or 9' : null;
+  const altMobileProblem = secondMobileProblem(form.altMobile, form.mobile);
+  const coAltMobileProblem = secondMobileProblem(form.coAltMobile, form.coMobile);
+  const mobileOk = !mobileProblem && !coMobileProblem && !altMobileProblem && !coAltMobileProblem;
   const canSave = useMemo(
     () => form.accountNumber.trim() && form.customerName.trim() && mobileOk && form.purchaseDate && typeOk && form.shopId,
     [form.accountNumber, form.customerName, mobileOk, form.purchaseDate, typeOk, form.shopId],
@@ -231,19 +289,23 @@ export function CustomerSearchFormPage() {
     event?.preventDefault();
     setError(null);
     const blank = (v: string) => (v.trim() ? v.trim() : null);
+    const [first, ...rest] = form.items;
+    const moreItems = rest.map((r) => ({ categoryId: r.categoryId, brand: blank(r.brand), model: blank(r.model), quantity: r.quantity }));
     const payload: EntryPayload = {
-      accountNumber: form.accountNumber.trim().toUpperCase(),
+      accountNumber: formatAccountNumber(form.accountNumber),
       customerName: form.customerName.trim(),
       mobile: blank(form.mobile),
       address: blank(form.address),
       area: blank(form.area),
       coName: blank(form.coName),
       coMobile: blank(form.coMobile),
+      altMobile: blank(form.altMobile),
+      coAltMobile: blank(form.coAltMobile),
       purchaseDate: form.purchaseDate,
-      categoryId: form.categoryId,
+      categoryId: first.categoryId,
       product: blank(form.product),
-      brand: blank(form.brand),
-      model: blank(form.model),
+      brand: blank(first.brand),
+      model: blank(first.model),
       customerId: form.customerId,
       coCustomerId: form.coCustomerId,
       shopId: form.shopId || undefined,
@@ -255,18 +317,51 @@ export function CustomerSearchFormPage() {
             id: id!,
             payload: {
               ...payload,
-              categoryId: typeTouched && form.categoryId ? form.categoryId : undefined,
+              categoryId: first.categoryId && first.categoryId !== first.originalCategoryId ? first.categoryId : undefined,
+              moreItems,
               customerId: form.customerId ?? undefined,
               coCustomerId: form.coCustomerId ?? undefined,
             },
           })
-        : await createMutation.mutateAsync(payload);
-      toast.success(saved.issues?.length ? `Saved ${saved.accountNumber} — listed under Needs review` : `Saved ${saved.accountNumber}`);
+        : await createMutation.mutateAsync({ ...payload, quantity: first.quantity, moreItems });
+      const what = (saved.itemsSaved ?? 1) > 1 ? `${saved.itemsSaved} items under ${saved.accountNumber}` : saved.accountNumber;
+      toast.success(saved.issues?.length ? `Saved ${what} — listed under Needs review` : `Saved ${what}`);
       navigate(`/customer-search/${saved.id}`, { state: { listUrl } });
     } catch (err) {
       setError({ message: apiErrorMessage(err, "Couldn't save the entry"), suggestion: takenSuggestion(err), taken: isTakenNumber(err) });
     }
   };
+
+  // Shown above the form and above the bottom buttons, so whichever Save was used shows it.
+  const errorBox = error ? (
+    <div
+      className={cn(
+        'mb-4 flex flex-wrap items-center gap-3 rounded-lg border p-3 text-sm',
+        error.taken ? 'border-warning/40 bg-warning-muted text-warning' : 'border-destructive/50 bg-destructive/10 text-destructive',
+      )}
+    >
+      {error.message}
+      {error.suggestion && (
+        <Button
+          size="sm"
+          variant="secondary"
+          type="button"
+          onClick={() => {
+            setNumberTouched(true);
+            set('accountNumber', error.suggestion!);
+            setError(null);
+          }}
+        >
+          Use {error.suggestion}
+        </Button>
+      )}
+      {error.taken && (
+        <Button size="sm" variant="secondary" type="button" loading={saving} onClick={() => submit(null, true)}>
+          Save anyway (listed under Needs review)
+        </Button>
+      )}
+    </div>
+  ) : null;
 
   if (isEdit && (entry.isLoading || !loaded)) {
     return entry.isError ? (
@@ -282,14 +377,26 @@ export function CustomerSearchFormPage() {
         title={isEdit ? `Edit ${entry.data?.accountNumber ?? 'entry'}` : 'New entry'}
         description={isEdit ? undefined : 'Pick the series, then the customer by mobile number. New customers are created in the current shop.'}
         backTo={goBack}
+        actions={
+          <>
+            <Button variant="ghost" type="button" onClick={goBack}>
+              Cancel
+            </Button>
+            <Button type="submit" form="customer-search-form" loading={saving} disabled={!canSave}>
+              {isEdit ? 'Save changes' : 'Save entry'}
+            </Button>
+          </>
+        }
       />
 
-      <form onSubmit={submit} className="space-y-4">
+      {errorBox}
+
+      <form id="customer-search-form" onSubmit={submit} className="space-y-4">
         <Card className="p-4">
           <h2 className="mb-3 text-sm font-semibold">Account Number</h2>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {!isEdit && (
-              <Field label="Series (prefix)" hint={next.data?.lastAccountNumber ? `Last in series: ${next.data.lastAccountNumber}` : activePrefix ? 'First of this series' : undefined}>
+              <Field label="Series (prefix)" hint={prefixChoice === NEW_PREFIX && newPrefix && !activePrefix ? '2 or 3 letters, optionally one digit: BD, CK2, ABC' : next.data?.lastAccountNumber ? `Last in series: ${next.data.lastAccountNumber}` : activePrefix ? 'First of this series' : undefined}>
                 <div className="flex items-center gap-2">
                   <div className="min-w-0 flex-1">
                     <Select
@@ -318,8 +425,8 @@ export function CustomerSearchFormPage() {
                         setNewPrefix(e.target.value.replace(/[^a-zA-Z0-9]/g, '').toUpperCase());
                         setNumberTouched(false);
                       }}
-                      placeholder="BD"
-                      title="1-3 letters, optionally one digit (CI2)"
+                      placeholder="CK2"
+                      title="2 or 3 letters, optionally one digit: BD, CK2, ABC"
                       className="w-20 shrink-0 text-center font-mono uppercase"
                     />
                   )}
@@ -333,13 +440,14 @@ export function CustomerSearchFormPage() {
                   setNumberTouched(true);
                   set('accountNumber', e.target.value.toUpperCase());
                 }}
-                placeholder="e.g. BD-13"
+                placeholder="e.g. BD 13"
+                onBlur={() => set('accountNumber', formatAccountNumber(form.accountNumber))}
                 className="font-mono"
                 required
               />
             </Field>
             <Field label="Purchase date" required>
-              <Input type="date" value={form.purchaseDate} max={today()} onChange={(e) => set('purchaseDate', e.target.value)} required />
+              <DateInput value={form.purchaseDate} max={today()} onChange={(v) => set('purchaseDate', v)} required ariaLabel="Purchase date" />
             </Field>
             <Field
               label="Shop"
@@ -382,11 +490,21 @@ export function CustomerSearchFormPage() {
                 value={form.mobile}
                 onChange={(e) => setForm((f) => ({ ...f, mobile: e.target.value, customerId: null }))}
                 placeholder="10-digit mobile"
+                aria-invalid={!!mobileProblem || undefined}
               />
+              {mobileProblem && <p className="mt-1 text-xs text-destructive">{mobileProblem}</p>}
+              <SecondMobile value={form.altMobile} problem={altMobileProblem} onChange={(v) => set('altMobile', v)} />
               <MatchList mobile={form.mobile} name={form.customerName} selectedId={form.customerId} onPick={pickCustomer} />
             </Field>
-            <Field label="Customer name" required>
-              <Input
+            <Field label="Customer name" required hint="Pick a name already used or type a new one">
+              <SuggestInput
+                aria-label="Customer name"
+                serverFiltered
+                maxShown={20}
+                options={(names.data ?? []).map((n) => n.name)}
+                optionHint={(i) => (names.data![i].count > 1 ? `${names.data![i].count} customers` : undefined)}
+                loading={names.isFetching && !names.data?.length}
+                emptyText={nameQuery.replace(/[^A-Za-z]/g, '').length < 2 ? 'Type 2 letters to see names' : undefined}
                 value={form.customerName}
                 onChange={(e) => setForm((f) => ({ ...f, customerName: e.target.value, customerId: null }))}
                 required
@@ -395,8 +513,15 @@ export function CustomerSearchFormPage() {
             <Field label="Address">
               <Input value={form.address} onChange={(e) => set('address', e.target.value)} />
             </Field>
-            <Field label="Area">
-              <Input value={form.area} onChange={(e) => set('area', e.target.value)} />
+            <Field label="Area" hint="Pick from the list or type a new area">
+              <SuggestInput
+                aria-label="Area"
+                options={(areas.data ?? []).map((a) => a.area)}
+                newHint={(typed) => `“${typed.toUpperCase()}” is a new area`}
+                value={form.area}
+                onChange={(e) => set('area', e.target.value)}
+                onBlur={() => set('area', form.area.trim().replace(/\s+/g, ' ').toUpperCase())}
+              />
             </Field>
           </div>
         </Card>
@@ -413,7 +538,10 @@ export function CustomerSearchFormPage() {
                 value={form.coMobile}
                 onChange={(e) => setForm((f) => ({ ...f, coMobile: e.target.value, coCustomerId: null }))}
                 placeholder="10-digit mobile"
+                aria-invalid={!!coMobileProblem || undefined}
               />
+              {coMobileProblem && <p className="mt-1 text-xs text-destructive">{coMobileProblem}</p>}
+              <SecondMobile value={form.coAltMobile} problem={coAltMobileProblem} onChange={(v) => set('coAltMobile', v)} />
               <MatchList mobile={form.coMobile} name={form.coName} selectedId={form.coCustomerId} onPick={pickCo} />
             </Field>
             <Field label="Co-applicant name">
@@ -424,70 +552,17 @@ export function CustomerSearchFormPage() {
         </div>
 
         <Card className="p-4">
-          <h2 className="mb-3 text-sm font-semibold">
-            Item <span className="text-destructive">*</span>
+          <h2 className="mb-1 text-sm font-semibold">
+            Items <span className="text-destructive">*</span>
           </h2>
-          <div className="grid items-start gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="sm:col-span-2">
-              <CategoryCascader
-                required
-                allowCreate
-                initialCategoryId={form.categoryId || undefined}
-                onCategorySelect={(categoryId) => {
-                  setTypeTouched(true);
-                  set('categoryId', categoryId ?? '');
-                }}
-              />
-              {typeTouched && !form.categoryId && (
-                <p className="mt-1 text-xs text-warning">Choose the product type down to its last level.</p>
-              )}
-              {isEdit && entry.data?.product && !entry.data.productType && (
-                <p className="mt-1 text-xs text-muted-foreground">The sheet said “{entry.data.product}”.</p>
-              )}
-            </div>
-            <Field label="Brand" hint="Pick from the list or type a new one">
-              <BrandInput categoryId={form.categoryId || undefined} value={form.brand} onChange={(e) => set('brand', e.target.value)} />
-            </Field>
-            <Field label="Model">
-              <ModelAutocomplete
-                value={form.model}
-                onChange={(value) => set('model', value)}
-                onSelect={(p) => setForm((f) => ({ ...f, model: p.modelNumber, brand: f.brand || p.brand }))}
-                placeholder="Type a model number…"
-              />
-            </Field>
-          </div>
+          <p className="mb-3 text-xs text-muted-foreground">
+            {isEdit
+              ? 'Row 1 is this entry. Add rows for more products bought under this account; each becomes its own entry.'
+              : 'One row per product. Use Qty for several of the same, or duplicate a row and change it.'}
+          </p>
+          <ItemsTable rows={form.items} onChange={(items) => set('items', items)} sheetText={isEdit ? entry.data?.product : null} />
         </Card>
-
-        {error && (
-          <div
-            className={cn(
-              'flex flex-wrap items-center gap-3 rounded-lg border p-3 text-sm',
-              error.taken ? 'border-warning/40 bg-warning-muted text-warning' : 'border-destructive/50 bg-destructive/10 text-destructive',
-            )}
-          >
-            {error.message}
-            {error.suggestion && (
-              <Button
-                size="sm"
-                variant="secondary"
-                type="button"
-                onClick={() => {
-                  setNumberTouched(true);
-                  set('accountNumber', error.suggestion!);
-                  setError(null);
-                }}
-              >
-                Use {error.suggestion}
-              </Button>
-            )}
-            {error.taken && (
-              <Button size="sm" variant="secondary" type="button" loading={saving} onClick={() => submit(null, true)}>
-                Save anyway (listed under Needs review)
-              </Button>
-            )}
-          </div>
-        )}
+        {errorBox}
 
         <div className="flex items-center justify-end gap-2">
           <Button variant="ghost" type="button" onClick={goBack}>
