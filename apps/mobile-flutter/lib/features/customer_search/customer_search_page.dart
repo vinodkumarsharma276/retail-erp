@@ -141,8 +141,10 @@ class _CustomerSearchPageState extends State<CustomerSearchPage> {
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 300), () {
       final text = value.trim();
-      // Like the web: searching starts at two characters.
-      _query = _query.copyWith(text: text.length >= 2 ? text : '');
+      // Like the web: searching all fields starts at two characters; an
+      // exact search in one column takes any length.
+      final min = _query.field == RegisterField.all ? 2 : 1;
+      _query = _query.copyWith(text: text.length >= min ? text : '');
       register.searched();
       unawaited(_search(newQuery: true));
     });
@@ -364,7 +366,7 @@ class _SearchRow extends StatelessWidget {
                 prefixIcon: const Icon(Icons.search, size: 20),
                 hintText: field == RegisterField.all
                     ? 'Search'
-                    : 'Search ${field.label.toLowerCase()}',
+                    : 'Exact ${field.label.toLowerCase()}',
                 suffixIcon: ValueListenableBuilder(
                   valueListenable: controller,
                   builder: (context, value, _) => value.text.isEmpty
@@ -486,7 +488,8 @@ class _EntryTile extends StatelessWidget {
       if (type.isNotEmpty) type else ?entry.product,
       if ((entry.purchaseDate ?? '').isNotEmpty)
         displayDate(entry.purchaseDate),
-      if ((entry.mobile ?? '').isNotEmpty) displayMobile(entry.mobile!),
+      if ((entry.mobile ?? '').isNotEmpty)
+        '${displayMobile(entry.mobile!)}${(entry.altMobile ?? '').isNotEmpty ? ' +1' : ''}',
     ].where((v) => v.trim().isNotEmpty).join('  ·  ');
     return InkWell(
       onTap: onTap,

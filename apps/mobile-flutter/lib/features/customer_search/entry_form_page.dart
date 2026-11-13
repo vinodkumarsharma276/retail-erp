@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../../core/session_controller.dart';
 import '../../core/session_models.dart';
 import 'customer_search_controller.dart';
+import 'entry_items.dart';
 import 'register_models.dart';
 
 String newRequestId() {
@@ -39,8 +40,17 @@ class _EntryFormPageState extends State<EntryFormPage> {
   final _name = TextEditingController();
   final _mobile = TextEditingController();
   final _address = TextEditingController();
+  final _moreAddresses = <TextEditingController>[];
+  final _coAddress = TextEditingController();
+  final _coMoreAddresses = <TextEditingController>[];
   final _area = TextEditingController();
   final _areaFocus = FocusNode();
+
+  /// More products of this purchase (each becomes entries of its own), and
+  /// how many of the form's own product.
+  final _items = <ItemDraft>[];
+  int _quantity = 1;
+  late final _lookups = CatalogLookups(widget.session.api);
   final _nameFocus = FocusNode();
   List<String> _areas = const [];
   final _brandFocus = FocusNode();
@@ -78,6 +88,16 @@ class _EntryFormPageState extends State<EntryFormPage> {
   String? _error;
 
   bool get _editing => widget.editing != null;
+
+  /// Entries this save makes: the form's product × quantity (one when
+  /// editing) plus every unit of the added items.
+  int get _units =>
+      (_editing ? 1 : _quantity) + _items.fold(0, (n, i) => n + i.quantity);
+
+  bool get _canSave =>
+      !_saving &&
+      !widget.session.offline &&
+      (_editing || _purchaseDate != null);
   CustomerSearchController get register => widget.register;
 
   @override
@@ -107,6 +127,9 @@ class _EntryFormPageState extends State<EntryFormPage> {
     _name.text = e.customerName;
     _mobile.text = e.mobile ?? '';
     _address.text = e.address ?? '';
+    _setAddresses(_moreAddresses, e.moreAddresses);
+    _coAddress.text = e.coAddress ?? '';
+    _setAddresses(_coMoreAddresses, e.coMoreAddresses);
     _area.text = e.area ?? '';
     _coName.text = e.coName ?? '';
     _coMobile.text = e.coMobile ?? '';
@@ -124,6 +147,9 @@ class _EntryFormPageState extends State<EntryFormPage> {
   void dispose() {
     _matchDebounce?.cancel();
     _areaFocus.dispose();
+    for (final i in _items) {
+      i.dispose();
+    }
     _nameFocus.dispose();
     _brandFocus.dispose();
     _modelFocus.dispose();
@@ -133,6 +159,9 @@ class _EntryFormPageState extends State<EntryFormPage> {
       _name,
       _mobile,
       _address,
+      _coAddress,
+      ..._moreAddresses,
+      ..._coMoreAddresses,
       _area,
       _coName,
       _coMobile,
@@ -235,6 +264,9 @@ class _EntryFormPageState extends State<EntryFormPage> {
     'customerName': _name.text.trim(),
     'mobile': _text(_mobile),
     'address': _text(_address),
+    'moreAddresses': _addressValues(_moreAddresses),
+    'coAddress': _text(_coAddress),
+    'coMoreAddresses': _addressValues(_coMoreAddresses),
     'area': _text(_area),
     'coName': _text(_coName),
     'coMobile': _text(_coMobile),
@@ -249,6 +281,8 @@ class _EntryFormPageState extends State<EntryFormPage> {
     'customerId': ?_customerId,
     if (allowDuplicate) 'allowDuplicate': true,
     'clientRequestId': _requestId,
+    'quantity': _quantity,
+    if (_items.isNotEmpty) 'moreItems': [for (final i in _items) i.toJson()],
   };
 
   Json _patchBody(RegisterEntry base, {bool allowDuplicate = false}) {
@@ -264,6 +298,17 @@ class _EntryFormPageState extends State<EntryFormPage> {
       diff('altMobile', _text(_altMobile), base.altMobile);
     }
     diff('address', _text(_address), base.address);
+    diff('coAddress', _text(_coAddress), base.coAddress);
+    for (final (key, now, was) in [
+      ('moreAddresses', _addressValues(_moreAddresses), base.moreAddresses),
+      (
+        'coMoreAddresses',
+        _addressValues(_coMoreAddresses),
+        base.coMoreAddresses,
+      ),
+    ]) {
+      if (now.join('\n') != was.join('\n')) body[key] = now;
+    }
     diff('area', _text(_area), base.area);
     diff('coName', _text(_coName), base.coName);
     if (base.coMobile != null || base.coName == null) {
@@ -281,6 +326,9 @@ class _EntryFormPageState extends State<EntryFormPage> {
     }
     if (_shopId != base.shopId) body['shopId'] = _shopId;
     if (_customerId != null) body['customerId'] = _customerId;
+    if (_items.isNotEmpty) {
+      body['moreItems'] = [for (final i in _items) i.toJson()];
+    }
     if (allowDuplicate) body['allowDuplicate'] = true;
     body['expectedUpdatedAt'] = base.updatedAt;
     return body;
@@ -292,6 +340,10 @@ class _EntryFormPageState extends State<EntryFormPage> {
     // decision 2026-11-12). An edit may keep what it had (imports often have none).
     if (!_editing && _categoryId == null) {
       setState(() => _error = 'Choose a product type.');
+      return;
+    }
+    if (_units > maxUnitsPerSave) {
+      setState(() => _error = 'At most $maxUnitsPerSave items in one save.');
       return;
     }
     setState(() {
@@ -395,7 +447,14 @@ class _EntryFormPageState extends State<EntryFormPage> {
       _base = latest;
       _fill(latest);
       for (final key in mine.keys) {
-        final value = mine[key] as String?;
+        final raw = mine[key];
+        if (raw is List) {
+          final values = raw.cast<String>();
+          if (key == 'moreAddresses') _setAddresses(_moreAddresses, values);
+          if (key == 'coMoreAddresses') _setAddresses(_coMoreAddresses, values);
+          continue;
+        }
+        final value = raw as String?;
         switch (key) {
           case 'accountNumber':
             _account.text = value ?? '';
@@ -405,6 +464,8 @@ class _EntryFormPageState extends State<EntryFormPage> {
             _mobile.text = value ?? '';
           case 'address':
             _address.text = value ?? '';
+          case 'coAddress':
+            _coAddress.text = value ?? '';
           case 'area':
             _area.text = value ?? '';
           case 'coName':
@@ -453,7 +514,9 @@ class _EntryFormPageState extends State<EntryFormPage> {
   String? _mobileRule(String? value) {
     final text = (value ?? '').trim();
     if (text.isEmpty) return null;
-    return isValidMobile(text) ? null : 'A 10-digit Indian mobile number';
+    return isValidMobile(text)
+        ? null
+        : 'Enter a 10-digit mobile number starting with 6, 7, 8 or 9';
   }
 
   Future<void> _pickDate() async {
@@ -624,6 +687,58 @@ class _EntryFormPageState extends State<EntryFormPage> {
     ),
   );
 
+  /// Addresses besides the main one, per person (3 in all).
+  static const _maxMoreAddresses = 2;
+
+  void _setAddresses(List<TextEditingController> list, List<String> values) {
+    for (final c in list) {
+      c.dispose();
+    }
+    list
+      ..clear()
+      ..addAll(values.map((v) => TextEditingController(text: v)));
+  }
+
+  static List<String> _addressValues(List<TextEditingController> list) =>
+      list.map((c) => c.text.trim()).where((v) => v.isNotEmpty).toList();
+
+  /// The main address, the extra ones (each removable), and "Add another
+  /// address" while there are fewer than 3.
+  List<Widget> _addressFields(
+    TextEditingController main,
+    List<TextEditingController> more,
+    String label,
+  ) => [
+    _field(main, label, maxLength: 500),
+    for (var i = 0; i < more.length; i++)
+      Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: TextFormField(
+          controller: more[i],
+          maxLength: 500,
+          textCapitalization: TextCapitalization.words,
+          decoration: InputDecoration(
+            labelText: '$label ${i + 2}',
+            counterText: '',
+            suffixIcon: IconButton(
+              tooltip: 'Remove',
+              icon: const Icon(Icons.close),
+              onPressed: () => setState(() => more.removeAt(i).dispose()),
+            ),
+          ),
+        ),
+      ),
+    if (more.length < _maxMoreAddresses)
+      Align(
+        alignment: Alignment.centerLeft,
+        child: TextButton.icon(
+          onPressed: () => setState(() => more.add(TextEditingController())),
+          icon: const Icon(Icons.add, size: 18),
+          label: const Text('Add another address'),
+        ),
+      ),
+  ];
+
   /// "Add another number", then a second mobile field that can be removed.
   Widget _secondMobile(
     TextEditingController c, {
@@ -754,7 +869,16 @@ class _EntryFormPageState extends State<EntryFormPage> {
         (_shopId, register.shopLabel(_shopId)),
     ];
     return Scaffold(
-      appBar: AppBar(title: Text(_editing ? 'Edit entry' : 'New entry')),
+      appBar: AppBar(
+        title: Text(_editing ? 'Edit entry' : 'New entry'),
+        actions: [
+          TextButton.icon(
+            onPressed: _canSave ? () => _save() : null,
+            icon: const Icon(Icons.save_outlined),
+            label: const Text('Save'),
+          ),
+        ],
+      ),
       body: Form(
         key: _form,
         child: ListView(
@@ -879,7 +1003,7 @@ class _EntryFormPageState extends State<EntryFormPage> {
                   ),
                 ),
               ),
-            _field(_address, 'Address', maxLength: 500),
+            ..._addressFields(_address, _moreAddresses, 'Address'),
             _suggestField(
               _area,
               _areaFocus,
@@ -903,6 +1027,11 @@ class _EntryFormPageState extends State<EntryFormPage> {
                 open: _coAltOpen,
                 onOpen: (v) => setState(() => _coAltOpen = v),
               ),
+            ..._addressFields(
+              _coAddress,
+              _coMoreAddresses,
+              'Co-applicant address',
+            ),
             Padding(
               padding: const EdgeInsets.only(bottom: 12),
               child: InkWell(
@@ -925,6 +1054,67 @@ class _EntryFormPageState extends State<EntryFormPage> {
               maxLength: 100,
             ),
             _suggestField(_model, _modelFocus, 'Model', _models),
+            if (!_editing)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: TextFormField(
+                  initialValue: '$_quantity',
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Quantity',
+                    helperText: 'Several of this product: one entry each',
+                  ),
+                  validator: (v) {
+                    final n = int.tryParse((v ?? '').trim());
+                    return n == null || n < 1 || n > maxItemQuantity
+                        ? '1–$maxItemQuantity'
+                        : null;
+                  },
+                  onChanged: (v) {
+                    final n = int.tryParse(v.trim());
+                    if (n != null && n >= 1 && n <= maxItemQuantity) {
+                      setState(() => _quantity = n);
+                    }
+                  },
+                ),
+              ),
+            for (final (i, item) in _items.indexed)
+              ItemCard(
+                key: ObjectKey(item),
+                number: i + 2,
+                item: item,
+                register: register,
+                lookups: _lookups,
+                onChanged: () => setState(() {}),
+                onDuplicate: () =>
+                    setState(() => _items.insert(i + 1, item.copy())),
+                onRemove: () => setState(() => _items.removeAt(i).dispose()),
+              ),
+            Row(
+              children: [
+                TextButton.icon(
+                  onPressed: () => setState(() => _items.add(ItemDraft())),
+                  icon: const Icon(Icons.add, size: 18),
+                  label: const Text('Add another item'),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _editing
+                        ? (_items.isEmpty
+                              ? ''
+                              : '${_units - 1} new entries will be added under this account number.')
+                        : '$_units ${_units == 1 ? 'entry' : 'entries'} will be saved under this account number.',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: _units > maxUnitsPerSave
+                          ? Theme.of(context).colorScheme.error
+                          : null,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
             DropdownButtonFormField<String>(
               initialValue: _shopId,
               isExpanded: true,
@@ -944,12 +1134,7 @@ class _EntryFormPageState extends State<EntryFormPage> {
               ),
             const SizedBox(height: 16),
             FilledButton.icon(
-              onPressed:
-                  _saving ||
-                      widget.session.offline ||
-                      (!_editing && _purchaseDate == null)
-                  ? null
-                  : () => _save(),
+              onPressed: _canSave ? () => _save() : null,
               icon: _saving
                   ? const SizedBox(
                       width: 16,

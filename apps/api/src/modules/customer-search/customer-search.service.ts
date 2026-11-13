@@ -42,6 +42,101 @@ export interface SearchFilters {
   categoryId?: string;
   /** "Needs review": `any` problem, or one REGISTER_ISSUES code. */
   issue?: string;
+  /** Column to order by (default `purchaseDate`) and direction (default newest/A first). */
+  sort?: string;
+  dir?: string;
+  /**
+   * Where `q` is looked for: `all` (default) finds it anywhere in any column;
+   * a column name (SEARCH_FIELDS) finds entries whose value is exactly `q`.
+   */
+  field?: string;
+}
+
+/** "Search in" choices besides `all`; the phone offers the same ones. */
+export const SEARCH_FIELDS = ['all', 'account', 'name', 'mobile', 'coApplicant', 'area', 'product', 'brand', 'model', 'customerCode'] as const;
+export type SearchField = (typeof SEARCH_FIELDS)[number];
+
+/**
+ * One column equal to the text, ignoring case and extra spaces: "mn 1" finds
+ * MN 1 only, never MN 10…MN 199. A mobile matches either number of the person;
+ * a product type includes its sub-types; a brand matches one of the makes in
+ * a cell naming several ("TRUFAST, LUMINOUS").
+ */
+async function exactMatch(field: Exclude<SearchField, 'all'>, q: string): Promise<Prisma.CustomerSearchEntryWhereInput> {
+  const text = q.replace(/\s+/g, ' ').trim();
+  const eq = { equals: text, mode: 'insensitive' as const };
+  const digits = q.replace(/\D/g, '');
+  const mobile = digits.length >= 10 && digits.length === q.replace(/[\s+-]/g, '').length ? digits.slice(-10) : null;
+  switch (field) {
+    case 'account':
+      return {
+        OR: [
+          { accountNumber: { equals: accountSearchText(q), mode: 'insensitive' } },
+          // Odd-shaped numbers (BK-73A) are kept as written.
+          { accountNumber: { equals: normalizeAccountNumber(q), mode: 'insensitive' } },
+        ],
+      };
+    case 'name':
+      return { customerName: { equals: tidyName(q), mode: 'insensitive' } };
+    case 'mobile':
+      return mobile ? { OR: [{ mobile }, { altMobile: mobile }] } : { id: '__no_match__' };
+    case 'coApplicant':
+      return mobile
+        ? { OR: [{ coMobile: mobile }, { coAltMobile: mobile }] }
+        : { coName: { equals: tidyName(q), mode: 'insensitive' } };
+    case 'area':
+      return { area: eq };
+    case 'product': {
+      const types = await prisma.productCategory.findMany({ where: { name: eq }, select: { id: true, path: true } });
+      return {
+        OR: [
+          { product: eq },
+          ...types.flatMap((t) => [{ categoryId: t.id }, { category: { path: { startsWith: `${t.path}.` } } }]),
+        ],
+      };
+    }
+    case 'brand': {
+      const make = canonicalBrand(q) || text;
+      return {
+        OR: [
+          { brand: { equals: make, mode: 'insensitive' } },
+          { brand: { startsWith: `${make}, `, mode: 'insensitive' } },
+          { brand: { endsWith: `, ${make}`, mode: 'insensitive' } },
+          { brand: { contains: `, ${make}, `, mode: 'insensitive' } },
+        ],
+      };
+    }
+    case 'model':
+      return { model: eq };
+    case 'customerCode':
+      return { OR: [{ customer: { customerCode: eq } }, { coCustomer: { customerCode: eq } }] };
+  }
+}
+
+const SORTS = ['purchaseDate', 'accountNumber', 'customerName', 'area', 'shop'] as const;
+
+/**
+ * The list's order. Always newest purchase first unless another column is
+ * asked for, and purchase date (newest first) breaks ties for the others, so
+ * equal rows still come newest first. Undated entries always go last.
+ */
+export function orderFor(sort?: string, dir?: string): Prisma.CustomerSearchEntryOrderByWithRelationInput[] {
+  const asked = sort === 'customer' ? 'customerName' : sort ?? '';
+  const key = (SORTS as readonly string[]).includes(asked) ? asked : 'purchaseDate';
+  const d: Prisma.SortOrder = dir === 'asc' || dir === 'desc' ? dir : key === 'purchaseDate' ? 'desc' : 'asc';
+  const newest = { purchaseDate: { sort: 'desc', nulls: 'last' } } as const;
+  switch (key) {
+    case 'accountNumber':
+      return [{ prefix: d }, { seriesNo: { sort: d, nulls: 'last' } }, { accountNumber: d }, newest];
+    case 'customerName':
+      return [{ customerName: d }, newest, { accountNumber: 'asc' }];
+    case 'area':
+      return [{ area: { sort: d, nulls: 'last' } }, newest, { accountNumber: 'asc' }];
+    case 'shop':
+      return [{ shop: { code: d } }, newest, { accountNumber: 'asc' }];
+    default:
+      return [{ purchaseDate: { sort: d, nulls: 'last' } }, { accountNumber: 'asc' }];
+  }
 }
 
 /**
@@ -52,7 +147,10 @@ async function whereFor(filters: SearchFilters): Promise<Prisma.CustomerSearchEn
   const where: Prisma.CustomerSearchEntryWhereInput = {};
   const and: Prisma.CustomerSearchEntryWhereInput[] = [];
   const q = filters.q?.trim();
-  if (q) {
+  const field = (SEARCH_FIELDS as readonly string[]).includes(filters.field ?? '') ? (filters.field as SearchField) : 'all';
+  if (q && field !== 'all') {
+    and.push(await exactMatch(field, q));
+  } else if (q) {
     const digits = q.replace(/\D/g, '');
     const or: Prisma.CustomerSearchEntryWhereInput[] = [
       { accountNumber: { contains: accountSearchText(q), mode: 'insensitive' } },
@@ -205,7 +303,7 @@ export const customerSearchService = {
   async list(filters: SearchFilters, page: { skip: number; take: number }) {
     const where = await whereFor(filters);
     const [entries, totalItems, pathOf] = await Promise.all([
-      prisma.customerSearchEntry.findMany({ where, include: listInclude, orderBy, skip: page.skip, take: page.take }),
+      prisma.customerSearchEntry.findMany({ where, include: listInclude, orderBy: orderFor(filters.sort, filters.dir), skip: page.skip, take: page.take }),
       prisma.customerSearchEntry.count({ where }),
       loadTypePaths(),
     ]);
@@ -453,11 +551,14 @@ export const customerSearchService = {
           mobile: entry.mobile,
           altMobile: entry.altMobile,
           address: entry.address,
+          moreAddresses: entry.moreAddresses,
           area: entry.area,
           coCustomerId,
           coName: entry.coName,
           coMobile: entry.coMobile,
           coAltMobile: entry.coAltMobile,
+          coAddress: entry.coAddress,
+          coMoreAddresses: entry.coMoreAddresses,
           purchaseDate: new Date(`${input.purchaseDate}T00:00:00Z`),
           categoryId: input.categoryId,
           product: entry.product,
@@ -498,11 +599,14 @@ export const customerSearchService = {
       customerName: input.customerName ?? existing.customerName,
       mobile: input.mobile !== undefined ? input.mobile : existing.mobile,
       altMobile: input.altMobile !== undefined ? input.altMobile : existing.altMobile,
+      moreAddresses: input.moreAddresses !== undefined ? input.moreAddresses : existing.moreAddresses,
       address: input.address !== undefined ? input.address : existing.address,
       area: input.area !== undefined ? input.area : existing.area,
       coName: input.coName !== undefined ? input.coName : existing.coName,
       coMobile: input.coMobile !== undefined ? input.coMobile : existing.coMobile,
       coAltMobile: input.coAltMobile !== undefined ? input.coAltMobile : existing.coAltMobile,
+      coAddress: input.coAddress !== undefined ? input.coAddress : existing.coAddress,
+      coMoreAddresses: input.coMoreAddresses !== undefined ? input.coMoreAddresses : existing.coMoreAddresses,
       purchaseDate: input.purchaseDate ?? toIsoDate(existing.purchaseDate) ?? '',
       categoryId: input.categoryId ?? existing.categoryId ?? '',
       product: input.product !== undefined ? input.product : existing.product,
@@ -572,11 +676,14 @@ export const customerSearchService = {
           mobile: entry.mobile,
           altMobile: entry.altMobile,
           address: entry.address,
+          moreAddresses: entry.moreAddresses,
           area: entry.area,
           coCustomerId,
           coName: entry.coName,
           coMobile: entry.coMobile,
           coAltMobile: entry.coAltMobile,
+          coAddress: entry.coAddress,
+          coMoreAddresses: entry.coMoreAddresses,
           purchaseDate: merged.purchaseDate ? new Date(`${merged.purchaseDate}T00:00:00Z`) : null,
           categoryId: merged.categoryId || null,
           product: entry.product,
@@ -649,7 +756,7 @@ export const customerSearchService = {
     );
     const header = [
       'Account Number', 'CUSTOMER_NAME', 'Address', 'Mobile', 'CO', 'CO_Mobile', 'AREA', 'Purchase_Date',
-      'Product Type', ...types.levelHeaders, 'Brand', 'Model', 'Shop', 'Customer Code', 'Needs review', 'Mobile 2', 'CO_Mobile 2',
+      'Product Type', ...types.levelHeaders, 'Brand', 'Model', 'Shop', 'Customer Code', 'Needs review', 'Mobile 2', 'CO_Mobile 2', 'More addresses', 'CO_Address', 'CO more addresses',
     ];
     const rows = entries.map((e, i) => [
       e.accountNumber,
@@ -669,6 +776,9 @@ export const customerSearchService = {
       e.issues.map((code) => REGISTER_ISSUES[code as keyof typeof REGISTER_ISSUES] ?? code).join('; '),
       e.altMobile ?? '',
       e.coAltMobile ?? '',
+      e.moreAddresses.join(' | '),
+      e.coAddress ?? '',
+      e.coMoreAddresses.join(' | '),
     ]);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([header, ...rows]), 'Customer Searching');
@@ -699,10 +809,13 @@ function normalizeEntry(input: EntryInput) {
     mobile,
     altMobile: secondMobile(input.altMobile, mobile, 'Second mobile'),
     address: clean(input.address),
+    moreAddresses: otherAddresses(input.moreAddresses, clean(input.address)),
     area: clean(input.area),
     coName,
     coMobile,
     coAltMobile: secondMobile(input.coAltMobile, coMobile, 'Co-applicant second mobile'),
+    coAddress: clean(input.coAddress),
+    coMoreAddresses: otherAddresses(input.coMoreAddresses, clean(input.coAddress)),
     coMobileValid,
     product: clean(input.product),
     brand: canonicalBrand(input.brand) || null,
@@ -717,6 +830,20 @@ function secondMobile(text: string | null | undefined, first: string | null, lab
   if (!isValidMobile(value)) throw new CustomerSearchError(` must be a 10-digit Indian mobile number`);
   const normalized = normalizeMobile(value);
   return normalized === first ? null : normalized;
+}
+
+/** Extra addresses: tidied, blanks, repeats and the main address dropped. */
+function otherAddresses(list: string[] | null | undefined, main: string | null): string[] {
+  const seen = new Set([(main ?? '').toLowerCase()]);
+  const out: string[] = [];
+  for (const a of list ?? []) {
+    const text = a.replace(/\s+/g, ' ').trim();
+    const key = text.toLowerCase();
+    if (!text || seen.has(key)) continue;
+    seen.add(key);
+    out.push(text);
+  }
+  return out;
 }
 
 interface ItemUnit {
@@ -752,11 +879,14 @@ async function addItems(tx: Prisma.TransactionClient, fromId: string, units: Ite
     mobile: from.mobile,
     altMobile: from.altMobile,
     address: from.address,
+    moreAddresses: from.moreAddresses,
     area: from.area,
     coCustomerId: from.coCustomerId,
     coName: from.coName,
     coMobile: from.coMobile,
     coAltMobile: from.coAltMobile,
+    coAddress: from.coAddress,
+    coMoreAddresses: from.coMoreAddresses,
     purchaseDate: from.purchaseDate,
     ...u,
     source: 'app',

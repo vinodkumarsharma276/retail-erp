@@ -1,6 +1,12 @@
 import 'dart:convert';
 import '../../core/session_models.dart';
 
+List<String> _strings(Object? value) =>
+    value is List ? value.whereType<String>().toList() : const [];
+
+Object? _decode(Object? text) =>
+    text is String && text.isNotEmpty ? jsonDecode(text) : null;
+
 /// One register entry as kept on the device. Fields the server withheld
 /// (phones without `customers.view_phone`) are null, never an empty value.
 class RegisterEntry {
@@ -33,6 +39,9 @@ class RegisterEntry {
     this.customerItemCount = 0,
     this.altMobile,
     this.coAltMobile,
+    this.moreAddresses = const [],
+    this.coAddress,
+    this.coMoreAddresses = const [],
   });
 
   factory RegisterEntry.fromApi(Json json) => RegisterEntry(
@@ -65,6 +74,9 @@ class RegisterEntry {
     updatedAt: (json['updatedAt'] as String?) ?? '',
     altMobile: json['altMobile'] as String?,
     coAltMobile: json['coAltMobile'] as String?,
+    moreAddresses: _strings(json['moreAddresses']),
+    coAddress: json['coAddress'] as String?,
+    coMoreAddresses: _strings(json['coMoreAddresses']),
   );
 
   factory RegisterEntry.fromRow(Map<String, Object?> row) => RegisterEntry(
@@ -100,6 +112,9 @@ class RegisterEntry {
     customerItemCount: (row['item_count'] as int?) ?? 0,
     altMobile: row['alt_mobile'] as String?,
     coAltMobile: row['co_alt_mobile'] as String?,
+    moreAddresses: _strings(_decode(row['more_addresses'])),
+    coAddress: row['co_address'] as String?,
+    coMoreAddresses: _strings(_decode(row['co_more_addresses'])),
   );
 
   final String id;
@@ -119,6 +134,11 @@ class RegisterEntry {
   /// Second mobiles (null when none, or withheld like `mobile`).
   final String? altMobile;
   final String? coAltMobile;
+
+  /// Addresses besides the main one (`address` / `coAddress`), at most 2 each.
+  final List<String> moreAddresses;
+  final String? coAddress;
+  final List<String> coMoreAddresses;
 
   /// `yyyy-mm-dd`, a date without a time zone.
   final String? purchaseDate;
@@ -163,6 +183,9 @@ class RegisterEntry {
     'co_mobile': coMobile,
     'alt_mobile': altMobile,
     'co_alt_mobile': coAltMobile,
+    'more_addresses': jsonEncode(moreAddresses),
+    'co_address': coAddress,
+    'co_more_addresses': jsonEncode(coMoreAddresses),
     'purchase_date': purchaseDate,
     'category_id': categoryId,
     'product': product,
@@ -252,14 +275,19 @@ String accountSearchText(String value) {
 
 /// Which column the search box looks in ("All" = every searchable column,
 /// as on the web).
+/// "Search in": all fields (anywhere), or one column for its exact value.
+/// Same choices as the web.
 enum RegisterField {
-  all('All'),
+  all('All fields'),
   account('Account number'),
   name('Customer name'),
   mobile('Mobile'),
   coApplicant('Co-applicant'),
   area('Area'),
-  product('Product');
+  product('Product type'),
+  brand('Brand'),
+  model('Model'),
+  customerCode('Customer code');
 
   const RegisterField(this.label);
   final String label;

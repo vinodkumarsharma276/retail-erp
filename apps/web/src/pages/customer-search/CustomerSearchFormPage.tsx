@@ -42,6 +42,9 @@ interface FormState {
   customerName: string;
   mobile: string;
   address: string;
+  moreAddresses: string[];
+  coAddress: string;
+  coMoreAddresses: string[];
   area: string;
   coName: string;
   coMobile: string;
@@ -57,7 +60,7 @@ interface FormState {
 }
 
 const EMPTY: FormState = {
-  accountNumber: '', customerName: '', mobile: '', address: '', area: '', coName: '', coMobile: '', altMobile: '', coAltMobile: '',
+  accountNumber: '', customerName: '', mobile: '', address: '', area: '', coName: '', coMobile: '', altMobile: '', coAltMobile: '', moreAddresses: [], coAddress: '', coMoreAddresses: [],
   purchaseDate: today(), product: '', items: [newItemRow()], customerId: null, coCustomerId: null, shopId: '',
 };
 
@@ -190,6 +193,60 @@ function SecondMobile({ value, problem, onChange }: { value: string; problem: st
   );
 }
 
+const MAX_ADDRESSES = 3;
+
+/** The main address, then "+ Add another address" (up to 3 in all), each extra removable. */
+function AddressList({
+  main,
+  more,
+  onMain,
+  onMore,
+  label = 'Address',
+}: {
+  main: string;
+  more: string[];
+  onMain: (value: string) => void;
+  onMore: (value: string[]) => void;
+  label?: string;
+}) {
+  return (
+    <div className="space-y-2">
+      <Input aria-label={label} value={main} onChange={(e) => onMain(e.target.value)} />
+      {more.map((a, i) => (
+        <div key={i} className="flex items-center gap-1">
+          <Input
+            autoFocus={!a}
+            aria-label={`${label} ${i + 2}`}
+            placeholder={`${label} ${i + 2}`}
+            value={a}
+            onChange={(e) => onMore(more.map((x, j) => (j === i ? e.target.value : x)))}
+          />
+          <Button
+            type="button"
+            size="xs"
+            variant="ghost"
+            aria-label={`Remove ${label.toLowerCase()} ${i + 2}`}
+            onClick={() => onMore(more.filter((_, j) => j !== i))}
+          >
+            <X className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      ))}
+      {more.length < MAX_ADDRESSES - 1 && (
+        <button
+          type="button"
+          className="text-xs text-primary hover:underline disabled:cursor-not-allowed disabled:text-muted-foreground disabled:no-underline"
+          disabled={!main.trim()}
+          title={!main.trim() ? 'Fill in the first address first' : undefined}
+          onClick={() => onMore([...more, ''])}
+        >
+          + Add another address
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function CustomerSearchFormPage() {
   const { id } = useParams<{ id: string }>();
   const isEdit = !!id;
@@ -225,6 +282,9 @@ export function CustomerSearchFormPage() {
       customerName: e.customerName,
       mobile: e.mobile ?? '',
       address: e.address ?? '',
+      moreAddresses: e.moreAddresses ?? [],
+      coAddress: e.coAddress ?? '',
+      coMoreAddresses: e.coMoreAddresses ?? [],
       area: e.area ?? '',
       coName: e.coName ?? '',
       coMobile: e.coMobile ?? '',
@@ -296,6 +356,9 @@ export function CustomerSearchFormPage() {
       customerName: form.customerName.trim(),
       mobile: blank(form.mobile),
       address: blank(form.address),
+      moreAddresses: form.moreAddresses.map((a) => a.trim()).filter(Boolean),
+      coAddress: blank(form.coAddress),
+      coMoreAddresses: form.coMoreAddresses.map((a) => a.trim()).filter(Boolean),
       area: blank(form.area),
       coName: blank(form.coName),
       coMobile: blank(form.coMobile),
@@ -511,7 +574,12 @@ export function CustomerSearchFormPage() {
               />
             </Field>
             <Field label="Address">
-              <Input value={form.address} onChange={(e) => set('address', e.target.value)} />
+              <AddressList
+                main={form.address}
+                more={form.moreAddresses}
+                onMain={(v) => set('address', v)}
+                onMore={(v) => set('moreAddresses', v)}
+              />
             </Field>
             <Field label="Area" hint="Pick from the list or type a new area">
               <SuggestInput
@@ -547,6 +615,17 @@ export function CustomerSearchFormPage() {
             <Field label="Co-applicant name">
               <Input value={form.coName} onChange={(e) => setForm((f) => ({ ...f, coName: e.target.value, coCustomerId: null }))} />
             </Field>
+            <div className="sm:col-span-2">
+              <Field label="Co-applicant address">
+                <AddressList
+                  label="Co-applicant address"
+                  main={form.coAddress}
+                  more={form.coMoreAddresses}
+                  onMain={(v) => set('coAddress', v)}
+                  onMore={(v) => set('coMoreAddresses', v)}
+                />
+              </Field>
+            </div>
           </div>
         </Card>
         </div>

@@ -31,6 +31,9 @@ export interface CustomerSearchEntry {
   coMobile?: string | null;
   altMobile?: string | null;
   coAltMobile?: string | null;
+  moreAddresses?: string[];
+  coAddress?: string | null;
+  coMoreAddresses?: string[];
   purchaseDate: string | null;
   categoryId: string | null;
   /** Product type names from the top down (Electronics, TV, LED TV); null when none is set. */
@@ -74,6 +77,11 @@ export interface CustomerSearchFilters {
   categoryId?: string;
   /** "Needs review": `any`, or one problem code. */
   issue?: string;
+  /** Column to order by; the API's default is purchase date, newest first. */
+  sort?: string;
+  dir?: 'asc' | 'desc';
+  /** Search one column for the exact value of `q` (`all` / unset: anywhere). */
+  field?: string;
 }
 
 export interface ReviewSummary {
@@ -112,6 +120,9 @@ export interface EntryPayload {
   coMobile?: string | null;
   altMobile?: string | null;
   coAltMobile?: string | null;
+  moreAddresses?: string[];
+  coAddress?: string | null;
+  coMoreAddresses?: string[];
   purchaseDate: string;
   categoryId: string;
   product?: string | null;

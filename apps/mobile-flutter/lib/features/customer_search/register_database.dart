@@ -19,6 +19,9 @@ const _entryColumns = '''
   co_name TEXT,
   co_mobile TEXT,
   co_alt_mobile TEXT,
+  more_addresses TEXT,
+  co_address TEXT,
+  co_more_addresses TEXT,
   purchase_date TEXT,
   category_id TEXT,
   product TEXT,
@@ -34,7 +37,7 @@ const _entryColumns = '''
   search_text TEXT NOT NULL
 ''';
 
-const schemaVersion = 5;
+const schemaVersion = 6;
 
 /// Per-connection settings. The larger page cache keeps decrypted pages in
 /// memory between searches; incremental auto-vacuum (effective on a new
@@ -111,24 +114,35 @@ Future<void> createRegisterSchema(Database db) async {
   }
 }
 
-/// Version 5 only added the second mobiles: add the columns in place (no row
-/// has one yet) instead of downloading the register again. Any other older
-/// layout is replaced; the copy can always be downloaded again.
+/// Versions 5 and 6 only added columns (second mobiles; more addresses and the
+/// co-applicant's address), empty on every row until the next update, so a
+/// version 4 or 5 copy gains them in place instead of downloading the register
+/// again. Any other older layout is replaced; the copy can always be
+/// downloaded again.
 Future<void> upgradeRegisterSchema(Database db, int from, int to) async {
-  if (from == 4 && to == 5) {
+  if (from >= 4 && to == 6) {
+    final columns = [
+      if (from < 5) ...['alt_mobile', 'co_alt_mobile'],
+      ...['more_addresses', 'co_address', 'co_more_addresses'],
+    ];
     for (final table in ['entries', 'staging_entries']) {
-      await db.execute('ALTER TABLE $table ADD COLUMN alt_mobile TEXT');
-      await db.execute('ALTER TABLE $table ADD COLUMN co_alt_mobile TEXT');
+      for (final column in columns) {
+        await db.execute('ALTER TABLE $table ADD COLUMN $column TEXT');
+      }
     }
     final index = await db.rawQuery(
       "SELECT value FROM meta WHERE key = 'text_index'",
     );
-    if (index.isNotEmpty && index.first['value'] == '1') {
+    if (from < 5 && index.isNotEmpty && index.first['value'] == '1') {
       for (final trigger in ['insert', 'delete', 'update']) {
         await db.execute('DROP TRIGGER IF EXISTS entries_text_$trigger');
       }
       await _createTextTriggers(db);
     }
+    // Rows synced by the older app lack the new fields: download a fresh copy
+    // in the background while this one stays on screen.
+    await db.delete('staging_entries');
+    await db.execute("DELETE FROM meta WHERE key IN ('cursor', 'boot_token')");
     return;
   }
   for (final table in [
@@ -422,72 +436,82 @@ class RegisterDatabase {
 
   bool? _textIndex;
 
-  /// Search in one column only. When the text index can be used, it narrows
-  /// the candidates first; the exact column check always decides.
+  /// "Search in" one column: entries whose value is exactly the text,
+  /// ignoring case and extra spaces, as on the web — "mn 1" finds MN 1, not
+  /// MN 10…MN 199. A mobile is the full 10 digits and matches either number;
+  /// a product type includes its sub-types; a brand matches one make of a
+  /// cell naming several.
   void _fieldCondition(
     RegisterField field,
+    String q,
     List<String> where,
-    List<Object?> args, {
-    required String lower,
-    required String account,
-    required bool phone,
-    required String tail,
-    required bool indexed,
-  }) {
-    const text = 'SELECT rowid FROM entry_text WHERE text LIKE ?';
-    const phones = 'SELECT rowid FROM entry_text WHERE phones LIKE ?';
-    void narrow(String sub, Object arg) {
-      where.add('e.rowid IN ($sub)');
-      args.add(arg);
-    }
-
-    final like = _like(lower);
+    List<Object?> args,
+  ) {
+    final text = q.replaceAll(RegExp(r'\s+'), ' ').trim().toLowerCase();
+    final digits = q.replaceAll(RegExp(r'\D'), '');
+    final mobile =
+        digits.length >= 10 &&
+            digits.length == q.replaceAll(RegExp(r'[\s+-]'), '').length
+        ? digits.substring(digits.length - 10)
+        : null;
     switch (field) {
       case RegisterField.all:
         return;
       case RegisterField.account:
-        if (indexed && account.length >= 3) {
-          narrow(
-            'SELECT rowid FROM entry_text WHERE account LIKE ?',
-            '%$account%',
-          );
-        }
-        where.add(r"e.account_number LIKE ? ESCAPE '\'");
-        args.add(_like(account));
+        where.add(
+          '(upper(e.account_number) = ? OR upper(e.account_number) = ?)',
+        );
+        args.addAll([accountSearchText(q), normalizeAccountNumber(q)]);
       case RegisterField.name:
-        if (indexed) narrow(text, '%$lower%');
-        where.add(r"e.customer_name LIKE ? ESCAPE '\'");
-        args.add(like);
+        where.add('lower(e.customer_name) = ?');
+        args.add(text);
       case RegisterField.mobile:
-        if (!phone) {
+        if (mobile == null) {
           where.add('0');
           return;
         }
-        if (indexed) narrow(phones, '%$tail%');
-        where.add('(e.mobile LIKE ? OR e.alt_mobile LIKE ?)');
-        args.addAll(['%$tail%', '%$tail%']);
+        where.add('(e.mobile = ? OR e.alt_mobile = ?)');
+        args.addAll([mobile, mobile]);
       case RegisterField.coApplicant:
-        if (phone) {
-          if (indexed) narrow(phones, '%$tail%');
-          where.add('(e.co_mobile LIKE ? OR e.co_alt_mobile LIKE ?)');
-          args.addAll(['%$tail%', '%$tail%']);
+        if (mobile != null) {
+          where.add('(e.co_mobile = ? OR e.co_alt_mobile = ?)');
+          args.addAll([mobile, mobile]);
         } else {
-          if (indexed) narrow(text, '%$lower%');
-          where.add(r"e.co_name LIKE ? ESCAPE '\'");
-          args.add(like);
+          where.add('lower(e.co_name) = ?');
+          args.add(text);
         }
       case RegisterField.area:
-        if (indexed) narrow(text, '%$lower%');
-        where.add(r"e.area LIKE ? ESCAPE '\'");
-        args.add(like);
+        where.add('lower(trim(e.area)) = ?');
+        args.add(text);
       case RegisterField.product:
         where.add(
-          r"(e.product LIKE ? ESCAPE '\' OR e.brand LIKE ? ESCAPE '\' OR e.model LIKE ? ESCAPE '\' "
-          r"OR e.category_id IN (SELECT id FROM categories WHERE lower(name) LIKE ? ESCAPE '\'))",
+          '(lower(e.product) = ? OR e.category_id IN ('
+          'SELECT c.id FROM categories c JOIN categories t ON lower(t.name) = ? '
+          "WHERE c.id = t.id OR c.path LIKE t.path || '.%'))",
         );
-        args.addAll([like, like, like, like]);
+        args.addAll([text, text]);
+      case RegisterField.brand:
+        where.add(
+          "(lower(e.brand) = ? OR lower(e.brand) LIKE ? ESCAPE '\\' "
+          "OR lower(e.brand) LIKE ? ESCAPE '\\' OR lower(e.brand) LIKE ? ESCAPE '\\')",
+        );
+        final make = _escape(text);
+        args.addAll([text, '$make, %', '%, $make', '%, $make, %']);
+      case RegisterField.model:
+        where.add('lower(e.model) = ?');
+        args.add(text);
+      case RegisterField.customerCode:
+        where.add(
+          '(upper(e.customer_code) = ? OR upper(e.co_customer_code) = ?)',
+        );
+        args.addAll([text.toUpperCase(), text.toUpperCase()]);
     }
   }
+
+  static String _escape(String text) => text
+      .replaceAll(r'\', r'\\')
+      .replaceAll('%', r'\%')
+      .replaceAll('_', r'\_');
 
   /// The web's register search (`whereFor`), on the device copy.
   Future<RegisterPage> search(
@@ -514,16 +538,7 @@ class RegisterDatabase {
       final wildcard = RegExp(r'[%_\\]');
       final indexed = _textIndex! && lower.length >= 3 && !wildcard.hasMatch(q);
       if (query.field != RegisterField.all) {
-        _fieldCondition(
-          query.field,
-          where,
-          args,
-          lower: lower,
-          account: account,
-          phone: phone,
-          tail: tail,
-          indexed: indexed,
-        );
+        _fieldCondition(query.field, q, where, args);
       } else if (indexed && account.length >= 3) {
         where.add(
           'e.rowid IN ('

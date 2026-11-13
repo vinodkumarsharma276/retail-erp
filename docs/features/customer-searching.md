@@ -168,6 +168,11 @@ or a sale in the old shop (`moveCustomersWithEntry`). Real sales never move.
   list, phone search and Mobile / Co-applicant search fields), copied to the other items of the
   same save, shown on details and exported, but **never used to match or link a customer** —
   that stays name + first mobile.
+- **More addresses** (owner request 2026-11-13): up to 3 addresses per person — `address` plus
+  `moreAddresses` (≤ 2) for the customer, and, new, `coAddress` plus `coMoreAddresses` (≤ 2) for the
+  co-applicant (migration `20261113135513_customer_search_more_addresses`). Blanks, repeats and a copy
+  of the main address are dropped; they are copied to the other items of the save, shown on details
+  and exported (`More addresses`, `CO_Address`, `CO more addresses`, joined with ` | `). Not searched.
 
 ## Access, tenancy, and shop scope
 
@@ -208,7 +213,18 @@ Tenant-wide register access does not grant sales access.
 - Search account number, customer/co-applicant name, eligible mobile digits, area, product,
   category name, brand, model or customer code. Current API search is case-insensitive
   **substring** matching, not fuzzy/AI name search. Numeric phone matching starts at three
-  digits and accepts only digit-like queries (spaces, `+`, `-` allowed).
+  digits and accepts only digit-like queries (spaces, `+`, `-` allowed). That is **All fields**,
+  the default of the **"Search in"** dropdown (owner request 2026-11-13, web and phone alike).
+  Choosing one column — Account number, Customer name, Mobile, Co-applicant, Area, Product type,
+  Brand, Model or Customer code (API `field` = `account` | `name` | `mobile` | `coApplicant` |
+  `area` | `product` | `brand` | `model` | `customerCode`) — finds entries whose value is
+  **exactly** the text, ignoring case and extra spaces: `mn 1` finds MN 1 only, not MN 10…MN 199
+  (111 entries with All fields). A mobile must be the full 10 digits and matches either number of
+  the person; Co-applicant takes a name or a 10-digit mobile; a product type includes its
+  sub-types (or the product text as written); a brand matches one make of a several-make cell
+  (`LUMINOUS` finds `TRUFAST, LUMINOUS`; the API also maps misspellings, the phone doesn't). Exact
+  search takes any length; All fields waits for 2 characters. The web keeps the choice in the
+  URL (`in`), with a hint under the box; the phone's hint reads "Exact …".
 - Filter by series, area, purchase-date range, product-type subtree or review issue; API also
   supports shop, customer and import-batch filters. Detail shows purchase, customer,
   co-applicant and import provenance; a permitted sale link is optional.
@@ -258,8 +274,15 @@ Base `/api/v1/customer-search`. JSON uses `sendSuccess` / `sendPaginated`; list 
 `{ success, data, pagination }`, ordinary responses are `{ success, data }`. Errors carry
 `success: false` and `error`; duplicate conflicts additionally carry `details`.
 `page` / `pageSize` use the shared [pagination helper](../../apps/api/src/utils/pagination.ts).
-List order is purchase date descending (null last), then account number ascending; this is
-not a unique stable sync cursor. Date-only values serialize as `yyyy-mm-dd` or null.
+List order is purchase date descending (null last), then account number ascending — always, unless
+`sort` asks for another column (owner rule 2026-11-13). The order is kept in the database by the index
+`(tenant_id, purchase_date DESC NULLS LAST, account_number)` (migration
+`20261113134508_customer_search_purchase_date_order`), so the first page is read straight off it
+(0.2 ms instead of sorting all ~41,000 entries, 105 ms, on the dev DB). `sort` = `purchaseDate` |
+`accountNumber` (series, number) | `customerName` (alias `customer`) | `area` | `shop`, `dir` = `asc` |
+`desc`; unknown values fall back to newest first, and every other column breaks ties newest first.
+This is not a unique stable sync cursor. The Excel export stays in account-number order (the
+sheet's order). Date-only values serialize as `yyyy-mm-dd` or null.
 
 | Method | Path | Permission | Description |
 |--------|------|------------|-------------|
@@ -333,7 +356,9 @@ and migration `20261110120000_customer_search_sync_log`.
 ## Web behavior
 
 The [search screen](../../apps/web/src/pages/customer-search/CustomerSearchPage.tsx) uses
-25-row pages, 300 ms debounced name/area input, URL-backed filters, All / Needs review tabs and
+25-row pages, newest purchase first, 300 ms debounced name/area input, URL-backed filters and
+sort (`sort` / `dir`; clicking a header re-sorts the whole register on the API, not just the
+page shown — 2026-11-13), All / Needs review tabs and
 permission-gated actions. It sends `q` only after two trimmed characters. A line above the table
 shows the total from the list's pagination ("20,976 entries in the register", or "N entries
 match" with filters / Needs review). Opening a row, its Edit button or New entry passes the list
@@ -373,6 +398,11 @@ only fills the name — mobile, address, area and the customer link come from th
 under Mobile, as before (owner decision: name + mobile decide the person). **Mobile** and
 **Co-applicant mobile** each have "+ Add another number", which opens a second box with a remove
 button; an invalid second number, or one without a first number, shows an error and blocks Save.
+Address and Co-applicant address each have "+ Add another address" (up to 3 in all, each extra
+removable; the link waits for the first address). In the list, a person with two mobiles shows the
+first and "+1 more ▾" under it; the menu (drawn above the page so the narrow column and the
+table's scroll box can't cut it off) lists both, and clicking one copies it without opening the
+entry. The phone row shows "98765 43210 +1"; its details screen lists every number and address.
 **Brand** and **Model** in the Items table are the same kind of dropdown, tied to the row's
 product type: Brand lists only that type's makes, Model only that make's models within the type
 (`/lookup/brands`, `/lookup/models` — see [Products](products.md) for the catalog). A new brand
@@ -429,9 +459,10 @@ Code: [lib/features/customer_search](../../apps/mobile-flutter/lib/features/cust
   co-applicant, area, product, brand, model, customer code), account number with spaces
   removed, mobile digits from 3 digits up, product-type name; order purchase date newest first
   (undated last) then account number; 2-character minimum. A **"Search in"** dropdown beside
-  the box limits the same text to one column — **All** (default, the web's rule), Account
-  number, Customer name, Mobile, Co-applicant (name, or mobile when digits are typed), Area or
-  Product (product text, brand, model, type name). The phone has no Needs review / series /
+  the box offers the web's list — **All fields** (default, the web's anywhere rule), Account
+  number, Customer name, Mobile, Co-applicant, Area, Product type, Brand, Model, Customer code —
+  and a column finds its exact value, as on the web (2026-11-13; one column is checked by
+  equality on the copy, without the trigram index). The phone has no Needs review / series /
   product type / shop filter chips (owner decision 2026-11-10: the search box covers them);
   the device store still supports those filters. Queries of 3+ characters use the trigram
   index (it narrows candidates, the exact column check decides); shorter ones or ones with
@@ -452,7 +483,11 @@ Code: [lib/features/customer_search](../../apps/mobile-flutter/lib/features/cust
   and model are on the details screen. Details come from the
   copy; "entered by",
   import file/rows and a permitted matching sale load online. New entry / Edit need a
-  connection: series → `next-number` (2–3 letters plus an optional digit, as on the web), a
+  connection (Save at the top as well as the bottom, 2026-11-13): Quantity for the form's product
+  and "Add another item" cards (type by full path, Brand/Model suggested per type and make,
+  Qty, Duplicate, Remove) sent as `quantity` / `moreItems` like the web's Items table, with "N
+  entries will be saved…" (an edit adds new entries the same way); an invalid mobile reads "Enter a
+  10-digit mobile number starting with 6, 7, 8 or 9"; series → `next-number` (2–3 letters plus an optional digit, as on the web), a
   type-or-pick Customer name (`customer-names`; picking fills only the name), "Add another number"
   under Mobile and Co-applicant mobile (second numbers; shown on details, searched in the copy), existing
   customers on the mobile (`customer-matches`), Area suggestions from the cached copy (case
@@ -658,6 +693,18 @@ result reporting `closed`.
 - Browser check: "ramesh ku" → "RAMESH KUMAR · 26 customers", "RAMESH KUMAR NISHAAD"…; picking
   kept the typed mobile and left the customer unlinked; second mobile `12345` showed the error and
   disabled Save. The phone was not run on a device; installed phones upgrade their copy in place.
+
+2026-11-13 (purchase-date order): 355 API tests passed incl. CS29 (newest first, undated last,
+other columns and a bad `sort` value). `EXPLAIN ANALYZE` of the first page uses the new index.
+Browser: the register opens at 12/11/2026, 27/10/2026…; the Purchase date header gives 02/02/2021
+first and back. The phone copy already orders by `purchase_date DESC` (undated last); unchanged.
+
+2026-11-13 (more addresses, mobile dropdown): 356 API tests passed incl. CS30 (3 addresses each,
+tidied, copied to more items, edited, a 4th refused). Web `tsc` passed; `flutter analyze` clean,
+`flutter test` 48 passed incl. version 4 → 6 and 5 → 6 copy upgrades (columns added in place, rows
+kept, cursor cleared so a fresh copy downloads in the background — rows synced by the old app lacked
+the new fields). Browser: CK2 642 shows +91 70530 8… / "+1 more", menu lists both numbers; the edit
+form offers Address 2 and 3 and a co-applicant address (not saved).
 
 Acceptance must cover shared-mobile relatives, duplicate 409/confirmation, no-mobile entries,
 invalid dates/mobile, category hierarchy, forbidden shop, cross-tenant IDs, restricted phones,

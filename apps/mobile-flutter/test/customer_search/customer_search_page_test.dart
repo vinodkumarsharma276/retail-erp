@@ -151,8 +151,8 @@ void main() {
       expect(find.textContaining('found of 2'), findsOneWidget);
 
       // "Search in" → Account number: "bd-1" no longer matches by name.
-      expect(find.text('All'), findsOneWidget);
-      await tester.tap(find.text('All'));
+      expect(find.text('All fields'), findsOneWidget);
+      await tester.tap(find.text('All fields'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Account number').last);
       await tester.pumpAndSettle();
@@ -163,7 +163,7 @@ void main() {
       expect(find.textContaining('Sita Devi'), findsNothing);
       await tester.tap(find.text('Account number'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('All').last);
+      await tester.tap(find.text('All fields').last);
       await tester.pumpAndSettle();
 
       await tester.enterText(find.byType(TextField).first, 'ram');

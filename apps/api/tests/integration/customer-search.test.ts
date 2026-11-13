@@ -5,6 +5,11 @@ import { customerSearchService, CustomerSearchError } from '../../src/modules/cu
 import { catalogService } from '../../src/modules/catalog/catalog.service.js';
 import { syncRegister, SyncResetError, type SyncProjection } from '../../src/modules/customer-search/customer-search.sync.js';
 import type { ImportCommitInput, ImportRow } from '../../src/modules/customer-search/customer-search.validation.js';
+import { createEntrySchema } from '../../src/modules/customer-search/customer-search.validation.js';
+
+const validBody = {
+  accountNumber: 'ZZ 1', customerName: 'Valid', purchaseDate: '2026-03-01', categoryId: '00000000-0000-4000-8000-000000000000',
+};
 import { createInstallmentSale, prisma } from '../helpers/fixtures';
 
 const commitImport = (input: Omit<ImportCommitInput, 'productTypes'> & { productTypes?: ImportCommitInput['productTypes'] }, userId: string, canCreateTypes = true) =>
@@ -909,5 +914,72 @@ describe('CS. Safe saves from a device', () => {
     expect((await run(() => customerSearchService.list({ q: '9810000984' }, { skip: 0, take: 5 }))).entries.map((e) => e.id)).toEqual([entry.id]);
     const bad = await run(() => customerSearchService.update(entry.id, { altMobile: '12345' }, ctx)).catch((e) => e);
     expect(bad).toBeInstanceOf(CustomerSearchError);
+  });
+
+  it('CS29 the register comes newest purchase first, undated last; other columns sort the whole register', async () => {
+    const { shopId, userId, run, types } = await setup();
+    const ctx = { shopId, userId };
+    const save = (accountNumber: string, customerName: string, purchaseDate: string) =>
+      run(() => customerSearchService.create({ accountNumber, customerName, mobile: null, purchaseDate, categoryId: types.led }, ctx));
+    await save('OD 2', 'Beta', '2025-01-10');
+    await save('OD 1', 'Alpha', '2026-02-01');
+    await save('OD 3', 'Gamma', '2026-02-01');
+    const undated = await save('OD 4', 'Delta', '2024-05-05');
+    await run(() => prisma.customerSearchEntry.update({ where: { id: undated.id }, data: { purchaseDate: null } }));
+    const accounts = async (sort?: string, dir?: string) =>
+      (await run(() => customerSearchService.list({ prefix: 'OD', sort, dir }, { skip: 0, take: 10 }))).entries.map((e) => e.accountNumber);
+    expect(await accounts()).toEqual(['OD 1', 'OD 3', 'OD 2', 'OD 4']);
+    expect(await accounts('purchaseDate', 'asc')).toEqual(['OD 2', 'OD 1', 'OD 3', 'OD 4']);
+    expect(await accounts('customer', 'asc')).toEqual(['OD 1', 'OD 2', 'OD 4', 'OD 3']);
+    expect(await accounts('accountNumber', 'desc')).toEqual(['OD 4', 'OD 3', 'OD 2', 'OD 1']);
+    expect(await accounts('bogus')).toEqual(['OD 1', 'OD 3', 'OD 2', 'OD 4']);
+  });
+
+  it('CS30 up to 3 addresses for the customer and the co-applicant, tidied and copied to more items', async () => {
+    const { shopId, userId, run, types } = await setup();
+    const ctx = { shopId, userId };
+    const entry = await run(() =>
+      customerSearchService.create(
+        {
+          accountNumber: 'AD 1', customerName: 'Many Homes', mobile: '9810000991', purchaseDate: '2026-03-01', categoryId: types.led,
+          address: '12 Main Road', moreAddresses: ['  Shop 4,  Market ', '', '12 main road'],
+          coName: 'Co Home', coMobile: '9810000992', coAddress: 'B-7 Sector 5', coMoreAddresses: ['Farm house'],
+          moreItems: [{ categoryId: types.fridge, quantity: 1 }],
+        },
+        ctx,
+      ),
+    );
+    expect(entry).toMatchObject({ moreAddresses: ['Shop 4, Market'], coAddress: 'B-7 Sector 5', coMoreAddresses: ['Farm house'] });
+    const copy = await run(() => prisma.customerSearchEntry.findFirstOrThrow({ where: { accountNumber: 'AD 1', categoryId: types.fridge } }));
+    expect(copy).toMatchObject({ moreAddresses: ['Shop 4, Market'], coAddress: 'B-7 Sector 5' });
+
+    const edited = await run(() => customerSearchService.update(entry.id, { coMoreAddresses: [] }, ctx));
+    expect(edited.coMoreAddresses).toEqual([]);
+    expect(edited.moreAddresses).toEqual(['Shop 4, Market']);
+    expect(createEntrySchema.safeParse({ ...validBody, moreAddresses: ['a', 'b', 'c'] }).success).toBe(false);
+  });
+
+  it('CS31 "Search in" a column finds that exact value; All fields still finds it anywhere', async () => {
+    const { shopId, userId, run, types } = await setup();
+    const ctx = { shopId, userId };
+    const save = (accountNumber: string, customerName: string, mobile: string, extra: Record<string, unknown> = {}) =>
+      run(() => customerSearchService.create({ accountNumber, customerName, mobile, purchaseDate: '2026-03-01', categoryId: types.led, ...extra } as any, ctx));
+    await save('MX 1', 'Ram Lal', '9810001001', { area: 'Khora', brand: 'TRU/LUM', model: '32LR' });
+    await save('MX 10', 'Ram Lal Verma', '9810001002', { altMobile: '9810001009', brand: 'LG' });
+    await save('MX 11', 'Sita', '9810001003', { coName: 'Ram Lal', coMobile: '9810001004', categoryId: types.fridge });
+    const found = async (q: string, field?: string) =>
+      (await run(() => customerSearchService.list({ q, field, prefix: 'MX' }, { skip: 0, take: 20 }))).entries.map((e) => e.accountNumber).sort();
+    expect(await found('mx 1')).toEqual(['MX 1', 'MX 10', 'MX 11']);
+    expect(await found('mx-1', 'account')).toEqual(['MX 1']);
+    expect(await found('ram  lal', 'name')).toEqual(['MX 1']);
+    expect(await found('98100 01009', 'mobile')).toEqual(['MX 10']);
+    expect(await found('981000100', 'mobile')).toEqual([]);
+    expect(await found('Ram Lal', 'coApplicant')).toEqual(['MX 11']);
+    expect(await found('9810001004', 'coApplicant')).toEqual(['MX 11']);
+    expect(await found('KHORA', 'area')).toEqual(['MX 1']);
+    expect(await found('tv', 'product')).toEqual(['MX 1', 'MX 10']);
+    expect(await found('luminous', 'brand')).toEqual(['MX 1']);
+    expect(await found('32lr', 'model')).toEqual(['MX 1']);
+    expect(await found('ram lal', 'nonsense')).toEqual(['MX 1', 'MX 10', 'MX 11']);
   });
 });

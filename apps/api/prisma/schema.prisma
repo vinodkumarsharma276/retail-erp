@@ -2203,6 +2203,8 @@ model CustomerSearchEntry {
   /// A second mobile of the customer (10 digits, normalised); searchable, not used for matching.
   altMobile    String? @map("alt_mobile") @db.VarChar(15)
   address      String? @db.VarChar(500)
+  /// Other addresses of the customer (at most 2; `address` is the main one).
+  moreAddresses String[] @default([]) @map("more_addresses")
   area         String? @db.VarChar(100)
 
   /// Co-applicant, who stands guarantor. Linked to a Customer when both a
@@ -2212,6 +2214,9 @@ model CustomerSearchEntry {
   coMobile     String? @map("co_mobile") @db.VarChar(15)
   /// A second mobile of the co-applicant.
   coAltMobile  String? @map("co_alt_mobile") @db.VarChar(15)
+  /// Co-applicant's address, and up to 2 more.
+  coAddress       String?  @map("co_address") @db.VarChar(500)
+  coMoreAddresses String[] @default([]) @map("co_more_addresses")
 
   purchaseDate DateTime? @map("purchase_date") @db.Date
   /// Product type from the tenant's category tree. A leaf for entries made in
@@ -2252,6 +2257,8 @@ model CustomerSearchEntry {
   category    ProductCategory?           @relation(fields: [categoryId], references: [id])
 
   @@index([tenantId])
+  /// The register's order: newest purchase first (migration adds NULLS LAST, so undated rows end it).
+  @@index([tenantId, purchaseDate(sort: Desc), accountNumber])
   @@index([tenantId, accountNumber])
   @@index([tenantId, prefix])
   @@index([issues], type: Gin)

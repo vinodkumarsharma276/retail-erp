@@ -22,6 +22,20 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 }
 
 /** One account register entry: the minimum of the sale for now; more of the sale will be added here later. */
+/** One address per line; null when there is none. */
+function AddressLines({ list }: { list: Array<string | null | undefined> }) {
+  const lines = list.filter((a): a is string => !!a?.trim());
+  if (!lines.length) return null;
+  if (lines.length === 1) return <>{lines[0]}</>;
+  return (
+    <ol className="list-decimal space-y-0.5 pl-4">
+      {lines.map((a, i) => (
+        <li key={i}>{a}</li>
+      ))}
+    </ol>
+  );
+}
+
 export function CustomerSearchDetailPage() {
   const { id } = useParams<{ id: string }>();
   const can = useCanCheck();
@@ -159,7 +173,9 @@ export function CustomerSearchDetailPage() {
               )}
             </Row>
             <Row label="Mobile">{[entry.mobile, entry.altMobile].filter(Boolean).map((m) => formatPhone(m!)).join(', ') || null}</Row>
-            <Row label="Address">{entry.address}</Row>
+            <Row label={entry.moreAddresses?.length ? 'Addresses' : 'Address'}>
+              <AddressLines list={[entry.address, ...(entry.moreAddresses ?? [])]} />
+            </Row>
             <Row label="Area">{entry.area}</Row>
           </dl>
           {entry.customer && entry.customer.name !== entry.customerName && (
@@ -184,6 +200,9 @@ export function CustomerSearchDetailPage() {
                 )}
               </Row>
               <Row label="Mobile">{[entry.coMobile, entry.coAltMobile].filter(Boolean).map((m) => formatPhone(m!)).join(', ') || null}</Row>
+              <Row label={entry.coMoreAddresses?.length ? 'Addresses' : 'Address'}>
+                <AddressLines list={[entry.coAddress, ...(entry.coMoreAddresses ?? [])]} />
+              </Row>
             </dl>
           ) : (
             <p className="text-sm text-muted-foreground">No co-applicant on this entry.</p>

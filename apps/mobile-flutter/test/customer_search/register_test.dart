@@ -227,37 +227,53 @@ void main() {
     limit: 1000,
   )).entries.map((e) => e.id).toSet();
 
-  test(
-    'a version-4 copy gains the second-mobile columns in place, and they are searched',
-    () async {
-      final old = await databaseFactoryFfi.openDatabase(
-        inMemoryDatabasePath,
-        options: OpenDatabaseOptions(
-          version: schemaVersion,
-          singleInstance: false,
-          onConfigure: configureRegisterDb,
-          onCreate: (db, _) => createRegisterSchema(db),
-        ),
-      );
-      // Make it look like version 4: no second-mobile columns.
-      for (final trigger in ['insert', 'delete', 'update']) {
-        await old.execute('DROP TRIGGER entries_text_$trigger');
-      }
-      for (final table in ['entries', 'staging_entries']) {
-        await old.execute('ALTER TABLE $table DROP COLUMN alt_mobile');
-        await old.execute('ALTER TABLE $table DROP COLUMN co_alt_mobile');
-      }
-      await upgradeRegisterSchema(old, 4, 5);
-      final copy = RegisterDatabase(old);
-      final row = RegisterEntry.fromApi(
-        entry('x', altMobile: '9555512345'),
-      ).toRow();
-      await copy.db.insert('entries', row);
-      final page = await copy.search(const RegisterQuery(text: '9555512345'));
-      expect(page.entries.map((e) => e.altMobile), ['9555512345']);
-      await copy.close();
-    },
-  );
+  for (final from in [4, 5]) {
+    test(
+      'a version-$from copy gains the new columns in place, keeps its rows and downloads again in the background',
+      () async {
+        final old = await databaseFactoryFfi.openDatabase(
+          inMemoryDatabasePath,
+          options: OpenDatabaseOptions(
+            version: schemaVersion,
+            singleInstance: false,
+            onConfigure: configureRegisterDb,
+            onCreate: (db, _) => createRegisterSchema(db),
+          ),
+        );
+        // Make it look like the older layout.
+        if (from == 4) {
+          for (final trigger in ['insert', 'delete', 'update']) {
+            await old.execute('DROP TRIGGER entries_text_$trigger');
+          }
+        }
+        for (final table in ['entries', 'staging_entries']) {
+          for (final column in [
+            if (from == 4) ...['alt_mobile', 'co_alt_mobile'],
+            'more_addresses',
+            'co_address',
+            'co_more_addresses',
+          ]) {
+            await old.execute('ALTER TABLE $table DROP COLUMN $column');
+          }
+        }
+        await old.insert('meta', {'key': 'cursor', 'value': 'delta-token'});
+        await upgradeRegisterSchema(old, from, schemaVersion);
+        final copy = RegisterDatabase(old);
+        expect(await copy.cursor, isNull, reason: 'a fresh download starts');
+        final row = RegisterEntry.fromApi(
+          entry('x', altMobile: '9555512345')
+            ..['moreAddresses'] = ['Shop 4']
+            ..['coAddress'] = 'Farm',
+        ).toRow();
+        await copy.db.insert('entries', row);
+        final page = await copy.search(const RegisterQuery(text: '9555512345'));
+        expect(page.entries.map((e) => e.altMobile), ['9555512345']);
+        expect(page.entries.single.moreAddresses, ['Shop 4']);
+        expect(page.entries.single.coAddress, 'Farm');
+        await copy.close();
+      },
+    );
+  }
 
   test(
     'account searches match a series typed any way, including CK2 / ABC',
@@ -500,22 +516,34 @@ void main() {
         expect((await db.prefixes()), [('BD', 2), ('MJ', 1)]);
         expect(await db.areas(), ['SHASTRI NAGAR']);
 
-        // The "Search in" column picker narrows the same text to one column.
+        // "Search in" one column finds that exact value (case and spaces aside).
         Future<List<String>> inField(RegisterField field, String text) =>
             find(RegisterQuery(text: text, field: field));
-        expect(await inField(RegisterField.name, 'ram'), [
-          'a',
-        ], reason: 'not the co-applicant');
-        expect(await inField(RegisterField.coApplicant, 'ram'), ['b']);
+        expect(
+          await inField(RegisterField.name, 'ram  LAL'),
+          ['a'],
+          reason: 'not the co-applicant',
+        );
+        expect(await inField(RegisterField.name, 'ram'), isEmpty);
+        expect(await inField(RegisterField.coApplicant, 'ram prasad'), ['b']);
+        expect(await inField(RegisterField.coApplicant, '9123456789'), ['b']);
         expect(await inField(RegisterField.account, 'bd-12'), ['a']);
-        expect(await inField(RegisterField.mobile, '43210'), ['a']);
-        expect(await inField(RegisterField.mobile, 'ram'), isEmpty);
-        expect(await inField(RegisterField.area, 'shastri'), ['a']);
-        expect(await inField(RegisterField.area, 'ram'), isEmpty);
-        expect(await inField(RegisterField.product, 'led'), [
-          'a',
-        ], reason: 'product type name');
-        expect(await inField(RegisterField.product, 'ram'), isEmpty);
+        expect(
+          await inField(RegisterField.account, 'bd 1'),
+          isEmpty,
+          reason: 'not BD 12 / BD 13',
+        );
+        expect(await inField(RegisterField.mobile, '98765 43210'), ['a']);
+        expect(await inField(RegisterField.mobile, '43210'), isEmpty);
+        expect(await inField(RegisterField.area, 'shastri nagar'), ['a']);
+        expect(await inField(RegisterField.area, 'shastri'), isEmpty);
+        expect(
+          await inField(RegisterField.product, 'tv'),
+          ['a'],
+          reason: 'a type includes its sub-types',
+        );
+        expect(await inField(RegisterField.product, 'led'), isEmpty);
+        expect(await inField(RegisterField.customerCode, 'cust-0042'), ['a']);
         expect(await inField(RegisterField.all, 'ram'), ['b', 'a']);
       },
     );

@@ -153,12 +153,17 @@ class _EntryDetailPageState extends State<EntryDetailPage> {
                         : '${entry.customerItemCount}',
                   ),
                   ('Address', entry.address),
+                  for (final (i, a) in entry.moreAddresses.indexed)
+                    ('Address ${i + 2}', a),
                   ('Area', entry.area),
                 ]),
                 _section(context, 'Co-applicant', [
                   ('Name', entry.coName),
                   ('Mobile', entry.coMobile),
                   ('Second mobile', entry.coAltMobile),
+                  ('Address', entry.coAddress),
+                  for (final (i, a) in entry.coMoreAddresses.indexed)
+                    ('Address ${i + 2}', a),
                   ('Customer code', entry.coCustomerCode),
                 ]),
                 _section(context, 'Purchase', [

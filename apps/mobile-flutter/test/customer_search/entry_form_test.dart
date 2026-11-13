@@ -101,19 +101,13 @@ Future<void> reveal(WidgetTester tester, Finder finder) =>
           .first,
     );
 
+/// The Save at the top of the form (always on screen).
 Future<void> tapSave(WidgetTester tester) async {
-  // A focused field scrolls itself back into view on every rebuild.
   FocusManager.instance.primaryFocus?.unfocus();
   await tester.pumpAndSettle();
-  await tester.scrollUntilVisible(
-    find.text('Save'),
-    300,
-    scrollable: find
-        .descendant(of: find.byType(Form), matching: find.byType(Scrollable))
-        .first,
+  await tester.tap(
+    find.descendant(of: find.byType(AppBar), matching: find.text('Save')),
   );
-  await tester.pumpAndSettle();
-  await tester.tap(find.text('Save'));
   await tester.pumpAndSettle();
 }
 
@@ -305,6 +299,81 @@ void main() {
         findsNothing,
         reason: 'form closed after saving',
       );
+    },
+  );
+
+  testWidgets(
+    'new entry: a quantity and another product are saved together under one account number',
+    (tester) async {
+      final server = FakeRegisterServer()..pageSize = 10;
+      final posts = <Map<String, dynamic>>[];
+      await openRegister(tester, server, (request) async {
+        if (request.method == 'POST' &&
+            request.url.path.endsWith('/customer-search')) {
+          posts.add(jsonDecode(request.body) as Map<String, dynamic>);
+          return http.Response(
+            jsonEncode({
+              'success': true,
+              'data': {'id': 'n1', 'itemsSaved': 5},
+            }),
+            201,
+          );
+        }
+        return null;
+      });
+
+      await tester.tap(find.text('New entry'));
+      await tester.pumpAndSettle();
+      await tester.enterText(field('Account number *'), 'MI 7');
+      await tester.enterText(field('Customer name *'), 'Many Items');
+      await reveal(tester, find.text('Choose a date'));
+      await tester.tap(find.text('Choose a date'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+      await pick(tester, 'Product type *', 'TV');
+      await reveal(tester, field('Quantity'));
+      await tester.enterText(field('Quantity'), '2');
+      await reveal(tester, find.text('Add another item'));
+      await tester.tap(find.text('Add another item'));
+      await tester.pumpAndSettle();
+
+      // The new item's own type picker (the last "Product type *").
+      await reveal(tester, find.text('Item 2'));
+      final itemType = find.ancestor(
+        of: find.text('Product type *').last,
+        matching: find.byType(DropdownButtonFormField<String>),
+      );
+      await tester.tap(itemType);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Fridge').last);
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.descendant(of: find.byType(Card).last, matching: field('Brand')),
+        'Whirlpool',
+      );
+      await tester.enterText(
+        find.descendant(of: find.byType(Card).last, matching: field('Qty')),
+        '3',
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.text('5 entries will be saved under this account number.'),
+        findsOneWidget,
+      );
+
+      await tapSave(tester);
+      expect(posts, hasLength(1));
+      expect(posts.single['categoryId'], 'tv');
+      expect(posts.single['quantity'], 2);
+      expect(posts.single['moreItems'], [
+        {
+          'categoryId': 'fridge',
+          'brand': 'Whirlpool',
+          'model': null,
+          'quantity': 3,
+        },
+      ]);
     },
   );
 }

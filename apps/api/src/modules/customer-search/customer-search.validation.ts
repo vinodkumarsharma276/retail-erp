@@ -5,6 +5,8 @@ const text = (max: number) => z.string().trim().max(max);
 const optionalText = (max: number) => text(max).nullable().optional();
 const isoDate = z.string().refine(isIsoDate, 'Purchase date must be a real date (yyyy-mm-dd)');
 export const MAX_ITEM_QUANTITY = 100;
+/** Addresses besides the main one, per person (owner decision: 3 in all). */
+export const MAX_MORE_ADDRESSES = 2;
 
 export const entrySchema = z.object({
   accountNumber: z.string().trim().min(1, 'Account Number is required').max(30),
@@ -14,10 +16,14 @@ export const entrySchema = z.object({
   /** A second mobile (optional; searchable, never used to match the customer). */
   altMobile: optionalText(20),
   address: optionalText(500),
+  /** Other addresses (main one is `address`); blanks are dropped. */
+  moreAddresses: z.array(text(500)).max(MAX_MORE_ADDRESSES, `At most ${MAX_MORE_ADDRESSES + 1} addresses`).optional(),
   area: optionalText(100),
   coName: optionalText(200),
   coMobile: optionalText(20),
   coAltMobile: optionalText(20),
+  coAddress: optionalText(500),
+  coMoreAddresses: z.array(text(500)).max(MAX_MORE_ADDRESSES, `At most ${MAX_MORE_ADDRESSES + 1} addresses`).optional(),
   purchaseDate: isoDate,
   /** Product type: any active type of the tenant's tree (a sub-type is optional). */
   categoryId: z.string().uuid('Choose the product type'),
