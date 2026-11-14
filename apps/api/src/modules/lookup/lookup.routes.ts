@@ -1,4 +1,4 @@
-import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import type { FastifyInstance } from 'fastify';
 import { prisma } from '../../config/database.js';
 import { authenticate } from '../../middleware/auth.js';
 import { sendSuccess } from '../../utils/response.js';
@@ -16,13 +16,10 @@ export async function lookupRoutes(app: FastifyInstance) {
    * on Customer or Distributor records (across all shops). Optional `q`
    * query parameter does a case-insensitive prefix/substring filter.
    */
-  app.get(
+  app.get<{ Querystring: { q?: string } }>(
     '/cities',
     { preHandler: [authenticate] },
-    async (
-      request: FastifyRequest<{ Querystring: { q?: string } }>,
-      reply: FastifyReply,
-    ) => {
+    async (request, reply) => {
       const q = (request.query.q ?? '').trim();
 
       const customerWhere = q

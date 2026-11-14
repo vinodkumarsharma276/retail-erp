@@ -7,8 +7,8 @@
  *   3. Backfills `tenant_id` on every existing row across all 35 per-tenant
  *      tables so the follow-up migration can mark the columns NOT NULL.
  *
- * Idempotent — safe to re-run; uses `upsert` for tenant/plan and `updateMany`
- * with `tenantId: null` filters so rows already backfilled are skipped.
+ * Idempotent — safe to re-run; uses `upsert` for tenant/plan and
+ * `WHERE tenant_id IS NULL` updates so rows already backfilled are skipped.
  *
  * Usage:
  *   cd apps/api
@@ -103,62 +103,35 @@ async function ensureBootstrapTenant(planId: string) {
   });
 }
 
+/** Every per-tenant table (the `@@map` names), in backfill order. */
+const TENANT_TABLES = [
+  'shops', 'users', 'roles', 'role_permissions', 'user_permissions', 'user_shops',
+  'refresh_tokens', 'product_categories', 'category_attributes', 'products',
+  'product_audit_trail', 'distributors', 'distributor_categories', 'purchases',
+  'purchase_payments', 'customers', 'sale_records', 'sale_records_sanitized',
+  'installment_schedules', 'installments', 'installment_payments',
+  'installment_interest_applications', 'installment_roll_log',
+  'employee_collection_assignments', 'inter_shop_transfers', 'expenses',
+  'bank_accounts', 'bank_transactions', 'form_definitions', 'form_fields',
+  'notification_tokens', 'notifications', 'audit_logs', 'employees', 'app_settings',
+] as const;
+
 /**
- * Backfill every per-tenant table whose `tenantId` is still NULL. We do this
- * with `updateMany` against `{ tenantId: null }` so re-runs are no-ops.
- *
- * Order matters where downstream tables reference upstream IDs (e.g. customers
- * before sales) only for clarity — the actual updates use the tenantId
- * constant, not lookups, so any order works.
+ * Backfill every per-tenant table whose `tenant_id` is still NULL, so re-runs
+ * are no-ops. Raw SQL because the columns have since become NOT NULL and the
+ * generated client no longer accepts a `tenantId: null` filter. The table
+ * names come from the constant list above, never from input.
  */
 async function backfillAllTables(tenantId: string) {
-  const tables: Array<{
-    label: string;
-    run: () => Promise<{ count: number }>;
-  }> = [
-    { label: 'shops',                            run: () => prisma.shop.updateMany({ where: { tenantId: null }, data: { tenantId } }) },
-    { label: 'users',                            run: () => prisma.user.updateMany({ where: { tenantId: null }, data: { tenantId } }) },
-    { label: 'roles',                            run: () => prisma.role.updateMany({ where: { tenantId: null }, data: { tenantId } }) },
-    { label: 'role_permissions',                 run: () => prisma.rolePermission.updateMany({ where: { tenantId: null }, data: { tenantId } }) },
-    { label: 'user_permissions',                 run: () => prisma.userPermission.updateMany({ where: { tenantId: null }, data: { tenantId } }) },
-    { label: 'user_shops',                       run: () => prisma.userShop.updateMany({ where: { tenantId: null }, data: { tenantId } }) },
-    { label: 'refresh_tokens',                   run: () => prisma.refreshToken.updateMany({ where: { tenantId: null }, data: { tenantId } }) },
-    { label: 'product_categories',               run: () => prisma.productCategory.updateMany({ where: { tenantId: null }, data: { tenantId } }) },
-    { label: 'category_attributes',              run: () => prisma.categoryAttribute.updateMany({ where: { tenantId: null }, data: { tenantId } }) },
-    { label: 'products',                         run: () => prisma.product.updateMany({ where: { tenantId: null }, data: { tenantId } }) },
-    { label: 'product_audit_trail',              run: () => prisma.productAuditTrail.updateMany({ where: { tenantId: null }, data: { tenantId } }) },
-    { label: 'distributors',                     run: () => prisma.distributor.updateMany({ where: { tenantId: null }, data: { tenantId } }) },
-    { label: 'distributor_categories',           run: () => prisma.distributorCategory.updateMany({ where: { tenantId: null }, data: { tenantId } }) },
-    { label: 'purchases',                        run: () => prisma.purchase.updateMany({ where: { tenantId: null }, data: { tenantId } }) },
-    { label: 'purchase_payments',                run: () => prisma.purchasePayment.updateMany({ where: { tenantId: null }, data: { tenantId } }) },
-    { label: 'customers',                        run: () => prisma.customer.updateMany({ where: { tenantId: null }, data: { tenantId } }) },
-    { label: 'sale_records',                     run: () => prisma.saleRecord.updateMany({ where: { tenantId: null }, data: { tenantId } }) },
-    { label: 'sale_records_sanitized',           run: () => prisma.saleRecordSanitized.updateMany({ where: { tenantId: null }, data: { tenantId } }) },
-    { label: 'installment_schedules',            run: () => prisma.installmentSchedule.updateMany({ where: { tenantId: null }, data: { tenantId } }) },
-    { label: 'installments',                     run: () => prisma.installment.updateMany({ where: { tenantId: null }, data: { tenantId } }) },
-    { label: 'installment_payments',             run: () => prisma.installmentPayment.updateMany({ where: { tenantId: null }, data: { tenantId } }) },
-    { label: 'installment_interest_applications',run: () => prisma.installmentInterestApplication.updateMany({ where: { tenantId: null }, data: { tenantId } }) },
-    { label: 'installment_roll_log',             run: () => prisma.installmentRollLog.updateMany({ where: { tenantId: null }, data: { tenantId } }) },
-    { label: 'employee_collection_assignments',  run: () => prisma.employeeCollectionAssignment.updateMany({ where: { tenantId: null }, data: { tenantId } }) },
-    { label: 'inter_shop_transfers',             run: () => prisma.interShopTransfer.updateMany({ where: { tenantId: null }, data: { tenantId } }) },
-    { label: 'expenses',                         run: () => prisma.expense.updateMany({ where: { tenantId: null }, data: { tenantId } }) },
-    { label: 'bank_accounts',                    run: () => prisma.bankAccount.updateMany({ where: { tenantId: null }, data: { tenantId } }) },
-    { label: 'bank_transactions',                run: () => prisma.bankTransaction.updateMany({ where: { tenantId: null }, data: { tenantId } }) },
-    { label: 'form_definitions',                 run: () => prisma.formDefinition.updateMany({ where: { tenantId: null }, data: { tenantId } }) },
-    { label: 'form_fields',                      run: () => prisma.formField.updateMany({ where: { tenantId: null }, data: { tenantId } }) },
-    { label: 'notification_tokens',              run: () => prisma.notificationToken.updateMany({ where: { tenantId: null }, data: { tenantId } }) },
-    { label: 'notifications',                    run: () => prisma.notification.updateMany({ where: { tenantId: null }, data: { tenantId } }) },
-    { label: 'audit_logs',                       run: () => prisma.auditLog.updateMany({ where: { tenantId: null }, data: { tenantId } }) },
-    { label: 'employees',                        run: () => prisma.employee.updateMany({ where: { tenantId: null }, data: { tenantId } }) },
-    { label: 'app_settings',                     run: () => prisma.appSetting.updateMany({ where: { tenantId: null }, data: { tenantId } }) },
-  ];
-
   let totalUpdated = 0;
   console.log('\nBackfill summary:');
-  for (const t of tables) {
-    const res = await t.run();
-    totalUpdated += res.count;
-    console.log(`  ${t.label.padEnd(40)} +${res.count}`);
+  for (const table of TENANT_TABLES) {
+    const count = await prisma.$executeRawUnsafe(
+      `UPDATE "${table}" SET tenant_id = $1 WHERE tenant_id IS NULL`,
+      tenantId,
+    );
+    totalUpdated += count;
+    console.log(`  ${table.padEnd(40)} +${count}`);
   }
   console.log(`\n  TOTAL rows updated: ${totalUpdated}`);
 }
@@ -170,51 +143,17 @@ async function backfillAllTables(tenantId: string) {
  * problem early.
  */
 async function verifyNoNulls() {
-  const checks: Array<[string, () => Promise<number>]> = [
-    ['shops',                            () => prisma.shop.count({ where: { tenantId: null } })],
-    ['users',                            () => prisma.user.count({ where: { tenantId: null } })],
-    ['roles',                            () => prisma.role.count({ where: { tenantId: null } })],
-    ['role_permissions',                 () => prisma.rolePermission.count({ where: { tenantId: null } })],
-    ['user_permissions',                 () => prisma.userPermission.count({ where: { tenantId: null } })],
-    ['user_shops',                       () => prisma.userShop.count({ where: { tenantId: null } })],
-    ['refresh_tokens',                   () => prisma.refreshToken.count({ where: { tenantId: null } })],
-    ['product_categories',               () => prisma.productCategory.count({ where: { tenantId: null } })],
-    ['category_attributes',              () => prisma.categoryAttribute.count({ where: { tenantId: null } })],
-    ['products',                         () => prisma.product.count({ where: { tenantId: null } })],
-    ['product_audit_trail',              () => prisma.productAuditTrail.count({ where: { tenantId: null } })],
-    ['distributors',                     () => prisma.distributor.count({ where: { tenantId: null } })],
-    ['distributor_categories',           () => prisma.distributorCategory.count({ where: { tenantId: null } })],
-    ['purchases',                        () => prisma.purchase.count({ where: { tenantId: null } })],
-    ['purchase_payments',                () => prisma.purchasePayment.count({ where: { tenantId: null } })],
-    ['customers',                        () => prisma.customer.count({ where: { tenantId: null } })],
-    ['sale_records',                     () => prisma.saleRecord.count({ where: { tenantId: null } })],
-    ['sale_records_sanitized',           () => prisma.saleRecordSanitized.count({ where: { tenantId: null } })],
-    ['installment_schedules',            () => prisma.installmentSchedule.count({ where: { tenantId: null } })],
-    ['installments',                     () => prisma.installment.count({ where: { tenantId: null } })],
-    ['installment_payments',             () => prisma.installmentPayment.count({ where: { tenantId: null } })],
-    ['installment_interest_applications',() => prisma.installmentInterestApplication.count({ where: { tenantId: null } })],
-    ['installment_roll_log',             () => prisma.installmentRollLog.count({ where: { tenantId: null } })],
-    ['employee_collection_assignments',  () => prisma.employeeCollectionAssignment.count({ where: { tenantId: null } })],
-    ['inter_shop_transfers',             () => prisma.interShopTransfer.count({ where: { tenantId: null } })],
-    ['expenses',                         () => prisma.expense.count({ where: { tenantId: null } })],
-    ['bank_accounts',                    () => prisma.bankAccount.count({ where: { tenantId: null } })],
-    ['bank_transactions',                () => prisma.bankTransaction.count({ where: { tenantId: null } })],
-    ['form_definitions',                 () => prisma.formDefinition.count({ where: { tenantId: null } })],
-    ['form_fields',                      () => prisma.formField.count({ where: { tenantId: null } })],
-    ['notification_tokens',              () => prisma.notificationToken.count({ where: { tenantId: null } })],
-    ['notifications',                    () => prisma.notification.count({ where: { tenantId: null } })],
-    // audit_logs intentionally allows NULL tenantId — it's nullable in the
-    // schema and stays nullable so legacy + system-wide entries survive.
-    ['employees',                        () => prisma.employee.count({ where: { tenantId: null } })],
-    ['app_settings',                     () => prisma.appSetting.count({ where: { tenantId: null } })],
-  ];
-
   let problems = 0;
   console.log('\nNULL tenant_id verification:');
-  for (const [label, run] of checks) {
-    const n = await run();
+  for (const table of TENANT_TABLES) {
+    // audit_logs intentionally allows NULL tenantId — it's nullable in the
+    // schema and stays nullable so legacy + system-wide entries survive.
+    if (table === 'audit_logs') continue;
+    const [{ n }] = await prisma.$queryRawUnsafe<Array<{ n: number }>>(
+      `SELECT COUNT(*)::int AS n FROM "${table}" WHERE tenant_id IS NULL`,
+    );
     if (n > 0) {
-      console.log(`  ✗ ${label}: ${n} rows still NULL`);
+      console.log(`  ✗ ${table}: ${n} rows still NULL`);
       problems++;
     }
   }

@@ -1,5 +1,6 @@
-import { prisma } from '../../config/database.js';
-import type { Prisma, PrismaClient } from '@prisma/client';
+import { prisma, tenantStamped } from '../../config/database.js';
+import { Prisma } from '@prisma/client';
+import type { PrismaClient } from '@prisma/client';
 import { generateSaleNumber } from '../../utils/id-generator.js';
 
 type Tx = Omit<PrismaClient, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'>;
@@ -39,7 +40,7 @@ async function getOrCreateShopDistributor(
   if (existing) return existing;
 
   return tx.distributor.create({
-    data: {
+    data: tenantStamped<Prisma.DistributorUncheckedCreateInput>({
       companyName: shop.name,
       contactPerson: shop.name,
       phone: shop.phone,
@@ -58,7 +59,7 @@ async function getOrCreateShopDistributor(
       dynamicAttributes: { sourceType: 'shop', shopId: shop.id, shopCode: shop.code },
       isActive: true,
       createdBy: createdBy ?? null,
-    },
+    }),
   });
 }
 
@@ -67,7 +68,7 @@ async function getOrCreateShopDistributor(
  * shop. Used so a transfer can be recorded as a sale in the source shop's
  * books, with the destination shop acting as the "customer".
  *
- * customerCode is unique globally, so we key it as SHOP-{owner}-{other}.
+ * customerCode is unique per tenant, so we key it as SHOP-{owner}-{other}.
  */
 async function getOrCreateShopCustomer(
   tx: Tx,
@@ -87,13 +88,13 @@ async function getOrCreateShopCustomer(
   createdBy?: string,
 ) {
   const customerCode = `SHOP-${ownerShopCode}-${otherShop.code}`;
-  const existing = await tx.customer.findUnique({
+  const existing = await tx.customer.findFirst({
     where: { customerCode },
   });
   if (existing) return existing;
 
   return tx.customer.create({
-    data: {
+    data: tenantStamped<Prisma.CustomerUncheckedCreateInput>({
       customerCode,
       name: otherShop.name,
       phone: otherShop.phone,
@@ -109,7 +110,7 @@ async function getOrCreateShopCustomer(
         shopCode: otherShop.code,
       },
       createdBy: createdBy ?? null,
-    },
+    }),
   });
 }
 
@@ -309,7 +310,7 @@ export const transfersService = {
 
       // 4b. Create InterShopTransfer record
       const newTransfer = await tx.interShopTransfer.create({
-        data: {
+        data: tenantStamped<Prisma.InterShopTransferUncheckedCreateInput>({
           productId: data.productId,
           fromShopId: data.fromShopId,
           toShopId: data.toShopId,
@@ -320,7 +321,7 @@ export const transfersService = {
           invoiceNumber,
           notes: data.notes ?? null,
           initiatedBy: userId,
-        },
+        }),
       });
 
       // 5. Update product status to 'transferred'
@@ -331,7 +332,7 @@ export const transfersService = {
 
       // 6. Create ProductAuditTrail entry for 'transferred_out'
       await tx.productAuditTrail.create({
-        data: {
+        data: tenantStamped<Prisma.ProductAuditTrailUncheckedCreateInput>({
           productId: data.productId,
           eventType: 'transferred_out',
           fromShopId: data.fromShopId,
@@ -340,7 +341,7 @@ export const transfersService = {
           referenceType: 'transfer',
           performedBy: userId,
           notes: `Transfer initiated to ${toShop.name} (${toShop.code})`,
-        },
+        }),
       });
 
       return newTransfer;
@@ -438,7 +439,7 @@ export const transfersService = {
       const transferInvoiceNumber =
         transfer.invoiceNumber ?? `TRF-${transfer.id.slice(0, 8)}`;
       const destPurchase = await tx.purchase.create({
-        data: {
+        data: tenantStamped<Prisma.PurchaseUncheckedCreateInput>({
           shopId: transfer.toShopId,
           distributorId: sourceShopDistributor.id,
           invoiceNumber: transferInvoiceNumber,
@@ -453,12 +454,12 @@ export const transfersService = {
             `Inter-shop transfer received from ${transfer.fromShop.name} ` +
             `(${transfer.fromShop.code}). Transfer ID: ${transfer.id}.`,
           createdBy: userId,
-        },
+        }),
       });
 
       // 4. Clone into destination shop as a fresh in-stock product.
       const destProduct = await tx.product.create({
-        data: {
+        data: tenantStamped<Prisma.ProductUncheckedCreateInput>({
           shopId: transfer.toShopId,
           categoryId: sourceProduct.categoryId,
           brand: sourceProduct.brand,
@@ -478,12 +479,12 @@ export const transfersService = {
           barcode: sourceProduct.barcode,
           notes: sourceProduct.notes,
           createdBy: userId,
-        },
+        }),
       });
 
       // 5. Audit trail: 'transferred_in' on the new destination product
       await tx.productAuditTrail.create({
-        data: {
+        data: tenantStamped<Prisma.ProductAuditTrailUncheckedCreateInput>({
           productId: destProduct.id,
           eventType: 'transferred_in',
           fromShopId: transfer.fromShopId,
@@ -494,12 +495,12 @@ export const transfersService = {
           notes:
             `Transfer received from ${transfer.fromShop.name} ` +
             `(${transfer.fromShop.code}). Cloned from source product ${sourceProduct.id}.`,
-        },
+        }),
       });
 
       // 6. Audit trail: mark source product as sold-to-GST-entity
       await tx.productAuditTrail.create({
-        data: {
+        data: tenantStamped<Prisma.ProductAuditTrailUncheckedCreateInput>({
           productId: sourceProduct.id,
           eventType: 'sold',
           fromShopId: transfer.fromShopId,
@@ -510,7 +511,7 @@ export const transfersService = {
           notes:
             `Sold via inter-shop transfer to ${transfer.toShop.name} ` +
             `(${transfer.toShop.code}). New product: ${destProduct.id}.`,
-        },
+        }),
       });
 
       // 7. Record the transfer as a Sale in the SOURCE shop's books.
@@ -546,7 +547,7 @@ export const transfersService = {
         transfer.invoiceNumber ?? `TRF-${transfer.id.slice(0, 8)}`;
 
       const saleRecord = await tx.saleRecord.create({
-        data: {
+        data: tenantStamped<Prisma.SaleRecordUncheckedCreateInput>({
           saleNumber,
           ledgerNumber,
           shopId: transfer.fromShopId,
@@ -565,7 +566,7 @@ export const transfersService = {
           totalAmount: transferPrice,
           downPayment: 0,
           paymentMode: 'bank_transfer',
-          paymentBreakdown: null,
+          paymentBreakdown: Prisma.DbNull,
           promiseDate,
           pendingAmount: transferPrice,
           fileCharge: 0,
@@ -574,7 +575,7 @@ export const transfersService = {
             `(${transfer.toShop.code}). Invoice: ${ledgerNumber}. ` +
             `Payment pending from destination shop.`,
           createdBy: userId,
-        },
+        }),
       });
 
       // A transfer is a plain sale between shops: one record, no sanitized copy.
@@ -620,7 +621,7 @@ export const transfersService = {
 
       // 4. Create ProductAuditTrail entry for 'transfer_cancelled'
       await tx.productAuditTrail.create({
-        data: {
+        data: tenantStamped<Prisma.ProductAuditTrailUncheckedCreateInput>({
           productId: transfer.productId,
           eventType: 'transfer_cancelled',
           fromShopId: transfer.fromShopId,
@@ -629,7 +630,7 @@ export const transfersService = {
           referenceType: 'transfer',
           performedBy: userId,
           notes: `Transfer cancelled (was going to ${transfer.toShop.name})`,
-        },
+        }),
       });
     });
 

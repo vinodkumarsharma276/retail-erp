@@ -5,6 +5,7 @@ import cookie from '@fastify/cookie';
 import rateLimit from '@fastify/rate-limit';
 import multipart from '@fastify/multipart';
 import { config } from './config/index.js';
+import { prisma } from './config/database.js';
 import { errorHandler } from './middleware/error-handler.js';
 import { tenantResolver } from './middleware/tenant-resolver.js';
 import { tenantContext } from './config/tenant-context.js';
@@ -97,6 +98,7 @@ export async function buildApp() {
     logger: {
       level: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
     },
+    trustProxy: config.trustProxy,
   });
 
   // Plugins
@@ -112,7 +114,7 @@ export async function buildApp() {
   });
   await app.register(jwt, { secret: config.jwt.secret });
   await app.register(cookie);
-  await app.register(rateLimit, { max: 100, timeWindow: '1 minute' });
+  await app.register(rateLimit, { max: config.rateLimitMax, timeWindow: '1 minute' });
   await app.register(multipart, {
     limits: {
       files: 1,
@@ -134,6 +136,15 @@ export async function buildApp() {
 
   // Health check
   app.get('/api/health', async () => ({ status: 'ok', timestamp: new Date().toISOString() }));
+  // Readiness also proves the database answers; used by deploy health checks.
+  app.get('/api/ready', async (_request, reply) => {
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+      return { status: 'ready', timestamp: new Date().toISOString() };
+    } catch {
+      return reply.status(503).send({ status: 'database_unavailable' });
+    }
+  });
 
   // Routes
   await app.register(authRoutes, { prefix: '/api/v1/auth' });

@@ -25,7 +25,9 @@ over client controls, comments, legacy role descriptions and planned mobile beha
 - Tenant resolution precedes tenant authentication: explicit nonempty `X-Tenant-Slug`
   wins, then a supported host subdomain. Bare localhost/127.0.0.1/0.0.0.0 uses
   `BOOTSTRAP_TENANT_SLUG` (default `vn`); `star.localhost` selects `star`.
-  Production apexes come from `TENANT_APEX_DOMAINS` (default `retailerp.com`).
+  Production apexes come from `TENANT_APEX_DOMAINS` (default `retailerpai.com` since 2026-11-14;
+  the web mirrors it with `VITE_TENANT_APEX_DOMAINS`). The hosted web and app call
+  `api.retailerpai.com` with `X-Tenant-Slug`, so the API host itself names no tenant.
   Bare production apexes and unsupported/multilabel production subdomains do not silently
   choose a tenant. Missing/unknown tenants return 404; suspended/cancelled tenants return 403.
 - Credentials are checked against `(tenantId, username)` and an active user using bcrypt.
@@ -230,6 +232,14 @@ symmetrically validate an explicit tenant scope or reject absent tenant claims. 
 perfect bidirectional token-kind isolation solely from the separate client apps.
 
 ## Decisions and review checkpoint
+
+2026-11-14 ([deployment and release](deployment-and-release.md)): with `NODE_ENV=production` the
+API refuses to start unless `JWT_SECRET`/`JWT_REFRESH_SECRET` are distinct random strings of 32+
+characters (no `dev-secret` fallback), `DATABASE_URL` is set and `CORS_ORIGIN` lists exact https
+origins. Behind the hosted proxy `TRUST_PROXY=1` makes the per-IP rate limit (`RATE_LIMIT_MAX`,
+default 100/min, 300 in the production template) see the real client IP. Tenant apex default is
+`retailerpai.com`. Unit-tested in
+[deployment-config.test.ts](../../apps/api/tests/unit/deployment-config.test.ts).
 
 2026-11-10: supporting capability, no additional tenant rail item. API and shared access
 rulebook are authoritative. Flutter is approved for all authorized roles, not restricted

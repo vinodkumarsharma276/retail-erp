@@ -198,8 +198,14 @@ notification provisioning is deferred. Background WorkManager updates were obser
 OPPO phone (2026-11-10/11, see [Customer Searching → Verification](customer-searching.md#verification-and-acceptance));
 release-build timings are not measured. There is no in-app update prompt: a phone on an old build keeps
 old client rules (2026-11-14: a 2026-11-11 build could not find `MN 1`-format account numbers until the
-current build was installed). All-shops aggregate selection, password changes and production signing are not
-implemented in the foundation. Preserve Expo and its npm commands.
+current build was installed). All-shops aggregate selection and password changes are not
+implemented in the foundation. Release signing exists since 2026-11-14: release builds use the
+key from `%USERPROFILE%\.retailerp\android\key.properties` and fail without it (debug builds are
+unchanged); `tool/build-release-apk.ps1` builds, obfuscates and verifies them, and the app version
+is `1.0.0` with strictly increasing build numbers — see
+[deployment and release](deployment-and-release.md). The real keystore is not created yet, and
+phones with a debug-signed build must uninstall it before the first release build. Preserve Expo
+and its npm commands.
 
 ## Decisions and review checkpoint
 

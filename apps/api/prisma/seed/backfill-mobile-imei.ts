@@ -38,6 +38,7 @@ async function main() {
 
       await prisma.categoryAttribute.create({
         data: {
+          tenantId: category.tenantId,
           categoryId: category.id,
           attributeName: 'imeiNumbers',
           attributeLabel: 'IMEI Number',

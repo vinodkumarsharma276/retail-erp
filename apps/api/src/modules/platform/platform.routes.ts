@@ -21,7 +21,7 @@ import {
  * Platform-admin routes. Mounted at `/api/v1/platform`. The
  * `tenantResolver` middleware in `app.ts` bypasses this prefix so no
  * tenant subdomain is needed — these endpoints are reached at the apex
- * `admin.retailerp.com` host. All routes except auth/login require a
+ * `admin.retailerpai.com` host. All routes except auth/login require a
  * platform-admin JWT (scope === 'platform').
  */
 export async function platformRoutes(app: FastifyInstance) {

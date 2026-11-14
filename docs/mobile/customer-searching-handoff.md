@@ -148,7 +148,8 @@ Evidence: [Customer Searching → Verification](../features/customer-searching.m
       (Deferred by the owner; not delivered.)
 - [x] Web contract regression tests, Flutter tests/static analysis and device smoke checks pass.
 - [ ] Android background WorkManager update observed running on a device (done 2026-11-10/11);
-      release-build and Wi-Fi timings; API response compression decision (still open).
+      release-build and Wi-Fi timings still open. Compression: decided 2026-11-14 — done by the
+      hosted proxy (Caddy zstd/gzip), see [deployment and release](../features/deployment-and-release.md).
 - [x] Feature docs, index, source mappings and reviewed checkpoints reflect delivered behavior.
 
 ## Copyable next-chat request

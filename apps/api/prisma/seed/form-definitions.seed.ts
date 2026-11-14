@@ -1,4 +1,4 @@
-import type { PrismaClient, FormDefinition } from '@prisma/client';
+import type { Prisma, PrismaClient, FormDefinition } from '@prisma/client';
 
 const INDIAN_STATES = [
   'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh',
@@ -18,13 +18,13 @@ interface FieldSeed {
   placeholder?: string;
   defaultValue?: string;
   isRequired: boolean;
-  validationRules?: Record<string, unknown>;
-  options?: unknown;
+  validationRules?: Prisma.InputJsonObject;
+  options?: Prisma.InputJsonValue;
   displayOrder: number;
   sectionName: string;
   isVisible: boolean;
   cssClass?: string;
-  dependsOn?: Record<string, unknown>;
+  dependsOn?: Prisma.InputJsonObject;
 }
 
 const customerFields: FieldSeed[] = [

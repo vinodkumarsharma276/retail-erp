@@ -1,4 +1,4 @@
-import { prisma } from '../../config/database.js';
+import { prisma, tenantStamped } from '../../config/database.js';
 import type { Prisma } from '@prisma/client';
 import { ensureRolledForToday, applyPartialWithPromise, syncScheduleAndSale, distributeOverpayment, resolveScheduleTenantId } from './installments.rules.js';
 import { computeSettlementQuote, computeAccruedInterest, computeLatePenalty } from '@retailerp/shared-utils';
@@ -1322,7 +1322,7 @@ export const installmentsService = {
         for (let i = 0; i < splits.length; i++) {
           const s = splits[i];
           const created = await tx.installmentPayment.create({
-            data: {
+            data: tenantStamped<Prisma.InstallmentPaymentUncheckedCreateInput>({
               installmentId,
               amount: s.amount,
               paymentMode: s.mode as any,
@@ -1333,7 +1333,7 @@ export const installmentsService = {
                 splits.length > 1
                   ? `${data.notes ?? ''}${data.notes ? ' · ' : ''}Split ${i + 1}/${splits.length}`.trim()
                   : data.notes ?? null,
-            },
+            }),
           });
           if (i === 0) firstRecord = created;
         }
@@ -1437,7 +1437,7 @@ export const installmentsService = {
 
             // Create a sub-row marker for early collection
             await tx.installment.create({
-              data: {
+              data: tenantStamped<Prisma.InstallmentUncheckedCreateInput>({
                 scheduleId: schedule.id,
                 installmentNumber: nextInstallment.installmentNumber,
                 parentInstallmentNumber: nextInstallment.installmentNumber,
@@ -1448,7 +1448,7 @@ export const installmentsService = {
                 remainingAmount: Number(nextInstallment.remainingAmount),
                 status: 'upcoming',
                 notes: `Early collection scheduled — customer willing to pay before ${new Date(nextInstallment.dueDate).toISOString().split('T')[0]}.`,
-              },
+              }),
             });
 
             // Mark the original next installment as rescheduled
@@ -1550,7 +1550,7 @@ export const installmentsService = {
           const s = partialSplits[i];
           const baseNote = data.notes ?? `Partial payment of ${amount}. Promise date: ${data.newDate}.`;
           const created = await tx.installmentPayment.create({
-            data: {
+            data: tenantStamped<Prisma.InstallmentPaymentUncheckedCreateInput>({
               installmentId,
               amount: s.amount,
               paymentMode: s.mode as any,
@@ -1561,7 +1561,7 @@ export const installmentsService = {
                 partialSplits.length > 1
                   ? `${baseNote} · Split ${i + 1}/${partialSplits.length}`
                   : baseNote,
-            },
+            }),
           });
           if (i === 0) firstPartialRecord = created;
         }
@@ -1941,7 +1941,7 @@ export const installmentsService = {
         where: { installmentId: { in: targetIds }, createdAt: { gt: cutoff } },
       }),
       prisma.installmentInterestApplication.count({
-        where: { installmentId: { in: targetIds }, createdAt: { gt: cutoff } },
+        where: { installmentId: { in: targetIds }, appliedAt: { gt: cutoff } },
       }),
       prisma.installmentRollLog.count({
         where: {
@@ -2388,7 +2388,7 @@ export const installmentsService = {
             tx.installmentInterestApplication.count({
               where: {
                 installmentId: { in: targetIds },
-                createdAt: { gt: cutoff },
+                appliedAt: { gt: cutoff },
               },
             }),
             tx.installmentRollLog.count({
@@ -2863,7 +2863,7 @@ export const installmentsService = {
 
         if (amountPaidNow > 0) {
           await tx.installmentPayment.create({
-            data: {
+            data: tenantStamped<Prisma.InstallmentPaymentUncheckedCreateInput>({
               installmentId: inst.id,
               amount: amountPaidNow,
               paymentMode: body.paymentMode as any,
@@ -2871,7 +2871,7 @@ export const installmentsService = {
               collectedBy: userId,
               referenceNumber: runningRefId,
               notes: 'Final settlement (early closure)',
-            },
+            }),
           });
           // Only attach the reference number to the first payment — others
           // are part of the same atomic transaction.
@@ -3449,7 +3449,7 @@ export const installmentsService = {
       });
 
       await tx.installmentPayment.create({
-        data: {
+        data: tenantStamped<Prisma.InstallmentPaymentUncheckedCreateInput>({
           installmentId: targetInst.id,
           amount: amountToMove,
           paymentMode: payment.paymentMode,
@@ -3457,7 +3457,7 @@ export const installmentsService = {
           referenceNumber: payment.referenceNumber,
           notes: payment.notes,
           collectedBy: userId,
-        },
+        }),
       });
 
       await tx.installmentRollLog.create({
@@ -3483,6 +3483,7 @@ export const installmentsService = {
       // ── Step D: Distribute any excess over the target's due amount ────────
       const excess = amountToMove - targetRemainingWithInterest;
       if (excess > 0) {
+        // @ts-expect-error Stale positional call: at runtime it is a no-op (returns no targets); left as-is pending a decision on how moved excess should be redistributed.
         await distributeOverpayment(tx, targetInst.id, scheduleId, excess, userId, false);
       }
 
@@ -3586,7 +3587,7 @@ export const installmentsService = {
         const dailyRate = monthlyRate / 100 / 30;
 
         const app = await tx.installmentInterestApplication.create({
-          data: {
+          data: tenantStamped<Prisma.InstallmentInterestApplicationUncheckedCreateInput>({
             installmentId: inst.id,
             scheduleId,
             daysOverdue,
@@ -3595,7 +3596,7 @@ export const installmentsService = {
             appliedAmount: options.applyInterest.amount,
             appliedBy: userId,
             notes: options.applyInterest.notes ?? null,
-          },
+          }),
         });
 
         await tx.installmentRollLog.create({
@@ -3697,7 +3698,7 @@ export const installmentsService = {
           dueToday.setHours(0, 0, 0, 0);
 
           await tx.installment.create({
-            data: {
+            data: tenantStamped<Prisma.InstallmentUncheckedCreateInput>({
               scheduleId,
               installmentNumber: maxNum + 1,
               dueDate: dueToday,
@@ -3706,7 +3707,7 @@ export const installmentsService = {
               remainingAmount: totalToDistribute,
               status: 'due_today',
               notes: `Created due to payment correction on installment ${instLabel}. Shortfall: ₹${shortfall.toLocaleString('en-IN')}`,
-            },
+            }),
           });
 
           distributionMessage = `Shortfall of ₹${totalToDistribute.toLocaleString('en-IN')} placed in a new installment #${maxNum + 1} (due today).`;

@@ -4,14 +4,14 @@
  * Runs on every request BEFORE auth/shopScope. Resolves the active tenant
  * by inspecting (in order):
  *   1. `X-Tenant-Slug` header  — mobile app + manual API clients.
- *   2. Host header subdomain   — e.g. `vn.retailerp.com` → slug `vn`.
+ *   2. Host header subdomain   — e.g. `vn.retailerpai.com` → slug `vn`.
  *   3. Local-dev fallback      — `localhost` / `127.0.0.1` / `*.localhost`
  *      maps to the bootstrap tenant (slug from `BOOTSTRAP_TENANT_SLUG` env
  *      var, defaulting to `vn`).
  *
  * If the tenant cannot be resolved, the request is rejected with 404 so
  * subdomain typos surface clearly rather than landing in the default
- * tenant. Routes scoped to the platform admin (e.g. `admin.retailerp.com`
+ * tenant. Routes scoped to the platform admin (e.g. `admin.retailerpai.com`
  * or `/api/v1/platform/*`) are handled separately by `platform-auth.ts`
  * and bypass this middleware.
  *
@@ -31,7 +31,7 @@ const TENANT_CACHE_TTL_MS = 60_000;
  * Configurable via env so dev / staging / prod can each have their own.
  * In dev we also accept `*.localhost` and bare `localhost`.
  */
-const APEX_DOMAINS = (process.env.TENANT_APEX_DOMAINS ?? 'retailerp.com')
+const APEX_DOMAINS = (process.env.TENANT_APEX_DOMAINS ?? 'retailerpai.com')
   .split(',')
   .map((d) => d.trim().toLowerCase())
   .filter(Boolean);
@@ -113,7 +113,7 @@ export function extractTenantSlugFromRequest(request: FastifyRequest): string | 
     }
     if (host.endsWith(`.${apex}`)) {
       const sub = host.slice(0, -1 - apex.length);
-      // Disallow multi-label subdomains for now (e.g. `foo.bar.retailerp.com`).
+      // Disallow multi-label subdomains for now (e.g. `foo.bar.retailerpai.com`).
       if (!sub.includes('.')) return sub;
     }
   }
@@ -147,7 +147,7 @@ export async function tenantResolver(request: FastifyRequest, reply: FastifyRepl
     return reply.status(404).send({
       success: false,
       error:
-        'No tenant context found. Use a tenant subdomain (e.g. vn.retailerp.com) or send X-Tenant-Slug header.',
+        'No tenant context found. Use a tenant subdomain (e.g. vn.retailerpai.com) or send X-Tenant-Slug header.',
     });
   }
 

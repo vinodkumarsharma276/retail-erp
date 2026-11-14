@@ -1,12 +1,14 @@
 /**
  * One-shot backfill: refresh address / phone fields on the existing shop
  * rows with the real-world values supplied by the owner. Idempotent —
- * matches by `code` (the unique business identifier).
+ * matches by `code` (unique within a tenant) in the owner's tenant.
  *
  * Run via:
  *   npx tsx prisma/seed/backfill-shop-details.ts
  */
 import { PrismaClient } from '@prisma/client';
+
+const TENANT_SLUG = 'vn';
 
 const updates = [
   {
@@ -53,13 +55,13 @@ async function main() {
     console.log('Backfilling shop address/phone...');
     let updated = 0;
     for (const u of updates) {
-      const existing = await prisma.shop.findUnique({ where: { code: u.code } });
+      const existing = await prisma.shop.findFirst({ where: { code: u.code, tenant: { slug: TENANT_SLUG } } });
       if (!existing) {
         console.warn(`  [skip] No shop with code ${u.code}`);
         continue;
       }
       await prisma.shop.update({
-        where: { code: u.code },
+        where: { id: existing.id },
         data: {
           addressLine1: u.addressLine1,
           addressLine2: u.addressLine2 ?? null,

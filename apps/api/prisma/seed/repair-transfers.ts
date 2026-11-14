@@ -46,6 +46,7 @@ async function main() {
       //    in-stock item in the destination inventory going forward.
       const clone = await tx.product.create({
         data: {
+          tenantId: t.tenantId,
           shopId: t.toShopId,
           categoryId: t.product!.categoryId,
           brand: t.product!.brand,
@@ -91,6 +92,7 @@ async function main() {
       // 4. Record the sale-to-GST-entity on the source product.
       await tx.productAuditTrail.create({
         data: {
+          tenantId: t.tenantId,
           productId: t.product!.id,
           eventType: 'sold',
           fromShopId: t.fromShopId,

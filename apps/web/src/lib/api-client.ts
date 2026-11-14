@@ -22,7 +22,7 @@ function resolveApiBaseUrl() {
  *   2. `*.localhost` → first label (`vn.localhost:5173` → `vn`).
  *   3. `localhost` / `127.0.0.1` → `VITE_DEFAULT_TENANT_SLUG` (defaults to `vn`).
  *   4. `<slug>.<apex>` for any apex listed in `VITE_TENANT_APEX_DOMAINS`
- *      (comma-separated, defaults to `retailerp.com`).
+ *      (comma-separated, defaults to `retailerpai.com`).
  *   5. `null` — the api-client falls back to leaving the header off and
  *      lets the API reject with 404; the LoginPage shows a clear error.
  */
@@ -35,7 +35,7 @@ export function resolveTenantSlug(): string | null {
     (import.meta.env.VITE_DEFAULT_TENANT_SLUG as string | undefined)?.trim().toLowerCase() ||
     'vn';
   const apexList = (
-    (import.meta.env.VITE_TENANT_APEX_DOMAINS as string | undefined) ?? 'retailerp.com'
+    (import.meta.env.VITE_TENANT_APEX_DOMAINS as string | undefined) ?? 'retailerpai.com'
   )
     .split(',')
     .map((s) => s.trim().toLowerCase())

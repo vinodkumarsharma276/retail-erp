@@ -32,8 +32,8 @@ The approved new mobile target is Flutter (Dart), not an Expo extension.
 | `apps/mobile-flutter` | Flutter Android+iOS app: real tenant login, secure session storage/refresh, offline start, shop/access controls, theme, module shell, and **Customer Searching** (encrypted cached search/details, online create/edit, background updates). RetailERP display name, `com.retailerpai.mobile` ID. Other modules and push still pending |
 | `packages/shared-types` | Types/enums shared by all apps (`@retailerp/shared-types`). Holds the **access rulebook**: `features.ts`, `permissions.ts`, `access.ts` |
 | `packages/shared-utils` | EMI calculator, installment rules, GSTIN/phone/PAN/Aadhaar validators, INR/date formatters, Tally/purchase-sheet parsers (`@retailerp/shared-utils`) |
-| `infra/azure` | Bicep + deploy script (never run). Deployment options/costs: [docs/DEPLOYMENT_PLAN.md](docs/DEPLOYMENT_PLAN.md); current state and gaps: [docs/features/deployment-and-release.md](docs/features/deployment-and-release.md) |
-| `.github/workflows/ci.yml` | Typecheck + build on push/PR; deploys API (App Service) and web (Static Web Apps) on push to `main` |
+| `infra/vm` | Hosted stack for any Docker VM: PostgreSQL + API image + Caddy (HTTPS, compression), `bootstrap`/`deploy`/`backup`/`restore` scripts. Setup, release and rollback: [docs/features/deployment-and-release.md](docs/features/deployment-and-release.md). `infra/azure` is legacy, unused |
+| `.github/workflows/ci.yml` | Typecheck + API tests + build on push/PR; on push to `main`, only when repo variable `DEPLOY_ENABLED=true`, builds the API image (GHCR), deploys it to the VM over SSH and the web to Cloudflare Pages |
 
 ## Build, run, test
 
@@ -65,10 +65,19 @@ npm run docs:test                             # context-checker regression tests
   need PostgreSQL running; `tests/global-setup.ts` migrates and empties a separate
   `retailerp_test` database (the dev DB is never touched). Tests run serially in one fork.
   `tests/setup-env.ts` fakes today as **2026-10-04**, so test data dated later counts as future.
-- Known pre-existing noise — don't chase it unless asked: `npx tsc --noEmit` in `apps/api` reports
-  ~130 errors in older seeds/services (filter the output for the files you touched); `npm run lint`
-  fails on `apps/web/eslint.config.js`. Web typecheck: `npx tsc --noEmit -p tsconfig.app.json` in
-  `apps/web` — it is not `strict`, so check null handling by eye.
+- `npx turbo typecheck` is clean across all workspaces — keep it that way (CI runs it). Known
+  pre-existing noise: `npm run lint` fails on `apps/web/eslint.config.js`. Web typecheck:
+  `npx tsc --noEmit -p tsconfig.app.json` in `apps/web` — it is not `strict`, so check null
+  handling by eye.
+- API `build` is an esbuild bundle (`apps/api/scripts/build.mjs` → `dist/index.js`, inlining the
+  TS-only `@retailerp/*` packages); `tsc` is typecheck only. Production config is guarded: with
+  `NODE_ENV=production` the API refuses dev JWT secrets or a non-https `CORS_ORIGIN`.
+- Release Android builds need the release key outside the repo
+  (`%USERPROFILE%\.retailerp\android\key.properties`); use
+  `apps/mobile-flutter/tool/build-release-apk.ps1`. Debug builds need nothing.
+- `package-lock.json` must resolve to `https://registry.npmjs.org/`; if a corporate npm mirror
+  writes internal feed URLs into it, rewrite them (CI and servers can't reach the mirror). Docker
+  builds on a network that blocks npmjs.org: `--build-arg NPM_REGISTRY=<mirror>`.
 - Schema change: edit `apps/api/prisma/schema.prisma`, then from `apps/api`:
   `npx prisma migrate dev --name <snake_case>` → commit the migration folder.
 - Background jobs only run with `ENABLE_SCHEDULER=true` (`SCHEDULER_CRON`, `BANK_FEED_CRON`, `SCHEDULER_TZ`).
@@ -79,7 +88,7 @@ npm run docs:test                             # context-checker regression tests
 
 ### Tenancy — enforced in one place
 - `middleware/tenant-resolver.ts` resolves the tenant from the subdomain (`<slug>.localhost`,
-  `<slug>.retailerp.com`) or `X-Tenant-Slug` header, and stores it in an AsyncLocalStorage
+  `<slug>.retailerpai.com`) or `X-Tenant-Slug` header, and stores it in an AsyncLocalStorage
   context (`config/tenant-context.ts`).
 - `config/database.ts` extends Prisma so **every query on a model with a `tenantId` column is
   auto-filtered and every create is auto-stamped**; cross-tenant writes throw. New models get this
@@ -214,9 +223,10 @@ those gaps are not approval to reproduce unsafe behavior in Flutter or expand ac
 - A developer usually has `npm run dev` running in their own terminal — check ports 3001/5180 and
   use it; don't stop or restart it without asking. Stopping an agent-started `npm run dev` can
   leave turbo/vite/tsx orphaned on those ports — kill those node PIDs and confirm the ports are free.
-- The app runs **locally only** — nothing is deployed yet. "After deploying" steps in the docs
-  just mean "run once against the database you use". Note `ci.yml` still deploys to Azure on a
-  push to `main`.
+- The app runs **locally only** — nothing is deployed yet (target: `vn.`/`admin.retailerpai.com`
+  on Cloudflare Pages, `api.retailerpai.com` on a VM). "After deploying" steps in the docs just mean
+  "run once against the database you use". `ci.yml` deploys on push to `main` only once the
+  `DEPLOY_ENABLED` repository variable is `true`; never push to `main` or deploy without approval.
 
 ## Docs index
 
@@ -233,7 +243,7 @@ those gaps are not approval to reproduce unsafe behavior in Flutter or expand ac
 | [docs/features/installment.md](docs/features/installment.md) | Current installment feature reference |
 | [docs/legacy/installment-redistribution.md](docs/legacy/installment-redistribution.md) | Preserved legacy redistribution reference; not the implementation spec |
 | [docs/OCR_INVOICE_AND_REGISTER_PLAN.md](docs/OCR_INVOICE_AND_REGISTER_PLAN.md) | Invoice/register OCR design (implemented: `modules/ocr`) |
-| [docs/DEPLOYMENT_PLAN.md](docs/DEPLOYMENT_PLAN.md) | Azure hosting options and costs |
+| [docs/DEPLOYMENT_PLAN.md](docs/DEPLOYMENT_PLAN.md) | Superseded Azure hosting options (historical); current plan in [deployment and release](docs/features/deployment-and-release.md) |
 | [docs/UI_IMPROVEMENT_PLAN.md](docs/UI_IMPROVEMENT_PLAN.md), [docs/ADD_SALE_FORM_REDESIGN.md](docs/ADD_SALE_FORM_REDESIGN.md) | UI plans (partially implemented) |
 | [PLAN.md](PLAN.md) | Original April-2026 implementation plan — historical |
 | [.claude/skills/](.claude/skills/README.md) | Agent skills (repeatable workflows) |

@@ -34,8 +34,9 @@ rationale in [ADRs](adr/), and the maintenance rules in the
 | **ERP database/API is the source of truth.** Google Sheets is only the initial import, never a sync master. | User decision; [Customer Searching](features/customer-searching.md) |
 | Cached features keep a local copy and pull changes on a schedule and when the user searches: snapshot, then deltas **including edits, deletions and access changes**, not just new rows. Offline reads do not imply offline writes. | User decision; [handoff](mobile/customer-searching-handoff.md) |
 | First device capability is **notifications**; others come later. | User decision; [notifications](features/notifications.md) |
-| App identity: display name **RetailERP**, Android application ID / iOS bundle ID **`com.retailerpai.mobile`**, intended website **retailerpai.com** (not registered or deployed by any task; API tenant apex still `retailerp.com`). | User decision; [Flutter README](../apps/mobile-flutter/README.md) |
+| App identity: display name **RetailERP**, Android application ID / iOS bundle ID **`com.retailerpai.mobile`**, website **retailerpai.com** (owned, GoDaddy registration; DNS moving to Cloudflare). Tenant apex default is now `retailerpai.com`. | User decision; [Flutter README](../apps/mobile-flutter/README.md) |
 | Every mobile feature reuses the one app in `apps/mobile-flutter` (shell, login, session store, API client, feature catalog). Feature chats never scaffold another app or auth flow. | [Flutter README](../apps/mobile-flutter/README.md) |
+| Hosting: web on **Cloudflare Pages** (`vn.`/`admin.retailerpai.com`), API + PostgreSQL on a portable **Docker VM** (`api.retailerpai.com`, Oracle Always Free in India first), not the employer Azure subscription. Hosted DB starts as a copy of local data; only tenant `vn` live. Nothing provisioned yet. | User decision; [deployment and release](features/deployment-and-release.md) |
 | Local only: nothing is deployed. Android is validated first; iOS needs a Mac. | [AGENTS.md](../AGENTS.md) |
 
 ## Current state
@@ -49,7 +50,7 @@ As of 2026-11-14. The [feature index](features/README.md) is authoritative per f
 | Flutter foundation | Implemented: real tenant login, token refresh, secure session store, offline start, shop switching, permission/plan-gated module shell, theme, tests; Android build and device launch verified |
 | Flutter Customer Searching | First release implemented and Android-verified: encrypted cache, snapshot + delta + tombstone sync, background updates, online create/edit. Not release-ready (see open items) |
 | Other Flutter modules | Placeholders only ("Coming soon to the mobile app") |
-| Deployment | Not deployed. A dedicated chat owns [deployment and release](features/deployment-and-release.md): first goal is hosted web + API and a release APK for shop testing |
+| Deployment | Not deployed. Phase 1 done and verified locally: portable Docker VM stack, production config guard, gated CI/CD, Pages config, Android release signing ([deployment and release](features/deployment-and-release.md)). Phase 2 (accounts, server, data copy, first release) waits on the owner |
 
 ## Open cross-feature items
 
@@ -58,15 +59,18 @@ As of 2026-11-14. The [feature index](features/README.md) is authoritative per f
 - **Notifications**: provider/transport, permission prompts, token registration and real delivery
   are not implemented.
 - **iOS**: build, Keychain and device behaviour unverified (needs macOS/Xcode).
-- **Release readiness**: hosting, HTTPS, domain, tenant apex, secrets, release signing and CI
-  deploy gating — owned by the [deployment and release](features/deployment-and-release.md) chat.
-  Hosted data and cost need explicit user approval.
-- Customer Searching leftovers: background run timings on Wi-Fi/release builds, API response
-  compression decision (see its [handoff](mobile/customer-searching-handoff.md)).
+- **Release readiness**: Phase 2 of [deployment and release](features/deployment-and-release.md)
+  (Cloudflare/Oracle/GitHub setup, data copy with the owner's account list, first release, APK on
+  the phone) needs the owner and explicit approval at each step.
+- Customer Searching leftovers: background run timings on Wi-Fi/release builds (compression is
+  now handled by the hosted proxy; see its [handoff](mobile/customer-searching-handoff.md)).
+- `movePayment` passes stale arguments to `distributeOverpayment`, so moved excess is not
+  redistributed ([installments](features/installment.md)) — needs an owner decision.
 - `auth/switch-shop` still checks role names although shop scoping uses the `shop.switch`
   permission ([authentication and access](features/authentication-and-access.md)).
 - Default employee roles do not get Customer Searching; mobile audience is not a permission grant.
-- Pre-existing noise: ~130 API TypeScript errors and the web ESLint config failure.
+- Pre-existing noise: the web ESLint config failure. (`npx turbo typecheck` is clean since
+  2026-11-14 and is enforced by CI — keep it clean.)
 - Docs CI detects drift but branch protection is not configured.
 
 ## When to run the update skill
@@ -160,6 +164,7 @@ Dates are when the change landed in a commit (or the edit date for uncommitted w
 
 | Date | Decision |
 |---|---|
+| 2026-11-14 | Hosting decided (Cloudflare Pages + portable Docker VM, `retailerpai.com`, tenant apex default changed); CI typecheck made clean and deploys gated by `DEPLOY_ENABLED`; Android release signing outside the repo. |
 | 2026-11-14 | Deployment and release split into its own feature doc and chat; shop testing (hosted web/API + release APK) is its first goal. |
 | 2026-11-14 | This orchestrator document created; refreshed through the update skill's `orchestrator` mode. |
 | 2026-11-10 | Customer Searching Flutter first release implemented on the shared foundation (encrypted cache, sync log with tombstones). |

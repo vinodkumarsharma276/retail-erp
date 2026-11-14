@@ -9,10 +9,22 @@ build/
 # Turbo
 .turbo/
 
-# Environment variables
+# Environment variables (only *.example templates are committed)
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
+!.env.*.example
+*.env
+!*.env.example
+
+# Release signing, database dumps and backups never enter the repository
+*.jks
+*.keystore
+key.properties
+*.dump
+*.dump.age
+*.sql.gz
+backups/
 
 # IDE
 .idea/

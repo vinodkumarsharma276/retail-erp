@@ -1,5 +1,9 @@
 # RetailERP — Production Deployment Evaluation
 
+> **Superseded (2026-11-14).** Historical Azure evaluation, kept for reference. The approved plan
+> (Cloudflare Pages + a Docker VM, `retailerpai.com`) and the release/rollback steps are in
+> [deployment and release](features/deployment-and-release.md).
+
 > Audience: solo operator launching tenant **Vinod Electronics** on a custom domain (assumed `retailerp.com`), with the platform admin at `admin.retailerp.com` and future tenants at `<slug>.retailerp.com`.
 >
 > Stack baseline (already in repo): Node 22 Fastify API + React 19 SPA + PostgreSQL 16 + Prisma; multi-tenant resolved by subdomain (`X-Tenant-Slug` header or `*.retailerp.com`).

@@ -14,7 +14,7 @@ import { usePlatformAuthStore } from '../stores/platform-auth-store';
 import { usePlatformLogoutMutation } from '../hooks/usePlatform';
 
 /**
- * Layout shell for the platform-admin app (`admin.retailerp.com`).
+ * Layout shell for the platform-admin app (`admin.retailerpai.com`).
  * Deliberately separate from the tenant `DashboardLayout` so the two
  * UIs can't get confused — different color accent, different sidebar
  * items, distinct identity.

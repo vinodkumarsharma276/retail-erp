@@ -1,86 +1,62 @@
 # =============================================================================
-# RetailERP API — Multi-stage Docker build
-# Handles npm workspaces (monorepo) by copying the full workspace context
+# RetailERP API image (linux/amd64 and linux/arm64)
+#
+#   docker build -f apps/api/Dockerfile -t retailerp-api .      (from repo root)
+#
+# The image runs the esbuild bundle (apps/api/dist/index.js). It does NOT migrate
+# on start: releases run `npx prisma migrate deploy` in a one-off container
+# first (infra/vm/deploy.sh), so a failed migration never leaves a half-started API.
 # =============================================================================
 
-# ---------------------------------------------------------------------------
-# Stage 1: Build
-# ---------------------------------------------------------------------------
-FROM node:22-alpine AS builder
-
+FROM node:22-bookworm-slim AS base
+# Networks that block registry.npmjs.org can pass a mirror:
+#   --build-arg NPM_REGISTRY=https://<mirror>/npm/
+ARG NPM_REGISTRY=https://registry.npmjs.org/
+ENV npm_config_registry=${NPM_REGISTRY}
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends openssl ca-certificates tini \
+ && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
-
-# Copy root workspace files
-COPY package.json package-lock.json turbo.json tsconfig.base.json ./
-
-# Copy workspace package.json files (needed for npm ci to resolve workspaces)
-COPY apps/api/package.json apps/api/tsconfig.json ./apps/api/
-COPY packages/shared-types/package.json packages/shared-types/tsconfig.json ./packages/shared-types/
-COPY packages/shared-utils/package.json packages/shared-utils/tsconfig.json ./packages/shared-utils/
-
-# Install all dependencies (workspace-aware)
-RUN npm ci
-
-# Copy source code for shared packages (API depends on these)
-COPY packages/shared-types/src ./packages/shared-types/src
-COPY packages/shared-utils/src ./packages/shared-utils/src
-
-# Copy API source code and Prisma schema
-COPY apps/api/src ./apps/api/src
-COPY apps/api/prisma ./apps/api/prisma
-
-# Generate Prisma client
-RUN npm run db:generate --workspace=apps/api
-
-# Build shared packages first (API imports them)
-RUN npx turbo build --filter=@retailerp/shared-types --filter=@retailerp/shared-utils
-
-# Build the API
-RUN npm run build --workspace=apps/api
-
-# ---------------------------------------------------------------------------
-# Stage 2: Production
-# ---------------------------------------------------------------------------
-FROM node:22-alpine AS production
-
-WORKDIR /app
-
-# Install dumb-init for proper signal handling in containers
-RUN apk add --no-cache dumb-init
-
-# Create non-root user
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup
-
-# Copy root workspace files
 COPY package.json package-lock.json ./
-
-# Copy workspace package.json files
 COPY apps/api/package.json ./apps/api/
 COPY packages/shared-types/package.json ./packages/shared-types/
 COPY packages/shared-utils/package.json ./packages/shared-utils/
 
-# Install production dependencies only
-RUN npm ci --omit=dev --workspace=apps/api --workspace=packages/shared-types --workspace=packages/shared-utils
+# ---------------------------------------------------------------------------
+# Build: all API dependencies (incl. dev) to bundle the source
+# ---------------------------------------------------------------------------
+FROM base AS builder
+RUN npm ci --ignore-scripts --no-audit --no-fund \
+      --workspace=apps/api --workspace=packages/shared-types --workspace=packages/shared-utils
+COPY tsconfig.base.json ./
+COPY packages/shared-types ./packages/shared-types
+COPY packages/shared-utils ./packages/shared-utils
+COPY apps/api/tsconfig.json ./apps/api/
+COPY apps/api/scripts ./apps/api/scripts
+COPY apps/api/src ./apps/api/src
+RUN npm run build --workspace=apps/api
 
-# Copy built artifacts from builder
+# ---------------------------------------------------------------------------
+# Runtime: production dependencies, Prisma client + CLI, migrations, bundle
+# ---------------------------------------------------------------------------
+FROM base AS runtime
+ENV NODE_ENV=production
+RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund --workspace=apps/api \
+ && npm cache clean --force
+COPY apps/api/prisma/schema.prisma ./apps/api/prisma/schema.prisma
+COPY apps/api/prisma/migrations ./apps/api/prisma/migrations
+RUN npx prisma generate --schema=apps/api/prisma/schema.prisma
 COPY --from=builder /app/apps/api/dist ./apps/api/dist
-COPY --from=builder /app/apps/api/prisma ./apps/api/prisma
-COPY --from=builder /app/apps/api/node_modules/.prisma ./apps/api/node_modules/.prisma
-COPY --from=builder /app/packages/shared-types/src ./packages/shared-types/src
-COPY --from=builder /app/packages/shared-utils/src ./packages/shared-utils/src
 
-# The shared packages use "main": "./src/index.ts" — in production the API's
-# compiled JS still resolves them through node_modules via workspace symlinks.
-# Since they are TS-only packages with no build step, we keep their src/ as-is
-# and they are resolved at runtime by Node's module resolution.
+ARG GIT_SHA=unknown
+ENV GIT_SHA=${GIT_SHA}
+LABEL org.opencontainers.image.source="https://github.com/vinodkumarsharma276/retail-erp" \
+      org.opencontainers.image.revision="${GIT_SHA}"
 
-# Own the app directory
-RUN chown -R appuser:appgroup /app
-
-USER appuser
-
+WORKDIR /app/apps/api
+USER node
 EXPOSE 3001
-
-# Run Prisma migrations then start the server
-# Using dumb-init ensures Node.js receives SIGTERM properly
-CMD ["dumb-init", "sh", "-c", "cd apps/api && npx prisma migrate deploy && node dist/index.js"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:'+(process.env.API_PORT||3001)+'/api/ready').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["node", "--enable-source-maps", "dist/index.js"]

@@ -18,7 +18,7 @@ Source-reviewed and partly runtime-verified, last on 2026-11-14 (see Verificatio
 |---|---|---|
 | API | Implemented search (all fields, or one column exactly) / detail / create (several products per save) / edit / delete / import / export, mobile sync and safe device saves, form helpers (next number, areas, customer names, type → brand → model lookups) | [Routes](../../apps/api/src/modules/customer-search/customer-search.routes.ts); [sync](../../apps/api/src/modules/customer-search/customer-search.sync.ts) snapshot + change log with tombstones (2026-11-10); list order and helpers 2026-11-12/13. |
 | Web | Implemented register workflows | [Screens](../../apps/web/src/pages/customer-search/); server-backed pagination and sorting (newest purchase first), not a persistent offline register. |
-| Flutter | First release implemented, kept level with the web's register form and search (Android-verified, not release-ready) | [Feature code](../../apps/mobile-flutter/lib/features/customer_search/): encrypted cached search (all fields or one column exactly) + details, online create/edit with several products, background updates. Phones need the current build (older builds can't find `MN 1`-format numbers). iOS untested; no production signing; notifications deferred. |
+| Flutter | First release implemented, kept level with the web's register form and search (Android-verified, not release-ready) | [Feature code](../../apps/mobile-flutter/lib/features/customer_search/): encrypted cached search (all fields or one column exactly) + details, online create/edit with several products, background updates. Phones need the current build (older builds can't find `MN 1`-format numbers). iOS untested; release signing ready but no release build installed yet ([deployment](deployment-and-release.md)); notifications deferred. |
 
 ERP database/API is the source of truth. Google Sheets is the initial import, not an editable
 sync master. The new mobile direction is Flutter for all authorized roles, not an Expo extension.
@@ -752,9 +752,10 @@ permission downgrades and measured approximately 58,000-row cache/search perform
 - **Not verified on a device yet:** iOS build/Keychain/background; a release (non-debug)
   build's timings; the first download over Wi-Fi rather than USB. (The Android WorkManager
   update was observed running on the phone on 2026-11-10/11 — see Verification.)
-- **Recommended:** HTTP response compression on the API (e.g. `@fastify/compress`, a new server
-  dependency — needs approval). A first download is ~38 MB of JSON; Dart's HTTP client already
-  accepts gzip, so no app change would be needed.
+- **Compression:** decided at the hosting layer, not in the API — the hosted stack's Caddy proxy
+  compresses responses with zstd/gzip (verified in a local sandbox). A first download is ~38 MB of
+  JSON uncompressed; Dart's HTTP client already accepts gzip, so no app change was needed. Local
+  development (no proxy) stays uncompressed.
 - Change log has no pruning/retention policy yet (and so no "cursor too old" reset); long-running
   write transactions (a big import) pause deltas until they commit.
 - Mobile import/export/delete, a Needs review / series / type / shop / date filter on the phone

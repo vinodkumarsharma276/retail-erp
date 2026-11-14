@@ -1,4 +1,4 @@
-import { prisma } from '../../config/database.js';
+import { prisma, tenantStamped } from '../../config/database.js';
 import type { Prisma } from '@prisma/client';
 
 export const employeesService = {
@@ -94,7 +94,7 @@ export const employeesService = {
     }
 
     const employee = await prisma.employee.create({
-      data: {
+      data: tenantStamped<Prisma.EmployeeUncheckedCreateInput>({
         userId: data.userId,
         shopId,
         designation: data.designation ?? null,
@@ -103,7 +103,7 @@ export const employeesService = {
         aadhaarNumber: data.aadhaarNumber ?? null,
         address: data.address ?? null,
         emergencyContact: data.emergencyContact ?? null,
-      },
+      }),
       include: {
         user: {
           select: {

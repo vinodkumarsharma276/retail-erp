@@ -1,4 +1,4 @@
-import { prisma } from '../../config/database.js';
+import { prisma, tenantStamped } from '../../config/database.js';
 import type { Prisma } from '@prisma/client';
 import { accountSearchText } from '@retailerp/shared-utils';
 import { generateCustomerCode, lastCustomerCode } from '../../utils/id-generator.js';
@@ -151,7 +151,7 @@ export const customersService = {
     const customerCode = generateCustomerCode(await lastCustomerCode(prisma));
 
     const customer = await prisma.customer.create({
-      data: {
+      data: tenantStamped<Prisma.CustomerUncheckedCreateInput>({
         customerCode,
         name: data.name,
         phone: data.phone,
@@ -171,7 +171,7 @@ export const customersService = {
         dynamicAttributes: (data.dynamicAttributes ?? {}) as any,
         shopId,
         createdBy: userId,
-      },
+      }),
       include: {
         guarantor: {
           select: { id: true, name: true, phone: true, customerCode: true },

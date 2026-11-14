@@ -1,5 +1,6 @@
 import bcrypt from 'bcryptjs';
 import crypto from 'node:crypto';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../../config/database.js';
 import { invalidateTenantCache } from '../../middleware/tenant-resolver.js';
 import { invalidateFeatureCache } from '../../middleware/feature-gate.js';
@@ -483,7 +484,7 @@ export const plansService = {
         planId: plan.id,
         featureKey: k,
         enabled: false,
-        valueJson: null,
+        valueJson: Prisma.DbNull,
       })),
     });
 

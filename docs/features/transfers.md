@@ -170,6 +170,12 @@ and refreshing related lists after receipt.
 
 ## Decisions and review checkpoint
 
+2026-11-14 (type cleanup for CI, [deployment and release](deployment-and-release.md)): receipt
+looked up the `SHOP-{source}-{destination}` customer with `findUnique` on `customerCode`, which is
+unique only per tenant, so Prisma rejected the call; it now uses the tenant-filtered `findFirst`.
+The source sale's empty `paymentBreakdown` is written as SQL NULL (`Prisma.DbNull`), as ordinary
+sales do. Other edits were type-only.
+
 2026-11-10: retain/document source sale + destination purchase/clone behavior and flag its
 dual-write/scope differences, without changing application code. Flutter is approved for
 eventual full authorized web parity using the same API. No checkpoint inventory edits made.

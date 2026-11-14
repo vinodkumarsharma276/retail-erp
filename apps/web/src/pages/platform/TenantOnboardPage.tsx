@@ -83,6 +83,8 @@ const emptyForm: FormState = {
 };
 
 const slugRegex = /^[a-z][a-z0-9-]{1,62}$/;
+// Mirrors RESERVED_TENANT_SLUGS in apps/api/src/modules/platform/platform.validation.ts.
+const reservedSlugs = new Set(['admin', 'api', 'www', 'app', 'mail', 'static', 'status']);
 const gstRegex = /^[a-zA-Z0-9]{15}$/;
 const pincodeRegex = /^\d{6}$/;
 const panRegex = /^[A-Z]{5}\d{4}[A-Z]$/i;
@@ -315,7 +317,7 @@ function TenantStep({ form, update, errors }: StepProps) {
   return (
     <>
       <SectionTitle title="Tenant details" subtitle="Identity + subdomain." />
-      <Field label="Subdomain slug" error={errors.slug} required hint="Used as the subdomain (e.g. acme.retailerp.com). Lowercase letters, digits, hyphens.">
+      <Field label="Subdomain slug" error={errors.slug} required hint="Used as the subdomain (e.g. acme.retailerpai.com). Lowercase letters, digits, hyphens.">
         <input
           value={form.slug}
           onChange={(e) => update('slug', e.target.value.toLowerCase())}
@@ -626,6 +628,7 @@ function validateStep(step: Step, form: FormState): Record<string, string> {
   const e: Record<string, string> = {};
   if (step === 'tenant' || step === 'review') {
     if (!slugRegex.test(form.slug)) e.slug = 'Slug must be lowercase, alphanumeric + hyphens, start with a letter (2–63 chars)';
+    else if (reservedSlugs.has(form.slug)) e.slug = 'This slug is reserved for the platform';
     if (!form.name.trim()) e.name = 'Required';
     if (form.contactEmail && !/^.+@.+\..+$/.test(form.contactEmail)) e.contactEmail = 'Invalid email';
     if (form.gstNumber && !gstRegex.test(form.gstNumber)) e.gstNumber = 'GSTIN must be 15 alphanumeric characters';

@@ -1,7 +1,7 @@
 /**
  * Hostname helpers — decide whether the current browser session belongs
- * to the platform-admin app (`admin.retailerp.com`) or a tenant app
- * (`<slug>.retailerp.com`, `vn.localhost`, etc.).
+ * to the platform-admin app (`admin.retailerpai.com`) or a tenant app
+ * (`<slug>.retailerpai.com`, `vn.localhost`, etc.).
  *
  * The platform-admin app is mounted in the same Vite bundle as the
  * tenant app; `App.tsx` reads `isPlatformAdminHost()` once at module
@@ -17,7 +17,7 @@
  */
 
 const APEX_DOMAINS = (
-  (import.meta.env.VITE_TENANT_APEX_DOMAINS as string | undefined) ?? 'retailerp.com'
+  (import.meta.env.VITE_TENANT_APEX_DOMAINS as string | undefined) ?? 'retailerpai.com'
 )
   .split(',')
   .map((d) => d.trim().toLowerCase())

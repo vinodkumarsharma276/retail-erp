@@ -10,48 +10,45 @@
  * Run:
  *   cd apps/api ; npx tsx prisma/seed/backfill-transfer-purchases.ts
  */
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, type Shop } from '@prisma/client';
 import './_guard';
 
 const prisma = new PrismaClient();
 
-async function getOrCreateShopDistributor(fromShop: {
-  id: string;
-  code: string;
-  name: string;
-  gstNumber?: string | null;
-  phone?: string | null;
-  email?: string | null;
-  address?: string | null;
-  city?: string | null;
-  state?: string | null;
-  pincode?: string | null;
-}) {
+async function getOrCreateShopDistributor(
+  fromShop: Pick<
+    Shop,
+    'tenantId' | 'code' | 'name' | 'gstNumber' | 'phone' | 'email' | 'addressLine1' | 'addressLine2' | 'city' | 'state' | 'pincode'
+  >,
+) {
+  const { tenantId } = fromShop;
   // Match the heuristic in transfers.service.ts: identify by gstNumber
   // when available, otherwise by code-based unique companyName.
   const companyName = `${fromShop.name} (Inter-shop ${fromShop.code})`;
   if (fromShop.gstNumber) {
     const existing = await prisma.distributor.findFirst({
-      where: { gstNumber: fromShop.gstNumber },
+      where: { tenantId, gstNumber: fromShop.gstNumber },
     });
     if (existing) return existing;
   }
   const byName = await prisma.distributor.findFirst({
-    where: { companyName },
+    where: { tenantId, companyName },
   });
   if (byName) return byName;
 
   return prisma.distributor.create({
     data: {
+      tenantId,
       companyName,
       contactPerson: fromShop.name,
-      phone: fromShop.phone ?? '0000000000',
+      phone: fromShop.phone || '0000000000',
       email: fromShop.email ?? null,
-      gstNumber: fromShop.gstNumber ?? null,
-      address: fromShop.address ?? null,
-      city: fromShop.city ?? null,
-      state: fromShop.state ?? null,
-      pincode: fromShop.pincode ?? null,
+      gstNumber: fromShop.gstNumber || null,
+      addressLine1: fromShop.addressLine1,
+      addressLine2: fromShop.addressLine2 ?? null,
+      city: fromShop.city,
+      state: fromShop.state,
+      pincode: fromShop.pincode,
       paymentTerms: 'net_30',
       isActive: true,
     },
@@ -118,21 +115,11 @@ async function main() {
     const invoiceNumber = t.invoiceNumber ?? `TRF-${t.id.slice(0, 8)}`;
     const invoiceDate = t.receivedAt ?? t.transferDate ?? t.createdAt;
 
-    const distributor = await getOrCreateShopDistributor({
-      id: t.fromShop.id,
-      code: t.fromShop.code,
-      name: t.fromShop.name,
-      gstNumber: (t.fromShop as any).gstNumber ?? null,
-      phone: (t.fromShop as any).phone ?? null,
-      email: (t.fromShop as any).email ?? null,
-      address: (t.fromShop as any).address ?? null,
-      city: (t.fromShop as any).city ?? null,
-      state: (t.fromShop as any).state ?? null,
-      pincode: (t.fromShop as any).pincode ?? null,
-    });
+    const distributor = await getOrCreateShopDistributor(t.fromShop);
 
     const purchase = await prisma.purchase.create({
       data: {
+        tenantId: t.tenantId,
         shopId: t.toShopId,
         distributorId: distributor.id,
         invoiceNumber,

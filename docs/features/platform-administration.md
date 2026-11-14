@@ -224,6 +224,13 @@ their business mutation. Error recovery and audit atomicity require runtime veri
 
 ## Decisions and review checkpoint
 
+2026-11-14 ([deployment and release](deployment-and-release.md)): the hosted console is
+`admin.retailerpai.com` (same web build as tenants). Tenant creation now refuses slugs the
+deployment uses as host names (`admin`, `api`, `www`, `app`, `mail`, `static`, `status`) in both
+[platform.validation.ts](../../apps/api/src/modules/platform/platform.validation.ts) and the
+onboarding form. Creating a plan now writes "no value" feature rows with `Prisma.DbNull`; the
+previous plain `null` is rejected by Prisma for nullable JSON columns.
+
 2026-11-10: platform administration remains a separate identity/app and not a tenant rail
 feature. Flutter is the approved all-authorized-tenant-role target; platform-admin mobile
 scope is an open separate decision, not a reason to conflate identities. Expo is legacy

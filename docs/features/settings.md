@@ -236,6 +236,12 @@ are not supplied by these Settings tabs.
 
 ## Decisions and review checkpoint
 
+2026-11-14 (type cleanup for CI, [deployment and release](deployment-and-release.md)): user
+creation checked duplicate usernames with `findUnique` on `username`, which is unique only per
+tenant (Prisma rejected the call); it now uses the tenant-filtered `findFirst`. The user and its
+nested shop assignments get `tenantId` explicitly, because the scoped client stamps only top-level
+creates. Role/permission `createMany` edits were type-only.
+
 2026-11-10: Settings is the only tenant-rail capability documented here; supporting auth,
 notifications and platform administration remain separate documents. Flutter is the approved
 new all-authorized-role target; Expo remains legacy unchanged. Source review is not runtime

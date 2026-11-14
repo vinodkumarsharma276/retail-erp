@@ -1,4 +1,4 @@
-import { prisma } from '../../config/database.js';
+import { prisma, tenantStamped } from '../../config/database.js';
 import type { Prisma, ExpenseCategory } from '@prisma/client';
 
 export const expensesService = {
@@ -93,7 +93,7 @@ export const expensesService = {
     isGstClaimable?: boolean;
   }, userId: string) {
     const expense = await prisma.expense.create({
-      data: {
+      data: tenantStamped<Prisma.ExpenseUncheckedCreateInput>({
         shopId,
         expenseDate: new Date(data.expenseDate),
         category: data.category as ExpenseCategory,
@@ -105,7 +105,7 @@ export const expensesService = {
         invoiceUrl: data.invoiceUrl ?? null,
         isGstClaimable: data.isGstClaimable ?? false,
         createdBy: userId,
-      },
+      }),
       include: {
         creator: {
           select: { id: true, username: true, fullName: true },

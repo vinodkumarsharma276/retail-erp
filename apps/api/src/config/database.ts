@@ -80,5 +80,17 @@ if (process.env.NODE_ENV !== 'production') {
   globalForPrisma.prisma = prisma;
 }
 
+/**
+ * Types create data for a tenant-owned model without `tenantId`, which the
+ * scoped client stamps from the current tenant context. Returns its input
+ * unchanged. Only top-level `create`/`createMany`/`upsert` data is stamped —
+ * nested relation creates must set `tenantId` themselves.
+ */
+export function tenantStamped<T extends { tenantId: string }>(data: Omit<T, 'tenantId'>): T;
+export function tenantStamped<T extends { tenantId: string }>(data: Omit<T, 'tenantId'>[]): T[];
+export function tenantStamped(data: unknown) {
+  return data;
+}
+
 /** The raw client, with no tenant scoping. Only for platform-wide work. */
 export const unscopedPrisma = baseClient;

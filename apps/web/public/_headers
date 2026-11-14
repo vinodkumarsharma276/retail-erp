@@ -1,0 +1,21 @@
+# Cloudflare Pages response headers (vn.retailerpai.com, admin.retailerpai.com).
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(self), microphone=(), geolocation=()
+  Strict-Transport-Security: max-age=31536000
+
+# The shell and service worker must be revalidated so a release reaches users.
+/index.html
+  Cache-Control: no-cache
+/sw.js
+  Cache-Control: no-cache
+/registerSW.js
+  Cache-Control: no-cache
+/manifest.webmanifest
+  Cache-Control: no-cache
+
+# Hashed build output never changes.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable

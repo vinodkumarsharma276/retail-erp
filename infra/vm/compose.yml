@@ -1,0 +1,81 @@
+# RetailERP hosted stack: PostgreSQL + API + Caddy (HTTPS, compression).
+# Runs on any Linux VM with Docker (Oracle Always Free today, any paid VM later).
+#
+# Server layout (created by bootstrap.sh):
+#   /opt/retailerp/src        checkout of this repository at the deployed commit
+#   /opt/retailerp/.env       stack settings (stack.env.example)
+#   /opt/retailerp/api.env    API settings and secrets (apps/api/.env.production.example)
+#   /opt/retailerp/backup.env backup target (backup.env.example)
+# Run compose through ./stack.sh, which passes the right files.
+
+name: retailerp
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: retailerp
+      POSTGRES_DB: retailerp
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U retailerp -d retailerp']
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    # No published port: only the API container (and `docker compose exec` on the
+    # server) can reach the database.
+    networks: [internal]
+
+  api:
+    image: ${API_IMAGE:?Set API_IMAGE in .env}:${API_TAG:-main}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: ${RETAILERP_HOME:-/opt/retailerp}/api.env
+    environment:
+      NODE_ENV: production
+      API_PORT: '3001'
+      API_HOST: 0.0.0.0
+      # Caddy is the only proxy in front of the API.
+      TRUST_PROXY: '1'
+      DATABASE_URL: postgresql://retailerp:${POSTGRES_PASSWORD}@postgres:5432/retailerp?schema=public
+      TZ: Asia/Kolkata
+    networks: [internal, edge]
+    logging:
+      driver: json-file
+      options: { max-size: 20m, max-file: '5' }
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on: [api]
+    ports:
+      - '80:80'
+      - '443:443'
+      - '443:443/udp'
+    environment:
+      API_DOMAIN: ${API_DOMAIN:?Set API_DOMAIN in .env}
+      ACME_EMAIL: ${ACME_EMAIL:?Set ACME_EMAIL in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [edge]
+    logging:
+      driver: json-file
+      options: { max-size: 20m, max-file: '5' }
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:
+
+networks:
+  # No outbound internet; the API reaches the internet through `edge`.
+  internal:
+    internal: true
+  edge:

@@ -1,4 +1,4 @@
-import { prisma } from '../../config/database.js';
+import { prisma, tenantStamped } from '../../config/database.js';
 import type { Prisma } from '@prisma/client';
 
 export const formsService = {
@@ -78,11 +78,11 @@ export const formsService = {
     description?: string | null;
   }) {
     const definition = await prisma.formDefinition.create({
-      data: {
+      data: tenantStamped<Prisma.FormDefinitionUncheckedCreateInput>({
         formName: data.formName,
         shopId: data.shopId ?? null,
         description: data.description ?? null,
-      },
+      }),
     });
 
     return definition;
@@ -151,7 +151,7 @@ export const formsService = {
     const nextOrder = (maxOrder._max.displayOrder ?? -1) + 1;
 
     const field = await prisma.formField.create({
-      data: {
+      data: tenantStamped<Prisma.FormFieldUncheckedCreateInput>({
         formDefinitionId: definitionId,
         fieldName: data.fieldName,
         fieldLabel: data.fieldLabel,
@@ -166,7 +166,7 @@ export const formsService = {
         isVisible: data.isVisible ?? true,
         cssClass: data.cssClass ?? null,
         dependsOn: data.dependsOn ? data.dependsOn as Prisma.InputJsonValue : undefined,
-      },
+      }),
     });
 
     return field;

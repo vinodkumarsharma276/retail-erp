@@ -328,8 +328,16 @@ Confirmed source discrepancies needing coordinated decisions/fixes:
   explicit shortfall and compatibility exceptions.
 - Expo partial-payment promise omission is known; new Flutter planning must use current contracts,
   not copy legacy inputs. No Flutter delivery or runtime certification is claimed.
+- `movePayment` calls `distributeOverpayment` with the old positional arguments; at runtime it
+  does nothing, so excess moved onto a target EMI is **not** redistributed. Marked with
+  `@ts-expect-error` (2026-11-14 type cleanup) pending a decision on how moved excess should flow.
 
 ## Decisions and review checkpoint
+
+2026-11-14 (type cleanup for CI, [deployment and release](deployment-and-release.md)): the
+"undo reschedule" eligibility check counted interest applications by a `createdAt` column that
+`InstallmentInterestApplication` does not have (the query threw); it now uses `appliedAt`.
+Other edits in `installments.service.ts` were type-only (`tenantStamped(...)` returns its input).
 
 Checkpoint **2026-11-10**: source-reviewed API behavior is the contract described here.
 ADR-0001's later flat-penalty/shortfall/rebate amendments override its original monthly/no-spread

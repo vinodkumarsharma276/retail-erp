@@ -1,5 +1,5 @@
-import { prisma } from '../../config/database.js';
-import type { ProductCategory, CategoryAttribute } from '@prisma/client';
+import { prisma, tenantStamped } from '../../config/database.js';
+import type { Prisma, ProductCategory, CategoryAttribute } from '@prisma/client';
 
 interface CategoryTreeNode {
   id: string;
@@ -153,7 +153,7 @@ export const categoriesService = {
     await assertNoSiblingClash(data.parentId ?? null, { name: data.name, slug: data.slug });
 
     const category = await prisma.productCategory.create({
-      data: {
+      data: tenantStamped<Prisma.ProductCategoryUncheckedCreateInput>({
         name: data.name,
         slug: data.slug,
         parentId: data.parentId ?? null,
@@ -166,7 +166,7 @@ export const categoriesService = {
         // Billed unless the shop says otherwise, which is how goods arrive
         // for all but a few types.
         purchaseModes: data.purchaseModes ?? 'billed',
-      },
+      }),
     });
 
     return category;
@@ -291,7 +291,7 @@ export const categoriesService = {
     }
 
     const attribute = await prisma.categoryAttribute.create({
-      data: {
+      data: tenantStamped<Prisma.CategoryAttributeUncheckedCreateInput>({
         categoryId,
         attributeName: data.attributeName,
         attributeLabel: data.attributeLabel,
@@ -300,7 +300,7 @@ export const categoriesService = {
         validationRules: data.validationRules ? data.validationRules as any : undefined,
         options: data.options ? data.options as any : undefined,
         displayOrder: data.displayOrder ?? 0,
-      },
+      }),
     });
 
     return attribute;

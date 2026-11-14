@@ -1,0 +1,5 @@
+# Files executed on Linux servers must keep LF line endings on Windows checkouts.
+*.sh text eol=lf
+infra/vm/Caddyfile text eol=lf
+infra/vm/*.yml text eol=lf
+infra/vm/*.example text eol=lf

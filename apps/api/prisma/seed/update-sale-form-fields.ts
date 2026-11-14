@@ -71,6 +71,7 @@ async function main() {
   } else {
     await prisma.formField.create({
       data: {
+        tenantId: def.tenantId,
         formDefinitionId: def.id,
         fieldName: 'effectiveMonthlyRate',
         fieldLabel: 'Effective Monthly Rate (%)',

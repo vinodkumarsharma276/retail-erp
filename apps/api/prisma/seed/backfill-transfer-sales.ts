@@ -12,10 +12,11 @@ import { generateSaleNumber } from '../../src/utils/id-generator';
 const prisma = new PrismaClient();
 
 async function getOrCreateShopDistributor(tx: any, shop: any, createdBy?: string) {
-  const existing = await tx.distributor.findFirst({ where: { gstNumber: shop.gstNumber } });
+  const existing = await tx.distributor.findFirst({ where: { tenantId: shop.tenantId, gstNumber: shop.gstNumber } });
   if (existing) return existing;
   return tx.distributor.create({
     data: {
+      tenantId: shop.tenantId,
       companyName: shop.name,
       contactPerson: shop.name,
       phone: shop.phone,
@@ -46,10 +47,11 @@ async function getOrCreateShopCustomer(
   createdBy?: string,
 ) {
   const customerCode = `SHOP-${ownerShopCode}-${otherShop.code}`;
-  const existing = await tx.customer.findUnique({ where: { customerCode } });
+  const existing = await tx.customer.findFirst({ where: { tenantId: otherShop.tenantId, customerCode } });
   if (existing) return existing;
   return tx.customer.create({
     data: {
+      tenantId: otherShop.tenantId,
       customerCode,
       name: otherShop.name,
       phone: otherShop.phone,
@@ -125,6 +127,7 @@ async function main() {
 
       const sale = await tx.saleRecord.create({
         data: {
+          tenantId: t.tenantId,
           saleNumber,
           ledgerNumber,
           shopId: t.fromShopId,
@@ -157,6 +160,7 @@ async function main() {
       await tx.saleRecordSanitized.create({
         data: {
           id: sale.id,
+          tenantId: t.tenantId,
           saleNumber,
           ledgerNumber,
           shopId: t.fromShopId,

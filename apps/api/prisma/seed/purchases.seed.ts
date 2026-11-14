@@ -134,8 +134,8 @@ export async function seedPurchases(
   }
 
   // Pre-compute purchases + products (batched insert at end)
-  type PurchaseRow = Parameters<typeof prisma.purchase.createMany>[0]['data'] extends (infer U)[] ? U : never;
-  type ProductRow = Parameters<typeof prisma.product.createMany>[0]['data'] extends (infer U)[] ? U : never;
+  type PurchaseRow = NonNullable<Parameters<typeof prisma.purchase.createMany>[0]>['data'] extends (infer U)[] ? U : never;
+  type ProductRow = NonNullable<Parameters<typeof prisma.product.createMany>[0]>['data'] extends (infer U)[] ? U : never;
 
   const purchaseRows: any[] = [];
   const productRows: any[] = [];

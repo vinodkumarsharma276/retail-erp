@@ -1,4 +1,5 @@
-import { prisma } from '../../config/database.js';
+import { prisma, tenantStamped } from '../../config/database.js';
+import type { Prisma } from '@prisma/client';
 import { invalidatePermissionCache, loadPermissionsForRole } from '../../middleware/permissions.js';
 import { PERMISSION_GROUPS } from '@retailerp/shared-types';
 import bcrypt from 'bcryptjs';
@@ -62,12 +63,12 @@ export const rolesService = {
 
   async createRole(input: { code: string; name: string; description?: string }) {
     return prisma.role.create({
-      data: {
+      data: tenantStamped<Prisma.RoleUncheckedCreateInput>({
         code: input.code,
         name: input.name,
         description: input.description ?? null,
         isSystem: false,
-      },
+      }),
     });
   },
 
@@ -97,7 +98,7 @@ export const rolesService = {
     await prisma.$transaction([
       prisma.rolePermission.deleteMany({ where: { roleId } }),
       prisma.rolePermission.createMany({
-        data: perms.map((p) => ({ roleId, permissionId: p.id })),
+        data: tenantStamped<Prisma.RolePermissionCreateManyInput>(perms.map((p) => ({ roleId, permissionId: p.id }))),
         skipDuplicates: true,
       }),
     ]);
@@ -114,19 +115,21 @@ export const rolesService = {
 
     return prisma.$transaction(async (tx) => {
       const newRole = await tx.role.create({
-        data: {
+        data: tenantStamped<Prisma.RoleUncheckedCreateInput>({
           code: newCode,
           name: newName,
           description: `Cloned from ${source.name}`,
           isSystem: false,
-        },
+        }),
       });
       if (source.rolePermissions.length > 0) {
         await tx.rolePermission.createMany({
-          data: source.rolePermissions.map((rp) => ({
-            roleId: newRole.id,
-            permissionId: rp.permissionId,
-          })),
+          data: tenantStamped<Prisma.RolePermissionCreateManyInput>(
+            source.rolePermissions.map((rp) => ({
+              roleId: newRole.id,
+              permissionId: rp.permissionId,
+            })),
+          ),
         });
       }
       return newRole;
@@ -307,7 +310,10 @@ export const rolesService = {
     await prisma.$transaction([
       prisma.userPermission.deleteMany({ where: { userId } }),
       ...(rows.length
-        ? [prisma.userPermission.createMany({ data: rows, skipDuplicates: true })]
+        ? [prisma.userPermission.createMany({
+            data: tenantStamped<Prisma.UserPermissionCreateManyInput>(rows),
+            skipDuplicates: true,
+          })]
         : []),
     ]);
 

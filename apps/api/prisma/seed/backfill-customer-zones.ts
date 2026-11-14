@@ -29,6 +29,7 @@ async function ensureCustomerZoneFormField(prisma: PrismaClient) {
 
   await prisma.formField.create({
     data: {
+      tenantId: customerForm.tenantId,
       formDefinitionId: customerForm.id,
       fieldName: 'zone',
       fieldLabel: 'Zone',

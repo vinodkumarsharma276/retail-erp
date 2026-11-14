@@ -1,4 +1,4 @@
-import { prisma } from '../../config/database.js';
+import { prisma, tenantStamped } from '../../config/database.js';
 import type { Prisma, BankTxnType, ReconciliationStatus } from '@prisma/client';
 
 export const bankService = {
@@ -37,14 +37,14 @@ export const bankService = {
     openingBalance?: number;
   }) {
     const account = await prisma.bankAccount.create({
-      data: {
+      data: tenantStamped<Prisma.BankAccountUncheckedCreateInput>({
         shopId,
         bankName: data.bankName,
         accountNumber: data.accountNumber,
         ifscCode: data.ifscCode,
         accountType: data.accountType ?? 'current',
         openingBalance: data.openingBalance ?? 0,
-      },
+      }),
     });
 
     return account;
@@ -112,7 +112,7 @@ export const bankService = {
     balance?: number | null;
   }) {
     const transaction = await prisma.bankTransaction.create({
-      data: {
+      data: tenantStamped<Prisma.BankTransactionUncheckedCreateInput>({
         bankAccountId: accountId,
         transactionDate: new Date(data.transactionDate),
         valueDate: data.valueDate ? new Date(data.valueDate) : null,
@@ -122,7 +122,7 @@ export const bankService = {
         amount: data.amount,
         balance: data.balance ?? null,
         reconciliationStatus: 'unmatched',
-      },
+      }),
       include: {
         bankAccount: {
           select: { id: true, bankName: true, accountNumber: true },
@@ -168,7 +168,7 @@ export const bankService = {
       }
 
       await prisma.bankTransaction.create({
-        data: {
+        data: tenantStamped<Prisma.BankTransactionUncheckedCreateInput>({
           bankAccountId: accountId,
           transactionDate: new Date(txn.transactionDate),
           valueDate: txn.valueDate ? new Date(txn.valueDate) : null,
@@ -178,7 +178,7 @@ export const bankService = {
           amount: txn.amount,
           balance: txn.balance ?? null,
           reconciliationStatus: 'unmatched',
-        },
+        }),
       });
 
       imported++;

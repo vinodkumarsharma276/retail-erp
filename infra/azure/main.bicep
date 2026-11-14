@@ -126,7 +126,7 @@ resource appService 'Microsoft.Web/sites@2023-12-01' = {
         //   az webapp config appsettings set --name <app> --resource-group <rg> \
         //     --settings JWT_SECRET=@Microsoft.KeyVault(VaultName=<kv>;SecretName=jwt-secret)
       ]
-      healthCheckPath: '/health'
+      healthCheckPath: '/api/ready'
     }
     httpsOnly: true
   }

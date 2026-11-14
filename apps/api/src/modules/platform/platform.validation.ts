@@ -3,6 +3,9 @@ import { z } from 'zod';
 /** Tenant slugs: 2-63 chars, lower-case alphanumeric + hyphens, must start with a letter. */
 const slugRegex = /^[a-z][a-z0-9-]{1,62}$/;
 
+/** Host names used by the deployment itself (`api.retailerpai.com`, `admin.…`) can't be tenants. */
+export const RESERVED_TENANT_SLUGS = new Set(['admin', 'api', 'www', 'app', 'mail', 'static', 'status']);
+
 // ─── Platform admin auth ────────────────────────────────────────────────────
 export const platformLoginSchema = z.object({
   username: z.string().min(1).max(100),
@@ -17,7 +20,8 @@ export const platformRefreshSchema = z.object({
 export const createTenantSchema = z.object({
   slug: z
     .string()
-    .regex(slugRegex, 'Slug must be lowercase alphanumeric with hyphens, starting with a letter'),
+    .regex(slugRegex, 'Slug must be lowercase alphanumeric with hyphens, starting with a letter')
+    .refine((slug) => !RESERVED_TENANT_SLUGS.has(slug), 'This slug is reserved for the platform'),
   name: z.string().min(1).max(200),
   contactEmail: z.string().email().nullable().optional(),
   contactPhone: z.string().max(15).nullable().optional(),

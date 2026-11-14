@@ -1,6 +1,7 @@
 /**
  * Standalone idempotent script: ensures RBAC tables (permissions + system
- * roles) and the 2 Owner users exist, without touching any other data.
+ * roles) and the 2 Owner users exist in the bootstrap tenant, without touching
+ * any other data.
  *
  * Run:  npm run db:seed:rbac --workspace=apps/api
  */
@@ -10,6 +11,7 @@ import { seedRolesAndPermissions } from './roles-permissions.seed';
 
 const prisma = new PrismaClient();
 const DEFAULT_PASSWORD = 'RetailERP@2026';
+const TENANT_SLUG = 'vn';
 
 const OWNERS = [
   { username: 'vinod_owner', fullName: 'Vinod Sharma (Owner)', phone: '9876500001' },
@@ -17,21 +19,24 @@ const OWNERS = [
 ];
 
 async function main() {
+  const { id: tenantId } = await prisma.tenant.findUniqueOrThrow({ where: { slug: TENANT_SLUG } });
+
   console.log('Seeding RBAC catalog + system roles...');
-  const summary = await seedRolesAndPermissions(prisma);
+  const summary = await seedRolesAndPermissions(prisma, tenantId);
   console.log(`  Permissions: ${summary.permissions}, Roles: ${summary.roles}`);
 
-  const ownerRole = await prisma.role.findUnique({ where: { code: 'owner' } });
+  const ownerRole = await prisma.role.findUnique({ where: { tenantId_code: { tenantId, code: 'owner' } } });
   if (!ownerRole) throw new Error('Owner role missing after seed');
 
   const passwordHash = await bcrypt.hash(DEFAULT_PASSWORD, 10);
-  const shops = await prisma.shop.findMany({ select: { id: true } });
+  const shops = await prisma.shop.findMany({ where: { tenantId }, select: { id: true } });
 
   for (const o of OWNERS) {
     const user = await prisma.user.upsert({
-      where: { username: o.username },
+      where: { tenantId_username: { tenantId, username: o.username } },
       update: { roleId: ownerRole.id, role: 'owner', isActive: true },
       create: {
+        tenantId,
         username: o.username,
         passwordHash,
         fullName: o.fullName,
@@ -45,7 +50,7 @@ async function main() {
       await prisma.userShop.upsert({
         where: { userId_shopId: { userId: user.id, shopId: s.id } },
         update: {},
-        create: { userId: user.id, shopId: s.id, isPrimary: s.id === shops[0]?.id },
+        create: { tenantId, userId: user.id, shopId: s.id, isPrimary: s.id === shops[0]?.id },
       });
     }
   }
@@ -59,14 +64,14 @@ async function main() {
   // Each user gets the system role whose `code` matches their `role` enum.
   console.log('\nBackfilling roleId for legacy users...');
   const systemRoles = await prisma.role.findMany({
-    where: { code: { in: ['owner', 'admin', 'accountant', 'others', 'employee'] } },
+    where: { tenantId, code: { in: ['owner', 'admin', 'accountant', 'others', 'employee'] } },
     select: { id: true, code: true },
   });
   const codeToId = new Map(systemRoles.map((r) => [r.code, r.id]));
   let backfilled = 0;
   for (const [code, roleId] of codeToId) {
     const result = await prisma.user.updateMany({
-      where: { role: code as any, roleId: null },
+      where: { tenantId, role: code as any, roleId: null },
       data: { roleId },
     });
     if (result.count > 0) {

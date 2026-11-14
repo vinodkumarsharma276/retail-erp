@@ -1,6 +1,6 @@
 /**
  * Tenant — the top-level multi-tenancy boundary. One row per onboarded
- * customer organisation. Maps to a subdomain (e.g. `vn.retailerp.com`)
+ * customer organisation. Maps to a subdomain (e.g. `vn.retailerpai.com`)
  * via `slug`. Every shop, user, sale, etc. belongs to exactly one tenant.
  */
 export interface Tenant {

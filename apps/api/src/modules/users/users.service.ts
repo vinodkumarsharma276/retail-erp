@@ -1,5 +1,7 @@
 import bcrypt from 'bcryptjs';
-import { prisma } from '../../config/database.js';
+import type { Prisma } from '@prisma/client';
+import { prisma, tenantStamped } from '../../config/database.js';
+import { tenantContext } from '../../config/tenant-context.js';
 
 const SALT_ROUNDS = 10;
 
@@ -102,8 +104,8 @@ export const usersService = {
     isMobileOnly?: boolean;
     shopIds: string[];
   }) {
-    // Check for duplicate username
-    const existing = await prisma.user.findUnique({
+    // Check for duplicate username (unique per tenant; the scoped client adds the tenant)
+    const existing = await prisma.user.findFirst({
       where: { username: data.username },
     });
     if (existing) {
@@ -112,8 +114,15 @@ export const usersService = {
 
     const passwordHash = await bcrypt.hash(data.password, SALT_ROUNDS);
 
+    // Nested creates aren't stamped by the scoped client, so set the tenant explicitly.
+    const tenantId = tenantContext.currentTenantId();
+    if (!tenantId) {
+      throw new Error('No tenant in context');
+    }
+
     const user = await prisma.user.create({
       data: {
+        tenantId,
         username: data.username,
         passwordHash,
         fullName: data.fullName,
@@ -123,6 +132,7 @@ export const usersService = {
         isMobileOnly: data.isMobileOnly ?? false,
         userShops: {
           create: data.shopIds.map((shopId, index) => ({
+            tenantId,
             shopId,
             isPrimary: index === 0, // First shop is primary
           })),
@@ -235,11 +245,13 @@ export const usersService = {
 
     // Create new shop assignments
     await prisma.userShop.createMany({
-      data: shopIds.map((shopId, index) => ({
-        userId,
-        shopId,
-        isPrimary: index === 0,
-      })),
+      data: tenantStamped<Prisma.UserShopCreateManyInput>(
+        shopIds.map((shopId, index) => ({
+          userId,
+          shopId,
+          isPrimary: index === 0,
+        })),
+      ),
     });
 
     // Return updated user with shops

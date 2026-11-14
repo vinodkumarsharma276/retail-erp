@@ -1,4 +1,4 @@
-import { prisma } from '../../config/database.js';
+import { prisma, tenantStamped } from '../../config/database.js';
 import type { Prisma } from '@prisma/client';
 import { catalogService } from '../catalog/catalog.service.js';
 
@@ -428,7 +428,7 @@ export const productsService = {
     }
 
     const product = await prisma.product.create({
-      data: {
+      data: tenantStamped<Prisma.ProductUncheckedCreateInput>({
         shopId,
         categoryId: data.categoryId,
         brand: data.brand,
@@ -447,7 +447,7 @@ export const productsService = {
         barcode: data.barcode ?? null,
         notes: data.notes ?? null,
         createdBy: userId,
-      },
+      }),
       include: {
         category: {
           select: { id: true, name: true, slug: true, path: true },
@@ -601,7 +601,7 @@ export const productsService = {
     performedBy?: string | null;
   }) {
     const entry = await prisma.productAuditTrail.create({
-      data: {
+      data: tenantStamped<Prisma.ProductAuditTrailUncheckedCreateInput>({
         productId,
         eventType,
         fromShopId: data.fromShopId ?? null,
@@ -610,7 +610,7 @@ export const productsService = {
         referenceType: data.referenceType ?? null,
         notes: data.notes ?? null,
         performedBy: data.performedBy ?? null,
-      },
+      }),
     });
 
     return entry;

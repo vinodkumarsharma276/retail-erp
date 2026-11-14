@@ -33,7 +33,7 @@ function rand(seed: number): number {
   return x - Math.floor(x);
 }
 
-function pick<T>(arr: T[], seed: number): T {
+function pick<T>(arr: readonly T[], seed: number): T {
   return arr[Math.floor(rand(seed) * arr.length) % arr.length];
 }
 

@@ -32,6 +32,8 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+        // The main bundle is ~2.2 MB; the default 2 MiB limit fails the production build.
+        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
@@ -75,11 +77,5 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 4173,
   },
-  // VITE_API_URL is the base URL for the RetailERP API.
-  // In dev it defaults to http://localhost:3001, in production set it
-  // to the Azure App Service URL (e.g., https://api-retailerp-prod.azurewebsites.net).
-  // Access in code: import.meta.env.VITE_API_URL
-  define: {
-    __API_URL__: JSON.stringify(process.env.VITE_API_URL || 'http://localhost:3001'),
-  },
+  // API base URL: VITE_API_URL (see .env.production.example), read in src/lib/api-client.ts.
 })

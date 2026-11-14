@@ -1,0 +1,32 @@
+{
+	email {$ACME_EMAIL}
+}
+
+# api.retailerpai.com — DNS-only (grey cloud) record pointing at this server.
+# Caddy gets and renews the Let's Encrypt certificate itself. The API is not behind
+# Cloudflare's proxy so long imports are not cut off by its 100-second limit.
+{$API_DOMAIN} {
+	encode zstd gzip
+
+	request_body {
+		max_size 60MB
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		-Server
+	}
+
+	# Docker's health check and deploy.sh gate releases; while the API container
+	# is being replaced, keep retrying instead of answering 502.
+	reverse_proxy api:3001 {
+		lb_try_duration 20s
+		lb_try_interval 500ms
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

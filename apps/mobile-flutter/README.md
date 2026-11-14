@@ -28,7 +28,7 @@ domain, change existing tenant apexes or provision any hosting. Legacy Expo rema
   Android background updates via WorkManager.
 
 Other business screens, offline writes, push delivery and password changes are **not
-implemented**. This client is not release-ready (no production signing; iOS untested).
+implemented**. Release signing is set up (below); iOS is untested.
 
 ## Run on a LAN-connected Android device
 
@@ -62,7 +62,24 @@ Project files, RetailERP display name, bundle ID, local-network usage descriptio
 storage Keychain entitlements are included. Building, signing and testing require macOS/Xcode.
 On a Mac use `flutter run` with the same API define, preferably HTTPS. Validate local-network
 permission and App Transport Security behavior on the target iOS version before using LAN HTTP.
-App Store signing/provisioning and Android production signing are not configured.
+App Store signing/provisioning is not configured.
+
+## Release APK (shops)
+
+Release builds are signed with the release key kept **outside the repository**
+(`%USERPROFILE%\.retailerp\android\key.properties` + `upload-keystore.jks`, or the file named by
+`RETAILERP_ANDROID_KEY_PROPERTIES`). Without it a release build fails; debug builds don't need it.
+
+```powershell
+Set-Location apps\mobile-flutter
+.\tool\create-release-keystore.ps1          # once; back up both files it creates
+.\tool\build-release-apk.ps1 -BuildNumber 2 # each release: a higher number every time
+```
+
+The build script uses `https://api.retailerpai.com`, obfuscates Dart code (symbols kept beside
+the APK in `%USERPROFILE%\.retailerp\android\releases`), refuses debug-signed output and prints the
+APK SHA-256. Phones with a debug build must uninstall it before the first release build. Full
+release and rollback steps: [deployment and release](../../docs/features/deployment-and-release.md).
 
 ## Validate
 
