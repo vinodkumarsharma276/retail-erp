@@ -54,6 +54,7 @@ These are not tenant left-rail items, but feature work depends on them.
 | In-app messages and device notifications | [Notifications](notifications.md) |
 | Separate SaaS operator console | [Platform administration](platform-administration.md) |
 | Flutter architecture and staged parity | [Mobile foundation](mobile-foundation.md) |
+| Hosting, CI/CD, secrets, APK signing and shop-test releases | [Deployment and release](deployment-and-release.md) |
 
 Shared Flutter shell/login/session infrastructure now exists in
 [apps/mobile-flutter](../../apps/mobile-flutter/README.md). "Flutter planned" above refers to each

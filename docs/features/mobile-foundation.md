@@ -180,6 +180,9 @@ USB install, so `flutter run`/`flutter test -d` waits until it is accepted on th
 system Back gesture did not leave a module placeholder during adb testing (the app-bar back
 arrow did) — not investigated. `workmanager_android` applies the Kotlin Gradle Plugin, which
 Flutter warns will stop building in a future version.
+2026-11-14: USB/adb to the OPPO CPH2521 kept dropping mid-install; installing the debug APK from the
+phone's browser (served temporarily over the LAN from the dev PC) worked; it installs as an update,
+so app data stays (the owner then searched the existing copy).
 Feature slices must prove restricted-field exclusion, sync interruption recovery,
 update/deletion propagation, offline read behavior and online-write failures, and measure
 performance on synthetic data against agreed targets on a real device — serialized size alone
@@ -191,8 +194,11 @@ Other business screens, offline writes and Flutter push delivery remain unimplem
 Android is the first validation target with iOS project files included; both use the same Dart
 client. The cache uses SQLCipher-encrypted SQLite (owner decision); cadence and performance
 targets are recorded in [Customer Searching](customer-searching.md#mobile-behavior-and-differences);
-notification provisioning is deferred. Background WorkManager execution has not been observed
-on a device yet. All-shops aggregate selection, password changes and production signing are not
+notification provisioning is deferred. Background WorkManager updates were observed running on the
+OPPO phone (2026-11-10/11, see [Customer Searching → Verification](customer-searching.md#verification-and-acceptance));
+release-build timings are not measured. There is no in-app update prompt: a phone on an old build keeps
+old client rules (2026-11-14: a 2026-11-11 build could not find `MN 1`-format account numbers until the
+current build was installed). All-shops aggregate selection, password changes and production signing are not
 implemented in the foundation. Preserve Expo and its npm commands.
 
 ## Decisions and review checkpoint

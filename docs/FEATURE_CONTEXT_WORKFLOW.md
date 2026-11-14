@@ -9,7 +9,7 @@
 | [Feature documents](features/README.md) | Read relevant docs before coding; reconcile against code afterward | A meaningful implementation, bug fix, decision, or handoff |
 | [ADRs](adr/) | Preserve rationale and explicitly supersede decisions | Cross-feature or architectural decision |
 | [Review checkpoints](features/checkpoints.json) | Record hashes of reviewed sources, not guesses about progress | After source review and documentation validation |
-| Coordinator chat | Resolve shared priorities and dependencies; produce bounded feature handoffs | Starting/finishing a slice or discovering a cross-feature decision |
+| Coordinator chat | Resolve shared priorities and dependencies; produce bounded feature handoffs; maintain [APP_CHAT_ORCHESTRATOR.md](APP_CHAT_ORCHESTRATOR.md) (decisions, state, chat prompts) | Starting/finishing a slice or discovering a cross-feature decision |
 | Feature chat | Implement, test, refresh context and report remaining work | Each meaningful slice; always before handoff |
 | Agent memory | Remember short durable conventions only | A verified reusable convention changes, not task progress |
 

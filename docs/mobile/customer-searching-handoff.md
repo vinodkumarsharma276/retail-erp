@@ -7,7 +7,11 @@ sync API and the Flutter first release (encrypted cached search/details, online 
 background updates) are implemented, tested and measured on an Android phone with synthetic
 data. The checklist below shows what is still open. Later the same day (owner decisions): the
 phone shows only Customer Searching and Installments ("coming soon") to everyone but the owner,
-the list has a counts line and two-line rows, and a new search starts at the top.
+the list has a counts line and two-line rows, and a new search starts at the top. **Since then
+(2026-11-12/13)** the phone has followed every web change to the register — "Search in" exact
+column search, several products per save, type-or-pick fields, second mobiles, more addresses,
+newest-first order; see [Customer Searching](../features/customer-searching.md) for the current
+behaviour. Phones must run the current build: older ones can't find `MN 1`-format numbers.
 
 Agents must load [AGENTS.md](../../AGENTS.md), the [feature index](../features/README.md),
 [Customer Searching](../features/customer-searching.md),
@@ -59,7 +63,8 @@ input and show an actionable error if a save fails.
 - Preserve type hierarchy/leaf rules, date-only `yyyy-mm-dd`, nullable imported fields and
   review issues. Do not silently repair imported data or turn absent restricted fields into
   real empty values.
-- Current search is case-insensitive substring matching, not fuzzy/AI name search. Name
+- Search: "All fields" (default) is case-insensitive substring matching; "Search in" one
+  column finds its exact value (2026-11-13). Neither is fuzzy/AI name search. Name
   similarity helpers serve import/form identity suggestions, not the register query.
 - No `sales.view_real` prerequisite for the register. A linked sale is optional and still
   requires its own access. Do not cache finance/installment data as part of this first slice.
@@ -142,8 +147,8 @@ Evidence: [Customer Searching → Verification](../features/customer-searching.m
 - [ ] Notifications are actually delivered/tested, or clearly marked blocked/not delivered.
       (Deferred by the owner; not delivered.)
 - [x] Web contract regression tests, Flutter tests/static analysis and device smoke checks pass.
-- [ ] Android background WorkManager update observed running on a device; release-build and
-      Wi-Fi timings; API response compression decision.
+- [ ] Android background WorkManager update observed running on a device (done 2026-11-10/11);
+      release-build and Wi-Fi timings; API response compression decision (still open).
 - [x] Feature docs, index, source mappings and reviewed checkpoints reflect delivered behavior.
 
 ## Copyable next-chat request

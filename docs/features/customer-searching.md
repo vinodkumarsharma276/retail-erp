@@ -12,13 +12,13 @@ the sheet. The sheet is imported once (in ranges) and then made view-only.
 
 ## Implementation status
 
-Source-reviewed and partly runtime-verified 2026-11-10 (see Verification); not release-certified.
+Source-reviewed and partly runtime-verified, last on 2026-11-14 (see Verification); not release-certified.
 
 | Surface | Status | Evidence / limits |
 |---|---|---|
-| API | Implemented search/detail/create/edit/delete/import/export, plus mobile sync and safe device saves | [Routes](../../apps/api/src/modules/customer-search/customer-search.routes.ts); [sync](../../apps/api/src/modules/customer-search/customer-search.sync.ts) snapshot + change log with tombstones (2026-11-10). |
-| Web | Implemented register workflows | [Screens](../../apps/web/src/pages/customer-search/); server-backed pagination, not a persistent offline register. Unchanged by the mobile work. |
-| Flutter | First release implemented (Android-verified, not release-ready) | [Feature code](../../apps/mobile-flutter/lib/features/customer_search/): encrypted cached search + details, online create/edit, background updates. iOS untested; no production signing; notifications deferred. |
+| API | Implemented search (all fields, or one column exactly) / detail / create (several products per save) / edit / delete / import / export, mobile sync and safe device saves, form helpers (next number, areas, customer names, type → brand → model lookups) | [Routes](../../apps/api/src/modules/customer-search/customer-search.routes.ts); [sync](../../apps/api/src/modules/customer-search/customer-search.sync.ts) snapshot + change log with tombstones (2026-11-10); list order and helpers 2026-11-12/13. |
+| Web | Implemented register workflows | [Screens](../../apps/web/src/pages/customer-search/); server-backed pagination and sorting (newest purchase first), not a persistent offline register. |
+| Flutter | First release implemented, kept level with the web's register form and search (Android-verified, not release-ready) | [Feature code](../../apps/mobile-flutter/lib/features/customer_search/): encrypted cached search (all fields or one column exactly) + details, online create/edit with several products, background updates. Phones need the current build (older builds can't find `MN 1`-format numbers). iOS untested; no production signing; notifications deferred. |
 
 ERP database/API is the source of truth. Google Sheets is the initial import, not an editable
 sync master. The new mobile direction is Flutter for all authorized roles, not an Expo extension.
@@ -286,7 +286,7 @@ sheet's order). Date-only values serialize as `yyyy-mm-dd` or null.
 
 | Method | Path | Permission | Description |
 |--------|------|------------|-------------|
-| GET | / | list | Search (account number, name, mobile, co-applicant, area, product type) + filters incl. `categoryId` (subtree, or `none`) and `issue` (`any` or a code); tenant-wide |
+| GET | / | list | Search `q` (all fields, or with `field` one column exactly — see Search above) + filters incl. `categoryId` (subtree, or `none`) and `issue` (`any` or a code); `sort` / `dir` (default newest purchase first); tenant-wide |
 | GET | /review-summary | list | Entries needing review, in all and per problem |
 | GET | /sync?token=&limit= | list | Mobile on-device copy: snapshot pages, then changes and deletions (see below) |
 | GET | /prefixes | list | Series in use |
@@ -440,7 +440,10 @@ Code: [lib/features/customer_search](../../apps/mobile-flutter/lib/features/cust
   storage per tenant + user. Tables `entries`, `staging_entries`, `shops`, `categories`, `meta`,
   plus an FTS5 **trigram** index `entry_text` (`detail = 'column'`) kept in step by triggers.
   An unreadable file (lost key, SQLite "not a database") is recreated; any other open error
-  (e.g. busy) is reported and never deletes the copy. Schema changes drop and re-download the copy.
+  (e.g. busy) is reported and never deletes the copy. Local schema version 6: a version 4 or 5
+  copy gains the new columns (second mobiles; more and co-applicant addresses) in place and
+  downloads a fresh copy in the background while the old one stays on screen; any older layout
+  is dropped and downloaded again.
   The app and the background updater each open **their own connection**
   (`singleInstance: false`): the Android plugin keeps connections process-wide and WorkManager
   runs in the app's process, so a shared connection closed by the background run used to break
@@ -456,8 +459,8 @@ Code: [lib/features/customer_search](../../apps/mobile-flutter/lib/features/cust
   still shown, then renames it into place and gives back the space. 410 `projection` drops the
   copy at once, then downloads again; other 410s re-download behind the current copy.
 - **Search** mirrors the web's `whereFor`: case-insensitive substring per field (name,
-  co-applicant, area, product, brand, model, customer code), account number with spaces
-  removed, mobile digits from 3 digits up, product-type name; order purchase date newest first
+  co-applicant, area, product, brand, model, customer code), account number as typed any way
+  (`accountSearchText`: `mn1` / `mn-1` → `MN 1`), mobile digits from 3 digits up (either number), product-type name; order purchase date newest first
   (undated last) then account number; 2-character minimum. A **"Search in"** dropdown beside
   the box offers the web's list — **All fields** (default, the web's anywhere rule), Account
   number, Customer name, Mobile, Co-applicant, Area, Product type, Brand, Model, Customer code —
@@ -478,9 +481,9 @@ Code: [lib/features/customer_search](../../apps/mobile-flutter/lib/features/cust
   lines (owner decision 2026-11-10, simpler rows; compact type — name 14sp, account number and
   second line 12sp, then scaled by the phone's own font-size setting): customer name (bold) with the account number
   on the right; then product type (last level, else the product text) · purchase date
-  (`28 Dec 2025`) · mobile (`98765 43210`, only when visible to the user); a small red dot
+  (`28 Dec 2025`) · mobile (`98765 43210`, `+1` when there is a second number; only when visible to the user); a small red dot
   (tooltip lists the problems) when the entry needs review. Shop, area, co-applicant, brand
-  and model are on the details screen. Details come from the
+  and model are on the details screen, as are second mobiles and every address. Details come from the
   copy; "entered by",
   import file/rows and a permitted matching sale load online. New entry / Edit need a
   connection (Save at the top as well as the bottom, 2026-11-13): Quantity for the form's product
@@ -706,6 +709,19 @@ kept, cursor cleared so a fresh copy downloads in the background — rows synced
 the new fields). Browser: CK2 642 shows +91 70530 8… / "+1 more", menu lists both numbers; the edit
 form offers Address 2 and 3 and a co-applicant address (not saved).
 
+2026-11-13 (Search in, phone parity): API integration CS31 (each column's exact match, All fields
+unchanged, unknown `field` = All); full API suite 357 passed. Web `tsc` passed; browser: `mn 1` → 111
+entries with All fields, 1 (MN 1) with Account number. `flutter analyze` clean, `flutter test` 49
+passed: exact matches per column on the copy (`bd 1` no longer finds BD 12/13; `tv` includes LED TV)
+and a new-entry test saving Quantity 2 plus a Fridge item × 3 (one POST with `quantity` and
+`moreItems`, "5 entries will be saved").
+
+2026-11-14 (device): the OPPO CPH2521 still had a 2026-11-11 build and found no `MN 1` (it searched
+`MN1`); its total of 51,053 matched the database (about 10,000 rows imported on 2026-11-13). The
+current debug build (`--dart-define=API_BASE_URL=http://<LAN IP>:3001`) was installed from the
+phone's browser; the owner confirmed `MN 1` is found with "Search in" → Account number. Other new
+phone screens were not exercised on the device.
+
 Acceptance must cover shared-mobile relatives, duplicate 409/confirmation, no-mobile entries,
 invalid dates/mobile, category hierarchy, forbidden shop, cross-tenant IDs, restricted phones,
 review updates, missing entry, save failure, and preserving customers on deletion. Flutter
@@ -746,6 +762,14 @@ permission downgrades and measured approximately 58,000-row cache/search perform
   co-applicant on the phone form are later slices (the server still links the co-applicant by
   name + mobile).
 - Device notifications are deferred (needs an FCM/Firebase project).
+- **Phone builds must be current.** Builds from before 2026-11-12 search for `MN1` and can't find
+  numbers stored as `MN 1` (seen on the OPPO CPH2521 2026-11-14, fixed by installing the current
+  build); the second test phone (CPH2495) still has an old build. There is no in-app update prompt.
+- Phone purchase date uses the date picker (its pencil button allows typing); no paste as on the web.
+  The phone's exact Brand search does not map misspellings (the API does), and exact column search
+  on the copy is a scan, not indexed.
+- USB installs to the test phone keep dropping; serving the debug APK over the LAN and installing
+  from the phone's browser worked (2026-11-14).
 - Existing list pagination is for interactive web search, not a bulk sync protocol — use `/sync`.
 - Existing Area values are not rewritten: `khora` and `KHORA` stay as stored (the suggestion list
   merges them; search is case-insensitive). New/edited entries get capitals on the web form.
@@ -763,4 +787,10 @@ limit, per-phone 15/30/60-minute background refresh, stale banner at interval + 
 performance targets above, idempotent create and version-checked edit, unchanged employee
 defaults, notifications deferred. API and Flutter first release are implemented and measured
 against those targets (see Verification).
+2026-11-12/13 (owner): account numbers written `BD 12` (series 2–3 letters plus an optional register
+digit, e.g. `CK2`); several products per save; sub-type optional; type-or-pick Area, Customer name
+(fills the name only), Brand and Model (per type → brand catalog, misspelt makes merged); a second
+mobile and up to 3 addresses per person (co-applicant included); the register always newest
+purchase first; "Search in" a column finds its exact value, "All fields" stays the default;
+the phone gets every web change.
 Review file inventory and hashes are in [checkpoints.json](checkpoints.json).

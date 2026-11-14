@@ -1,7 +1,7 @@
 ---
 name: update-feature-docs
 description: 'Maintain RetailERP feature context from current code. Use when starting feature work, updating feature documents, refreshing documentation, checking context drift, finishing a web/API/Flutter change, or preparing a feature-chat handoff. Detect committed and uncommitted changes using reviewed content checkpoints.'
-argument-hint: 'Feature ID(s), e.g. customer-searching; or all for a complete source-reviewed refresh'
+argument-hint: 'Feature ID(s), e.g. customer-searching; all for a complete source-reviewed refresh; orchestrator for the coordinator notes'
 ---
 
 # Update feature documents
@@ -52,6 +52,20 @@ request. Do not create a parallel memory specification or claim chats automatica
    `npm run docs:checkpoint -- --all --reviewed`. Never checkpoint just to turn a check green.
 9. Run `npm run docs:check` again. Report unrelated stale/unmapped items explicitly if outside
    this task; do not reset their baselines or fix unrelated code. Do not commit unless asked.
+
+## Orchestrator mode
+
+With the argument `orchestrator` (coordinator chat), maintain
+[APP_CHAT_ORCHESTRATOR.md](../../../docs/APP_CHAT_ORCHESTRATOR.md) instead of a feature doc:
+
+1. Run `npm run docs:status` and read the [feature index](../../../docs/features/README.md),
+   recently changed feature docs/handoffs (`git log`/`git status` on `docs/`) and ADRs.
+2. Update **Current state**, **Open cross-feature items** and the **Decision log** (newest first,
+   one line each, cross-feature decisions only). Remove items that are resolved; link to the
+   owning feature doc instead of copying detail. Keep the prompts current with the workflow.
+3. Flag conflicting decisions between feature docs, and stale or unmapped features, in the
+   handoff. Do not change feature code or checkpoint other chats' features from this mode.
+4. Run `npm run docs:check` and report the result.
 
 ## Handoff
 
