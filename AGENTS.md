@@ -32,7 +32,7 @@ The approved new mobile target is Flutter (Dart), not an Expo extension.
 | `apps/mobile-flutter` | Flutter Android+iOS app: real tenant login, secure session storage/refresh, offline start, shop/access controls, theme, module shell, and **Customer Searching** (encrypted cached search/details, online create/edit, background updates). RetailERP display name, `com.retailerpai.mobile` ID. Other modules and push still pending |
 | `packages/shared-types` | Types/enums shared by all apps (`@retailerp/shared-types`). Holds the **access rulebook**: `features.ts`, `permissions.ts`, `access.ts` |
 | `packages/shared-utils` | EMI calculator, installment rules, GSTIN/phone/PAN/Aadhaar validators, INR/date formatters, Tally/purchase-sheet parsers (`@retailerp/shared-utils`) |
-| `infra/azure` | Bicep + deploy script. Deployment options/costs: [docs/DEPLOYMENT_PLAN.md](docs/DEPLOYMENT_PLAN.md) |
+| `infra/azure` | Bicep + deploy script (never run). Deployment options/costs: [docs/DEPLOYMENT_PLAN.md](docs/DEPLOYMENT_PLAN.md); current state and gaps: [docs/features/deployment-and-release.md](docs/features/deployment-and-release.md) |
 | `.github/workflows/ci.yml` | Typecheck + build on push/PR; deploys API (App Service) and web (Static Web Apps) on push to `main` |
 
 ## Build, run, test
@@ -226,6 +226,7 @@ those gaps are not approval to reproduce unsafe behavior in Flutter or expand ac
 | [docs/features/README.md](docs/features/README.md) | Feature inventory: all left-rail items and supporting capabilities, web/mobile direction and dependencies |
 | [docs/features/_template.md](docs/features/_template.md) | Standard feature shape; use it for every current feature doc |
 | [docs/FEATURE_CONTEXT_WORKFLOW.md](docs/FEATURE_CONTEXT_WORKFLOW.md) | Agent-driven maintenance, source-hash checkpoints and feature-chat handoffs |
+| [docs/APP_CHAT_ORCHESTRATOR.md](docs/APP_CHAT_ORCHESTRATOR.md) | Coordinator notes: chat organisation, cross-feature decisions/state, prompts to start/resume/hand off chats (`/update-feature-docs orchestrator`) |
 | [docs/mobile/customer-searching-handoff.md](docs/mobile/customer-searching-handoff.md) | First Flutter implementation slice and sync/cache acceptance requirements |
 | [docs/DEV_LOGINS.md](docs/DEV_LOGINS.md) | All local logins per tenant/role — current |
 | [docs/adr/0001-per-emi-overdue-installment-model.md](docs/adr/0001-per-emi-overdue-installment-model.md) | Installment model decision (implemented, amended) |
